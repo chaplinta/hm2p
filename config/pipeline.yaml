@@ -1,0 +1,30 @@
+# hm2p pipeline parameters
+# Override any value with HM2P_<KEY> environment variable.
+
+# ── Storage ────────────────────────────────────────────────────────────────
+data_root: data                  # local root; swap to s3://hm2p-rawdata for cloud
+metadata_dir: metadata
+
+# ── Compute profile ────────────────────────────────────────────────────────
+compute_profile: local           # local | local-gpu | aws-batch
+
+# ── Stage 0 — Ingest ───────────────────────────────────────────────────────
+raw_fps_camera: 100.0
+raw_fps_imaging: 29.97
+
+# ── Stage 3 — Kinematics ───────────────────────────────────────────────────
+pose_confidence_threshold: 0.9   # keypoints below this likelihood → NaN
+pose_gap_fill_frames: 5          # max consecutive NaN frames to interpolate
+speed_active_threshold_cm_s: 2.0 # cm/s above → active state
+
+# ── Stage 4 — Calcium ──────────────────────────────────────────────────────
+neuropil_method: fixed           # fixed | fissa
+neuropil_coefficient: 0.7        # F_corr = F - coeff * Fneu (fixed method only)
+dff_baseline_window_s: 60.0      # sliding minimum window for F0
+
+# CASCADE model — select based on indicator + imaging rate
+# GCaMP7f / GCaMP8f at ~30 Hz → closest available model:
+cascade_model: Global_EXC_7.5Hz_smoothing200ms
+
+# ── Stage 5 — Sync ─────────────────────────────────────────────────────────
+sync_interp_method: linear       # linear | nearest

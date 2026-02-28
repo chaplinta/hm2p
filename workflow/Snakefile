@@ -1,0 +1,87 @@
+"""hm2p Snakemake pipeline — Stages 0–5.
+
+Usage:
+    # Local CPU run
+    snakemake --profile workflow/profiles/local --cores 8
+
+    # Local GPU run (Stage 1 + 2)
+    snakemake --profile workflow/profiles/local-gpu --cores 4
+
+    # AWS Batch
+    snakemake --profile workflow/profiles/aws-batch
+
+Configuration:
+    config/pipeline.yaml    — per-stage parameters
+    config/compute.yaml     — active compute profile
+    metadata/experiments.csv — session registry
+"""
+
+import pandas as pd
+from pathlib import Path
+
+configfile: "config/pipeline.yaml"
+
+# ---------------------------------------------------------------------------
+# Session registry
+# ---------------------------------------------------------------------------
+
+EXPERIMENTS = pd.read_csv("metadata/experiments.csv", dtype=str)
+ANIMALS = pd.read_csv("metadata/animals.csv", dtype=str)
+SESSIONS = EXPERIMENTS["session_id"].tolist()
+
+# NeuroBlueprint sub/ses helpers
+def ses(sid):
+    d, hh, mm, ss, _ = sid.split("_", 4)
+    return f"ses-{d}T{hh}{mm}{ss}"
+
+def sub(sid):
+    return f"sub-{sid.rsplit('_', 1)[1]}"
+
+DATA_ROOT = config.get("data_root", "data")
+
+# ---------------------------------------------------------------------------
+# Target rule — request all final outputs
+# ---------------------------------------------------------------------------
+
+rule all:
+    input:
+        # Stage 0
+        expand(
+            f"{DATA_ROOT}/derivatives/movement/{{sub}}/{{ses}}/timestamps.h5",
+            zip,
+            sub=[sub(s) for s in SESSIONS],
+            ses=[ses(s) for s in SESSIONS],
+        ),
+        # Stage 3
+        expand(
+            f"{DATA_ROOT}/derivatives/movement/{{sub}}/{{ses}}/kinematics.h5",
+            zip,
+            sub=[sub(s) for s in SESSIONS],
+            ses=[ses(s) for s in SESSIONS],
+        ),
+        # Stage 4
+        expand(
+            f"{DATA_ROOT}/derivatives/calcium/{{sub}}/{{ses}}/ca.h5",
+            zip,
+            sub=[sub(s) for s in SESSIONS],
+            ses=[ses(s) for s in SESSIONS],
+        ),
+        # Stage 5
+        expand(
+            f"{DATA_ROOT}/derivatives/sync/{{sub}}/{{ses}}/sync.h5",
+            zip,
+            sub=[sub(s) for s in SESSIONS],
+            ses=[ses(s) for s in SESSIONS],
+        ),
+
+
+# ---------------------------------------------------------------------------
+# Include stage-specific rules
+# ---------------------------------------------------------------------------
+
+include: "rules/ingest.smk"
+include: "rules/extraction.smk"
+include: "rules/pose.smk"
+include: "rules/kinematics.smk"
+include: "rules/calcium.smk"
+include: "rules/sync.smk"

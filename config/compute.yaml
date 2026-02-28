@@ -1,0 +1,5 @@
+# Active compute profile selection
+# Change profile here to switch between local, local-gpu, and aws-batch.
+# This file is read by the CLI and Snakemake profile selector.
+
+profile: local   # local | local-gpu | aws-batch

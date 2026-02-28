@@ -1,0 +1,14 @@
+# Snakemake profile — local CPU execution
+# Usage: snakemake --profile workflow/profiles/local
+
+executor: local
+cores: 8
+keep-going: false
+printshellcmds: true
+show-failed-logs: true
+
+# Default resources for local CPU runs
+default-resources:
+  - mem_mb=4000
+  - runtime=60
+  - gpu=0

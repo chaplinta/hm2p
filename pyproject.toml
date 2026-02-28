@@ -1,0 +1,178 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hm2p"
+version = "0.1.0"
+description = "Cloud pipeline for hm2p two-photon calcium imaging in freely-moving mice (RSP, Penk+/CamKII+ populations)"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Tristan" }]
+
+# ---------------------------------------------------------------------------
+# Core runtime dependencies — grouped by pipeline stage
+# ---------------------------------------------------------------------------
+dependencies = [
+    # Configuration & session registry
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+
+    # Stage 0 — DAQ / ingest
+    "nptdms>=1.9",
+    "h5py>=3.11",
+
+    # Stage 3 — Kinematics
+    "movement>=0.5",
+    "shapely>=2.0",
+    "scipy>=1.13",
+    "numpy>=1.26",
+    "pandas>=2.2",
+    "xarray>=2024.6",
+
+    # Stage 4 — Calcium processing
+    # NOTE: cascade2p is NOT on PyPI; install separately — see [project.optional-dependencies]
+    "roiextractors>=0.5.10",
+
+    # Stage 5 — Sync
+    # (numpy + scipy + pandas already listed above)
+
+    # IO & validation
+    "pandera>=0.20",
+    "pynapple>=0.6",
+
+    # Utilities
+    "tqdm>=4.66",
+    "rich>=13.7",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+# ---------------------------------------------------------------------------
+# Optional — heavy GPU / extraction backends (install in appropriate env)
+# ---------------------------------------------------------------------------
+suite2p = [
+    "suite2p>=0.14",
+]
+caiman = [
+    "caiman>=1.11",
+]
+dlc = [
+    "deeplabcut[tf]>=3.0",
+]
+sleap = [
+    "sleap>=1.4",
+]
+fissa = [
+    "fissa>=1.0",
+]
+cascade = [
+    # NOT on PyPI — install from source:
+    #   pip install git+https://github.com/HelmchenLabSoftware/Cascade.git
+    # Or via conda (recommended — ships CUDA-compatible TF):
+    #   conda install -c conda-forge cascade2p
+    "cascade2p @ git+https://github.com/HelmchenLabSoftware/Cascade.git",
+]
+syllables = [
+    # zero-label behavioural segmentation (Stage 3b)
+    "keypoint-moseq>=0.6",
+    "vame-py>=0.12",
+]
+nwb = [
+    "neuroconv>=0.6",
+    "pynwb>=2.7",
+]
+analysis = [
+    "cebra>=0.6",
+    "nemos>=0.1",
+]
+
+# ---------------------------------------------------------------------------
+# Dev dependencies
+# ---------------------------------------------------------------------------
+dev = [
+    "pytest>=8.2",
+    "pytest-cov>=5.0",
+    "hypothesis>=6.108",
+    "ruff>=0.5",
+    "mypy>=1.11",
+    "pre-commit>=3.8",
+    "nbstripout>=0.7",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.25",
+]
+
+[project.scripts]
+hm2p = "hm2p.cli:app"
+
+# ---------------------------------------------------------------------------
+# Tool configuration
+# ---------------------------------------------------------------------------
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hm2p"]
+
+# --- ruff -------------------------------------------------------------------
+[tool.ruff]
+src = ["src"]
+line-length = 99
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "N",   # pep8-naming
+    "ANN", # flake8-annotations
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "ANN401",  # dynamically typed expressions (Any) — needed for HDF5 attr values
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN"]
+# F, F0, Fneu, Fneu are conventional Suite2p / neuroscience variable names —
+# suppressing pep8-naming for calcium source + tests.
+"src/hm2p/calcium/**" = ["N803"]
+"tests/calcium/**"    = ["N803", "N806"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# --- mypy -------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = ["movement.*", "roiextractors.*", "cascade2p.*", "nptdms.*", "pandera.*"]
+ignore_missing_imports = true
+
+# --- pytest -----------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Coverage threshold enforced in CI once stages are implemented.
+# During skeleton phase, run without --cov-fail-under.
+addopts = "--cov=hm2p --cov-report=term-missing"
+
+[tool.coverage.run]
+source = ["src/hm2p"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "\\.\\.\\.",
+]

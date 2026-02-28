@@ -1,0 +1,27 @@
+# Snakemake profile — AWS Batch execution
+# Usage: snakemake --profile workflow/profiles/aws-batch
+#
+# Prerequisites:
+#   - AWS credentials configured (see docs/aws-setup.md)
+#   - Batch job queues created: hm2p-cpu-queue, hm2p-gpu-queue
+#   - S3 buckets: s3://hm2p-rawdata, s3://hm2p-derivatives
+
+executor: aws-batch
+
+# AWS region
+# Note: set AWS_DEFAULT_REGION env var or configure via aws configure
+aws-batch-job-name-prefix: hm2p
+
+# CPU jobs → c5.4xlarge Spot
+default-resources:
+  - mem_mb=8000
+  - runtime=60
+  - gpu=0
+  - queue=hm2p-cpu-queue
+
+# Per-rule resource overrides in Snakefile rules override these defaults.
+# GPU rules (suite2p, dlc) request gpu=1 → hm2p-gpu-queue (g4dn Spot).
+
+keep-going: false
+printshellcmds: true
+show-failed-logs: true

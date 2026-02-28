@@ -1,0 +1,13 @@
+# Snakemake profile — local GPU execution (all stages)
+# Usage: snakemake --profile workflow/profiles/local-gpu
+
+executor: local
+cores: 8
+keep-going: false
+printshellcmds: true
+show-failed-logs: true
+
+default-resources:
+  - mem_mb=16000
+  - runtime=120
+  - gpu=1

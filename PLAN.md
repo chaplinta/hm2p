@@ -1,0 +1,636 @@
+# hm2p Cloud Pipeline — Project Plan
+
+## Overview
+
+Ground-up rewrite of the hm2p neuroscience analysis pipeline. All data lives in the cloud,
+all compute runs in the cloud, with full CPU and GPU support. Local processing is also
+supported for all CPU-bound stages; GPU stages (pose estimation, 2P extraction) require
+cloud or a local machine with a suitable GPU.
+
+The experiment combines two-photon calcium imaging with overhead behavioural video tracking
+in freely-moving mice. The primary recording target is **retrosplenial cortex (RSP)** and nearby cortex — a
+region with prominent head-direction cells. Two genetically-defined cell populations are
+studied: **Penk+ RSP neurons** (Penk-Cre + ADD3 virus — Cre-ON labelling) and **non-Penk
+CamKII+ RSP neurons** (virus 344 — Cre-OFF/intersectional: Cre expression in Penk+ cells
+blocks expression, so only non-Penk CamKII+ cells are labelled). Both use GCaMP7f.
+
+The overhead room lights follow a **1 min on / 1 min off** cycle. Light off = **total
+darkness** = complete visual cue removal. This tests whether RSP HD cells can maintain
+directional tuning without visual landmarks. The primary scientific goals are: (1) HD
+tuning characterisation in each cell population, (2) population HD decoding, (3) whether
+HD cell activity is anchored to visual vs idiothetic (path integration) cues, (4) whether
+this differs between Penk+ and CamKII+ populations.
+
+---
+
+## 1. Raw Data Definition
+
+### 1.1 Experimental Sessions
+
+Every session is identified by a canonical **session ID**:
+
+```text
+YYYYMMDD_HH_MM_SS_<animal_id>
+e.g. 20220804_13_52_02_1117646
+```
+
+In NeuroBlueprint folder naming this becomes `ses-{YYYYMMDD}T{HHMMSS}` (e.g. `ses-20220804T135202`).
+Multiple sessions per day per animal exist, so the full timestamp is required to avoid collisions.
+
+Ground-truth session registry lives in two flat CSV files:
+
+| File | Contents |
+| --- | --- |
+| `metadata/animals.csv` | Animal IDs, genotype, sex, surgery details |
+| `metadata/experiments.csv` | Session IDs, animal ID, experiment type, `extractor`, `tracker` columns |
+
+### 1.2 Raw Data Types
+
+#### A — Two-Photon Calcium Imaging
+
+| Property | Detail |
+| --- | --- |
+| Acquisition system | SciScan (resonant scanner) |
+| Raw format | `.raw` (SciScan proprietary) → converted to `.tif` stacks |
+| Resolution | 512 × 512 px (typical) |
+| Frame rate | ~30 Hz |
+| Channels | Green (GCaMP functional) + Red (anatomical reference) |
+| Planes | **Single plane** — soma and dendrite ROIs co-exist within the same imaging plane and are distinguished post-hoc by shape |
+| Sidecar metadata | `.meta.txt` per session — DAQ settings, frame counts, timing |
+| Current volume | ~280 GB extraction outputs across 29 sessions |
+
+The pipeline is **extractor-agnostic**. **roiextractors** (CatalystNeuro) provides a unified
+`SegmentationExtractor` API across multiple ROI extraction backends, so all downstream
+signal processing uses the same interface regardless of which tool ran upstream.
+
+Currently supported extractors:
+
+| Extractor | Notes |
+| --- | --- |
+| **Suite2p** (default) | Existing classifiers reused; neuropil trace (Fneu) available |
+| **CaImAn** | CNMF-based; neuropil modelled internally, no separate Fneu |
+
+The `extractor` field in `experiments.csv` records which tool was used per session.
+
+Raw `.raw` files are converted to TIFF via `raw2tif`, then passed to the chosen extractor.
+
+#### B — Behavioural Video
+
+| Property | Detail |
+| --- | --- |
+| Camera | Basler acA1300-200um |
+| Format | `.mp4` (H.264) |
+| Frame rate | ~100 fps, synchronised to imaging via DAQ trigger |
+| Content | Overhead view of mouse in maze (rose-maze / open field / linear track) |
+| Calibration | Lens-specific `.npz` files (4 mm and 6 mm lenses) |
+| Per-session metadata | `meta/meta.txt` — crop region, scale (mm/pixel), maze ROI corners |
+| Current volume | ~900 MB raw video across 30 sessions |
+
+#### C — Pose Tracking
+
+The pipeline is **tracker-agnostic**. **movement** (neuroinformatics.dev) provides a unified
+`load_dataset(filepath, source_software=...)` call that returns the same `xarray.Dataset`
+regardless of which tracker was used, so downstream kinematics code never changes when
+swapping backends.
+
+Currently supported trackers (all tested in `movement`):
+
+| Tracker | Format | Notes |
+| --- | --- | --- |
+| **DeepLabCut** | `.h5` or `.csv` | Current default; existing model reused |
+| **SLEAP** | `.h5` (analysis) or `.slp` | Drop-in alternative to DLC |
+| **LightningPose** | `.csv` | GPU-efficient alternative |
+| **Anipose** | `.csv` | Multi-camera 3D triangulation |
+| **NWB** | `.nwb` (ndx-pose) | Standardised neuroscience format |
+
+Current default: **DeepLabCut ResNet-50**, trained on hm2p-maze project.
+
+| Property | Detail |
+| --- | --- |
+| Body parts | `ear-left`, `ear-right`, `back-upper`, `back-middle`, `back-tail` |
+| Output format | `.h5` per video: `(frame × body_part) → (x, y, likelihood)` |
+| Current volume | ~55 GB (model weights + labeled frames + outputs) |
+
+The `tracker` field in `experiments.csv` records which tracker was used per session.
+Pose outputs (from any tracker) feed into Stage 3 without modification.
+
+---
+
+## 2. Data Organisation Standard
+
+We adopt the **NeuroBlueprint** folder specification
+(<https://neuroblueprint.neuroinformatics.dev>), a BIDS-inspired standard for systems
+neuroscience. **DataShuttle** (<https://datashuttle.neuroinformatics.dev>) handles transfer
+and validation between local machines and cloud storage.
+
+```text
+hm2p/
+├── rawdata/
+│   └── sub-{animal_id}/
+│       └── ses-{YYYYMMDD}/
+│           ├── funcimg/          # 2P TIFF stacks + .meta.txt
+│           └── behav/            # .mp4 video + meta/ folder
+│
+├── sourcedata/                   # Original unmodified assets
+│   ├── trackers/                 # Tracker models + labeled data (DLC, SLEAP, etc.)
+│   └── metadata/                 # animals.csv, experiments.csv
+│
+└── derivatives/
+    ├── ca_extraction/
+    │   └── sub-{animal_id}/ses-{date}/
+    │       └── <extractor-native files>  # Suite2p folder, CaImAn .hdf5, etc.
+    ├── pose/
+    │   └── sub-{animal_id}/ses-{date}/
+    │       └── <tracker-native file>     # *DLC_resnet50*.h5, *.slp, *.csv, etc.
+    ├── movement/
+    │   └── sub-{animal_id}/ses-{date}/
+    │       └── kinematics.h5     # HD, position, speed + higher-level (camera rate)
+    ├── calcium/
+    │   └── sub-{animal_id}/ses-{date}/
+    │       └── ca.h5             # dF/F0, events, SNR per ROI (imaging rate)
+    └── sync/
+        └── sub-{animal_id}/ses-{date}/
+            └── sync.h5           # neural + behavioural aligned to imaging frames
+```
+
+---
+
+## 3. Processing Pipeline
+
+### Stage 0 — Data Ingest, Validation & DAQ Parsing
+
+**Input:** Raw files from acquisition machine (currently on Dropbox)
+
+1. Validate session registry — check all expected raw files exist for each session
+2. Upload raw data to cloud storage (`s3://hm2p-rawdata/`) via DataShuttle
+3. Convert `.raw` imaging files → `.tif` using `raw2tif`
+4. Validate video metadata (crop, scale, ROI) is complete for each session
+5. **Parse TDMS DAQ files** → save `timestamps.h5` per session:
+   - Camera trigger times → `frame_times_camera` (N,) float64
+   - SciScan line clock → `frame_times_imaging` (T,) float64
+   - Lighting on/off pulse times
+   - This isolates the `nptdms` dependency in one place; all downstream stages read clean HDF5
+
+**Tools:** DataShuttle, nptdms, custom validator
+**Compute:** CPU only, minimal — can run locally or in cloud
+
+---
+
+### Stage 1 — 2P Preprocessing & ROI Extraction (pluggable)
+
+**Input:** TIFF stacks per session (`rawdata/.../funcimg/`)
+
+The extractor is swappable — `experiments.csv` records which was used per session via the
+`extractor` column. All downstream code reads via the **roiextractors** unified API:
+
+```python
+from roiextractors import Suite2pSegmentationExtractor  # swap class to change extractor
+seg    = Suite2pSegmentationExtractor(folder_path=...)
+F      = seg.get_traces(name="raw")
+Fneu   = seg.get_traces(name="neuropil")   # None for CaImAn
+iscell = seg.get_accepted_list()
+masks  = seg.get_roi_image_masks()
+```
+
+Extractor-specific steps:
+
+| Extractor | Steps | GPU |
+| --- | --- | --- |
+| Suite2p | Bad-frame detection, motion correction, ROI detection, F/Fneu extraction | recommended |
+| CaImAn | Motion correction (NoRMCorre), CNMF segmentation, trace extraction | recommended |
+
+**Soma vs dendrite ROI classification:**
+There is a single imaging plane. Within this plane both compact soma and elongated dendrite
+segment ROIs are detected by Suite2p (this is a cortical slice — dendritic processes of
+deeper/shallower neurons pass through the focal plane). Suite2p is run **once** with
+parameters broad enough to detect both types. ROIs are then classified post-hoc using
+shape statistics from `stat.npy` (aspect ratio, radius, compactness) and the existing
+`classifier_soma.npy` / `classifier_dend.npy` files. Each ROI is labelled `soma`, `dend`,
+or `artefact` — no separate Suite2p run required.
+
+**Common output:** extractor-native files in `derivatives/ca_extraction/.../`
+plus `bad_frames.npy` for bad-frame masking in Stage 4.
+
+**Tools:** Suite2p 0.12+ (default), CaImAn; roiextractors as unified read layer
+**Compute:** GPU strongly recommended for motion correction; local GPU acceptable
+
+---
+
+### Stage 2 — Pose Estimation (pluggable tracker)
+
+**Input:** Behavioural `.mp4` video per session
+
+Pre-processing (common to all trackers):
+
+1. Undistort video using lens-specific camera calibration (`.npz`)
+2. Crop to maze ROI (from `meta.txt`)
+
+Tracker-specific inference:
+
+| Tracker | Entrypoint | GPU |
+| --- | --- | --- |
+| DeepLabCut (default) | `deeplabcut.analyze_videos(...)` | required |
+| SLEAP | `sleap-track ...` | required |
+| LightningPose | `python scripts/predict.py ...` | required |
+
+**Output:** tracker-native pose file in `derivatives/pose/sub-{id}/ses-{date}/`.
+Filename stored in session registry so Stage 3 can find it.
+
+**Tools:** tracker-specific (DLC 2.x default), OpenCV (undistortion)
+**Compute:** GPU required — cloud EC2 g4dn or local GPU machine
+
+---
+
+### Stage 3 — Behavioural Kinematics: movement
+
+**Input:** Raw pose file from Stage 2 (any supported tracker format)
+
+`movement` provides a single unified load call regardless of tracker:
+
+```python
+import movement.io as mio
+ds = mio.load_dataset(pose_file, source_software="DeepLabCut")
+# swap source_software="SLEAP" / "LightningPose" etc. — output is identical
+```
+
+All backends return an `xarray.Dataset` with dimensions `(time × keypoints × space)`
+plus a `confidence` data variable. Downstream code never inspects which tracker was used.
+
+**Primary kinematic outputs (required for all sessions):**
+
+1. Load pose dataset via `movement.io.load_dataset(source_software=<tracker>)`
+2. Apply `orientation` rotation (from `experiments.csv`) to all keypoint coordinates —
+   a per-session correction for camera placement variation, ensures HD is referenced
+   consistently across sessions. Rotation is in degrees; applied as a 2D rotation matrix.
+3. Filter low-confidence detections (confidence < 0.9 → NaN)
+4. Interpolate short gaps (≤ 5 frames) and smooth
+5. Compute via `movement.kinematics`:
+   - **Head direction (HD):** forward vector from `ear-left` → `ear-right`, unwrapped (deg)
+   - **Position:** centroid of body keypoints, converted pixel → mm via scale calibration
+   - **Speed:** `kinematics.compute_speed()` on position (cm/s)
+   - **Angular head velocity (AHV):** `kinematics.compute_velocity()` on HD (deg/s)
+   - **Movement state:** binary active/inactive threshold on speed
+6. Align light on/off events from DAQ timestamps (`timestamps.h5`):
+   - Light follows a **periodic 1 min on / 1 min off** cycle throughout the session
+   - Overhead room lights — light off = **total darkness** / full visual cue removal
+   - Per-frame `light_on` boolean stored in `kinematics.h5` and `sync.h5`
+7. Compute maze-coordinate positions (7 × 5 unit rose-maze grid):
+   - Map pixel position → mm → maze units via scale calibration + ROI metadata
+   - Clip out-of-bounds positions to nearest maze boundary point using shapely Polygon
+   - Maze polygon (7 × 5 units) defined from `get_maze_poly()` in legacy code
+
+**Higher-level behavioural analyses — Stage 3b (planned, not in core scope yet):**
+
+The pipeline is designed to support **minimal-labelling behavioural analysis** — discovering
+behavioural structure from pose kinematics without manually labelling thousands of frames.
+Both primary tools consume the `movement` xarray output (our Stage 3 output format) directly.
+
+| Tool | Approach | Labels needed | Input | Output | Recommendation |
+| --- | --- | --- | --- | --- | --- |
+| **keypoint-MoSeq** (Datta lab, v0.6.8) | AR-HMM; learns stereotyped motifs + durations | **Zero** | DLC `.h5` / SLEAP `.h5` | Syllable ID per frame, transition matrix | **Gold standard for freely-moving mice** |
+| **VAME** (EthoML, v0.12+) | VAE on pose timeseries; clusters latent space | **Zero** | movement xarray (native) | Motif ID per frame + UMAP + NWB export | Good; native movement integration |
+| **DLC2Action** | Transformer + TCN; active learning | 10–100 frames | DLC `.h5` | Action class per frame | When target categories are known |
+| ~~B-SOiD~~ | ~~UMAP+GMM~~ | — | — | — | **Not recommended** — stale since 2021 |
+| ~~MotionMapper~~ | ~~Wavelet + t-SNE~~ | — | — | — | **Not recommended** — MATLAB; stale 2020 |
+
+**Primary recommendation:** keypoint-MoSeq is the current gold standard for freely-moving
+mice (Weinreb et al. 2024, *Nature Methods*; v0.6.8 released Feb 2026). It reads DLC `.h5`
+directly and uses a JAX-based AR-HMM that models egocentric heading + motion trajectories.
+
+**VAME** (EthoML v0.12+, `pip install vame-py`) is a strong alternative, especially because
+v0.7+ natively accepts the `movement` xarray format (VAME issue #111) — zero conversion needed
+from Stage 3 outputs:
+
+```python
+import movement.io as mio
+import vame
+
+ds = mio.load_dataset(pose_file, source_software="DeepLabCut")
+# ds is an xr.Dataset — VAME v0.7+ accepts this natively
+vame.create_project(..., pose_estimation_format="movement")
+```
+
+keypoint-MoSeq reads DLC `.h5` directly (the same files that feed `movement`):
+
+```python
+import keypoint_moseq as kpms
+config = kpms.load_config(project_dir)
+data = kpms.load_keypoints(dlc_files, format="deeplabcut")
+model = kpms.fit_model(data, config)  # ~GPU or CPU
+syllables = model.get_syllables()     # (n_frames,) int array per session
+```
+
+These analyses produce optional columns appended to `kinematics.h5`:
+
+```text
+/syllable_id    (N,) int16   — VAME / keypoint-MoSeq syllable index per camera frame
+/syllable_prob  (N, S) float32  — posterior probability over S syllables (optional)
+```
+
+- **Ethogram:** classify frames into named behaviours (grooming, running, still, turning)
+  using supervised or semi-supervised labelling. Added to `kinematics.h5` as `/ethogram`.
+- These are **optional outputs** — the pipeline runs without them; syllable analysis
+  is a post-hoc step on top of Stage 3.
+
+**Known behavioural artefact — head-mount constraint:** Mice can get stuck on the HM2P
+head-mounted scope fibre and wires, creating artefactual immobility periods. These are
+logged in `experiments.csv` as `bad_behav_times` (mm:ss–mm:ss format). The pipeline
+applies this mask to exclude these periods from all behavioural analyses. The per-session
+mask is stored as `kinematics.h5:/bad_behav` (N,) bool.
+
+**Tools:** `movement`, `shapely`, NumPy, SciPy
+**Compute:** CPU only — can run locally or in cloud
+**Output:** `derivatives/movement/sub-{id}/ses-{date}/kinematics.h5`
+
+---
+
+### Stage 4 — Calcium Signal Processing
+
+**Input:** roiextractors extractor object (from Stage 1 outputs) + `timestamps.h5` +
+`bad_frames.npy`
+
+All steps operate on the unified roiextractors API — extractor-agnostic.
+
+#### 4a — Neuropil Subtraction (two options, set in `config/pipeline.yaml`)
+
+| Method | When to use |
+| --- | --- |
+| **Fixed coefficient** (default) | `F_corr = F − 0.7 × Fneu` — fast, Suite2p only; CaImAn handles neuropil internally |
+| **FISSA** (optional) | Spatial ICA on ROI masks + raw movie — more accurate in densely labelled tissue; extractor-agnostic |
+
+#### 4b — Baseline & dF/F0
+
+1. Baseline F0: sliding window min of Gaussian-smoothed trace (Suite2p method)
+2. Compute `dF/F0 = (F_corr − F0) / F0`
+
+#### 4c — Calibrated Spike Inference via CASCADE
+
+**CASCADE** (Rupprecht et al. 2021, *Nature Neuroscience*) is the primary spike inference
+method. Unlike threshold-based methods it outputs a continuous **spike rate in spikes/s**
+(calibrated physical units) using pre-trained deep-learning models matched to the GCaMP
+indicator and imaging frame rate. This replaces the OASIS deconvolution and Voigts & Harnett
+threshold methods as the primary output.
+
+```python
+from cascade2p import checks, cascade
+# model selected by indicator (e.g. 'GCaMP6s') + fps (e.g. ~10 Hz)
+spike_rates = cascade.predict(model_name, dff_traces)  # shape: (n_rois, n_frames)
+```
+
+The Voigts & Harnett threshold method is retained as a **fallback** and for comparison.
+
+#### 4d — Per-ROI Statistics
+
+- SNR: mean event amplitude / std of non-event periods
+- `n_spikes`, `spike_rate` (spikes/min, bad frames excluded)
+- `mean_dff_amp`: mean peak dF/F0 during events
+
+**Tools:** roiextractors, CASCADE (`cascade2p`), FISSA, NumPy, SciPy
+**Compute:** CPU only (CASCADE inference is fast on CPU) — can run locally or in cloud
+**Output:** `derivatives/calcium/sub-{id}/ses-{date}/ca.h5`
+
+---
+
+### Stage 5 — Neural–Behavioural Synchronisation
+
+**Input:** `kinematics.h5` + `ca.h5` + `.meta.txt` (imaging frame timestamps)
+
+1. Extract precise 2P frame timestamps from DAQ `.meta.txt`
+2. Resample behavioural kinematics from camera rate (~100 Hz) to imaging rate (~30 Hz)
+   via linear interpolation at each imaging frame timestamp
+3. Merge into single synchronised DataFrame indexed by frame number
+
+**Tools:** Pandas, SciPy interp1d
+**Compute:** CPU only — can run locally or in cloud
+**Output:** `derivatives/sync/sub-{id}/ses-{date}/sync.h5`
+
+---
+
+---
+
+## 4. Analysis Framework Design
+
+The HDF5 outputs from Stages 3–5 are designed to be directly loadable into a standard
+analysis stack. This section defines the target design — implementation is future scope.
+
+### 4.1 pynapple — Unified Timeseries Interface
+
+**pynapple** (Peyrache lab) is the standard Python interface for joint neural + behavioural
+analysis. Every HDF5 output is designed to load directly into pynapple data structures:
+
+```python
+import pynapple as nap
+import h5py
+
+# Load calcium traces
+with h5py.File("ca.h5") as f:
+    dff  = nap.TsdFrame(t=f["frame_times_imaging"][:], d=f["dff"][:].T)
+    spks = nap.TsdFrame(t=f["frame_times_imaging"][:], d=f["spikes"][:].T)
+
+# Load kinematics
+with h5py.File("kinematics.h5") as f:
+    hd    = nap.Tsd(t=f["frame_times_camera"][:], d=f["hd"][:])
+    speed = nap.Tsd(t=f["frame_times_camera"][:], d=f["speed"][:])
+
+# Time-aware alignment — pynapple handles resampling automatically
+active = nap.IntervalSet(start=..., end=...)  # from movement state
+dff_active = dff.restrict(active)             # automatic timestamp-based slicing
+```
+
+### 4.2 NEMOS — GLM Encoding Models
+
+**NEMOS** (Flatiron Institute) fits Poisson GLMs relating neural activity to behavioural
+variables. Pynapple-native. Answers: *"which behavioural variables drive this ROI?"*
+
+```python
+import nemos as nmo
+model = nmo.glm.PopulationGLM()
+model.fit(X=basis.compute_features(hd, speed), y=spks)
+```
+
+### 4.3 CEBRA — Population Latent Embeddings
+
+**CEBRA** (Schneider et al. 2023, *Nature*; v0.6.0, Jan 2026; Apache 2.0) learns a
+low-dimensional embedding of population dF/F that is consistent with a specified behavioural
+variable. Two operating modes:
+
+- **Hypothesis-driven (label-conditioned):** HD, position, or DLC keypoints guide the
+  embedding → population structure driven by the behavioural variable (e.g. a ring-shaped
+  manifold for HD cells in RSC)
+- **Discovery-driven (time-contrastive):** no behavioural labels required → unsupervised
+  population embedding
+
+Both modes take numpy arrays `(time, neurons)` for neural data and `(time, features)` for
+behaviour. `movement` xarray → numpy is one line (`ds.position.values`).
+
+```python
+import cebra
+import numpy as np
+
+# dff_matrix: (T, R) float32   — from sync.h5 ["dff"].T
+# hd_array:   (T,) float32     — from sync.h5 ["hd"]
+
+model = cebra.CEBRA(model_architecture="offset10-model", max_iterations=10000)
+model.fit(dff_matrix, conditional=hd_array)          # or fit(dff_matrix) for time-contrastive
+embedding = model.transform(dff_matrix)              # → (T, d) low-dimensional
+```
+
+Particularly suited to RSP data: a ring-shaped manifold in CEBRA space is
+a hallmark signature of HD population coding.
+
+### 4.4 NWB — Archive Format
+
+**neuroconv** converts roiextractors outputs directly to NWB, making all pipeline outputs
+shareable on DANDI and readable by any NWB-compatible tool (pynapple, MNE, etc.):
+
+```python
+from neuroconv import NWBConverter
+# wrap Suite2pSegmentationExtractor → NWBFile with RoiResponseSeries, TimeSeries
+```
+
+### 4.5 HDF5 → Analysis Path Design Principles
+
+All HDF5 schemas are designed so that:
+
+- Arrays are indexed by **time first** (C-contiguous for fast row slicing in pynapple)
+- Timestamps are stored as float64 seconds since session start
+- No index columns are needed — timestamps are the index
+- Schema is self-describing (session_id, fps_*, units stored as HDF5 attributes)
+
+---
+
+## 5. Local vs Cloud Processing
+
+| Stage | Local (CPU-only machine) | Local (GPU machine) | Cloud EC2 |
+| --- | --- | --- | --- |
+| 0 — Ingest | ✓ | ✓ | ✓ |
+| 1 — 2P extraction | slow (CPU fallback) | ✓ | ✓ (recommended) |
+| 2 — Pose estimation | ✗ (no GPU) | ✓ | ✓ (recommended) |
+| 3 — Kinematics | ✓ | ✓ | ✓ |
+| 4 — Calcium processing | ✓ | ✓ | ✓ |
+| 5 — Sync | ✓ | ✓ | ✓ |
+
+The Snakemake pipeline detects compute environment via a profile (`local`, `local-gpu`,
+`aws-batch`) set in `config/compute.yaml`. Switching between local and cloud requires only
+changing this profile — all file paths use the same relative structure, with S3 paths
+substituted automatically when running in cloud mode.
+
+---
+
+## 5. Cloud Architecture
+
+### 5.1 Recommended Provider: AWS
+
+- Widest GPU instance selection (A10G, V100, A100 via g4dn/p3/p4)
+- Native Snakemake support via AWS Batch
+- S3 is the de-facto standard for scientific data; Suite2p and DLC both support it
+- Strong cost-optimisation via Spot Instances and S3 Intelligent-Tiering
+- Mature IAM for multi-user lab access control
+
+**Alternative: GCP Vertex AI** — good ML tooling but less neuroscience community adoption.
+
+**Alternative: Institutional HPC** (e.g. UCL Myriad/Kathleen with SLURM) — best
+cost-efficiency if available; use S3 for storage regardless.
+
+### 5.2 AWS Layout
+
+```text
+S3 Buckets
+  s3://hm2p-rawdata/        ← raw TIFFs, videos (Infrequent Access tier)
+  s3://hm2p-derivatives/    ← ca_extraction, pose, movement, calcium, sync (Standard)
+
+Compute (Spot Instances)
+  g4dn.xlarge   (~$0.16/hr spot)  ← DLC inference, Suite2p/CaImAn GPU
+  g4dn.2xlarge  (~$0.30/hr spot)  ← DLC training
+  c5.4xlarge    (~$0.27/hr spot)  ← kinematics, calcium processing, sync
+
+Orchestration
+  Snakemake + AWS Batch     ← managed job queue
+  (or local Snakemake → EC2 SSH for simpler start)
+
+Notebooks
+  EC2 + JupyterLab          ← interactive analysis
+```
+
+### 5.3 Rough Cost Estimates
+
+| Resource | Estimate |
+| --- | --- |
+| S3 ~600 GB rawdata (Infrequent Access) | ~$7/month |
+| S3 ~150 GB derivatives (Standard, growing) | ~$3/month |
+| GPU compute, 30 sessions (one-time) | ~$150–350 total |
+| CPU compute, 30 sessions (one-time) | ~$30 total |
+| Data upload ~600 GB (one-time) | ~$54 |
+
+---
+
+## 6. Technology Stack
+
+### 6.1 Core Pipeline
+
+| Layer | Tool | Notes |
+| --- | --- | --- |
+| Data standard | NeuroBlueprint | BIDS-inspired folder spec |
+| Data transfer | DataShuttle | Upload/validate to S3 |
+| DAQ parsing | nptdms | TDMS → timestamps.h5 (Stage 0 only) |
+| 2P extraction | Suite2p 0.12+ (default), CaImAn | Pluggable via `extractor` field |
+| Extraction API | **roiextractors** (CatalystNeuro) | Unified SegmentationExtractor |
+| Neuropil subtraction | Fixed coefficient (default), **FISSA** (spatial ICA) | FISSA: more accurate in dense tissue |
+| Spike inference | **CASCADE** (Rupprecht et al. 2021) | Calibrated spikes/s; pre-trained GCaMP models |
+| Pose estimation | DeepLabCut 3.x (default), SLEAP, LightningPose | Pluggable via `tracker` field |
+| Kinematics | **movement** (neuroinformatics.dev) | Unified xarray.Dataset regardless of tracker |
+| Behavioural syllables | **VAME** v0.7+ (EthoML) | Zero-label unsupervised; accepts movement xarray natively |
+| Behavioural syllables (alt) | **keypoint-MoSeq** (Datta lab) | AR-HMM; zero-label; Nature Methods 2024 |
+| NWB conversion | **neuroconv** (CatalystNeuro) | roiextractors + movement → NWB archive |
+| Analysis interface | **pynapple** (Peyrache lab) | Unified TsdFrame for dF/F + behaviour |
+| Encoding models | **NEMOS** (Flatiron Institute) | GLM, pynapple-native, JAX backend |
+| Population embeddings | **CEBRA** (Schneider et al. 2023) | Contrastive latent spaces w/ behaviour |
+| Orchestration | Snakemake 8.x+ | DAG-based, supports local + AWS Batch profiles |
+| Storage | AWS S3 | All persistent data |
+| GPU compute | AWS EC2 g4dn Spot (or local GPU) | Pose tracking + 2P extraction |
+| CPU compute | AWS EC2 c5 Spot (or local) | Kinematics, calcium processing, sync |
+| Notebooks | JupyterLab on EC2 or local | Interactive analysis |
+| Packaging | uv + conda (GPU envs) | Reproducible environments |
+| Containers | Docker | Reproducible compute |
+
+### 6.2 Code Quality & Best Practice Tooling
+
+| Tool | Role |
+| --- | --- |
+| **ruff** | Fast linting + formatting (replaces black + flake8 + isort) |
+| **mypy** | Static type checking — catches type errors at development time |
+| **pytest** + **pytest-cov** | Unit testing + coverage reporting (target ≥ 90%) |
+| **hypothesis** | Property-based testing — auto-generates adversarial inputs for numerical functions |
+| **pandera** | Runtime schema validation for pandas DataFrames and xarray Datasets |
+| **pre-commit** | Runs ruff, mypy, nbstripout automatically before every git commit |
+| **nbstripout** | Strips notebook outputs before committing — keeps git history clean |
+| **mkdocs** + Material theme | Documentation site auto-built from docstrings |
+| **DVC** (Data Version Control) | Tracks data and model artifacts alongside git commits |
+
+---
+
+## 7. What Is Reused Unchanged
+
+- Trained DeepLabCut model — copied to `sourcedata/trackers/dlc/`
+- Suite2p classifiers (`classifier_soma.npy`, `classifier_dend.npy`) — used for post-hoc ROI labelling
+- Camera calibration files (`.npz`)
+- Calcium event detection algorithm (Voigts & Harnett) — retained as fallback; CASCADE is primary
+- Metadata CSVs (`animals.csv`, `experiments.csv`)
+
+---
+
+## 8. Implementation Status
+
+1. ✅ **Project skeleton** — `pyproject.toml`, `src/hm2p/` (all modules stubbed), `tests/`
+   (41 tests passing), `pre-commit`, GitHub Actions CI/lint, Snakemake workflow, Docker,
+   `uv` venv, `metadata/` CSVs. Ruff clean. CASCADE noted as conda-only (not on PyPI).
+2. **Finalise HDF5 schemas** — `timestamps.h5`, `kinematics.h5`, `ca.h5`, `sync.h5` — write
+   pandera schema validation in `io/hdf5.py` before any processing code
+3. **Upload raw data to S3** — migrate Dropbox data following NeuroBlueprint layout using DataShuttle
+4. **Stage 0** — implement TDMS parser → `timestamps.h5`; fully unit-tested with synthetic TDMS
+5. **Stage 3** — implement kinematics module using `movement`; CPU-only, validates end-to-end
+6. **Stage 4** — implement calcium module (roiextractors → neuropil → dF/F0 → CASCADE → ca.h5)
+7. **Stage 5** — implement sync module
+8. **Snakemake DAG** — fill in shell commands and resource specs for all rules
+9. **EC2 Docker images** — build and push GPU image (Suite2p + DLC) and CPU image
+10. **neuroconv export** — write NWB files from ca.h5 + kinematics.h5 for archiving

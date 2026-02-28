@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+
+# uv / pip
+uv.lock
+pip-log.txt
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ruff
+.ruff_cache/
+
+# pytest / hypothesis
+.pytest_cache/
+.hypothesis/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_metadata/
+
+# Data directories — never commit raw or derivative data
+data/
+*.h5
+*.hdf5
+*.tif
+*.tiff
+*.mp4
+*.raw
+*.tdms
+*.npy
+*.npz
+
+# Secrets / credentials
+.env
+*.pem
+*.key
+aws_credentials
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+docker/.env
