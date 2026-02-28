@@ -18,6 +18,8 @@ from pathlib import Path
 
 import numpy as np
 
+from hm2p.io.hdf5 import write_h5
+
 
 def parse_tdms(tdms_path: Path) -> dict[str, np.ndarray]:
     """Parse a SciScan TDMS file and return timing arrays.
@@ -53,7 +55,12 @@ def write_timestamps_h5(
         session_id: Canonical session identifier stored as HDF5 attribute.
         output_path: Destination file path (created or overwritten).
     """
-    raise NotImplementedError
+    datasets = {k: v for k, v in arrays.items() if k not in _SCALAR_KEYS}
+    attrs: dict[str, object] = {"session_id": session_id}
+    for key in _SCALAR_KEYS:
+        if key in arrays:
+            attrs[key] = float(arrays[key])
+    write_h5(output_path, datasets, attrs=attrs)
 
 
 def run(tdms_path: Path, session_id: str, output_path: Path) -> None:
@@ -66,3 +73,11 @@ def run(tdms_path: Path, session_id: str, output_path: Path) -> None:
     """
     arrays = parse_tdms(tdms_path)
     write_timestamps_h5(arrays, session_id, output_path)
+
+
+# ---------------------------------------------------------------------------
+# Implementation
+# ---------------------------------------------------------------------------
+
+# Keys in the arrays dict that are scalars (stored as HDF5 attrs, not datasets)
+_SCALAR_KEYS: frozenset[str] = frozenset({"fps_camera", "fps_imaging"})

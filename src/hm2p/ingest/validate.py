@@ -29,6 +29,10 @@ class ValidationResult:
 def validate_session(session: Session, rawdata_root: Path) -> ValidationResult:
     """Check that all required raw files exist for a session.
 
+    Looks under rawdata_root/sub-{animal_id}/ses-{date}T{time}/ for:
+      funcimg/  — *_XYT.tif, *-di.tdms, *.meta.txt
+      behav/    — *_overhead.camera.mp4
+
     Args:
         session: Session metadata.
         rawdata_root: Root of the rawdata/ tree.
@@ -36,7 +40,27 @@ def validate_session(session: Session, rawdata_root: Path) -> ValidationResult:
     Returns:
         ValidationResult — ok=True if all required files present.
     """
-    raise NotImplementedError
+    ses_root = rawdata_root / session.neurobluepint_sub / session.neurobluepint_ses
+    funcimg = ses_root / "funcimg"
+    behav = ses_root / "behav"
+
+    required = [
+        (funcimg, "*_XYT.tif", "funcimg TIFF imaging stack"),
+        (funcimg, "*-di.tdms", "funcimg DAQ TDMS file"),
+        (funcimg, "*.meta.txt", "funcimg experiment meta.txt"),
+        (behav, "*_overhead.camera.mp4", "behav overhead video"),
+    ]
+
+    missing: list[str] = []
+    for parent, pattern, label in required:
+        if not any(parent.glob(pattern)):
+            missing.append(f"{label} [{parent / pattern}]")
+
+    return ValidationResult(
+        session_id=session.session_id,
+        ok=len(missing) == 0,
+        missing=missing,
+    )
 
 
 def validate_all(sessions: list[Session], rawdata_root: Path) -> list[ValidationResult]:
