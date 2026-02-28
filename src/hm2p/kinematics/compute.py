@@ -187,7 +187,26 @@ def compute_light_on(
     Returns:
         (N,) bool — True when overhead lights are on.
     """
-    raise NotImplementedError
+    # Index of the last on/off event at or before each frame (-1 if none yet)
+    i_on = np.searchsorted(light_on_times, frame_times, side="right") - 1
+    i_off = np.searchsorted(light_off_times, frame_times, side="right") - 1
+
+    has_on = i_on >= 0
+    has_off = i_off >= 0
+
+    result = np.zeros(len(frame_times), dtype=bool)
+
+    # A light-on event exists but no light-off yet → lights on
+    result[has_on & ~has_off] = True
+
+    # Both events exist → whichever is more recent determines state
+    both = has_on & has_off
+    if both.any():
+        dist_on = frame_times[both] - light_on_times[i_on[both]]
+        dist_off = frame_times[both] - light_off_times[i_off[both]]
+        result[both] = dist_on < dist_off
+
+    return result
 
 
 def compute_bad_behav_mask(

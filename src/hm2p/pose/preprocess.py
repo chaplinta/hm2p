@@ -54,7 +54,8 @@ def crop_to_maze_roi(frame: np.ndarray, roi: tuple[int, int, int, int]) -> np.nd
     Returns:
         Cropped frame (height, width, 3).
     """
-    raise NotImplementedError
+    x, y, w, h = roi
+    return frame[y : y + h, x : x + w]
 
 
 def load_meta(meta_txt_path: Path) -> dict[str, object]:

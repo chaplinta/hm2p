@@ -33,7 +33,11 @@ def resample_to_imaging_rate(
     Returns:
         (T,) float — signal resampled to dst_times.
     """
-    raise NotImplementedError
+    if method == "nearest":
+        indices = np.searchsorted(src_times, dst_times, side="left")
+        indices = np.clip(indices, 0, len(values) - 1)
+        return values[indices].astype(float)
+    return np.interp(dst_times, src_times, values)
 
 
 def resample_bool_to_imaging_rate(
@@ -51,7 +55,9 @@ def resample_bool_to_imaging_rate(
     Returns:
         (T,) bool — mask resampled to imaging rate.
     """
-    raise NotImplementedError
+    indices = np.searchsorted(src_times, dst_times, side="left")
+    indices = np.clip(indices, 0, len(mask) - 1)
+    return mask[indices]
 
 
 def run(
