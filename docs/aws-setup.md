@@ -86,7 +86,7 @@ Configure:
 aws configure
 # AWS Access Key ID: <your key ID>
 # AWS Secret Access Key: <your secret>
-# Default region name: eu-west-2   # London — change to nearest region
+# Default region name: ap-southeast-2   # Sydney — closest to Perth
 # Default output format: json
 ```
 
@@ -106,8 +106,8 @@ aws sts get-caller-identity
 Create the two project buckets (do this once):
 
 ```bash
-aws s3 mb s3://hm2p-rawdata    --region eu-west-2
-aws s3 mb s3://hm2p-derivatives --region eu-west-2
+aws s3 mb s3://hm2p-rawdata    --region ap-southeast-2
+aws s3 mb s3://hm2p-derivatives --region ap-southeast-2
 ```
 
 Enable versioning on the rawdata bucket (protects against accidental deletion):
