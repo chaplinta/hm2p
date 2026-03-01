@@ -65,17 +65,35 @@ offset by a few seconds). The session folder name uses the **SciScan** timestamp
 
 ## 2. Raw Data Locations
 
+All paths below are under `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/`.
+**Read-only — never modify or delete anything here.**
+
 | Location | Contents |
 | --- | --- |
-| `Dropbox/Neuro/Margrie/shared/lab-108/experiments/01 lights-maze/` | Raw acquisition data — one folder per recording date, then per session |
-| `Dropbox/Neuro/Margrie/hm2p/video/` | Processed videos and per-session video metadata |
-| `Dropbox/Neuro/Margrie/hm2p/video-meta-backup/` | Backup of per-session crop/scale/ROI metadata |
-| `Dropbox/Neuro/Margrie/hm2p/s2p/` | Suite2p outputs per session |
-| `Dropbox/Neuro/Margrie/hm2p/dlc/` | DeepLabCut model + tracked outputs |
-| `Dropbox/Neuro/Margrie/hm2p/proc/` | Processed HDF5 databases (behave, ca) |
-| `Dropbox/Neuro/Margrie/hm2p/db/` | Aggregated per-session HDF5 databases |
-| `hm2p-analysis/metadata/` | `animals.csv`, `experiments.csv` |
+| `shared/lab-108/experiments/01 lights-maze/` | **Primary raw data** — one date folder per day, one session folder per recording |
+| `hm2p/video/{session_id}/` | **Processed overhead videos** (undistorted + cropped MP4) + `meta.txt` — used as DLC input |
+| `hm2p/video-meta-backup/` | Backup of per-session crop/scale/ROI metadata |
+| `hm2p/s2p/` | Legacy Suite2p outputs |
+| `hm2p/dlc/` | DeepLabCut model + tracked outputs |
+| `hm2p/proc/` | Legacy processed HDF5 databases (behave, ca) |
+| `hm2p/db/` | Legacy aggregated per-session HDF5 databases |
+| `hm2p-analysis/metadata/` | Legacy `animals.csv`, `experiments.csv` (canonical copies now in repo `metadata/`) |
 | `hm2p-analysis/cam-calibrations/` | Lens-specific camera calibration `.npz` files |
+
+### S3 Upload Plan
+
+Upload ~**113 GB** to `s3://hm2p-rawdata/` (once AWS credentials are working):
+
+| Source | S3 destination | Size | Notes |
+| --- | --- | --- | --- |
+| `01 lights-maze/{date}/{session_id}/` | `rawdata/sub-{id}/ses-.../funcimg/` | ~96 GB | Exclude `_side_left.camera.mp4` and `_XYT.red.tif` |
+| `hm2p/video/{session_id}/` | `rawdata/sub-{id}/ses-.../behav/` | ~17 GB | Cropped + undistort MP4s + meta.txt |
+| `metadata/*.csv` | `sourcedata/metadata/` | <1 MB | Copy of git repo CSVs for cloud access |
+| `hm2p-analysis/cam-calibrations/` | `sourcedata/calibration/` | <1 MB | Camera `.npz` files |
+
+**Note:** The raw overhead `_overhead.camera.mp4` exists in the session folder for only 8/26 sessions.
+For all 26 sessions, processed versions (undistorted + cropped) exist in `hm2p/video/` — these are
+what DLC was trained on and what Stage 2 pose estimation should use.
 
 ---
 
@@ -84,24 +102,46 @@ offset by a few seconds). The session folder name uses the **SciScan** timestamp
 Each session lives under a date folder in the raw data root:
 
 ```text
-01 lights-maze/
+shared/lab-108/experiments/01 lights-maze/
 └── 2021_08_23/
     └── 20210823_16_59_50_1114353/         ← SciScan session folder
-        ├── 20210823_16_59_50_1114353_XYT.raw      ← 2P raw imaging data (SciScan proprietary)
-        ├── 20210823_16_59_50_1114353_XYT.tif      ← Converted TIFF (derived from .raw)
+        ├── 20210823_16_59_50_1114353_XYT.raw      ← 2P raw imaging data (SciScan proprietary) [may be absent]
+        ├── 20210823_16_59_50_1114353_XYT.tif      ← TIFF stack — primary imaging input for Suite2p
         ├── 20210823_16_59_50_1114353_XYT.ini      ← SciScan acquisition settings
         ├── 20210823_16_59_50_1114353_XYT.notes.txt
         ├── 20210823_16_59_50_1114353_OME.xml       ← OME metadata
         ├── 20210823_17_00_04_1114353_maze-rose.meta.txt    ← Experiment metadata (INI format)
-        ├── 20210823_17_00_04_1114353_maze-rose-di.tdms     ← DAQ digital input signals
+        ├── 20210823_17_00_04_1114353_maze-rose-di.tdms     ← DAQ digital input signals (REQUIRED)
         ├── 20210823_17_00_04_1114353_maze-rose-di.tdms_index
-        ├── 20210823_17_00_04_1114353_maze-rose_overhead.camera.mp4    ← Overhead behaviour video (used)
-        ├── 20210823_17_00_04_1114353_maze-rose_side_left.camera.mp4   ← Side camera (NEVER USED — ignore)
+        ├── [20210823_17_00_04_1114353_maze-rose-ai.tdms]   ← DAQ analog input (3 sessions only, keep)
+        ├── 20210823_17_00_04_1114353_maze-rose_overhead.camera.mp4    ← Raw overhead video [only 8/26 sessions]
+        ├── 20210823_17_00_04_1114353_maze-rose_side_left.camera.mp4   ← Side camera — NEVER USED, skip upload
         ├── 20210823_17_00_04_1114353_maze-rose_acA1300-200um_Arena_Output.pfs  ← Camera config
         ├── 20210823_17_00_04_1114353_maze-rose_acA1920-150um_Arena_Output.pfs
         ├── 20210823_17_00_04_1114353_maze-rose_Power rotator.xlsx     ← Laser power log
         └── NOTE.txt
+
+hm2p/video/
+└── 20210823_16_59_50_1114353/            ← Processed video for ALL 26 sessions
+    ├── 20210823_17_00_04_1114353_maze-rose_overhead.camera-cropped.mp4    ← Cropped overhead
+    ├── 20210823_17_00_04_1114353_maze-rose_overhead.camera-undistort.mp4  ← Undistorted overhead
+    ├── meta.txt      ← Crop ROI, scale (mm/px), maze corners
+    └── meta/         ← Legacy per-field CSVs (backup only)
 ```
+
+**Imaging file notes:**
+
+- Most sessions: both `_XYT.raw` (SciScan proprietary) and `_XYT.tif` (converted) exist. Suite2p reads the TIFF.
+- A few sessions have only `_XYT.tif` — the .raw was never saved or was lost. This is fine; TIFF is sufficient.
+- `_XYT.red.tif` exists for 5 sessions (red anatomical channel) — not used by the pipeline, skip upload.
+
+**Video notes:**
+
+- The raw `_overhead.camera.mp4` is present in the session folder for only 8/26 sessions.
+- **DLC pose estimation uses the processed videos from `hm2p/video/`** (undistorted + cropped),
+  since this is what the DLC model was trained on and the only format available for all sessions.
+- The `meta.txt` in `hm2p/video/{session_id}/` contains the crop ROI, pixel scale, and maze corners
+  needed for Stage 3 kinematics — this is the video metadata source for the new pipeline.
 
 ---
 

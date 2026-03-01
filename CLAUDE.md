@@ -5,7 +5,7 @@
 **NEVER modify or delete files in these directories:**
 
 - `/Users/tristan/Neuro/hm2p-analysis` — legacy code (read-only reference only)
-- `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p` — all data (read-only)
+- `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/` — all data (read-only)
 
 You **may copy files from these directories into `/Users/tristan/Neuro/hm2p-v2`** (e.g. to
 bring in metadata CSVs, calibration files, or model weights). Do not delete or modify
@@ -89,7 +89,7 @@ Do not pin to old versions without a documented compatibility reason.
 **Experiment types:** All sessions are rose-maze only. Side camera (`_side_left.camera.mp4`) is never used — ignore it.
 **orientation column:** Per-session rotation angle (degrees) in `experiments.csv` to correct for camera placement variation. Applied as a 2D rotation to all keypoint coordinates before HD computation.
 **New columns needed in experiments.csv:** `extractor` (default `"suite2p"`) and `tracker` (default `"dlc"`) — to be added when setting up the project skeleton (deferred).
-**Data volume:** ~550 GB across 29–30 sessions.
+**Data volume:** ~113 GB to upload to S3 (26 sessions × ~4 GB average, excl. side_left and red.tif).
 
 ---
 
@@ -98,7 +98,10 @@ Do not pin to old versions without a documented compatibility reason.
 | What | Path |
 | --- | --- |
 | Legacy analysis code | `/Users/tristan/Neuro/hm2p-analysis/` |
-| All raw + processed data | `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/` |
+| Raw 2P + DAQ data | `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/shared/lab-108/experiments/01 lights-maze/` |
+| Processed overhead videos + meta | `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/video/` |
+| Legacy Suite2p outputs | `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/s2p/` |
+| Legacy DLC outputs | `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/dlc/` |
 
 ---
 
