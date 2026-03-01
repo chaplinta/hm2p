@@ -87,7 +87,9 @@ Upload ~**113 GB** to `s3://hm2p-rawdata/` (once AWS credentials are working):
 | Source | S3 destination | Size | Notes |
 | --- | --- | --- | --- |
 | `01 lights-maze/{date}/{session_id}/` | `rawdata/sub-{id}/ses-.../funcimg/` | ~96 GB | Exclude `_side_left.camera.mp4` and `_XYT.red.tif` |
-| `hm2p/video/{session_id}/` | `rawdata/sub-{id}/ses-.../behav/` | ~17 GB | Cropped + undistort MP4s + meta.txt |
+| `hm2p/video/{session_id}/*-cropped.mp4` | `rawdata/sub-{id}/ses-.../behav/` | ~17 GB | Cropped video — DLC input; skip `*-undistort.mp4` |
+| `hm2p/video/{session_id}/meta.txt` | `rawdata/sub-{id}/ses-.../behav/` | <1 MB | Crop ROI, scale, maze corners — required for Stage 3 |
+| `hm2p/video/{session_id}/meta/` | `rawdata/sub-{id}/ses-.../behav/meta/` | <1 MB | Raw napari CSVs — provenance |
 | `metadata/*.csv` | `sourcedata/metadata/` | <1 MB | Copy of git repo CSVs for cloud access |
 | `hm2p-analysis/cam-calibrations/` | `sourcedata/calibration/` | <1 MB | Camera `.npz` files |
 
@@ -335,62 +337,122 @@ Dendrite ROIs: elongated (`aspect_ratio` >> 1), large footprint.
 
 ## 8. Behavioural Video and Pose Tracking
 
+### Video Processing Pipeline (Legacy — already done for all sessions)
+
+The raw overhead `.camera.mp4` was processed in three steps per session using the legacy
+scripts in `hm2p-analysis/scripts/mov/`:
+
+```text
+raw overhead MP4  →  undistort (OpenCV remap)  →  manual annotation (napari)  →  crop + orient (ffmpeg)
+```
+
+1. **Undistort** (`mov_undistort.py`): loads camera calibration `.npz` for the session lens
+   (`f4mm` or `f6mm`), computes optimal camera matrix via `cv2.getOptimalNewCameraMatrix()`
+   then remaps every frame via `cv2.initUndistortRectifyMap()` + `cv2.remap()`.
+   Output: `*-undistort.mp4` (H.264 CRF 17).
+
+2. **Annotate** (`mov_annotate.py`, napari GUI): user manually draws three shape layers on
+   the undistorted frame and saves as CSVs in `meta/`:
+   - `meta/crop.csv` — one rectangle: bounding box of the visible arena
+   - `meta/scale.csv` — several line pairs between air-table reference holes 25 mm apart
+   - `meta/roi.csv` — one rectangle: maze boundary (can be rotated)
+
+3. **Write metadata** (`write_mov_meta_data()` in `utils/behave.py`):
+   - Reads the three CSVs
+   - Pads crop to nearest 32-pixel multiple (H.264 codec requirement)
+   - Computes `mm_per_pix = 25.0 / mean_dist_pix` from scale lines
+   - Transforms ROI corners from undistorted frame → cropped frame (subtract crop offset,
+     apply orientation rotation if 90° or 180°)
+   - Writes consolidated `meta.txt` INI file
+
+4. **Crop** (`mov_crop.py`): applies ffmpeg `.crop()` filter using `[crop]` section of
+   `meta.txt`. Output: `*-cropped.mp4`.
+
+**The `*-cropped.mp4` is the DLC input for all sessions.** This processing is already
+complete for all 26 sessions in `hm2p/video/`. The new pipeline does not re-run it.
+
 ### Video Files
 
 ```text
 hm2p/video/{session_id}/
-├── {timestamp}_{animal_id}_{type}_overhead.camera-cropped.mp4      ← cropped overhead
-├── {timestamp}_{animal_id}_{type}_overhead.camera-undistort.mp4    ← undistorted
+├── {timestamp}_{animal_id}_maze-rose_overhead.camera-cropped.mp4    ← DLC input (copy to S3)
+├── {timestamp}_{animal_id}_maze-rose_overhead.camera-undistort.mp4  ← intermediate (skip S3)
+├── meta.txt                                                          ← crop/scale/roi (copy to S3)
 ├── meta/
-│   ├── crop.csv         ← (legacy, content now in meta.txt)
-│   ├── roi.csv
-│   ├── scale.csv
-│   └── movie-frame.tif  ← representative frame for visual check
-└── sum/                 ← summary plots
+│   ├── crop.csv     ← napari rectangle: crop bounding box (copy to S3)
+│   ├── scale.csv    ← napari lines: scale reference holes (copy to S3)
+│   ├── roi.csv      ← napari rectangle: maze boundary (copy to S3)
+│   └── movie-frame.tif   ← representative frame (skip — large, redundant)
+└── sum/             ← legacy summary plots (skip)
 ```
 
 ### Per-Session Video Metadata — `meta.txt`
 
-**Format:** INI file with three sections (also backed up in `video-meta-backup/`):
+**Format:** INI file parsed with `configparser`. Real example from session `20210823_16_59_50_1114353`:
 
 ```ini
 [crop]
-x = 76           ; top-left x of crop region (pixels)
-y = 273          ; top-left y
-width = 864
-height = 640
-width_diff = 26  ; padding added to make divisible by codec block size
-height_diff = 24
+x = 108             ; top-left x of crop in undistorted frame (pixels)
+y = 261             ; top-left y
+width = 832         ; crop width (padded to 32-pixel multiple)
+height = 608        ; crop height (padded to 32-pixel multiple)
+width_diff = 20     ; pixels added to right edge for padding
+height_diff = 5     ; pixels added to bottom edge for padding
 
 [scale]
-mm_per_pix = 0.8329       ; spatial calibration
-mean_dist_pix = 30.02     ; mean pixel distance between calibration points
-dist_mm = 25.0            ; known physical distance between calibration points (mm)
+mm_per_pix = 0.8113         ; spatial calibration (pixels → mm)
+mean_dist_pix = 30.813      ; mean pixel distance between scale reference holes
+dist_mm = 25.0              ; known reference distance on air table (always 25.0 mm)
 
 [roi]
-; Maze corners in raw (uncropped) pixel coordinates
-x1_raw = 235 … x4_raw = 239
-y1_raw = 369 … y4_raw = 800
-; Maze corners in cropped pixel coordinates
-x1 = 159.0 … x4 = 163.0
-y1 = 96.0  … y4 = 527.0
-width = 618.0     ; maze width in pixels
-height = 424.0    ; maze height in pixels
-rotation = 179.4  ; maze rotation from image horizontal (degrees)
+; Maze corners in undistorted (pre-crop) pixel coordinates
+x1_raw = 257  y1_raw = 333
+x2_raw = 872  y2_raw = 343
+x3_raw = 865  y3_raw = 770
+x4_raw = 251  y4_raw = 761
+; Maze corners in cropped-video pixel coordinates
+x1 = 149.0   y1 = 72.0
+x2 = 764.0   y2 = 82.0
+x3 = 757.0   y3 = 509.0
+x4 = 143.0   y4 = 500.0
+width = 608.0       ; x3 - x1 in cropped frame (pixels)
+height = 437.0      ; y3 - y1 in cropped frame (pixels)
+rotation = -179.07  ; angle of top edge (atan2(y2-y1, x2-x1)), degrees
+```
+
+**Using `meta.txt` in the new pipeline (Stage 3):**
+
+```python
+import configparser
+cfg = configparser.ConfigParser()
+cfg.read(meta_txt_path)
+
+mm_per_pix  = float(cfg["scale"]["mm_per_pix"])
+crop_x      = int(cfg["crop"]["x"])
+crop_y      = int(cfg["crop"]["y"])
+# Maze corners in cropped-video pixels:
+corners_px = np.array([[float(cfg["roi"][f"x{i}"]), float(cfg["roi"][f"y{i}"])]
+                        for i in range(1, 5)])
+# maze_width_px / maze_height_px in pixels → use for pixel→maze-unit mapping
+maze_w_px = float(cfg["roi"]["width"])
+maze_h_px = float(cfg["roi"]["height"])
 ```
 
 ### Camera Calibration
 
-**Files:** `hm2p-analysis/cam-calibrations/`
+**Files:** `hm2p-analysis/cam-calibrations/` (copied to `sourcedata/calibration/` on S3)
 
 | File | Lens | Camera |
 | --- | --- | --- |
 | `acA1300-200um_C125-0418-5M.npz` | 4 mm | Basler acA1300-200um |
 | `acA1300-200um_C125-0618-5M.npz` | 6 mm | Basler acA1300-200um |
 
-The lens used per session is recorded in `experiments.csv` under the `lens` column
-(`f4mm` or `f6mm`). The `.npz` file contains the OpenCV camera matrix and distortion
-coefficients for undistortion via `cv2.undistort()`.
+The lens used per session is in `experiments.csv` column `lens` (`f4mm` or `f6mm`).
+`.npz` keys: `mtx` (3×3 camera matrix), `dist` (distortion coefficients),
+`rvecs`, `tvecs` (not used for undistortion).
+
+**Note:** Since all videos are already undistorted and cropped, the calibration files are
+kept for reference and for processing any new sessions in future.
 
 ### DeepLabCut Pose Tracking
 
