@@ -55,4 +55,5 @@ def compute_dff(F: np.ndarray, F0: np.ndarray) -> np.ndarray:
     """
     if F.shape != F0.shape:
         raise ValueError(f"F shape {F.shape} != F0 shape {F0.shape}")
-    return (F - F0) / np.where(F0 == 0, np.finfo(float).eps, F0)
+    safe_F0 = np.where(F0 == 0, np.finfo(np.float32).eps, F0)
+    return ((F - F0) / safe_F0).astype(np.float32)
