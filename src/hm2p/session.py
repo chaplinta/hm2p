@@ -203,12 +203,22 @@ def get_session(
 def parse_bad_behav_times(raw: str, total_seconds: float) -> list[tuple[float, float]]:
     """Parse bad_behav_times string from experiments.csv into (start, end) intervals.
 
-    Format in CSV: "MM:SS-MM:SS, MM:SS-MM:SS, ..."
-    Returns list of (start_s, end_s) float tuples, empty list if raw is empty.
+    Real CSV format: semicolon-separated MM:SS-MM:SS pairs.
+    Special values handled:
+      - empty / NaN / "nan" / "none" → no exclusions
+      - "?" → unknown; treated as no exclusions (conservative)
+      - "end" as the end timestamp → clips to total_seconds
+
+    Examples::
+
+        "11:10-11:30;13:20-21:00;27:00-end"
+        "6:15-8:00;20:00-27:30"
+        "?"         → []
+        ""          → []
 
     Args:
         raw: Raw string from experiments.csv bad_behav_times column.
-        total_seconds: Total session duration (s), used to clip end times.
+        total_seconds: Total session duration (s), used for "end" and clipping.
 
     Returns:
         List of (start_s, end_s) tuples in seconds.
@@ -218,18 +228,22 @@ def parse_bad_behav_times(raw: str, total_seconds: float) -> list[tuple[float, f
             return []
     except (TypeError, ValueError):
         pass
-    # Handle literal "nan" string (CSV missing values read as string)
-    if str(raw).strip().lower() in ("nan", "", "none"):
+    cleaned = str(raw).strip().lower()
+    if cleaned in ("nan", "", "none", "?"):
         return []
 
     intervals: list[tuple[float, float]] = []
-    for segment in raw.split(","):
+    for segment in raw.split(";"):
         segment = segment.strip()
         if not segment:
             continue
-        start_str, end_str = segment.split("-")
+        parts = segment.split("-", 1)
+        if len(parts) != 2:
+            continue  # malformed — skip silently
+        start_str, end_str = parts
         start_s = _mmss_to_seconds(start_str.strip())
-        end_s = _mmss_to_seconds(end_str.strip())
+        end_raw = end_str.strip().lower()
+        end_s = total_seconds if end_raw == "end" else _mmss_to_seconds(end_str.strip())
         end_s = min(end_s, total_seconds)
         intervals.append((start_s, end_s))
     return intervals

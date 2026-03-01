@@ -83,21 +83,48 @@ def test_mmss_to_seconds() -> None:
 
 
 def test_parse_bad_behav_empty() -> None:
+    """Empty / NaN / unknown → no exclusions."""
     assert parse_bad_behav_times("", 600.0) == []
     assert parse_bad_behav_times("nan", 600.0) == []
+    assert parse_bad_behav_times("none", 600.0) == []
+
+
+def test_parse_bad_behav_question_mark() -> None:
+    """'?' (unknown) → treated as no exclusions."""
+    assert parse_bad_behav_times("?", 600.0) == []
 
 
 def test_parse_bad_behav_single_interval() -> None:
+    """Single semicolon-delimited interval parses correctly."""
     result = parse_bad_behav_times("02:30-03:00", 600.0)
     assert result == [(150.0, 180.0)]
 
 
-def test_parse_bad_behav_multiple_intervals() -> None:
-    result = parse_bad_behav_times("02:30-03:00, 07:15-07:45", 600.0)
+def test_parse_bad_behav_multiple_intervals_semicolon() -> None:
+    """Semicolon-separated intervals (real CSV format) parse correctly."""
+    result = parse_bad_behav_times("02:30-03:00;07:15-07:45", 600.0)
     assert result == [(150.0, 180.0), (435.0, 465.0)]
 
 
+def test_parse_bad_behav_end_keyword() -> None:
+    """'end' as end timestamp maps to total_seconds."""
+    result = parse_bad_behav_times("27:00-end", 1800.0)
+    assert result == [(1620.0, 1800.0)]
+
+
+def test_parse_bad_behav_real_csv_row() -> None:
+    """Parse the exact format found in the real experiments.csv."""
+    raw = "11:10-11:30;13:20-21:00;22:30-24:40;27:00-end"
+    total = 1800.0  # 30 min session
+    result = parse_bad_behav_times(raw, total)
+    assert result[0] == (670.0, 690.0)   # 11:10–11:30
+    assert result[1] == (800.0, 1260.0)  # 13:20–21:00
+    assert result[2] == (1350.0, 1480.0) # 22:30–24:40
+    assert result[3] == (1620.0, 1800.0) # 27:00–end
+
+
 def test_parse_bad_behav_clips_to_total_duration() -> None:
+    """Explicit end time past session length is clipped to total_seconds."""
     result = parse_bad_behav_times("09:50-10:30", 600.0)  # 10:30 > 10:00 total
     assert result == [(590.0, 600.0)]
 
