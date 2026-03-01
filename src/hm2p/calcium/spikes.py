@@ -10,6 +10,9 @@ Model selection guide:
     GCaMP7f @ ~30 Hz  → 'Global_EXC_7.5Hz_smoothing200ms'  (closest available)
     GCaMP8f @ ~30 Hz  → same model (GCaMP8 not separately available as of Feb 2026)
     See cascade2p.utils.get_model_folder() for all available models.
+
+Note: cascade2p is conda-only (not on PyPI). Install via:
+    conda install -c conda-forge cascade2p
 """
 
 from __future__ import annotations
@@ -24,6 +27,9 @@ def predict_spike_rates(
 ) -> np.ndarray:
     """Infer spike rates from dF/F0 traces using CASCADE.
 
+    Requires cascade2p to be installed (conda-only). Falls back gracefully
+    with a clear ImportError if not available.
+
     Args:
         dff: (n_rois, n_frames) float32 — dF/F0 traces.
         model_name: CASCADE pre-trained model name.
@@ -31,8 +37,21 @@ def predict_spike_rates(
 
     Returns:
         (n_rois, n_frames) float32 — spike rates in spikes/s.
+
+    Raises:
+        ImportError: If cascade2p is not installed.
     """
-    raise NotImplementedError
+    try:
+        from cascade2p import cascade
+    except ImportError as exc:
+        raise ImportError(
+            "cascade2p is not installed. "
+            "Install via conda: conda install -c conda-forge cascade2p\n"
+            "See: https://github.com/HelmchenLabSoftware/Cascade"
+        ) from exc
+
+    spike_prob = cascade.predict(model_name, dff)
+    return np.asarray(spike_prob, dtype=np.float32)
 
 
 def compute_mean_spike_rate(

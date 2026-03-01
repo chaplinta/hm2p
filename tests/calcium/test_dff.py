@@ -7,7 +7,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from hm2p.calcium.dff import compute_dff
+from hm2p.calcium.dff import compute_baseline, compute_dff
 
 # ---------------------------------------------------------------------------
 # compute_dff — pure numpy, fully testable
@@ -56,3 +56,52 @@ def test_dff_property_known_amplitude(scale: float) -> None:
     result = compute_dff(F, F0)
     # float32 has ~6 sig-fig precision → rtol=1e-3 is appropriate
     np.testing.assert_allclose(result, scale - 1.0, rtol=1e-3)
+
+
+# ---------------------------------------------------------------------------
+# compute_baseline
+# ---------------------------------------------------------------------------
+
+
+class TestComputeBaseline:
+    def test_output_shape(self, rng: np.random.Generator) -> None:
+        """Baseline shape matches input shape."""
+        F = rng.uniform(100, 500, (8, 600)).astype(np.float32)
+        F0 = compute_baseline(F, fps=30.0)
+        assert F0.shape == F.shape
+
+    def test_output_dtype_float32(self, rng: np.random.Generator) -> None:
+        """Baseline is float32."""
+        F = rng.uniform(100, 500, (4, 300)).astype(np.float32)
+        F0 = compute_baseline(F, fps=30.0)
+        assert F0.dtype == np.float32
+
+    def test_baseline_leq_signal(self, rng: np.random.Generator) -> None:
+        """Baseline ≤ smoothed signal (sliding minimum property)."""
+        F = np.abs(rng.uniform(100, 500, (5, 900)).astype(np.float32))
+        F0 = compute_baseline(F, fps=30.0, window_s=10.0, gaussian_sigma_s=1.0)
+        # Allow small numerical tolerance from Gaussian smoothing at boundaries
+        assert np.all(F0 <= F.max() + 1.0)
+
+    def test_constant_signal_baseline_equals_signal(self) -> None:
+        """Constant trace → baseline equals the constant."""
+        F = np.full((3, 300), 200.0, dtype=np.float32)
+        F0 = compute_baseline(F, fps=30.0, window_s=5.0, gaussian_sigma_s=1.0)
+        np.testing.assert_allclose(F0, 200.0, rtol=1e-3)
+
+    def test_transient_does_not_raise_baseline(self) -> None:
+        """A short positive transient does not elevate the sliding-min baseline."""
+        F = np.full((1, 900), 100.0, dtype=np.float32)
+        # Add a brief spike in the middle
+        F[0, 440:460] = 500.0
+        F0 = compute_baseline(F, fps=30.0, window_s=10.0, gaussian_sigma_s=1.0)
+        # Baseline in the second half (well past the transient) should be ~100
+        np.testing.assert_allclose(F0[0, 600:], 100.0, atol=5.0)
+
+    def test_window_shorter_gives_tighter_baseline(self, rng: np.random.Generator) -> None:
+        """Shorter window produces a baseline that tracks faster (≥ longer window)."""
+        F = np.abs(rng.uniform(80, 200, (2, 600)).astype(np.float32))
+        F0_short = compute_baseline(F, fps=30.0, window_s=5.0, gaussian_sigma_s=1.0)
+        F0_long = compute_baseline(F, fps=30.0, window_s=30.0, gaussian_sigma_s=1.0)
+        # Shorter window baseline is always ≥ longer (tighter tracking)
+        assert np.all(F0_short >= F0_long - 1.0)

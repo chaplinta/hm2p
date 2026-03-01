@@ -15,6 +15,9 @@ from pathlib import Path
 
 import numpy as np
 
+# Keys in kinematics.h5 that are boolean (use nearest-neighbour resampling)
+_BOOL_KEYS: frozenset[str] = frozenset({"light_on", "bad_behav", "active"})
+
 
 def resample_to_imaging_rate(
     values: np.ndarray,
@@ -68,10 +71,43 @@ def run(
 ) -> None:
     """End-to-end Stage 5: kinematics.h5 + ca.h5 → sync.h5.
 
+    Resamples all kinematics signals from camera rate to imaging rate by
+    linear interpolation (continuous signals) or nearest-neighbour (booleans).
+    Combines with calcium arrays (already at imaging rate) and writes sync.h5.
+
     Args:
         kinematics_h5: Stage 3 kinematics output.
         ca_h5: Stage 4 calcium output.
         session_id: Canonical session identifier.
         output_path: Destination sync.h5 file path.
     """
-    raise NotImplementedError
+    from hm2p.io.hdf5 import read_attrs, read_h5, write_h5
+
+    kin = read_h5(kinematics_h5)
+    ca = read_h5(ca_h5)
+
+    src_times = kin["frame_times"]   # camera rate timestamps
+    dst_times = ca["frame_times"]    # imaging rate timestamps (target grid)
+
+    datasets: dict[str, np.ndarray] = {}
+
+    # Resample kinematics to imaging rate
+    for key, arr in kin.items():
+        if key == "frame_times":
+            continue
+        if key in _BOOL_KEYS:
+            datasets[key] = resample_bool_to_imaging_rate(arr, src_times, dst_times)
+        else:
+            datasets[key] = resample_to_imaging_rate(
+                arr, src_times, dst_times
+            ).astype(np.float32)
+
+    # Copy calcium arrays (already at imaging rate)
+    for key, arr in ca.items():
+        datasets[key] = arr  # includes frame_times, dff, spikes, etc.
+
+    # Inherit ca.h5 root attrs, override session_id
+    attrs = dict(read_attrs(ca_h5))
+    attrs["session_id"] = session_id
+
+    write_h5(output_path, datasets, attrs=attrs)

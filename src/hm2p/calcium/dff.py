@@ -17,6 +17,10 @@ def compute_baseline(
 ) -> np.ndarray:
     """Estimate baseline F0 via sliding window minimum of Gaussian-smoothed trace.
 
+    Mirrors the Suite2p baseline estimator:
+      1. Gaussian-smooth each trace to attenuate transients.
+      2. Sliding-window minimum to track slow drift.
+
     Args:
         F: (n_rois, n_frames) float32 — neuropil-corrected fluorescence.
         fps: Imaging frame rate (Hz).
@@ -26,7 +30,14 @@ def compute_baseline(
     Returns:
         (n_rois, n_frames) float32 — estimated baseline F0.
     """
-    raise NotImplementedError
+    from scipy.ndimage import gaussian_filter1d, minimum_filter1d
+
+    sigma_frames = gaussian_sigma_s * fps
+    window_frames = max(1, int(window_s * fps))
+
+    F_smooth = gaussian_filter1d(F.astype(np.float64), sigma=sigma_frames, axis=1)
+    F0 = minimum_filter1d(F_smooth, size=window_frames, axis=1)
+    return F0.astype(np.float32)
 
 
 def compute_dff(F: np.ndarray, F0: np.ndarray) -> np.ndarray:
