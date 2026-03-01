@@ -8,6 +8,8 @@ rule sync_neural_behav:
         calcium=f"{DATA_ROOT}/derivatives/calcium/{{sub}}/{{ses}}/ca.h5",
     output:
         h5=f"{DATA_ROOT}/derivatives/sync/{{sub}}/{{ses}}/sync.h5",
+    params:
+        session_id=wildcards_to_session_id,
     resources:
         mem_mb=4000,
         runtime=10,
@@ -19,7 +21,7 @@ from pathlib import Path
 run(
     kinematics_h5=Path('{input.kinematics}'),
     ca_h5=Path('{input.calcium}'),
-    session_id='placeholder',
+    session_id='{params.session_id}',
     output_path=Path('{output.h5}'),
 )
 "

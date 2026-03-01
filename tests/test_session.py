@@ -121,8 +121,8 @@ def test_load_registry(tmp_path: Path) -> None:
     )
     experiments_csv.write_text(
         textwrap.dedent("""\
-            session_id,animal_id,extractor,tracker,orientation,bad_behav_times
-            20220804_13_52_02_1117646,1117646,suite2p,dlc,15.0,02:30-03:00
+            exp_id,extractor,tracker,orientation,bad_behav_times
+            20220804_13_52_02_1117646,suite2p,dlc,15.0,02:30-03:00
         """)
     )
 

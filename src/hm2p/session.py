@@ -127,7 +127,10 @@ def load_registry(
     """Load all sessions from the metadata CSV files.
 
     Merges animals.csv (animal-level metadata) with experiments.csv
-    (session-level metadata) on animal_id.
+    (session-level metadata) on animal_id.  The canonical session
+    identifier is the ``exp_id`` column in experiments.csv
+    (format: YYYYMMDD_HH_MM_SS_<animal_id>); animal_id is extracted
+    from the last underscore-delimited segment.
 
     Args:
         animals_csv: Path to metadata/animals.csv.
@@ -143,21 +146,25 @@ def load_registry(
     animals = pd.read_csv(animals_csv, dtype=str)
     experiments = pd.read_csv(experiments_csv, dtype=str)
 
+    # animal_id is embedded in exp_id (last segment); derive it for the merge
+    experiments = experiments.copy()
+    experiments["animal_id"] = experiments["exp_id"].str.split("_").str[-1]
+
     merged = experiments.merge(animals, on="animal_id", how="left", validate="many_to_one")
 
     sessions: list[Session] = []
     for _, row in merged.iterrows():
         sessions.append(
             Session(
-                session_id=row["session_id"],
+                session_id=row["exp_id"],
                 animal_id=row["animal_id"],
                 celltype=row["celltype"],
                 gcamp=row.get("gcamp", "GCaMP7f"),
                 virus_id=row.get("virus_id", ""),
                 extractor=row.get("extractor", "suite2p"),
                 tracker=row.get("tracker", "dlc"),
-                orientation=float(row.get("orientation", 0.0)),
-                bad_behav_times=row.get("bad_behav_times", ""),
+                orientation=float(row.get("orientation", 0.0) or 0.0),
+                bad_behav_times=row.get("bad_behav_times", "") or "",
             )
         )
     return sessions

@@ -27,7 +27,7 @@ configfile: "config/pipeline.yaml"
 
 EXPERIMENTS = pd.read_csv("metadata/experiments.csv", dtype=str)
 ANIMALS = pd.read_csv("metadata/animals.csv", dtype=str)
-SESSIONS = EXPERIMENTS["session_id"].tolist()
+SESSIONS = EXPERIMENTS["exp_id"].tolist()
 
 # NeuroBlueprint sub/ses helpers
 def ses(sid):
@@ -36,6 +36,20 @@ def ses(sid):
 
 def sub(sid):
     return f"sub-{sid.rsplit('_', 1)[1]}"
+
+
+def wildcards_to_session_id(wc) -> str:
+    """Reconstruct canonical session ID from Snakemake sub/ses wildcards.
+
+    sub-1114353 + ses-20210823T165950 → 20210823_16_59_50_1114353
+    """
+    s = wc.ses   # ses-20210823T165950
+    date = s[4:12]        # 20210823
+    hh = s[13:15]         # 16
+    mm = s[15:17]         # 59
+    ss = s[17:19]         # 50
+    animal_id = wc.sub[4:]  # 1114353
+    return f"{date}_{hh}_{mm}_{ss}_{animal_id}"
 
 DATA_ROOT = config.get("data_root", "data")
 
@@ -47,7 +61,7 @@ rule all:
     input:
         # Stage 0
         expand(
-            f"{DATA_ROOT}/derivatives/movement/{{sub}}/{{ses}}/timestamps.h5",
+            f"{DATA_ROOT}/derivatives/timestamps/{{sub}}/{{ses}}/timestamps.h5",
             zip,
             sub=[sub(s) for s in SESSIONS],
             ses=[ses(s) for s in SESSIONS],
