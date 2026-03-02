@@ -32,6 +32,7 @@ S3 layout (NeuroBlueprint)
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import subprocess
 import sys
 from pathlib import Path
@@ -46,9 +47,7 @@ RAW_SESSIONS_ROOT = Path(
     "/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie"
     "/shared/lab-108/experiments/01 lights-maze"
 )
-VIDEO_ROOT = Path(
-    "/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/video"
-)
+VIDEO_ROOT = Path("/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/video")
 METADATA_DIR = REPO_ROOT / "metadata"
 CALIB_DIR = REPO_ROOT / "sourcedata" / "calibration"
 
@@ -82,6 +81,24 @@ def s3_prefix(exp_id: str) -> str:
     return f"rawdata/sub-{animal_id}/{ses_name}"
 
 
+def estimate_local_dir(
+    src: Path,
+    excludes: list[str],
+) -> tuple[int, int]:
+    """Count files and total bytes that would be synced, after exclusions.
+
+    Returns:
+        (n_files, total_bytes) tuple.
+    """
+    n_files = 0
+    total_bytes = 0
+    for f in src.rglob("*"):
+        if f.is_file() and not any(fnmatch.fnmatch(f.name, pat) for pat in excludes):
+            n_files += 1
+            total_bytes += f.stat().st_size
+    return n_files, total_bytes
+
+
 def run_sync(
     src: Path,
     dst_s3: str,
@@ -94,11 +111,15 @@ def run_sync(
     Returns the exit code.
     """
     cmd = [
-        "aws", "s3", "sync",
+        "aws",
+        "s3",
+        "sync",
         str(src),
         dst_s3,
-        "--profile", profile,
-        "--region", REGION,
+        "--profile",
+        profile,
+        "--region",
+        REGION,
     ]
     for pat in excludes:
         cmd += ["--exclude", pat]
@@ -118,11 +139,15 @@ def run_cp(
 ) -> int:
     """Run `aws s3 cp src dst_s3 [--dryrun]` for a single file."""
     cmd = [
-        "aws", "s3", "cp",
+        "aws",
+        "s3",
+        "cp",
         str(src),
         dst_s3,
-        "--profile", profile,
-        "--region", REGION,
+        "--profile",
+        profile,
+        "--region",
+        REGION,
     ]
     if dry_run:
         cmd.append("--dryrun")
@@ -154,13 +179,15 @@ def upload_session(exp_id: str, profile: str, dry_run: bool) -> list[int]:
     raw_dir = raw_session_dir(exp_id)
     if raw_dir.exists():
         print(f"\n[funcimg] {raw_dir.name}")
-        codes.append(run_sync(
-            raw_dir,
-            f"s3://{BUCKET}/{prefix}/funcimg/",
-            FUNCIMG_EXCLUDES,
-            profile,
-            dry_run,
-        ))
+        codes.append(
+            run_sync(
+                raw_dir,
+                f"s3://{BUCKET}/{prefix}/funcimg/",
+                FUNCIMG_EXCLUDES,
+                profile,
+                dry_run,
+            )
+        )
     else:
         print(f"\n[warn] raw dir not found: {raw_dir}")
 
@@ -168,13 +195,15 @@ def upload_session(exp_id: str, profile: str, dry_run: bool) -> list[int]:
     vid_dir = VIDEO_ROOT / exp_id
     if vid_dir.exists():
         print(f"\n[behav] {vid_dir.name}")
-        codes.append(run_sync(
-            vid_dir,
-            f"s3://{BUCKET}/{prefix}/behav/",
-            BEHAV_EXCLUDES,
-            profile,
-            dry_run,
-        ))
+        codes.append(
+            run_sync(
+                vid_dir,
+                f"s3://{BUCKET}/{prefix}/behav/",
+                BEHAV_EXCLUDES,
+                profile,
+                dry_run,
+            )
+        )
     else:
         print(f"\n[warn] video dir not found: {vid_dir}")
 
@@ -190,17 +219,25 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="List files that would be uploaded without transferring anything.",
     )
     parser.add_argument(
-        "--profile", default=DEFAULT_PROFILE,
+        "--profile",
+        default=DEFAULT_PROFILE,
         help="AWS CLI profile (default: h2mp-agent).",
     )
     parser.add_argument(
         "--session",
         metavar="EXP_ID",
         help="Upload a single session by exp_id (default: all sessions).",
+    )
+    parser.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Skip cost estimate confirmation prompt.",
     )
     args = parser.parse_args()
 
@@ -214,36 +251,68 @@ def main() -> None:
 
     all_codes: list[int] = []
 
+    # --- Cost estimation before any transfers ---
+    if not args.dry_run:
+        total_files = 0
+        total_bytes = 0
+        for exp_id in exp_ids:
+            raw_dir = raw_session_dir(exp_id)
+            if raw_dir.exists():
+                n, b = estimate_local_dir(raw_dir, FUNCIMG_EXCLUDES)
+                total_files += n
+                total_bytes += b
+            vid_dir = VIDEO_ROOT / exp_id
+            if vid_dir.exists():
+                n, b = estimate_local_dir(vid_dir, BEHAV_EXCLUDES)
+                total_files += n
+                total_bytes += b
+        for f in sorted(METADATA_DIR.glob("*.csv")):
+            total_files += 1
+            total_bytes += f.stat().st_size
+        if CALIB_DIR.exists():
+            for f in sorted(CALIB_DIR.glob("*.npz")):
+                total_files += 1
+                total_bytes += f.stat().st_size
+
+        from hm2p.io.aws_cost import confirm_or_abort, estimate_upload_from_counts
+
+        est = estimate_upload_from_counts(total_files, total_bytes)
+        confirm_or_abort(est, yes=args.yes)
+
     # Sessions
     for i, exp_id in enumerate(exp_ids, 1):
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Session {i}/{len(exp_ids)}: {exp_id}")
         all_codes.extend(upload_session(exp_id, args.profile, args.dry_run))
 
     # Metadata CSVs
-    print(f"\n{'='*60}\nMetadata CSVs")
+    print(f"\n{'=' * 60}\nMetadata CSVs")
     for f in sorted(METADATA_DIR.glob("*.csv")):
-        all_codes.append(run_cp(
-            f,
-            f"s3://{BUCKET}/sourcedata/metadata/{f.name}",
-            args.profile,
-            args.dry_run,
-        ))
+        all_codes.append(
+            run_cp(
+                f,
+                f"s3://{BUCKET}/sourcedata/metadata/{f.name}",
+                args.profile,
+                args.dry_run,
+            )
+        )
 
     # Calibration .npz files
     if CALIB_DIR.exists():
-        print(f"\n{'='*60}\nCalibration files")
+        print(f"\n{'=' * 60}\nCalibration files")
         for f in sorted(CALIB_DIR.glob("*.npz")):
-            all_codes.append(run_cp(
-                f,
-                f"s3://{BUCKET}/sourcedata/calibration/{f.name}",
-                args.profile,
-                args.dry_run,
-            ))
+            all_codes.append(
+                run_cp(
+                    f,
+                    f"s3://{BUCKET}/sourcedata/calibration/{f.name}",
+                    args.profile,
+                    args.dry_run,
+                )
+            )
 
     # Summary
     failures = [c for c in all_codes if c != 0]
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     if args.dry_run:
         print("Dry run complete — no files were transferred.")
     elif failures:
