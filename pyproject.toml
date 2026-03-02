@@ -18,6 +18,7 @@ dependencies = [
     # Configuration & session registry
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
+    "pyyaml>=6.0",
 
     # Stage 0 — DAQ / ingest
     "nptdms>=1.9",

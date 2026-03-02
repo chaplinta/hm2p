@@ -230,7 +230,7 @@ are symlinked into `.claude/skills/` from a local clone at `~/Neuro/claude-scien
 | Writing & communication | scientific-writing, scientific-schematics, markdown-mermaid-writing |
 | Literature | pubmed-database, pyzotero |
 
-**Setup (if `.claude/skills/` is empty or missing):**
+**Setup — local macOS (if `.claude/skills/` is empty or missing):**
 
 ```bash
 git clone https://github.com/K-Dense-AI/claude-scientific-skills.git ~/Neuro/claude-scientific-skills
@@ -240,10 +240,27 @@ for skill in matplotlib seaborn plotly scientific-visualization scikit-learn sta
 done
 ```
 
-**Updating:** `cd ~/Neuro/claude-scientific-skills && git pull` — symlinks resolve live.
+**Setup — devcontainer (symlinks point to macOS paths that don't exist inside the container):**
+
+```bash
+# Clone the repo inside the container
+git clone https://github.com/K-Dense-AI/claude-scientific-skills.git /home/node/claude-scientific-skills
+
+# Re-link skills to the container-local clone
+mkdir -p .claude/skills
+for skill in matplotlib seaborn plotly scientific-visualization scikit-learn statsmodels statistical-analysis shap pymc polars networkx pytorch-lightning umap-learn scientific-writing scientific-schematics markdown-mermaid-writing pubmed-database pyzotero; do
+  ln -sfn /home/node/claude-scientific-skills/scientific-skills/$skill .claude/skills/$skill
+done
+```
+
+This must be re-run after each container rebuild (the clone lives in the container filesystem,
+not in a persistent volume). To make it persistent, add `/home/node/claude-scientific-skills`
+as a named volume in `.devcontainer/devcontainer.json`.
+
+**Updating:** `cd <clone-path>/claude-scientific-skills && git pull` — symlinks resolve live.
 Run this periodically (e.g. at the start of analysis or visualization sessions).
 
-**Adding a new skill:** `ln -sfn ~/Neuro/claude-scientific-skills/scientific-skills/<name> .claude/skills/<name>`
+**Adding a new skill:** `ln -sfn <clone-path>/claude-scientific-skills/scientific-skills/<name> .claude/skills/<name>`
 
 **Note:** `.claude/skills/` is gitignored (symlinks are machine-local).
 

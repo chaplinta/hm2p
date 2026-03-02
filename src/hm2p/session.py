@@ -47,7 +47,7 @@ def parse_session_id(session_id: str) -> dict[str, str]:
     return m.groupdict()
 
 
-def session_id_to_neurobluepint(session_id: str) -> str:
+def session_id_to_neuroblueprint(session_id: str) -> str:
     """Convert canonical session ID to NeuroBlueprint folder name.
 
     Args:
@@ -93,12 +93,12 @@ class Session:
     bad_behav_times: str = ""
 
     @property
-    def neurobluepint_ses(self) -> str:
+    def neuroblueprint_ses(self) -> str:
         """NeuroBlueprint session folder name, e.g. 'ses-20220804T135202'."""
-        return session_id_to_neurobluepint(self.session_id)
+        return session_id_to_neuroblueprint(self.session_id)
 
     @property
-    def neurobluepint_sub(self) -> str:
+    def neuroblueprint_sub(self) -> str:
         """NeuroBlueprint subject folder name, e.g. 'sub-1117646'."""
         return f"sub-{self.animal_id}"
 
@@ -112,7 +112,9 @@ class Session:
         Returns:
             Path to derivatives/<derivative>/sub-{id}/ses-{date}/.
         """
-        return root / "derivatives" / derivative / self.neurobluepint_sub / self.neurobluepint_ses
+        return (
+            root / "derivatives" / derivative / self.neuroblueprint_sub / self.neuroblueprint_ses
+        )
 
 
 # ---------------------------------------------------------------------------

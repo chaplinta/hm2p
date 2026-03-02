@@ -62,7 +62,7 @@ def ingest(
     cfg, ses = _load_session(session)
 
     funcimg_dir = (
-        cfg.data_root / "rawdata" / ses.neurobluepint_sub / ses.neurobluepint_ses / "funcimg"
+        cfg.data_root / "rawdata" / ses.neuroblueprint_sub / ses.neuroblueprint_ses / "funcimg"
     )
     tdms_files = sorted(funcimg_dir.glob("*-di.tdms"))
     if not tdms_files:
@@ -108,7 +108,8 @@ def kinematics(
     pose_path = pose_candidates[0]
 
     # --- Meta.txt (crop ROI, scale, maze corners) ---
-    behav_dir = cfg.data_root / "rawdata" / ses.neurobluepint_sub / ses.neurobluepint_ses / "behav"
+    rawdata = cfg.data_root / "rawdata" / ses.neuroblueprint_sub / ses.neuroblueprint_ses
+    behav_dir = rawdata / "behav"
     meta_files = sorted(behav_dir.glob("*.meta.txt"))
     if not meta_files:
         typer.echo(f"[FAIL] {session} — no *.meta.txt found in {behav_dir}")

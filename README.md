@@ -242,23 +242,35 @@ S3 bucket setup, and how to launch EC2 Spot instances for each stage.
 - Use `hypothesis` for numerical functions, `pandera` for schema validation
 - Run `pre-commit` before committing (ruff + mypy + nbstripout)
 
+### Claude Code scientific skills
+
+18 curated skills from [K-Dense-AI/claude-scientific-skills](https://github.com/K-Dense-AI/claude-scientific-skills)
+are available for Claude Code agents working on this project. Skills provide domain-specific
+knowledge for matplotlib, seaborn, plotly, scikit-learn, statsmodels, pymc, and more.
+
+See the **Claude Code Scientific Skills** section in [CLAUDE.md](CLAUDE.md) for setup
+instructions (local macOS and devcontainer).
+
 ---
 
 ## Status
 
-This pipeline is in **design and early implementation phase**. The docs are
-complete; code is not yet written.
+**Implementation phase** — core pipeline code and tests are written. 283 tests passing, 97% coverage.
 
-Planned implementation order:
-
-1. Project skeleton (pyproject.toml, pre-commit, CI)
-2. HDF5 schema validation tests
-3. Stage 0 — TDMS ingest
-4. Stage 3 — Kinematics (movement)
-5. Stage 4 — Calcium processing (CASCADE + FISSA)
-6. Stage 5 — Sync
-7. Snakemake DAG
-8. Docker images for cloud
+| Component | Status |
+| --- | --- |
+| Project skeleton (pyproject.toml, pre-commit, CI) | Done |
+| HDF5 schema validation | Done |
+| Stage 0 — TDMS ingest (`ingest/daq.py`) | Done |
+| Stage 3 — Kinematics (`kinematics/compute.py`) | Done |
+| Stage 4 — Calcium processing (`calcium/`) | Done (CASCADE deferred — needs conda env) |
+| Stage 5 — Sync (`sync/align.py`) | Done |
+| Suite2p extractor (`extraction/suite2p.py`) | Done |
+| CaImAn extractor (`extraction/caiman.py`) | Done |
+| S3 data upload (26 sessions) | Done |
+| Snakemake DAG | Pending — rules defined, shell commands needed |
+| Docker images for cloud | Pending |
+| NWB export (neuroconv) | Pending — stub only |
 
 ---
 

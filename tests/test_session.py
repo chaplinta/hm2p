@@ -12,7 +12,7 @@ from hm2p.session import (
     _mmss_to_seconds,
     parse_bad_behav_times,
     parse_session_id,
-    session_id_to_neurobluepint,
+    session_id_to_neuroblueprint,
 )
 
 # ---------------------------------------------------------------------------
@@ -42,12 +42,12 @@ def test_parse_session_id_wrong_format_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
-# session_id_to_neurobluepint
+# session_id_to_neuroblueprint
 # ---------------------------------------------------------------------------
 
 
-def test_session_id_to_neurobluepint() -> None:
-    nb = session_id_to_neurobluepint("20220804_13_52_02_1117646")
+def test_session_id_to_neuroblueprint() -> None:
+    nb = session_id_to_neuroblueprint("20220804_13_52_02_1117646")
     assert nb == "ses-20220804T135202"
 
 
@@ -57,8 +57,8 @@ def test_session_id_to_neurobluepint() -> None:
 
 
 def test_session_properties(penk_session: Session) -> None:
-    assert penk_session.neurobluepint_sub == "sub-1117646"
-    assert penk_session.neurobluepint_ses == "ses-20220804T135202"
+    assert penk_session.neuroblueprint_sub == "sub-1117646"
+    assert penk_session.neuroblueprint_ses == "ses-20220804T135202"
 
 
 def test_session_derivatives_path(penk_session: Session, tmp_path: Path) -> None:

@@ -99,6 +99,11 @@ class PipelineConfig(BaseSettings):
 def load_config(path: Path | None = None) -> PipelineConfig:
     """Load PipelineConfig from a YAML file, with env-var overrides.
 
+    Precedence (highest first):
+        1. Environment variables (HM2P_<KEY>)
+        2. YAML file values
+        3. Pydantic field defaults
+
     Args:
         path: Path to config YAML. Defaults to config/pipeline.yaml relative
               to the current working directory.
@@ -106,6 +111,25 @@ def load_config(path: Path | None = None) -> PipelineConfig:
     Returns:
         Validated PipelineConfig instance.
     """
-    # TODO: implement YAML loading with pydantic-settings yaml source
-    # For now, return defaults (env vars still override)
+    if path is None:
+        path = Path("config/pipeline.yaml")
+
+    if path.exists():
+        import os
+
+        import yaml  # defer import — only needed when loading config
+
+        with open(path) as f:
+            yaml_data = yaml.safe_load(f) or {}
+
+        # Env vars (HM2P_<KEY>) should override YAML values.
+        # pydantic-settings gives init kwargs highest priority, so we strip
+        # YAML keys that have corresponding env vars set.
+        env_prefix = "HM2P_"
+        for key in list(yaml_data):
+            if f"{env_prefix}{key.upper()}" in os.environ:
+                del yaml_data[key]
+
+        return PipelineConfig(**yaml_data)
+
     return PipelineConfig()

@@ -40,7 +40,7 @@ def validate_session(session: Session, rawdata_root: Path) -> ValidationResult:
     Returns:
         ValidationResult — ok=True if all required files present.
     """
-    ses_root = rawdata_root / session.neurobluepint_sub / session.neurobluepint_ses
+    ses_root = rawdata_root / session.neuroblueprint_sub / session.neuroblueprint_ses
     funcimg = ses_root / "funcimg"
     behav = ses_root / "behav"
 

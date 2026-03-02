@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import numpy as np
 import pytest
 
@@ -72,3 +74,31 @@ def test_predict_spike_rates_raises_importerror_without_cascade() -> None:
             model_name="Global_EXC_7.5Hz_smoothing200ms",
             fps=30.0,
         )
+
+
+def test_predict_spike_rates_with_mock_cascade() -> None:
+    """predict_spike_rates returns correct shape when cascade2p is available (mocked)."""
+    n_rois, n_frames = 5, 200
+    dff = np.random.default_rng(42).uniform(0, 1, (n_rois, n_frames)).astype(np.float32)
+    fake_output = np.random.default_rng(0).uniform(0, 2, (n_rois, n_frames)).astype(np.float32)
+
+    # `from cascade2p import cascade` looks up sys.modules["cascade2p"].cascade
+    mock_cascade_module = MagicMock()
+    mock_cascade_module.predict.return_value = fake_output
+    mock_cascade2p = MagicMock()
+    mock_cascade2p.cascade = mock_cascade_module
+
+    with patch.dict(
+        "sys.modules",
+        {"cascade2p": mock_cascade2p, "cascade2p.cascade": mock_cascade_module},
+    ):
+        result = predict_spike_rates(
+            dff=dff,
+            model_name="Global_EXC_7.5Hz_smoothing200ms",
+            fps=30.0,
+        )
+
+    assert result.shape == (n_rois, n_frames)
+    assert result.dtype == np.float32
+    mock_cascade_module.predict.assert_called_once_with("Global_EXC_7.5Hz_smoothing200ms", dff)
+    np.testing.assert_array_equal(result, fake_output)

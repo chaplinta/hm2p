@@ -1,27 +1,27 @@
-exp_index,exp_id,implant_date,zstack_id,fibre,lens,orientation,maze_session_num,bad_2p_frames,bad_behav_times,primary_exp,exclude,Notes
-1,20210823_16_59_50_1114353,2/8/2021,20210823_16_39_11_1114353,SFB,f4mm,0,2,,11:10-11:30;13:20-21:00;22:30-24:40;27:00-end,1,0,Good
-2,20210920_11_09_37_1114356,16/9/2021,20210916_17_21_17_1114356,SFB,f4mm,0,3,16840-18000,?,0,0,Not many good cells
-3,20210923_15_05_14_1114356,,,SFB,f4mm,0,,,?,0,0,"High 2p zoom. Can see a few spines, not good though"
-4,20210924_16_09_21_1114356,,,SFB,f4mm,0,,,?,0,0,"High 2p zoom. Can see a few spines, not good though"
-5,20211028_10_22_38_1114356,,,SFB,f4mm,0,,,?,0,1,"Fluctuating traces, delete?"
-6,20211028_11_25_50_1115465,,20211027_14_46_16_1115465,SFB,f4mm,180,,,6:15-8:00;20:00-27:30,1,0,Good 2p. Restricted by tether at 10 mins but can still move.
-7,20211029_13_50_08_1115465,,20211027_14_46_16_1115465,SFB,f4mm,180,,,?,0,0,Also a good experiment for 1115465
-8,20211102_15_11_34_1115465,,,SFB,f4mm,0,,,?,0,0,Also a good experiment for 1115465
-9,20211203_15_10_27_1115464,19/11/2021,20211119_15_22_30_1115464,SFB,f4mm,0,2,,,1,0,Good behaviour
-10,20211216_14_36_39_1115816,15/12/2021,20211215_17_46_27_1115816,SFB,f4mm,0,1,,?,0,0,"Bad s2p roi detection? Good dends merged, rest look bad"
-11,20220408_15_01_57_1116663,6/4/2022,20220406_18_02_09_1116663,SFB,f4mm,0,1,,6:35-7:25;10:30-11:00;12:30-15:30;21:10-21:40;22:30-29:40,1,0,
-12,20220411_16_45_08_1116663,,,SFB,f4mm,0,,,?,0,0,
-13,20220531_11_06_13_1117217,,,SFB,f4mm,0,,,?,0,1,Camera sync problem
-14,20220601_13_53_18_1117217,30/5/2022,20220530_13_50_30_1117217,SFB,f4mm,0,1,,?,0,1,Camera sync problem
-15,20220608_15_27_32_1117217,30/5/2022,20220530_13_50_30_1117217,SFB,f4mm,180,,,18:50-19:40;21:50-22:30;24:00-25:00,1,0,
-16,20220608_16_22_06_1116994,1/6/2022,20220601_16_22_43_1116994,SFB,f4mm,0,,,10:00-25:00,1,0,
-17,20220802_15_06_53_1117646,,,SFB,f4mm,0,,,6:00-7:20;10:00-11:30;19:30-26:30,1,0,Restricted by tether. Video quite dark.
-18,20220804_11_21_59_1117646,,,TFB,f4mm,0,,,,0,0,
-19,20220804_13_52_02_1117646,,,TFB,f4mm,0,,,,0,1,Not a good 2p recording
-20,20221003_14_36_54_1118020,29/9/2022,20220929_11_28_44_1117217,TFB,f6mm,90,,,,1,0,Wrong name in z-stack?
-21,20221004_10_42_58_1118023,29/9/2022,20220929_15_57_54_1118023,TFB,f6mm,90,1,,,1,1,Camera sync problem. Tether gets gradually more retrictive post 20 minutes.
-22,20221010_11_43_35_1118018,,,TFB,f6mm,90,,,,0,0,"Only 2 neurons, but suite2p did not detect properly"
-23,20221018_10_56_17_1117788,17/10/2022,20221017_14_28_09_1117788,TFB,f6mm,90,,12561-14577;,3:55-4:22;15:00-15:14;21:30-end,1,0,Tether gets gradually more restrictive
-24,20221115_13_27_42_1118213,9/11/2022,20221109_14_50_24_1118213,TFB,f6mm,90,1,,,1,0,
-25,20221116_14_31_12_1118320,14/11/2022,20221114_14_54_39_1118320,TFB,f6mm,90,2,,,1,0,
-26,20221117_13_20_31_1118317,14/11/2022,20221114_15_38_58_1118317,TFB,f6mm,90,1,,,1,1,"Quite a bad 2p recording. Mouse stays on one side of maze, may be tethering issue."
+exp_index,exp_id,implant_date,zstack_id,fibre,lens,orientation,extractor,tracker,maze_session_num,bad_2p_frames,bad_behav_times,primary_exp,exclude,Notes
+1,20210823_16_59_50_1114353,2/8/2021,20210823_16_39_11_1114353,SFB,f4mm,0,suite2p,dlc,2,,11:10-11:30;13:20-21:00;22:30-24:40;27:00-end,1,0,Good
+2,20210920_11_09_37_1114356,16/9/2021,20210916_17_21_17_1114356,SFB,f4mm,0,suite2p,dlc,3,16840-18000,?,0,0,Not many good cells
+3,20210923_15_05_14_1114356,,,SFB,f4mm,0,suite2p,dlc,,,?,0,0,"High 2p zoom. Can see a few spines, not good though"
+4,20210924_16_09_21_1114356,,,SFB,f4mm,0,suite2p,dlc,,,?,0,0,"High 2p zoom. Can see a few spines, not good though"
+5,20211028_10_22_38_1114356,,,SFB,f4mm,0,suite2p,dlc,,,?,0,1,"Fluctuating traces, delete?"
+6,20211028_11_25_50_1115465,,20211027_14_46_16_1115465,SFB,f4mm,180,suite2p,dlc,,,6:15-8:00;20:00-27:30,1,0,Good 2p. Restricted by tether at 10 mins but can still move.
+7,20211029_13_50_08_1115465,,20211027_14_46_16_1115465,SFB,f4mm,180,suite2p,dlc,,,?,0,0,Also a good experiment for 1115465
+8,20211102_15_11_34_1115465,,,SFB,f4mm,0,suite2p,dlc,,,?,0,0,Also a good experiment for 1115465
+9,20211203_15_10_27_1115464,19/11/2021,20211119_15_22_30_1115464,SFB,f4mm,0,suite2p,dlc,2,,,1,0,Good behaviour
+10,20211216_14_36_39_1115816,15/12/2021,20211215_17_46_27_1115816,SFB,f4mm,0,suite2p,dlc,1,,?,0,0,"Bad s2p roi detection? Good dends merged, rest look bad"
+11,20220408_15_01_57_1116663,6/4/2022,20220406_18_02_09_1116663,SFB,f4mm,0,suite2p,dlc,1,,6:35-7:25;10:30-11:00;12:30-15:30;21:10-21:40;22:30-29:40,1,0,
+12,20220411_16_45_08_1116663,,,SFB,f4mm,0,suite2p,dlc,,,?,0,0,
+13,20220531_11_06_13_1117217,,,SFB,f4mm,0,suite2p,dlc,,,?,0,1,Camera sync problem
+14,20220601_13_53_18_1117217,30/5/2022,20220530_13_50_30_1117217,SFB,f4mm,0,suite2p,dlc,1,,?,0,1,Camera sync problem
+15,20220608_15_27_32_1117217,30/5/2022,20220530_13_50_30_1117217,SFB,f4mm,180,suite2p,dlc,,,18:50-19:40;21:50-22:30;24:00-25:00,1,0,
+16,20220608_16_22_06_1116994,1/6/2022,20220601_16_22_43_1116994,SFB,f4mm,0,suite2p,dlc,,,10:00-25:00,1,0,
+17,20220802_15_06_53_1117646,,,SFB,f4mm,0,suite2p,dlc,,,6:00-7:20;10:00-11:30;19:30-26:30,1,0,Restricted by tether. Video quite dark.
+18,20220804_11_21_59_1117646,,,TFB,f4mm,0,suite2p,dlc,,,,0,0,
+19,20220804_13_52_02_1117646,,,TFB,f4mm,0,suite2p,dlc,,,,0,1,Not a good 2p recording
+20,20221003_14_36_54_1118020,29/9/2022,20220929_11_28_44_1117217,TFB,f6mm,90,suite2p,dlc,,,,1,0,Wrong name in z-stack?
+21,20221004_10_42_58_1118023,29/9/2022,20220929_15_57_54_1118023,TFB,f6mm,90,suite2p,dlc,1,,,1,1,Camera sync problem. Tether gets gradually more retrictive post 20 minutes.
+22,20221010_11_43_35_1118018,,,TFB,f6mm,90,suite2p,dlc,,,,0,0,"Only 2 neurons, but suite2p did not detect properly"
+23,20221018_10_56_17_1117788,17/10/2022,20221017_14_28_09_1117788,TFB,f6mm,90,suite2p,dlc,,12561-14577;,3:55-4:22;15:00-15:14;21:30-end,1,0,Tether gets gradually more restrictive
+24,20221115_13_27_42_1118213,9/11/2022,20221109_14_50_24_1118213,TFB,f6mm,90,suite2p,dlc,1,,,1,0,
+25,20221116_14_31_12_1118320,14/11/2022,20221114_14_54_39_1118320,TFB,f6mm,90,suite2p,dlc,2,,,1,0,
+26,20221117_13_20_31_1118317,14/11/2022,20221114_15_38_58_1118317,TFB,f6mm,90,suite2p,dlc,1,,,1,1,"Quite a bad 2p recording. Mouse stays on one side of maze, may be tethering issue."
