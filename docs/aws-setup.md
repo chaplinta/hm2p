@@ -170,6 +170,48 @@ See the [Snakemake AWS Batch executor docs](https://snakemake.github.io/snakemak
 
 ---
 
+## 7.5 ECR — Container Image Registry
+
+The pipeline uses two Docker images pushed to Amazon ECR (Elastic Container Registry):
+
+- **hm2p-cpu** — Stages 0, 3, 4, 5 (CPU only, `python:3.11-slim` base)
+- **hm2p-gpu** — Stages 1, 2 (CUDA 12.1 + Suite2p + DLC, `nvidia/cuda` base)
+
+### One-time setup + push
+
+```bash
+# Build images, create ECR repos, push (interactive — prompts for confirmation)
+./scripts/ecr_push.sh --region ap-southeast-2
+
+# Or with a named profile:
+./scripts/ecr_push.sh --region ap-southeast-2 --profile hm2p-agent
+```
+
+The script will print the ECR prefix. Copy it into `config/pipeline.yaml`:
+
+```yaml
+ecr_prefix: "123456789012.dkr.ecr.ap-southeast-2.amazonaws.com/hm2p"
+```
+
+### Rebuilding after code changes
+
+```bash
+# Rebuild and push both images
+./scripts/ecr_push.sh
+
+# Or build locally without pushing (for testing)
+docker build -f docker/cpu.Dockerfile -t hm2p-cpu .
+docker build -f docker/gpu.Dockerfile -t hm2p-gpu .
+```
+
+### Batch job execution role
+
+Ensure the Batch job execution role has `ecr:GetAuthorizationToken` and
+`ecr:BatchGetImage` permissions. The managed policy
+`AmazonEC2ContainerRegistryReadOnly` covers this.
+
+---
+
 ## 8. Cost Controls
 
 Always set a billing alarm to avoid unexpected charges:

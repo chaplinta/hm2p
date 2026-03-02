@@ -82,7 +82,7 @@ def test_validate_all_files_present_exits_zero(tmp_path: Path) -> None:
     (funcimg / "dummy_XYT.tif").write_bytes(b"")
     (funcimg / "dummy-di.tdms").write_bytes(b"")
     (funcimg / "dummy.meta.txt").write_bytes(b"")
-    (behav / "dummy_overhead.camera.mp4").write_bytes(b"")
+    (behav / "dummy-cropped.mp4").write_bytes(b"")
 
     result = _invoke(["validate", "--session", _SESSION_ID], tmp_path, metadata_dir)
     assert result.exit_code == 0

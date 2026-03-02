@@ -208,11 +208,17 @@ class TestRunLp:
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
 
-        with patch.dict("sys.modules", {
-            "lightning_pose": None,
-            "lightning_pose.utils": None,
-            "lightning_pose.utils.predictions": None,
-        }), pytest.raises(ImportError, match="lightning_pose"):
+        with (
+            patch.dict(
+                "sys.modules",
+                {
+                    "lightning_pose": None,
+                    "lightning_pose.utils": None,
+                    "lightning_pose.utils.predictions": None,
+                },
+            ),
+            pytest.raises(ImportError, match="lightning_pose"),
+        ):
             run_tracker(
                 session=_session("lp"),
                 video_path=video,

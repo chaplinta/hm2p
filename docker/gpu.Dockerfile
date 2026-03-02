@@ -28,7 +28,7 @@ COPY pyproject.toml README.md ./
 COPY src/ src/
 
 # Install core + GPU-dependent extras
-RUN pip install --no-cache-dir -e ".[suite2p,dlc]"
+RUN pip install --no-cache-dir ".[suite2p,dlc]"
 
 # ── Pipeline code ──────────────────────────────────────────────────────────
 COPY config/ config/

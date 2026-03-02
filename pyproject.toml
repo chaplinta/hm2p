@@ -43,6 +43,9 @@ dependencies = [
     "pandera>=0.20",
     "pynapple>=0.6",
 
+    # IO — AWS
+    "boto3>=1.34",
+
     # Utilities
     "tqdm>=4.66",
     "rich>=13.7",
@@ -87,6 +90,10 @@ nwb = [
 analysis = [
     "cebra>=0.6",
     "nemos>=0.1",
+]
+workflow = [
+    "snakemake>=8.0",
+    "snakemake-executor-plugin-aws-batch>=0.2",
 ]
 
 # ---------------------------------------------------------------------------

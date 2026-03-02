@@ -12,6 +12,8 @@ rule run_suite2p:
         tiffs=f"{DATA_ROOT}/rawdata/{{sub}}/{{ses}}/funcimg/",
     output:
         folder=directory(f"{DATA_ROOT}/derivatives/ca_extraction/{{sub}}/{{ses}}/suite2p/"),
+    container:
+        gpu_container()
     params:
         fps=config.get("imaging_fps", 29.97),
         ops_json=lambda wc: _json.dumps(config.get("suite2p_ops", {})),

@@ -29,7 +29,7 @@ def test_validate_session_ok(penk_session: Session, tmp_path: Path) -> None:
     (funcimg / "20220804_13_52_02_1117646_XYT.tif").write_bytes(b"\x00")
     (funcimg / "20220804_13_52_02_1117646-di.tdms").write_bytes(b"\x00")
     (funcimg / "20220804_13_52_02_1117646.meta.txt").write_text("dummy")
-    (behav / "sub-1117646_ses-20220804T135202_overhead.camera.mp4").write_bytes(b"\x00")
+    (behav / "20220804_13_52_02_1117646-cropped.mp4").write_bytes(b"\x00")
 
     result = validate_session(penk_session, rawdata_root=tmp_path)
     assert result.ok

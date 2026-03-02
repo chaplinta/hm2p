@@ -8,6 +8,16 @@ metadata_dir: metadata
 # ── Compute profile ────────────────────────────────────────────────────────
 compute_profile: local           # local | local-gpu | aws-batch
 
+# ── Container images (ECR) ────────────────────────────────────────────────
+# Set to your ECR URI prefix to enable container directives on rules.
+# Example: "123456789012.dkr.ecr.ap-southeast-2.amazonaws.com/hm2p"
+# Leave empty to run without containers (local execution).
+ecr_prefix: ""
+
+# ── CASCADE toggle ────────────────────────────────────────────────────────
+# CASCADE spike inference is optional and slow. Disable by default.
+run_cascade: false
+
 # ── Stage 0 — Ingest ───────────────────────────────────────────────────────
 raw_fps_camera: 100.0
 raw_fps_imaging: 29.97

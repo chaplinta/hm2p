@@ -130,9 +130,7 @@ def _run_sleap(video_path: Path, model_dir: Path, output_dir: Path) -> Path:
         import sleap
     except ImportError as exc:
         raise ImportError(
-            "sleap is not installed. "
-            "Install via: pip install sleap\n"
-            "See: https://sleap.ai/"
+            "sleap is not installed. Install via: pip install sleap\nSee: https://sleap.ai/"
         ) from exc
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -178,8 +176,7 @@ def _run_lp(video_path: Path, model_dir: Path, output_dir: Path) -> Path:
         from lightning_pose.utils.predictions import predict_single_video
     except ImportError as exc:
         raise ImportError(
-            "lightning_pose is not installed. "
-            "See: https://github.com/danbider/lightning-pose"
+            "lightning_pose is not installed. See: https://github.com/danbider/lightning-pose"
         ) from exc
 
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -3,14 +3,38 @@
 GPU required. Run with local-gpu or aws-batch profile.
 """
 
+from pathlib import Path
+
+
+def _find_overhead_video(wildcards) -> str:
+    """Locate the overhead video in behav/.
+
+    Actual files on S3 are named ``*-cropped.mp4`` (legacy preprocessing).
+    Falls back to ``*_overhead*.mp4`` for newer naming conventions.
+    """
+    behav = (
+        Path(DATA_ROOT)
+        / "rawdata"
+        / wildcards.sub
+        / wildcards.ses
+        / "behav"
+    )
+    for pattern in ("*-cropped.mp4", "*_overhead*.mp4"):
+        matches = sorted(behav.glob(pattern))
+        if matches:
+            return str(matches[0])
+    raise FileNotFoundError(f"No overhead video found in {behav}")
+
 
 rule run_pose:
     """Run pose tracker on overhead video."""
     input:
-        video=f"{DATA_ROOT}/rawdata/{{sub}}/{{ses}}/behav/{{sub}}_{{ses}}_overhead.mp4",
+        video=_find_overhead_video,
         model=f"{DATA_ROOT}/sourcedata/trackers/dlc/",
     output:
         folder=directory(f"{DATA_ROOT}/derivatives/pose/{{sub}}/{{ses}}/"),
+    container:
+        gpu_container()
     params:
         session_id=wildcards_to_session_id,
         metadata_dir="metadata",
