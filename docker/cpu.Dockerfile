@@ -22,7 +22,7 @@ COPY pyproject.toml README.md ./
 COPY src/ src/
 
 # Install core CPU-only pipeline (no suite2p, no dlc)
-RUN pip install --no-cache-dir -e "."
+RUN pip install --no-cache-dir "."
 
 # ── Pipeline code ──────────────────────────────────────────────────────────
 COPY config/ config/

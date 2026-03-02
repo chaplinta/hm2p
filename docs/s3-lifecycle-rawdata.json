@@ -1,0 +1,17 @@
+{
+  "Rules": [
+    {
+      "ID": "rawdata-to-ia-30d",
+      "Filter": {
+        "Prefix": "rawdata/"
+      },
+      "Status": "Enabled",
+      "Transitions": [
+        {
+          "Days": 30,
+          "StorageClass": "STANDARD_IA"
+        }
+      ]
+    }
+  ]
+}

@@ -54,6 +54,27 @@ def wildcards_to_session_id(wc) -> str:
 DATA_ROOT = config.get("data_root", "data")
 
 # ---------------------------------------------------------------------------
+# Container helpers — return docker:// URIs when ecr_prefix is set
+# ---------------------------------------------------------------------------
+
+_ECR_PREFIX = config.get("ecr_prefix", "")
+
+
+def cpu_container():
+    """Return CPU container URI, or None for local execution."""
+    if _ECR_PREFIX:
+        return f"docker://{_ECR_PREFIX}-cpu:latest"
+    return None
+
+
+def gpu_container():
+    """Return GPU container URI, or None for local execution."""
+    if _ECR_PREFIX:
+        return f"docker://{_ECR_PREFIX}-gpu:latest"
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Target rule — request all final outputs
 # ---------------------------------------------------------------------------
 

@@ -13,6 +13,8 @@ rule process_calcium:
         timestamps=f"{DATA_ROOT}/derivatives/timestamps/{{sub}}/{{ses}}/timestamps.h5",
     output:
         h5=f"{DATA_ROOT}/derivatives/calcium/{{sub}}/{{ses}}/ca.h5",
+    container:
+        cpu_container()
     params:
         session_id=wildcards_to_session_id,
         neuropil_coefficient=config.get("neuropil_coefficient", 0.7),

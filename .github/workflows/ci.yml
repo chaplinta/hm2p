@@ -37,3 +37,51 @@ jobs:
         with:
           file: ./coverage.xml
           fail_ci_if_error: false
+
+  snakemake-dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev,workflow]"
+
+      - name: Create mock data directories
+        run: |
+          # Create a minimal mock session so Snakemake can resolve the DAG.
+          # Uses the first session from experiments.csv.
+          SESSION="20221115_13_27_42_1118213"
+          SUB="sub-1118213"
+          SES="ses-20221115T132742"
+          DATA="data"
+
+          # Create minimal metadata
+          mkdir -p metadata
+          echo "animal_id,celltype,gcamp,virus_id" > metadata/animals.csv
+          echo "1118213,penk,7f,ADD3" >> metadata/animals.csv
+          echo "exp_id,orientation,bad_behav_times" > metadata/experiments.csv
+          echo "$SESSION,0.0," >> metadata/experiments.csv
+
+          # Create mock rawdata directories with placeholder files
+          mkdir -p "$DATA/rawdata/$SUB/$SES/funcimg"
+          mkdir -p "$DATA/rawdata/$SUB/$SES/behav"
+          touch "$DATA/rawdata/$SUB/$SES/funcimg/${SESSION}-di.tdms"
+          touch "$DATA/rawdata/$SUB/$SES/funcimg/${SESSION}_XYT.tif"
+          touch "$DATA/rawdata/$SUB/$SES/funcimg/${SESSION}.meta.txt"
+          touch "$DATA/rawdata/$SUB/$SES/behav/${SESSION}-cropped.mp4"
+          touch "$DATA/rawdata/$SUB/$SES/behav/${SESSION}.meta.txt"
+
+          # Create mock sourcedata
+          mkdir -p "$DATA/sourcedata/trackers/dlc"
+          touch "$DATA/sourcedata/trackers/dlc/config.yaml"
+
+      - name: Snakemake dry-run
+        run: |
+          cd workflow && snakemake -n --profile profiles/local \
+            --config data_root="../data" metadata_dir="../metadata"

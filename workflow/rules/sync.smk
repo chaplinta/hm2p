@@ -8,6 +8,8 @@ rule sync_neural_behav:
         calcium=f"{DATA_ROOT}/derivatives/calcium/{{sub}}/{{ses}}/ca.h5",
     output:
         h5=f"{DATA_ROOT}/derivatives/sync/{{sub}}/{{ses}}/sync.h5",
+    container:
+        cpu_container()
     params:
         session_id=wildcards_to_session_id,
     resources:

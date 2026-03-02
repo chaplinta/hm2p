@@ -24,6 +24,8 @@ rule parse_daq:
         tdms=_find_tdms,
     output:
         h5=f"{DATA_ROOT}/derivatives/timestamps/{{sub}}/{{ses}}/timestamps.h5",
+    container:
+        cpu_container()
     params:
         session_id=wildcards_to_session_id,
     resources:

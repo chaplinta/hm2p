@@ -31,7 +31,7 @@ def validate_session(session: Session, rawdata_root: Path) -> ValidationResult:
 
     Looks under rawdata_root/sub-{animal_id}/ses-{date}T{time}/ for:
       funcimg/  — *_XYT.tif, *-di.tdms, *.meta.txt
-      behav/    — *_overhead.camera.mp4
+      behav/    — *-cropped.mp4 (or *_overhead*.mp4 fallback)
 
     Args:
         session: Session metadata.
@@ -44,17 +44,17 @@ def validate_session(session: Session, rawdata_root: Path) -> ValidationResult:
     funcimg = ses_root / "funcimg"
     behav = ses_root / "behav"
 
-    required = [
-        (funcimg, "*_XYT.tif", "funcimg TIFF imaging stack"),
-        (funcimg, "*-di.tdms", "funcimg DAQ TDMS file"),
-        (funcimg, "*.meta.txt", "funcimg experiment meta.txt"),
-        (behav, "*_overhead.camera.mp4", "behav overhead video"),
+    required: list[tuple[Path, list[str], str]] = [
+        (funcimg, ["*_XYT.tif"], "funcimg TIFF imaging stack"),
+        (funcimg, ["*-di.tdms"], "funcimg DAQ TDMS file"),
+        (funcimg, ["*.meta.txt"], "funcimg experiment meta.txt"),
+        (behav, ["*-cropped.mp4", "*_overhead*.mp4"], "behav overhead video"),
     ]
 
     missing: list[str] = []
-    for parent, pattern, label in required:
-        if not any(parent.glob(pattern)):
-            missing.append(f"{label} [{parent / pattern}]")
+    for parent, patterns, label in required:
+        if not any(f for pat in patterns for f in parent.glob(pat)):
+            missing.append(f"{label} [{parent / patterns[0]}]")
 
     return ValidationResult(
         session_id=session.session_id,

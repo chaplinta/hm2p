@@ -42,6 +42,8 @@ rule compute_kinematics:
         meta_txt=_find_behav_meta,
     output:
         h5=f"{DATA_ROOT}/derivatives/movement/{{sub}}/{{ses}}/kinematics.h5",
+    container:
+        cpu_container()
     params:
         session_id=wildcards_to_session_id,
         metadata_dir="metadata",
