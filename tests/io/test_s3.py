@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -14,7 +13,6 @@ from hm2p.io.s3 import (
     upload_file,
     upload_session,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -176,7 +174,7 @@ class TestDownloadSession:
         client.get_paginator.return_value = self._make_paginator(keys)
 
         with _patch_client(client):
-            written = download_session("bucket", "rawdata/sub-X/ses-Y", tmp_path)
+            download_session("bucket", "rawdata/sub-X/ses-Y", tmp_path)
 
         assert (tmp_path / "a" / "b").exists()
 

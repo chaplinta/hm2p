@@ -20,10 +20,10 @@ from hm2p.ingest.daq import (
 )
 from hm2p.io.hdf5 import read_attrs, read_h5
 
-
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
+
 
 def make_synthetic_timing(
     n_camera_frames: int = 6000,
@@ -59,6 +59,7 @@ def _make_pulse_signal(
 # ---------------------------------------------------------------------------
 # _rising_edges
 # ---------------------------------------------------------------------------
+
 
 class TestRisingEdges:
     def test_single_pulse(self) -> None:
@@ -116,6 +117,7 @@ class TestRisingEdges:
 # _frame_times_from_line_clock
 # ---------------------------------------------------------------------------
 
+
 class TestFrameTimesFromLineClock:
     def test_basic(self) -> None:
         line_times = np.arange(12, dtype=float)
@@ -136,7 +138,6 @@ class TestFrameTimesFromLineClock:
 
     def test_realistic_rates(self) -> None:
         """At 10 kHz DAQ, 162 y_pix, ~9.6 fps → frame interval ~104 ms."""
-        sf = 10_000  # 10 kHz
         y_pix = 162
         fps_imaging = 9.645
         n_frames = 100
@@ -163,6 +164,7 @@ class TestFrameTimesFromLineClock:
 # _meta_txt_path
 # ---------------------------------------------------------------------------
 
+
 class TestMetaTxtPath:
     def test_di_suffix(self) -> None:
         p = Path("/data/ses/20210823_17_00_04_1114353_maze-rose-di.tdms")
@@ -183,6 +185,7 @@ class TestMetaTxtPath:
 # ---------------------------------------------------------------------------
 # write_timestamps_h5
 # ---------------------------------------------------------------------------
+
 
 def test_write_timestamps_h5_creates_file(tmp_path: Path) -> None:
     arrays = make_synthetic_timing()

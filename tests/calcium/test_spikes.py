@@ -61,6 +61,7 @@ def test_predict_spike_rates_raises_importerror_without_cascade() -> None:
     """predict_spike_rates raises ImportError if cascade2p is not installed."""
     try:
         import cascade2p  # noqa: F401
+
         pytest.skip("cascade2p is installed; skipping ImportError test")
     except ImportError:
         pass

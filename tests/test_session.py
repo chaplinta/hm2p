@@ -117,10 +117,10 @@ def test_parse_bad_behav_real_csv_row() -> None:
     raw = "11:10-11:30;13:20-21:00;22:30-24:40;27:00-end"
     total = 1800.0  # 30 min session
     result = parse_bad_behav_times(raw, total)
-    assert result[0] == (670.0, 690.0)   # 11:10–11:30
+    assert result[0] == (670.0, 690.0)  # 11:10–11:30
     assert result[1] == (800.0, 1260.0)  # 13:20–21:00
-    assert result[2] == (1350.0, 1480.0) # 22:30–24:40
-    assert result[3] == (1620.0, 1800.0) # 27:00–end
+    assert result[2] == (1350.0, 1480.0)  # 22:30–24:40
+    assert result[3] == (1620.0, 1800.0)  # 27:00–end
 
 
 def test_parse_bad_behav_clips_to_total_duration() -> None:

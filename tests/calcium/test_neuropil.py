@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from hm2p.calcium.neuropil import subtract_fixed_coefficient
+from hm2p.calcium.neuropil import subtract_fissa, subtract_fixed_coefficient
 
 # ---------------------------------------------------------------------------
 # subtract_fixed_coefficient — pure numpy, fully testable
@@ -49,3 +50,11 @@ def test_fixed_coefficient_property_range(coefficient: float) -> None:
     Fneu = rng.uniform(0, 500, (5, 50)).astype(np.float32)
     result = subtract_fixed_coefficient(F, Fneu, coefficient=coefficient)
     assert np.all(np.isfinite(result))
+
+
+def test_fissa_not_implemented() -> None:
+    """subtract_fissa raises NotImplementedError (deferred)."""
+    F = np.ones((5, 100), dtype=np.float32)
+    masks = np.zeros((5, 64, 64), dtype=bool)
+    with pytest.raises(NotImplementedError):
+        subtract_fissa(F, masks)

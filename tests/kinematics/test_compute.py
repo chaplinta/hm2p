@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import xarray as xr
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -20,7 +21,6 @@ from hm2p.kinematics.compute import (
     compute_position_mm,
 )
 
-
 # ---------------------------------------------------------------------------
 # Dataset builder
 # ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ def _make_pose_dataset(
     n_frames: int = 10,
     pos_data: np.ndarray | None = None,
     conf_data: np.ndarray | None = None,
-) -> "xr.Dataset":
+) -> xr.Dataset:
     """Build a minimal movement-style xarray Dataset for testing.
 
     Args:
@@ -121,16 +121,12 @@ class TestComputeHdDeg:
 
     def test_output_dtype_float32(self) -> None:
         n = 5
-        hd = _compute_hd_deg(
-            np.ones(n), np.zeros(n), np.zeros(n), np.zeros(n)
-        )
+        hd = _compute_hd_deg(np.ones(n), np.zeros(n), np.zeros(n), np.zeros(n))
         assert hd.dtype == np.float32
 
     def test_output_shape(self) -> None:
         n = 50
-        hd = _compute_hd_deg(
-            np.ones(n), np.zeros(n), np.zeros(n), np.zeros(n)
-        )
+        hd = _compute_hd_deg(np.ones(n), np.zeros(n), np.zeros(n), np.zeros(n))
         assert hd.shape == (n,)
 
     def test_unwrap_across_360_boundary(self) -> None:
@@ -208,32 +204,48 @@ class TestRotateXY:
 class TestMazeLinearTransform:
     def test_origin_maps_to_zero(self) -> None:
         xm, ym = _maze_linear_transform(
-            np.array([10.0]), np.array([20.0]),
-            x1_mm=10.0, y1_mm=20.0, width_mm=100.0, height_mm=50.0,
+            np.array([10.0]),
+            np.array([20.0]),
+            x1_mm=10.0,
+            y1_mm=20.0,
+            width_mm=100.0,
+            height_mm=50.0,
         )
         np.testing.assert_allclose(xm, [0.0], atol=1e-6)
         np.testing.assert_allclose(ym, [0.0], atol=1e-6)
 
     def test_far_corner_maps_to_7_5(self) -> None:
         xm, ym = _maze_linear_transform(
-            np.array([110.0]), np.array([70.0]),
-            x1_mm=10.0, y1_mm=20.0, width_mm=100.0, height_mm=50.0,
+            np.array([110.0]),
+            np.array([70.0]),
+            x1_mm=10.0,
+            y1_mm=20.0,
+            width_mm=100.0,
+            height_mm=50.0,
         )
         np.testing.assert_allclose(xm, [7.0], atol=1e-6)
         np.testing.assert_allclose(ym, [5.0], atol=1e-6)
 
     def test_midpoint_maps_to_3_5_2_5(self) -> None:
         xm, ym = _maze_linear_transform(
-            np.array([60.0]), np.array([45.0]),
-            x1_mm=10.0, y1_mm=20.0, width_mm=100.0, height_mm=50.0,
+            np.array([60.0]),
+            np.array([45.0]),
+            x1_mm=10.0,
+            y1_mm=20.0,
+            width_mm=100.0,
+            height_mm=50.0,
         )
         np.testing.assert_allclose(xm, [3.5], atol=1e-6)
         np.testing.assert_allclose(ym, [2.5], atol=1e-6)
 
     def test_output_dtype_float32(self) -> None:
         xm, ym = _maze_linear_transform(
-            np.array([0.0]), np.array([0.0]),
-            x1_mm=0.0, y1_mm=0.0, width_mm=10.0, height_mm=10.0,
+            np.array([0.0]),
+            np.array([0.0]),
+            x1_mm=0.0,
+            y1_mm=0.0,
+            width_mm=10.0,
+            height_mm=10.0,
         )
         assert xm.dtype == np.float32
         assert ym.dtype == np.float32
@@ -311,8 +323,8 @@ class TestComputeHeadDirection:
         # atan2(5-5, 0-1) = atan2(0, -1) = π  → 180+180 = 360
         pos_data = np.zeros((n, 2, len(KEYPOINTS), 1), dtype=np.float64)
         kp_idx = {k: i for i, k in enumerate(KEYPOINTS)}
-        pos_data[:, 0, kp_idx["ear-left"], 0] = 5.0   # x
-        pos_data[:, 1, kp_idx["ear-left"], 0] = 0.0   # y
+        pos_data[:, 0, kp_idx["ear-left"], 0] = 5.0  # x
+        pos_data[:, 1, kp_idx["ear-left"], 0] = 0.0  # y
         pos_data[:, 0, kp_idx["ear-right"], 0] = 5.0  # x
         pos_data[:, 1, kp_idx["ear-right"], 0] = 1.0  # y
         # Fill back keypoints with something reasonable
@@ -497,6 +509,7 @@ def test_maze_polygon_bounds() -> None:
     # is expected. Use make_valid() at runtime for clipping.
     shapely = pytest.importorskip("shapely")
     from shapely.geometry import Polygon
+
     poly = Polygon(MAZE_POLYGON_COORDS)
     valid_poly = shapely.make_valid(poly)
     bounds = valid_poly.bounds
@@ -510,6 +523,7 @@ def test_maze_polygon_interior_point() -> None:
     """A known interior point (centre of maze) is inside the valid polygon."""
     shapely = pytest.importorskip("shapely")
     from shapely.geometry import Point, Polygon
+
     poly = Polygon(MAZE_POLYGON_COORDS)
     valid_poly = shapely.make_valid(poly)
     # (3.5, 2.5) is the approximate centre of the 7×5 maze — inside a corridor

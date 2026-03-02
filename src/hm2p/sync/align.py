@@ -86,8 +86,8 @@ def run(
     kin = read_h5(kinematics_h5)
     ca = read_h5(ca_h5)
 
-    src_times = kin["frame_times"]   # camera rate timestamps
-    dst_times = ca["frame_times"]    # imaging rate timestamps (target grid)
+    src_times = kin["frame_times"]  # camera rate timestamps
+    dst_times = ca["frame_times"]  # imaging rate timestamps (target grid)
 
     datasets: dict[str, np.ndarray] = {}
 
@@ -98,9 +98,7 @@ def run(
         if key in _BOOL_KEYS:
             datasets[key] = resample_bool_to_imaging_rate(arr, src_times, dst_times)
         else:
-            datasets[key] = resample_to_imaging_rate(
-                arr, src_times, dst_times
-            ).astype(np.float32)
+            datasets[key] = resample_to_imaging_rate(arr, src_times, dst_times).astype(np.float32)
 
     # Copy calcium arrays (already at imaging rate)
     for key, arr in ca.items():

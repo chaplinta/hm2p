@@ -136,14 +136,22 @@ select = [
 ]
 ignore = [
     "ANN401",  # dynamically typed expressions (Any) — needed for HDF5 attr values
+    "SIM108",  # ternary suggestions — explicit if/else more readable for scientific code
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["ANN"]
-# F, F0, Fneu, Fneu are conventional Suite2p / neuroscience variable names —
-# suppressing pep8-naming for calcium source + tests.
-"src/hm2p/calcium/**" = ["N803"]
-"tests/calcium/**"    = ["N803", "N806"]
+# F, F0, Fneu are conventional Suite2p / neuroscience variable names —
+# suppressing pep8-naming for calcium source + tests + dependent modules.
+# T is conventional for number of timepoints in neuroscience.
+"src/hm2p/calcium/**"     = ["N803", "N806"]
+"src/hm2p/extraction/**"  = ["N803", "N806"]
+"tests/calcium/**"        = ["N803", "N806"]
+"tests/extraction/**"     = ["N803", "N806"]
+"tests/sync/**"           = ["N806"]
+"tests/test_cli.py"       = ["N806"]
+"src/hm2p/io/hdf5.py"    = ["N806"]
+"tests/io/test_hdf5.py"  = ["N803", "N806"]
 
 [tool.ruff.format]
 quote-style = "double"

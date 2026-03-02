@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from hm2p.sync.align import resample_bool_to_imaging_rate, resample_to_imaging_rate
 
@@ -97,9 +96,7 @@ def _write_synthetic_ca(path: Path) -> None:
         path,
         arrays={
             "frame_times": frame_times,
-            "dff": np.random.default_rng(5).standard_normal((n_rois, t)).astype(
-                np.float32
-            ),
+            "dff": np.random.default_rng(5).standard_normal((n_rois, t)).astype(np.float32),
         },
         attrs={"session_id": "test", "fps_imaging": 30.0, "extractor": "suite2p"},
     )

@@ -9,7 +9,6 @@ import pytest
 
 from hm2p.calcium.run import load_suite2p, run
 
-
 # ---------------------------------------------------------------------------
 # Helpers: synthetic Suite2p plane0 directory + timestamps.h5
 # ---------------------------------------------------------------------------

@@ -21,15 +21,15 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 _DEFAULT_PROFILE = "hm2p-agent"
 
 
-def _client(profile: str | None = None):
+def _client(profile: str | None = None) -> object:
     """Return a boto3 S3 client for the given AWS profile."""
     import boto3
 
-    session = boto3.Session(profile_name=profile or os.environ.get("AWS_PROFILE", _DEFAULT_PROFILE))
+    profile_name = profile or os.environ.get("AWS_PROFILE", _DEFAULT_PROFILE)
+    session = boto3.Session(profile_name=profile_name)
     return session.client("s3")
 
 
@@ -159,7 +159,7 @@ def download_session(
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
             key = obj["Key"]
-            relative = key[len(prefix):]
+            relative = key[len(prefix) :]
             if not relative:
                 continue
             dest = local_dir / relative

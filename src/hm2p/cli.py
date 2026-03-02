@@ -11,8 +11,6 @@ Usage examples:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import typer
 
 app = typer.Typer(
@@ -64,11 +62,7 @@ def ingest(
     cfg, ses = _load_session(session)
 
     funcimg_dir = (
-        cfg.data_root
-        / "rawdata"
-        / ses.neurobluepint_sub
-        / ses.neurobluepint_ses
-        / "funcimg"
+        cfg.data_root / "rawdata" / ses.neurobluepint_sub / ses.neurobluepint_ses / "funcimg"
     )
     tdms_files = sorted(funcimg_dir.glob("*-di.tdms"))
     if not tdms_files:
@@ -114,13 +108,7 @@ def kinematics(
     pose_path = pose_candidates[0]
 
     # --- Meta.txt (crop ROI, scale, maze corners) ---
-    behav_dir = (
-        cfg.data_root
-        / "rawdata"
-        / ses.neurobluepint_sub
-        / ses.neurobluepint_ses
-        / "behav"
-    )
+    behav_dir = cfg.data_root / "rawdata" / ses.neurobluepint_sub / ses.neurobluepint_ses / "behav"
     meta_files = sorted(behav_dir.glob("*.meta.txt"))
     if not meta_files:
         typer.echo(f"[FAIL] {session} — no *.meta.txt found in {behav_dir}")
@@ -197,10 +185,7 @@ def sync(
         )
         raise typer.Exit(code=1)
     if not ca_h5.exists():
-        typer.echo(
-            f"[FAIL] {session} — ca.h5 not found at {ca_h5}. "
-            "Run Stage 4 (calcium) first."
-        )
+        typer.echo(f"[FAIL] {session} — ca.h5 not found at {ca_h5}. Run Stage 4 (calcium) first.")
         raise typer.Exit(code=1)
 
     out_dir = ses.derivatives_path("sync", cfg.data_root)

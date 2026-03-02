@@ -81,7 +81,7 @@ class TestComputeBaseline:
         F = np.abs(rng.uniform(100, 500, (5, 900)).astype(np.float32))
         F0 = compute_baseline(F, fps=30.0, window_s=10.0, gaussian_sigma_s=1.0)
         # Allow small numerical tolerance from Gaussian smoothing at boundaries
-        assert np.all(F0 <= F.max() + 1.0)
+        assert np.all(F.max() + 1.0 >= F0)
 
     def test_constant_signal_baseline_equals_signal(self) -> None:
         """Constant trace → baseline equals the constant."""

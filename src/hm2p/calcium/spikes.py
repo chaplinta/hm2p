@@ -72,4 +72,6 @@ def compute_mean_spike_rate(
     if bad_frames is not None:
         good = ~bad_frames
         spikes = spikes[:, good]
-    return spikes.mean(axis=1) * 60.0
+    if spikes.shape[1] == 0:
+        return np.full(spikes.shape[0], np.nan, dtype=np.float32)
+    return (spikes.mean(axis=1) * 60.0).astype(np.float32)

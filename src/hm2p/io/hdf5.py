@@ -95,16 +95,12 @@ def _check_key(arrays: dict[str, np.ndarray], key: str, context: str) -> np.ndar
 
 def _check_dtype(arr: np.ndarray, expected: np.dtype, key: str, context: str) -> None:
     if arr.dtype != expected:
-        _schema_error(
-            f"{context}: '{key}' must be {expected}, got {arr.dtype}"
-        )
+        _schema_error(f"{context}: '{key}' must be {expected}, got {arr.dtype}")
 
 
 def _check_ndim(arr: np.ndarray, expected: int, key: str, context: str) -> None:
     if arr.ndim != expected:
-        _schema_error(
-            f"{context}: '{key}' must be {expected}D, got ndim={arr.ndim}"
-        )
+        _schema_error(f"{context}: '{key}' must be {expected}D, got ndim={arr.ndim}")
 
 
 def _check_monotonic(arr: np.ndarray, key: str, context: str) -> None:
@@ -119,9 +115,7 @@ def _check_nonneg(arr: np.ndarray, key: str, context: str) -> None:
 
 def _check_length(arr: np.ndarray, expected_len: int, key: str, context: str) -> None:
     if len(arr) != expected_len:
-        _schema_error(
-            f"{context}: '{key}' length {len(arr)} != frame_times length {expected_len}"
-        )
+        _schema_error(f"{context}: '{key}' length {len(arr)} != frame_times length {expected_len}")
 
 
 # ---------------------------------------------------------------------------
@@ -218,8 +212,7 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
     _check_ndim(dff, 2, "dff", ctx)
     if dff.shape[1] != T:
         _schema_error(
-            f"{ctx}: 'dff' shape {dff.shape} — second dim {dff.shape[1]} != "
-            f"len(frame_times) {T}"
+            f"{ctx}: 'dff' shape {dff.shape} — second dim {dff.shape[1]} != len(frame_times) {T}"
         )
 
     if "spikes" in arrays:
@@ -227,9 +220,7 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
         _check_dtype(spikes, np.dtype("float32"), "spikes", ctx)
         _check_ndim(spikes, 2, "spikes", ctx)
         if spikes.shape != dff.shape:
-            _schema_error(
-                f"{ctx}: 'spikes' shape {spikes.shape} != 'dff' shape {dff.shape}"
-            )
+            _schema_error(f"{ctx}: 'spikes' shape {spikes.shape} != 'dff' shape {dff.shape}")
 
 
 def validate_sync_h5(arrays: dict[str, np.ndarray]) -> None:
@@ -252,6 +243,5 @@ def validate_sync_h5(arrays: dict[str, np.ndarray]) -> None:
     _check_ndim(dff, 2, "dff", ctx)
     if dff.shape[1] != T:
         _schema_error(
-            f"{ctx}: 'dff' shape {dff.shape} — second dim {dff.shape[1]} != "
-            f"len(frame_times) {T}"
+            f"{ctx}: 'dff' shape {dff.shape} — second dim {dff.shape[1]} != len(frame_times) {T}"
         )

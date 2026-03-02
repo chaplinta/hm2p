@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 from typer.testing import CliRunner
 
 from hm2p.cli import app
@@ -35,12 +34,10 @@ def _write_metadata(metadata_dir: Path) -> None:
     """
     metadata_dir.mkdir(parents=True, exist_ok=True)
     (metadata_dir / "animals.csv").write_text(
-        "animal_id,celltype,gcamp,virus_id\n"
-        f"{_ANIMAL_ID},penk,7f,ADD3\n"
+        f"animal_id,celltype,gcamp,virus_id\n{_ANIMAL_ID},penk,7f,ADD3\n"
     )
     (metadata_dir / "experiments.csv").write_text(
-        "exp_id,orientation,bad_behav_times\n"
-        f"{_SESSION_ID},0.0,\n"
+        f"exp_id,orientation,bad_behav_times\n{_SESSION_ID},0.0,\n"
     )
 
 
@@ -77,12 +74,7 @@ def test_validate_all_files_present_exits_zero(tmp_path: Path) -> None:
     _write_metadata(metadata_dir)
 
     # Build the NeuroBlueprint rawdata tree with dummy files
-    ses_dir = (
-        tmp_path
-        / "rawdata"
-        / f"sub-{_ANIMAL_ID}"
-        / "ses-20220804T135202"
-    )
+    ses_dir = tmp_path / "rawdata" / f"sub-{_ANIMAL_ID}" / "ses-20220804T135202"
     funcimg = ses_dir / "funcimg"
     behav = ses_dir / "behav"
     funcimg.mkdir(parents=True)
@@ -164,13 +156,7 @@ def test_sync_missing_ca_exits_nonzero(tmp_path: Path) -> None:
     from hm2p.io.hdf5 import write_h5
 
     # Create a kinematics.h5 in the expected derivatives path
-    kin_dir = (
-        tmp_path
-        / "derivatives"
-        / "movement"
-        / f"sub-{_ANIMAL_ID}"
-        / "ses-20220804T135202"
-    )
+    kin_dir = tmp_path / "derivatives" / "movement" / f"sub-{_ANIMAL_ID}" / "ses-20220804T135202"
     kin_dir.mkdir(parents=True)
     T = 180
     write_h5(

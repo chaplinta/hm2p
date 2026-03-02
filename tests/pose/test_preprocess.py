@@ -13,20 +13,27 @@ from hm2p.pose.preprocess import (
     load_meta,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _write_meta_txt(path: Path, **overrides: object) -> None:
     """Write a minimal meta.txt with default values, overridable per-key."""
     defaults = {
-        "crop_x": 108, "crop_y": 261, "crop_w": 832, "crop_h": 608,
+        "crop_x": 108,
+        "crop_y": 261,
+        "crop_w": 832,
+        "crop_h": 608,
         "mm_per_pix": 0.8113483203691485,
-        "x1": 149.0, "y1": 72.0,
-        "x2": 764.0, "y2": 82.0,
-        "x3": 757.0, "y3": 509.0,
-        "x4": 143.0, "y4": 500.0,
+        "x1": 149.0,
+        "y1": 72.0,
+        "x2": 764.0,
+        "y2": 82.0,
+        "x3": 757.0,
+        "y3": 509.0,
+        "x4": 143.0,
+        "y4": 500.0,
     }
     defaults.update(overrides)
     d = defaults
@@ -67,6 +74,7 @@ def _write_calib_npz(path: Path) -> tuple[np.ndarray, np.ndarray]:
 # crop_to_maze_roi
 # ---------------------------------------------------------------------------
 
+
 def test_crop_to_maze_roi_shape() -> None:
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
     roi = (100, 50, 200, 150)
@@ -92,6 +100,7 @@ def test_crop_to_maze_roi_origin() -> None:
 # load_meta
 # ---------------------------------------------------------------------------
 
+
 class TestLoadMeta:
     def test_roi_tuple(self, tmp_path: Path) -> None:
         p = tmp_path / "meta.txt"
@@ -116,8 +125,9 @@ class TestLoadMeta:
 
     def test_maze_corners_values(self, tmp_path: Path) -> None:
         p = tmp_path / "meta.txt"
-        _write_meta_txt(p, x1=10.0, y1=20.0, x2=100.0, y2=25.0,
-                        x3=98.0, y3=120.0, x4=8.0, y4=118.0)
+        _write_meta_txt(
+            p, x1=10.0, y1=20.0, x2=100.0, y2=25.0, x3=98.0, y3=120.0, x4=8.0, y4=118.0
+        )
         corners = load_meta(p)["maze_corners"]
         np.testing.assert_array_equal(
             corners,
@@ -139,10 +149,19 @@ class TestLoadMeta:
         p = tmp_path / "meta.txt"
         _write_meta_txt(
             p,
-            crop_x=108, crop_y=261, crop_w=832, crop_h=608,
+            crop_x=108,
+            crop_y=261,
+            crop_w=832,
+            crop_h=608,
             mm_per_pix=0.8113483203691485,
-            x1=149.0, y1=72.0, x2=764.0, y2=82.0,
-            x3=757.0, y3=509.0, x4=143.0, y4=500.0,
+            x1=149.0,
+            y1=72.0,
+            x2=764.0,
+            y2=82.0,
+            x3=757.0,
+            y3=509.0,
+            x4=143.0,
+            y4=500.0,
         )
         result = load_meta(p)
         assert result["roi"] == (108, 261, 832, 608)
@@ -153,6 +172,7 @@ class TestLoadMeta:
 # ---------------------------------------------------------------------------
 # load_calibration
 # ---------------------------------------------------------------------------
+
 
 class TestLoadCalibration:
     def test_returns_correct_keys(self, tmp_path: Path) -> None:

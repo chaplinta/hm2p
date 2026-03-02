@@ -60,10 +60,7 @@ def load_calibration(npz_path: Path) -> dict[str, np.ndarray]:
         raise FileNotFoundError(f"Calibration file not found: {npz_path}")
     data = np.load(npz_path)
     if "mtx" not in data or "dist" not in data:
-        raise KeyError(
-            f"Calibration .npz must contain 'mtx' and 'dist'; "
-            f"got: {list(data.keys())}"
-        )
+        raise KeyError(f"Calibration .npz must contain 'mtx' and 'dist'; got: {list(data.keys())}")
     return {
         "camera_matrix": data["mtx"].astype(np.float64),
         "dist_coeffs": data["dist"].astype(np.float64),
@@ -153,9 +150,7 @@ def load_meta(meta_txt_path: Path) -> dict[str, object]:
             dtype=np.float64,
         )
     except KeyError as exc:
-        raise KeyError(
-            f"Required key missing in {meta_txt_path}: {exc}"
-        ) from exc
+        raise KeyError(f"Required key missing in {meta_txt_path}: {exc}") from exc
 
     return {
         "roi": roi,

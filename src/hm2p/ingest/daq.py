@@ -40,6 +40,7 @@ _SCALAR_KEYS: frozenset[str] = frozenset({"fps_camera", "fps_imaging"})
 # Pure helper functions (no I/O — fully unit-testable)
 # ---------------------------------------------------------------------------
 
+
 def _rising_edges(data: np.ndarray, threshold: float) -> np.ndarray:
     """Return sample indices of upward threshold crossings.
 
@@ -93,6 +94,7 @@ def _meta_txt_path(tdms_path: Path) -> Path:
 # TDMS I/O helpers
 # ---------------------------------------------------------------------------
 
+
 def _get_di_channel(di_file: object, group_name: str, chan_name: str) -> object:
     """Return the first channel from a DI TDMS group.
 
@@ -124,6 +126,7 @@ def _get_di_channel(di_file: object, group_name: str, chan_name: str) -> object:
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def parse_tdms(tdms_path: Path) -> dict[str, np.ndarray]:
     """Parse a SciScan TDMS file and return timing arrays.
@@ -171,9 +174,7 @@ def parse_tdms(tdms_path: Path) -> dict[str, np.ndarray]:
         lights_chan_name = cfg["DAQ"]["lightschanname"]
         ini_filename = Path(cfg["SciScan"]["inifile"].replace("\\", "/")).name
     except KeyError as exc:
-        raise ValueError(
-            f"Required key missing in {meta_path}: {exc}"
-        ) from exc
+        raise ValueError(f"Required key missing in {meta_path}: {exc}") from exc
 
     # --- SciScan .ini (y_pix + fps_imaging) ---
     ini_path = session_dir / ini_filename

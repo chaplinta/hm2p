@@ -105,9 +105,7 @@ def _compute_hd_deg(
     if nan_mask.any():
         indices = np.arange(len(angle_deg), dtype=float)
         valid = ~nan_mask
-        angle_filled[nan_mask] = np.interp(
-            indices[nan_mask], indices[valid], angle_deg[valid]
-        )
+        angle_filled[nan_mask] = np.interp(indices[nan_mask], indices[valid], angle_deg[valid])
 
     rad_unwrapped = np.unwrap(np.deg2rad(angle_filled), discont=np.pi)
     deg_unwrapped = np.degrees(rad_unwrapped)
@@ -225,9 +223,7 @@ def load_pose_dataset(pose_path: Path, tracker: str) -> xr.Dataset:
     from movement.io import load_dataset
 
     if tracker not in _TRACKER_MAP:
-        raise ValueError(
-            f"Unknown tracker '{tracker}'. Known trackers: {list(_TRACKER_MAP)}"
-        )
+        raise ValueError(f"Unknown tracker '{tracker}'. Known trackers: {list(_TRACKER_MAP)}")
     source_software = _TRACKER_MAP[tracker]
     return load_dataset(file=pose_path, source_software=source_software)
 
