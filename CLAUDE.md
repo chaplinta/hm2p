@@ -11,7 +11,11 @@ You **may copy files from these directories into `/Users/tristan/Neuro/hm2p-v2`*
 bring in metadata CSVs, calibration files, or model weights). Do not delete or modify
 anything outside of `hm2p-v2`.
 
-All new code goes in `/Users/tristan/Neuro/hm2p-v2`, connected to `github.com/chaplinta/hm2p` (private).
+All new code goes in `/Users/tristan/Neuro/hm2p-v2`, connected to `github.com/chaplinta/hm2p` (public).
+
+**Git workflow:** `main` is protected — never push directly. Always create a feature
+branch (`feat/`, `fix/`, `docs/`, etc.), commit there, and open a PR. See
+[docs/contributing.md](docs/contributing.md) for details.
 
 ---
 
