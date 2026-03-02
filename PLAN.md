@@ -218,25 +218,26 @@ plus `bad_frames.npy` for bad-frame masking in Stage 4.
 
 ### Stage 2 — Pose Estimation (pluggable tracker)
 
-**Input:** Behavioural `.mp4` video per session
+**Input:** Pre-processed behavioural `.mp4` video per session
 
-Pre-processing (common to all trackers):
-
-1. Undistort video using lens-specific camera calibration (`.npz`)
-2. Crop to maze ROI (from `meta.txt`)
+> **Note:** All 26 sessions have pre-processed videos (undistorted then cropped
+> by the legacy pipeline). The `.mp4` files in `rawdata/.../behav/` are ready
+> for direct tracker inference — no runtime preprocessing is needed.
+> Utility functions for undistortion and cropping are retained in
+> `pose/preprocess.py` for future sessions.
 
 Tracker-specific inference:
 
 | Tracker | Entrypoint | GPU |
 | --- | --- | --- |
 | DeepLabCut (default) | `deeplabcut.analyze_videos(...)` | required |
-| SLEAP | `sleap-track ...` | required |
-| LightningPose | `python scripts/predict.py ...` | required |
+| SLEAP | `sleap.load_model()` + `predict()` | required |
+| LightningPose | `predict_single_video()` | required |
 
 **Output:** tracker-native pose file in `derivatives/pose/sub-{id}/ses-{date}/`.
-Filename stored in session registry so Stage 3 can find it.
+Stage 3 discovers the file automatically via glob (`*.h5`, `*.csv`, `*.slp`).
 
-**Tools:** tracker-specific (DLC 2.x default), OpenCV (undistortion)
+**Tools:** tracker-specific (DLC 3.x default)
 **Compute:** GPU required — cloud EC2 g4dn or local GPU machine
 
 ---

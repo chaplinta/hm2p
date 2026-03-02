@@ -136,7 +136,7 @@ hm2p-v2/
 │       │   └── caiman.py          # CaimanExtractor
 │       ├── pose/
 │       │   ├── __init__.py
-│       │   ├── preprocess.py      # Undistort, crop (common to all trackers)
+│       │   ├── preprocess.py      # load_meta + undistort/crop utils (videos are pre-processed)
 │       │   └── run.py             # Dispatch to DLC / SLEAP / LP based on session.tracker
 │       ├── kinematics/
 │       │   ├── __init__.py

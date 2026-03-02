@@ -1,8 +1,19 @@
-"""Stage 2 — video pre-processing common to all pose trackers.
+"""Stage 2 — video pre-processing utilities for pose trackers.
 
-Steps applied before tracker inference:
-    1. Lens undistortion using camera-specific calibration (.npz)
-    2. Crop to maze ROI (from meta/meta.txt)
+**All 26 sessions already have pre-processed videos** (undistorted then
+cropped by the legacy pipeline).  The `.mp4` files uploaded to S3 /
+stored in ``rawdata/.../behav/`` are ready for direct pose-tracker
+inference — no additional preprocessing step is needed at runtime.
+
+The functions below (``load_calibration``, ``undistort_frame``,
+``crop_to_maze_roi``) are retained for reference and potential future
+use (e.g. new sessions recorded after the legacy pipeline is
+decommissioned).  They are **not** called by the current Snakemake
+pipeline.
+
+``load_meta`` **is** used by Stage 3 (kinematics) to read the crop
+ROI, pixel-scale, and maze-corner metadata that accompanies each
+cropped video.
 
 The side camera (_side_left) is NEVER used — overhead camera only.
 
