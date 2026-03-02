@@ -62,8 +62,11 @@ aws_credentials
 .DS_Store
 Thumbs.db
 
-# Claude Code skills (local symlinks to ~/Neuro/claude-scientific-skills)
-.claude/skills/
+# Claude Code (local config + skills symlinks)
+.claude/
+
+# Upload logs
+upload.log
 
 # IDE
 .vscode/

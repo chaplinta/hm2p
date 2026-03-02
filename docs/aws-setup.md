@@ -187,13 +187,51 @@ jobs. Suite2p and DLC both support checkpointing.
 
 ---
 
-## 9. Quick Reference
+## 9. Verify Upload Integrity
+
+After uploading data to S3, verify integrity with:
+
+```bash
+./scripts/verify_s3_upload.sh
+```
+
+This runs five checks against the live S3 bucket (single API call, ~10 seconds):
+
+1. **Session completeness** — all 26 sessions from `experiments.csv` exist in S3
+2. **Directory structure** — each session has `funcimg/` and `behav/` subdirectories
+3. **Object counts + sizes** — per-session file count and total size summary
+4. **MD5 checksums** — `behav/meta.txt` local MD5 vs S3 ETag (single-part uploads)
+5. **TDMS file sizes** — byte-exact local vs S3 size comparison (multipart uploads)
+
+Override defaults with `--profile` or `--bucket`:
+
+```bash
+./scripts/verify_s3_upload.sh --profile my-profile --bucket my-bucket
+```
+
+---
+
+## 10. Current Status
+
+| Item | Status |
+| --- | --- |
+| S3 buckets (`hm2p-rawdata`, `hm2p-derivatives`) | Created in `ap-southeast-2` |
+| `hm2p-rawdata` versioning | Enabled |
+| `hm2p-rawdata` lifecycle | STANDARD → IA after 30 days |
+| Data upload (26 sessions, 91.4 GiB, 503 objects) | Complete — verified |
+| `hm2p-agent` IAM user | S3 access only (no IAM/Batch) |
+| AWS Batch (compute envs + job queues) | Not yet created (needs admin) |
+
+---
+
+## 11. Quick Reference
 
 | Task | Command |
 | --- | --- |
 | List S3 buckets | `aws s3 ls` |
 | Upload a file | `aws s3 cp file.tif s3://hm2p-rawdata/path/` |
 | Sync a folder | `aws s3 sync ./local/ s3://hm2p-rawdata/remote/` |
+| Verify upload | `./scripts/verify_s3_upload.sh` |
 | Launch EC2 spot | `aws ec2 run-instances --instance-type g4dn.xlarge --instance-market-options MarketType=spot ...` |
 | Check Batch jobs | `aws batch list-jobs --job-queue hm2p-gpu-queue` |
 | Check current IAM identity | `aws sts get-caller-identity` |
