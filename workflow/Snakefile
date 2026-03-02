@@ -66,6 +66,20 @@ rule all:
             sub=[sub(s) for s in SESSIONS],
             ses=[ses(s) for s in SESSIONS],
         ),
+        # Stage 1
+        expand(
+            f"{DATA_ROOT}/derivatives/ca_extraction/{{sub}}/{{ses}}/suite2p/",
+            zip,
+            sub=[sub(s) for s in SESSIONS],
+            ses=[ses(s) for s in SESSIONS],
+        ),
+        # Stage 2
+        expand(
+            f"{DATA_ROOT}/derivatives/pose/{{sub}}/{{ses}}/",
+            zip,
+            sub=[sub(s) for s in SESSIONS],
+            ses=[ses(s) for s in SESSIONS],
+        ),
         # Stage 3
         expand(
             f"{DATA_ROOT}/derivatives/movement/{{sub}}/{{ses}}/kinematics.h5",
