@@ -4,7 +4,8 @@
 
 **NEVER modify or delete files in these directories:**
 
-- `/Users/tristan/Neuro/hm2p-analysis` — legacy code (read-only reference only)
+- `old-pipeline/` — legacy pipeline code copied into this repo (read-only reference only)
+- `/Users/tristan/Neuro/hm2p-analysis` — legacy code on local machine (read-only reference only)
 - `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/` — all data (read-only)
 
 You **may copy files from these directories into `/Users/tristan/Neuro/hm2p-v2`** (e.g. to
@@ -32,8 +33,8 @@ the new code must be:
 - **Data-standard compliant** — NeuroBlueprint folder layout throughout
 - **Modern** — always use the latest stable versions of all libraries (see Versions below)
 
-Do not copy-paste logic from the old pipeline. Read it to understand the computation,
-then reimplement cleanly with tests.
+Do not copy-paste logic from the old pipeline. Read it (in `old-pipeline/` or the original
+location) to understand the computation, then reimplement cleanly with tests.
 
 ---
 

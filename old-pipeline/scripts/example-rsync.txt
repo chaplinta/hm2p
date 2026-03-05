@@ -1,0 +1,84 @@
+
+# To connect to ceph you need this loopback that Alex told me to use:
+
+ssh -fN -L 2222:hpc-gw1.hpc.swc.ucl.ac.uk:22 tchaplin@ssh.swc.ucl.ac.uk
+
+# Copy everything to ceph
+rsync -avz --exclude=.DS_Store --progress -e  "ssh -p 2222" /Users/tristan/Neuro/hm2p "tchaplin@localhost:/ceph/margrie/tchapli"
+
+# Copy key stuff to dropbox
+rsync -avz --exclude=.DS_Store --progress -e  "ssh -p 2222" /Users/tristan/Neuro/hm2p/db /Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/
+rsync -avz --exclude=.DS_Store --progress -e  "ssh -p 2222" /Users/tristan/Neuro/hm2p/video-meta-backup /Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/
+rsync -avz --exclude=.DS_Store --progress -e  "ssh -p 2222" /Users/tristan/Neuro/hm2p/z-stacks /Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/
+rsync -avz --exclude=.DS_Store --progress -e  "ssh -p 2222" /Users/tristan/Desktop/hm2p-maze-tristan-2023-02-17 /Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/
+
+
+# Copy DLC data to Ceph
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Desktop/hm2p-maze-tristan-2023-02-17 "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/dlc"
+
+
+# Copy Ceph DLC data to local
+rsync -avz --progress -e "ssh -p 2222" "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/dlc" /Users/tristan/Desktop/hm2p-maze-tristan-2023-02-17-redownload
+
+
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Neuro/hm2p/video-meta-backup "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/video-meta-backup"
+
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Neuro/hm2p/z-stacks "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/z-stacks"
+
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Neuro/hm2p/s2p "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/s2p"
+
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Neuro/hm2p/bad-2p-plots "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/bad-2p-plots"
+
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Neuro/hm2p/video "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/video"
+
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Neuro/hm2p/inspect-mov-big "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/inspect-mov-big"
+
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Neuro/hm2p/inspect-2p "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/inspect-2p"
+
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Neuro/hm2p/bad-behav "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/bad-behav"
+
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Neuro/hm2p/bad-behav-parts "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/bad-behav-parts"
+
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Neuro/hm2p/db "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/db"
+
+rsync -avz --progress -e "ssh -p 2222" /Users/tristan/Neuro/hm2p/sum "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/sum"
+
+
+# Copy ceph DLC back to here
+
+rsync -avz --progress -e "ssh -p 2222" "tchaplin@localhost:/ceph/margrie/tchapli/hm2p/dlc/hm2p-maze-tristan-2023-02-17" /Users/tristan/Desktop/
+
+# Get
+# Config path for DLC
+config_path="/ceph/margrie/tchapli/hm2p/dlc/hm2p-maze-tristan-2023-02-17/config.yaml"
+
+
+# Copy key data from SWC winstor to local:
+
+rsync -avz --progress --partial --append  "tchaplin@ssh.swc.ucl.ac.uk:/nfs/winstor/margrie/tchapli/hm2p-analysis/z-stacks" "/Users/tristan/Neuro/hm2p/"
+
+rsync -avz --progress --partial --append  "tchaplin@ssh.swc.ucl.ac.uk:/nfs/winstor/margrie/tchapli/hm2p-analysis/video-meta-backup" "/Users/tristan/Neuro/hm2p/"
+
+rsync -avz --progress --partial --append  --exclude '*.lif*' --exclude 'Tile*' "tchaplin@ssh.swc.ucl.ac.uk:/nfs/winstor/margrie/tchapli/patching" /Users/tristan/Neuro/
+
+rsync -avz --progress --partial --append  --exclude '*rawData.tar.bz' --exclude "*stitchedImages*" "tchaplin@ssh.swc.ucl.ac.uk:/nfs/winstor/margrie/tchapli/brains" /Users/tristan/Neuro/
+
+# Can't remember what this is for:
+
+rsync -avz --progress --partial --append --exclude '*side_left.camera.mp4' "tchaplin@ssh.swc.ucl.ac.uk:/nfs/winstor/margrie/tchapli/experiments/01 lights-maze/2022_11_15/20221115_13_27_42_1118213" "/Volumes/T7Shield/hm2p/raw"
+
+'*.mp4'
+
+'*side_left.camera.mp4'
+
+rsync -avz --progress --partial --append  "tchaplin@ssh.swc.ucl.ac.uk:/nfs/winstor/margrie/tchapli/hm2p-analysis/video" "/Users/tristan/Neuro/hm2p/"
+
+# Copy stuff to external ssd
+
+rsync -avz --progress /Users/tristan/Neuro/hm2p/s2p /Volumes/T7Shield/hm2p/
+
+rsync -avz --progress --partial --append --exclude '*side_left.camera.mp4' "tchaplin@ssh.swc.ucl.ac.uk:/nfs/winstor/margrie/tchapli/experiments/01 lights-maze/2022_11_15/20221115_13_27_42_1118213" "/Volumes/T7Shield/hm2p/raw"
+
+'*.mp4'
+
+'*side_left.camera.mp4'

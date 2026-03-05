@@ -55,6 +55,7 @@ hm2p-v2/
 ├── PLAN.md            ← full pipeline design (Stages 0–5)
 ├── ARCHITECTURE.md    ← code layout, HDF5 schemas, interface contracts
 ├── CLAUDE.md          ← coding standards, tool versions, rules for AI agents (auto-loaded by Claude Code)
+├── old-pipeline/      ← legacy pipeline code (read-only reference — never modify)
 ├── docs/
 │   ├── data-guide.md  ← raw data formats, file structures, legacy processing
 │   └── aws-setup.md   ← AWS account, IAM, S3 bucket setup
@@ -237,7 +238,7 @@ S3 bucket setup, and how to launch EC2 Spot instances for each stage.
 
 ### Quick rules
 
-- **Never modify** `/Users/tristan/Neuro/hm2p-analysis/` or Dropbox data
+- **Never modify** `old-pipeline/`, `/Users/tristan/Neuro/hm2p-analysis/`, or Dropbox data
 - All new code goes in `src/hm2p/`; all tests in `tests/`
 - Tests use **synthetic data only** — never read real data files in tests
 - Use `hypothesis` for numerical functions, `pandera` for schema validation
