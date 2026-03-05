@@ -7,7 +7,7 @@ name = "hm2p"
 version = "0.1.0"
 description = "Cloud pipeline for hm2p two-photon calcium imaging in freely-moving mice (RSP, Penk+/CamKII+ populations)"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 license = { text = "MIT" }
 authors = [{ name = "Tristan" }]
 
@@ -59,36 +59,34 @@ dependencies = [
 suite2p = [
     "suite2p>=0.14",
 ]
-caiman = [
-    "caiman>=1.11",
-]
+# caiman — NOT listed as an optional dep because the real CaImAn (Flatiron)
+# is only on conda-forge, not PyPI (PyPI "caiman" is an unrelated v0.1 package).
+# Install via: conda install -c conda-forge caiman
 dlc = [
-    "deeplabcut[tf]>=3.0",
+    # DLC 3.0 has only pre-release RCs on PyPI; use 2.3.x stable for now.
+    # When 3.0 stable lands, bump to deeplabcut[tf]>=3.0.
+    "deeplabcut>=2.3",
 ]
 sleap = [
     "sleap>=1.4",
 ]
-fissa = [
-    "fissa>=1.0",
-]
-cascade = [
-    # NOT on PyPI — install from source:
-    #   pip install git+https://github.com/HelmchenLabSoftware/Cascade.git
-    # Or via conda (recommended — ships CUDA-compatible TF):
-    #   conda install -c conda-forge cascade2p
-    "cascade2p @ git+https://github.com/HelmchenLabSoftware/Cascade.git",
-]
-syllables = [
-    # zero-label behavioural segmentation (Stage 3b)
-    "keypoint-moseq>=0.6",
-    "vame-py>=0.12",
-]
+# ---------------------------------------------------------------------------
+# Packages below are NOT managed by uv — install manually in separate envs.
+# They have incompatible transitive pins (numpy, scikit-learn, tensorflow)
+# that break universal resolution. See docs/manual-installs.md.
+#
+#   fissa>=1.0           — pins scikit-learn<1.2
+#   cascade2p            — pins tensorflow==2.3 (Python 3.8 only)
+#   caiman (conda-forge) — not on PyPI
+#   keypoint-moseq>=0.6  — pins numpy<=1.26
+#   vame-py>=0.12        — requires numpy>=2.2
+#   cebra>=0.6           — pins numpy<2.0
+# ---------------------------------------------------------------------------
 nwb = [
     "neuroconv>=0.6",
     "pynwb>=2.7",
 ]
 analysis = [
-    "cebra>=0.6",
     "nemos>=0.1",
 ]
 workflow = [
@@ -117,6 +115,19 @@ hm2p = "hm2p.cli:app"
 # ---------------------------------------------------------------------------
 # Tool configuration
 # ---------------------------------------------------------------------------
+
+# --- uv --------------------------------------------------------------------
+[tool.uv]
+# Only resolve for Linux/macOS — this project never runs on Windows.
+environments = [
+    "sys_platform == 'linux'",
+    "sys_platform == 'darwin'",
+]
+# movement depends on xarray[accel, io, viz]; the viz extra pulls in cartopy
+# which needs C libs (libgeos, libproj) we don't need. Override to plain xarray.
+override-dependencies = [
+    "xarray>=2024.6",
+]
 
 [tool.hatch.metadata]
 allow-direct-references = true

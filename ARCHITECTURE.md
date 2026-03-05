@@ -403,7 +403,7 @@ No CD (deployment) planned — pipeline is run on-demand per session batch.
 | --- | --- | --- |
 | Extraction abstraction | roiextractors | Only mature unified API across Suite2p + CaImAn |
 | Kinematic abstraction | movement | Official SWC tool; supports all major trackers |
-| Behavioural syllables | keypoint-MoSeq (primary), VAME v0.7+ (alt) | Both zero-label; keypoint-MoSeq gold standard for freely-moving mice |
+| Behavioural syllables | keypoint-MoSeq (primary), VAME v0.12+ (alt) | Both zero-label; [manual install](docs/manual-installs.md) — incompatible numpy pins |
 | Intermediate format | HDF5 | Fast random access, self-describing, well-supported in Python |
 | Pipeline orchestration | Snakemake | Supports local + AWS Batch without code changes |
 | Data standard | NeuroBlueprint | Designed for systems neuroscience; tooling support |

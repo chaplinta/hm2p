@@ -32,9 +32,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     build-essential \
     python3 \
+    python3-dev \
     python3-pip \
     python3-venv \
     libhdf5-dev \
+    pkg-config \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install uv (fast Python package manager) system-wide
@@ -72,6 +74,7 @@ RUN ARCH=$(dpkg --print-architecture) && \
 COPY init-firewall.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/init-firewall.sh && \
     echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
+    echo "node ALL=(root) NOPASSWD: /usr/bin/apt-get" >> /etc/sudoers.d/node-firewall && \
     chmod 0440 /etc/sudoers.d/node-firewall
 
 USER node

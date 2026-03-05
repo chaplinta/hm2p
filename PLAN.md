@@ -282,6 +282,10 @@ plus a `confidence` data variable. Downstream code never inspects which tracker 
 
 **Higher-level behavioural analyses — Stage 3b (planned, not in core scope yet):**
 
+> **Note:** keypoint-MoSeq, VAME, and DLC2Action are **not** in `pyproject.toml` due to
+> incompatible numpy/scikit-learn pins. They must be installed in separate environments.
+> See [docs/manual-installs.md](docs/manual-installs.md).
+
 The pipeline is designed to support **minimal-labelling behavioural analysis** — discovering
 behavioural structure from pose kinematics without manually labelling thousands of frames.
 Both primary tools consume the `movement` xarray output (our Stage 3 output format) directly.
@@ -367,7 +371,8 @@ All steps operate on the unified roiextractors API — extractor-agnostic.
 #### 4c — Calibrated Spike Inference via CASCADE
 
 **CASCADE** (Rupprecht et al. 2021, *Nature Neuroscience*) is the primary spike inference
-method. Unlike threshold-based methods it outputs a continuous **spike rate in spikes/s**
+method ([manual install](docs/manual-installs.md) — pins `tensorflow==2.3`, Python 3.8 only).
+Unlike threshold-based methods it outputs a continuous **spike rate in spikes/s**
 (calibrated physical units) using pre-trained deep-learning models matched to the GCaMP
 indicator and imaging frame rate. This replaces the OASIS deconvolution and Voigts & Harnett
 threshold methods as the primary output.
@@ -386,7 +391,7 @@ The Voigts & Harnett threshold method is retained as a **fallback** and for comp
 - `n_spikes`, `spike_rate` (spikes/min, bad frames excluded)
 - `mean_dff_amp`: mean peak dF/F0 during events
 
-**Tools:** roiextractors, CASCADE (`cascade2p`), FISSA, NumPy, SciPy
+**Tools:** roiextractors, CASCADE (`cascade2p`, [manual install](docs/manual-installs.md)), FISSA ([manual install](docs/manual-installs.md)), NumPy, SciPy
 **Compute:** CPU only (CASCADE inference is fast on CPU) — can run locally or in cloud
 **Output:** `derivatives/calcium/sub-{id}/ses-{date}/ca.h5`
 
@@ -450,6 +455,9 @@ model.fit(X=basis.compute_features(hd, speed), y=spks)
 ```
 
 ### 4.3 CEBRA — Population Latent Embeddings
+
+> **Note:** CEBRA is a [manual install](docs/manual-installs.md) — it pins `numpy<2.0`
+> on some platforms, conflicting with other pipeline dependencies.
 
 **CEBRA** (Schneider et al. 2023, *Nature*; v0.6.0, Jan 2026; Apache 2.0) learns a
 low-dimensional embedding of population dF/F that is consistent with a specified behavioural
@@ -576,16 +584,16 @@ Notebooks
 | DAQ parsing | nptdms | TDMS → timestamps.h5 (Stage 0 only) |
 | 2P extraction | Suite2p 0.12+ (default), CaImAn | Pluggable via `extractor` field |
 | Extraction API | **roiextractors** (CatalystNeuro) | Unified SegmentationExtractor |
-| Neuropil subtraction | Fixed coefficient (default), **FISSA** (spatial ICA) | FISSA: more accurate in dense tissue |
-| Spike inference | **CASCADE** (Rupprecht et al. 2021) | Calibrated spikes/s; pre-trained GCaMP models |
+| Neuropil subtraction | Fixed coefficient (default), **FISSA** (spatial ICA) | FISSA: more accurate in dense tissue; [manual install](docs/manual-installs.md) |
+| Spike inference | **CASCADE** (Rupprecht et al. 2021) | Calibrated spikes/s; pre-trained GCaMP models; [manual install](docs/manual-installs.md) |
 | Pose estimation | DeepLabCut 3.x (default), SLEAP, LightningPose | Pluggable via `tracker` field |
 | Kinematics | **movement** (neuroinformatics.dev) | Unified xarray.Dataset regardless of tracker |
-| Behavioural syllables | **VAME** v0.7+ (EthoML) | Zero-label unsupervised; accepts movement xarray natively |
-| Behavioural syllables (alt) | **keypoint-MoSeq** (Datta lab) | AR-HMM; zero-label; Nature Methods 2024 |
+| Behavioural syllables | **VAME** v0.12+ (EthoML) | Zero-label unsupervised; accepts movement xarray natively; [manual install](docs/manual-installs.md) |
+| Behavioural syllables (alt) | **keypoint-MoSeq** (Datta lab) | AR-HMM; zero-label; Nature Methods 2024; [manual install](docs/manual-installs.md) |
 | NWB conversion | **neuroconv** (CatalystNeuro) | roiextractors + movement → NWB archive |
 | Analysis interface | **pynapple** (Peyrache lab) | Unified TsdFrame for dF/F + behaviour |
 | Encoding models | **NEMOS** (Flatiron Institute) | GLM, pynapple-native, JAX backend |
-| Population embeddings | **CEBRA** (Schneider et al. 2023) | Contrastive latent spaces w/ behaviour |
+| Population embeddings | **CEBRA** (Schneider et al. 2023) | Contrastive latent spaces w/ behaviour; [manual install](docs/manual-installs.md) |
 | Orchestration | Snakemake 8.x+ | DAG-based, supports local + AWS Batch profiles |
 | Storage | AWS S3 | All persistent data |
 | GPU compute | AWS EC2 g4dn Spot (or local GPU) | Pose tracking + 2P extraction |

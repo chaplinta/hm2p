@@ -95,7 +95,8 @@ Stage 1 — 2P Extraction          Stage 2 — Pose Estimation
                  │
                  ▼
             Analysis (future)
-              pynapple · NEMOS · CEBRA
+              pynapple · NEMOS · CEBRA†
+              † CEBRA requires separate env
 ```
 
 All stages are **pluggable**: swap the calcium extractor or pose tracker by
@@ -109,9 +110,9 @@ changing one field in `experiments.csv` — downstream code is unchanged.
 | --- | --- | --- |
 | Calcium extraction API | **roiextractors** | Unified interface for Suite2p, CaImAn, etc. |
 | Spike inference | **CASCADE** (Rupprecht et al. 2021) | Calibrated spikes/s; pre-trained GCaMP models |
-| Neuropil subtraction | Fixed 0.7×Fneu (default) or **FISSA** | FISSA more accurate in dense tissue |
+| Neuropil subtraction | Fixed 0.7×Fneu (default) or **FISSA** | FISSA more accurate in dense tissue ([manual install](docs/manual-installs.md)) |
 | Kinematics API | **movement** (SWC/UCL) | Unified xarray output; all trackers supported |
-| Behavioural syllables | **keypoint-MoSeq** (primary) / **VAME** | Zero-label; kpMoSeq gold standard; VAME accepts movement xarray natively |
+| Behavioural syllables | **keypoint-MoSeq** / **VAME** | Zero-label; separate envs required ([manual install](docs/manual-installs.md)) |
 | Data standard | **NeuroBlueprint** | BIDS-inspired; DataShuttle support |
 | Intermediate format | **HDF5** | Fast random access; pynapple-native |
 | Analysis interface | **pynapple** | Timestamp-aware slicing across neural + behav |
@@ -276,11 +277,11 @@ instructions (local macOS and devcontainer).
 
 ## References
 
-- **CASCADE**: Rupprecht et al. (2021) *Nature Neuroscience* — calibrated spike inference
-- **FISSA**: Keemink et al. (2018) *Scientific Reports* — neuropil subtraction
-- **keypoint-MoSeq**: Weinreb et al. (2024) *Nature Methods* — gold standard zero-label AR-HMM behaviour segmentation for freely-moving mice
-- **VAME**: Luxem et al. (2022) *Nature Communications* — zero-label VAE syllables; v0.12+ natively accepts movement xarray format
-- **CEBRA**: Schneider et al. (2023) *Nature* — joint neural-behavioural embeddings; HD-conditioned mode ideal for RSC HD cell populations
+- **CASCADE**: Rupprecht et al. (2021) *Nature Neuroscience* — calibrated spike inference ([manual install](docs/manual-installs.md))
+- **FISSA**: Keemink et al. (2018) *Scientific Reports* — neuropil subtraction ([manual install](docs/manual-installs.md))
+- **keypoint-MoSeq**: Weinreb et al. (2024) *Nature Methods* — gold standard zero-label AR-HMM behaviour segmentation ([manual install](docs/manual-installs.md))
+- **VAME**: Luxem et al. (2022) *Nature Communications* — zero-label VAE syllables ([manual install](docs/manual-installs.md))
+- **CEBRA**: Schneider et al. (2023) *Nature* — joint neural-behavioural embeddings ([manual install](docs/manual-installs.md))
 - **NEMOS**: Flatiron Institute — GLM encoding models for neural data
 - **pynapple**: Viejo et al. — unified timeseries interface for systems neuroscience
 - **movement**: Neuroinformatics.dev (SWC/UCL) — unified kinematics from pose tracking

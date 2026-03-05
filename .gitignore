@@ -51,6 +51,8 @@ data/
 *.tdms
 *.npy
 *.npz
+# But DO track Suite2p classifiers and ops (small, essential project assets)
+!sourcedata/trackers/suite2p/*.npy
 
 # Secrets / credentials
 .env
