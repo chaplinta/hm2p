@@ -119,6 +119,11 @@ def build_user_data(sessions: list[dict]) -> str:
         nvidia-smi || echo "WARNING: No GPU detected"
         python3 -c "import suite2p; print(f'suite2p {{suite2p.__version__}}')"
 
+        # --- Download custom classifier from S3 ---
+        mkdir -p /tmp/hm2p-config
+        aws s3 cp s3://{DERIVATIVES_BUCKET}/config/suite2p/classifier_soma.npy /tmp/hm2p-config/classifier_soma.npy
+        echo "Custom classifier downloaded"
+
         # --- Process sessions ---
         SESSIONS='{session_json}'
         WORK=/tmp/hm2p-work
@@ -131,11 +136,24 @@ def build_user_data(sessions: list[dict]) -> str:
         sessions = json.load(sys.stdin)
         work = Path('/tmp/hm2p-work')
         total = len(sessions)
+        completed = []
+        failed = []
+        skipped = []
 
         for i, ses in enumerate(sessions, 1):
             sub, ses_id = ses['sub'], ses['ses']
             exp_id = ses['exp_id']
             print(f'\\n=== [{{i}}/{{total}}] {{sub}}/{{ses_id}} ({{exp_id}}) ===', flush=True)
+
+            # Skip if already processed on S3
+            check = subprocess.run([
+                'aws', 's3', 'ls',
+                f's3://{DERIVATIVES_BUCKET}/ca_extraction/{{sub}}/{{ses_id}}/suite2p/plane0/F.npy',
+            ], capture_output=True, text=True)
+            if check.returncode == 0:
+                print(f'  SKIP: already processed on S3', flush=True)
+                skipped.append(exp_id)
+                continue
 
             # Create working dirs
             tiff_dir = work / 'input' / sub / ses_id / 'funcimg'
@@ -156,11 +174,13 @@ def build_user_data(sessions: list[dict]) -> str:
             ], capture_output=True, text=True)
             if ret.returncode != 0:
                 print(f'  ERROR downloading: {{ret.stderr}}', flush=True)
+                failed.append(exp_id)
                 continue
 
             tifs = list(tiff_dir.glob('*.tif')) + list(tiff_dir.glob('*.tiff'))
             if not tifs:
                 print(f'  SKIP: no TIFFs found', flush=True)
+                skipped.append(exp_id)
                 continue
             print(f'  Downloaded {{len(tifs)}} TIFF(s), total {{sum(f.stat().st_size for f in tifs)/1e9:.1f}} GB', flush=True)
 
@@ -172,21 +192,60 @@ def build_user_data(sessions: list[dict]) -> str:
                 import suite2p.detection.sparsedetect as sd
 
                 # Patch mode() bug in suite2p 1.0
-                _orig_fbs = sd.find_best_scale
-                def _patched_fbs(I, spatial_scale):
-                    scale, mode = _orig_fbs(I, spatial_scale)
-                    if isinstance(scale, np.ndarray):
-                        scale = int(scale.item())
-                    return scale, mode
-                sd.find_best_scale = _patched_fbs
+                if not getattr(sd.find_best_scale, '_patched', False):
+                    _orig_fbs = sd.find_best_scale
+                    def _patched_fbs(I, spatial_scale):
+                        scale, mode = _orig_fbs(I, spatial_scale)
+                        if isinstance(scale, np.ndarray):
+                            scale = int(scale.item())
+                        return scale, mode
+                    _patched_fbs._patched = True
+                    sd.find_best_scale = _patched_fbs
 
                 settings = suite2p.default_settings()
+
+                # Core imaging parameters (matching legacy ops_default.npy)
                 settings['fs'] = 29.97
                 settings['tau'] = 1.0
+                settings['diameter'] = [12.0, 12.0]
+
+                # Pipeline control
                 settings['run']['do_deconvolution'] = False
+
+                # IO
                 settings['io']['delete_bin'] = True
+
+                # Registration (matching legacy)
                 settings['registration']['nonrigid'] = True
+                settings['registration']['block_size'] = (128, 128)
+                settings['registration']['batch_size'] = 100
+                settings['registration']['maxregshift'] = 0.1
+                settings['registration']['smooth_sigma'] = 1.15
+                settings['registration']['th_badframes'] = 1.0
+                settings['registration']['subpixel'] = 10
+
+                # Detection (matching legacy)
+                settings['detection']['threshold_scaling'] = 1.0
+                settings['detection']['max_overlap'] = 0.75
+                settings['detection']['sparsery_settings']['highpass_neuropil'] = 25
+
+                # Extraction (matching legacy)
                 settings['extraction']['batch_size'] = 500
+                settings['extraction']['neuropil_extract'] = True
+                settings['extraction']['neuropil_coefficient'] = 0.7
+                settings['extraction']['inner_neuropil_radius'] = 2
+                settings['extraction']['min_neuropil_pixels'] = 350
+                settings['extraction']['allow_overlap'] = False
+
+                # Classification - custom soma classifier
+                classifier = Path('/tmp/hm2p-config/classifier_soma.npy')
+                if classifier.exists():
+                    settings['classification']['classifier_path'] = str(classifier)
+                    settings['classification']['use_builtin_classifier'] = False
+                    print(f'  Using custom classifier: {{classifier}}', flush=True)
+                else:
+                    settings['classification']['use_builtin_classifier'] = True
+                    print(f'  WARNING: custom classifier not found, using builtin', flush=True)
 
                 db = {{
                     'data_path': [str(tiff_dir)],
@@ -200,6 +259,7 @@ def build_user_data(sessions: list[dict]) -> str:
                 print(f'  ERROR in Suite2p: {{e}}', flush=True)
                 import traceback
                 traceback.print_exc()
+                failed.append(exp_id)
                 continue
 
             # Upload results to S3
@@ -214,10 +274,13 @@ def build_user_data(sessions: list[dict]) -> str:
                 ], capture_output=True, text=True)
                 if ret.returncode != 0:
                     print(f'  ERROR uploading: {{ret.stderr}}', flush=True)
+                    failed.append(exp_id)
                 else:
                     print(f'  Upload DONE', flush=True)
+                    completed.append(exp_id)
             else:
                 print(f'  WARNING: suite2p output dir not found at {{s2p_out}}', flush=True)
+                failed.append(exp_id)
 
             # Cleanup to save disk space
             shutil.rmtree(work / 'input' / sub, ignore_errors=True)
@@ -225,6 +288,11 @@ def build_user_data(sessions: list[dict]) -> str:
             print(f'  Cleaned up local files', flush=True)
 
         print(f'\\n=== ALL SESSIONS COMPLETE ===', flush=True)
+        print(f'Completed: {{len(completed)}}/{{total}}', flush=True)
+        print(f'Skipped:   {{len(skipped)}}', flush=True)
+        print(f'Failed:    {{len(failed)}}', flush=True)
+        if failed:
+            print(f'Failed sessions: {{failed}}', flush=True)
         "
 
         echo ""
