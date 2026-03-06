@@ -630,16 +630,69 @@ Notebooks
 
 ## 8. Implementation Status
 
-1. ✅ **Project skeleton** — `pyproject.toml`, `src/hm2p/` (all modules stubbed), `tests/`
-   (41 tests passing), `pre-commit`, GitHub Actions CI/lint, Snakemake workflow, Docker,
-   `uv` venv, `metadata/` CSVs. Ruff clean. CASCADE noted as conda-only (not on PyPI).
-2. **Finalise HDF5 schemas** — `timestamps.h5`, `kinematics.h5`, `ca.h5`, `sync.h5` — write
-   pandera schema validation in `io/hdf5.py` before any processing code
-3. **Upload raw data to S3** — migrate Dropbox data following NeuroBlueprint layout using DataShuttle
-4. **Stage 0** — implement TDMS parser → `timestamps.h5`; fully unit-tested with synthetic TDMS
-5. **Stage 3** — implement kinematics module using `movement`; CPU-only, validates end-to-end
-6. **Stage 4** — implement calcium module (roiextractors → neuropil → dF/F0 → CASCADE → ca.h5)
-7. **Stage 5** — implement sync module
-8. **Snakemake DAG** — fill in shell commands and resource specs for all rules
-9. **EC2 Docker images** — build and push GPU image (Suite2p + DLC) and CPU image
-10. **neuroconv export** — write NWB files from ca.h5 + kinematics.h5 for archiving
+### Completed
+
+1. ✅ **Project skeleton** — `pyproject.toml`, `src/hm2p/`, `tests/` (283 tests, 97%
+   coverage), pre-commit, GitHub Actions CI/lint, `uv` venv, `metadata/` CSVs.
+2. ✅ **HDF5 schemas** — pandera schema validation in `io/hdf5.py` for all output files.
+3. ✅ **S3 data upload** — 26 sessions (91.4 GiB, 503 objects) uploaded to
+   `s3://hm2p-rawdata/rawdata/` in NeuroBlueprint layout. Verified with
+   `scripts/verify_s3_upload.sh`.
+4. ✅ **Stage 0 — Ingest** — TDMS parser → `timestamps.h5`; fully unit-tested.
+5. ✅ **Stage 1 — Suite2p extraction** — `extraction/suite2p.py` (extractor class +
+   post-hoc soma/dendrite ROI classification), `extraction/run_suite2p.py` (wraps
+   `suite2p.run_s2p()`), `extraction/base.py` (abstract interface). CaImAn extractor
+   also implemented. All tested with synthetic data.
+6. ✅ **Stage 3 — Kinematics** — `kinematics/compute.py` using `movement` library.
+   HD, position, speed, AHV, movement state, light on/off, bad_behav masking.
+7. ✅ **Stage 4 — Calcium processing** — neuropil subtraction (fixed coefficient),
+   dF/F0 baseline, per-ROI stats. CASCADE spike inference deferred (needs conda env).
+8. ✅ **Stage 5 — Sync** — `sync/align.py` resamples behaviour → imaging frame times.
+9. ✅ **Snakemake DAG** — `workflow/Snakefile` + 6 stage rules (`workflow/rules/*.smk`)
+   with resource specs. Three profiles: `local`, `local-gpu`, `aws-batch`.
+10. ✅ **Docker images defined** — `docker/gpu.Dockerfile` (CUDA 12.1 + Suite2p + DLC),
+    `docker/cpu.Dockerfile` (CPU-only stages).
+11. ✅ **AWS S3 infrastructure** — buckets created (`hm2p-rawdata`, `hm2p-derivatives`),
+    versioning enabled, lifecycle policy (Standard → IA after 30 days).
+12. ✅ **Legacy pipeline reference** — copied into `old-pipeline/` (read-only, never modify).
+13. ✅ **EC2 launch script** — `scripts/launch_suite2p_ec2.py` launches a g4dn.xlarge
+    instance via boto3, bootstraps Suite2p, processes all 26 sessions, uploads results
+    to S3, and self-terminates. Supports `--status`, `--terminate`, `--dry-run`.
+
+### In Progress
+
+14. 🔄 **Run Suite2p on all sessions (Stage 1)** — validated locally on CPU in
+    devcontainer. Test session `sub-1117788/ses-20221018T105617` (1.05 GB TIFF):
+    99 ROIs detected in 14,577 frames, completed in 62 seconds on CPU.
+    Suite2p 1.0 API changes handled (`run_s2p(db=..., settings=...)`) and
+    `sparsedetect` mode() bug patched. Remaining: run on all 26 sessions
+    (cloud GPU once quota approved, or sequentially on CPU ~27 min total).
+
+### Cloud Infrastructure (ready but deferred)
+
+AWS cloud execution infrastructure is built and ready but deferred due to new-account
+quota limits (G/VT vCPU = 0). All scripts and configs exist for when quotas are approved:
+
+- `scripts/launch_suite2p_ec2.py` — boto3 script to launch g4dn.xlarge, process all
+  sessions, upload results to S3, self-terminate. Supports `--status`/`--terminate`.
+- `scripts/aws_batch_setup.sh` — creates Batch compute environments + job queues.
+- `scripts/ecr_push.sh` — builds and pushes GPU/CPU Docker images to ECR.
+- `workflow/profiles/aws-batch/config.yaml` — Snakemake AWS Batch profile.
+- EC2 key pair (`hm2p-suite2p`) and security group (`hm2p-suite2p-sg`) already created.
+- G/VT On-Demand quota increase to 4 vCPUs requested (pending approval).
+
+### Remaining
+
+15. ⬜ **Complete Suite2p on all sessions** — after local validation, run remaining
+    sessions on cloud GPU (once quota approved) or local GPU machine.
+16. ⬜ **Run DLC pose estimation (Stage 2)** — same approach (local subset first, then
+    cloud). Requires DLC model weights in `sourcedata/trackers/dlc/`.
+17. ⬜ **CASCADE spike inference** — requires separate conda env (tensorflow==2.3,
+    Python 3.8 only). See `docs/manual-installs.md`. Can run on CPU after Stage 4
+    dF/F0 is computed.
+18. ⬜ **FISSA neuropil subtraction** — optional, more accurate than fixed coefficient.
+    Requires separate env (scikit-learn<1.2). See `docs/manual-installs.md`.
+19. ⬜ **neuroconv NWB export** — write NWB files from ca.h5 + kinematics.h5 for DANDI
+    archiving. Stub only.
+20. ⬜ **Rotate hm2p-agent S3 credentials** — current access key was exposed in EC2
+    user-data script. Rotate when cloud runs resume.

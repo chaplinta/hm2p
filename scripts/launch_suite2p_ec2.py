@@ -164,31 +164,42 @@ def build_user_data(sessions: list[dict]) -> str:
                 continue
             print(f'  Downloaded {{len(tifs)}} TIFF(s), total {{sum(f.stat().st_size for f in tifs)/1e9:.1f}} GB', flush=True)
 
-            # Run Suite2p
+            # Run Suite2p (1.0 API: db + settings)
             print(f'  Running Suite2p...', flush=True)
             try:
+                import numpy as np
                 import suite2p
-                ops = suite2p.default_ops()
-                ops.update({{
-                    'fs': 29.97,
-                    'nplanes': 1,
-                    'nchannels': 1,
-                    'tau': 1.0,
-                    'do_registration': True,
-                    'nonrigid': True,
-                    'block_size': [128, 128],
-                    'keep_movie_raw': False,
-                    'delete_bin': True,
-                    'roidetect': True,
-                    'spikedetect': False,
-                    'batch_size': 500,
+                import suite2p.detection.sparsedetect as sd
+
+                # Patch mode() bug in suite2p 1.0
+                _orig_fbs = sd.find_best_scale
+                def _patched_fbs(I, spatial_scale):
+                    scale, mode = _orig_fbs(I, spatial_scale)
+                    if isinstance(scale, np.ndarray):
+                        scale = int(scale.item())
+                    return scale, mode
+                sd.find_best_scale = _patched_fbs
+
+                settings = suite2p.default_settings()
+                settings['fs'] = 29.97
+                settings['tau'] = 1.0
+                settings['run']['do_deconvolution'] = False
+                settings['io']['delete_bin'] = True
+                settings['registration']['nonrigid'] = True
+                settings['extraction']['batch_size'] = 500
+
+                db = {{
                     'data_path': [str(tiff_dir)],
                     'save_path0': str(out_dir),
-                }})
-                suite2p.run_s2p(ops=ops)
+                    'nplanes': 1,
+                    'nchannels': 1,
+                }}
+                suite2p.run_s2p(db=db, settings=settings)
                 print(f'  Suite2p DONE', flush=True)
             except Exception as e:
                 print(f'  ERROR in Suite2p: {{e}}', flush=True)
+                import traceback
+                traceback.print_exc()
                 continue
 
             # Upload results to S3
