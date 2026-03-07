@@ -80,9 +80,39 @@ if classif:
     cpath = classif.get("classifier_path", "built-in")
     st.caption(f"Classifier: `{cpath}` | built-in: {classif.get('use_builtin_classifier', True)}")
 
+# Compute calcium stats for cells
+cell_mask = iscell[:, 0].astype(bool) if iscell is not None else np.ones(len(f_traces), dtype=bool)
+if f_traces is not None and cell_mask.any():
+    cell_f = f_traces[cell_mask]
+    cell_neu = f_neu[cell_mask] if f_neu is not None else None
+
+    # SNR: mean(dF/F peak) / std(baseline)
+    snrs = []
+    for i in range(len(cell_f)):
+        trace = cell_f[i]
+        f0 = np.percentile(trace, 10)
+        if f0 > 0:
+            dff = (trace - f0) / f0
+            baseline_std = np.std(dff[dff < np.percentile(dff, 50)])
+            peak = np.percentile(dff, 95)
+            snrs.append(peak / baseline_std if baseline_std > 0 else 0)
+        else:
+            snrs.append(0)
+    snrs = np.array(snrs)
+
+    # Skewness of traces (high skew = bursty activity = likely real cell)
+    from scipy.stats import skew as scipy_skew
+    skews = np.array([scipy_skew(cell_f[i]) for i in range(len(cell_f))])
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Median SNR", f"{np.median(snrs):.1f}")
+    col2.metric("Mean skewness", f"{np.mean(skews):.2f}")
+    col3.metric("Duration (s)", f"{n_frames / ops_dict.get('fs', 30):.0f}")
+    col4.metric("Frame rate", f"{ops_dict.get('fs', 0):.1f} Hz")
+
 # Tabs
-tab_map, tab_traces, tab_class, tab_reg, tab_tiff = st.tabs(
-    ["ROI Map", "Traces", "Classification", "Registration", "TIFF Images"]
+tab_map, tab_traces, tab_class, tab_stats, tab_reg, tab_tiff = st.tabs(
+    ["ROI Map", "Traces", "Classification", "Cell Stats", "Registration", "TIFF Images"]
 )
 
 
@@ -195,6 +225,66 @@ with tab_class:
         plt.tight_layout()
         st.pyplot(fig)
         plt.close()
+
+
+# ── Cell Stats ────────────────────────────────────────────────────────────
+with tab_stats:
+    import matplotlib.pyplot as plt
+
+    if f_traces is not None and cell_mask.any():
+        fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+
+        # SNR distribution
+        axes[0, 0].hist(snrs, bins=25, color="steelblue", edgecolor="white")
+        axes[0, 0].axvline(np.median(snrs), color="red", linestyle="--", label=f"median={np.median(snrs):.1f}")
+        axes[0, 0].set_xlabel("SNR")
+        axes[0, 0].set_ylabel("Count")
+        axes[0, 0].set_title("Signal-to-Noise Ratio")
+        axes[0, 0].legend()
+
+        # Skewness distribution
+        axes[0, 1].hist(skews, bins=25, color="darkorange", edgecolor="white")
+        axes[0, 1].axvline(np.median(skews), color="red", linestyle="--", label=f"median={np.median(skews):.2f}")
+        axes[0, 1].set_xlabel("Skewness")
+        axes[0, 1].set_ylabel("Count")
+        axes[0, 1].set_title("Trace Skewness (higher = burstier)")
+        axes[0, 1].legend()
+
+        # ROI size distribution
+        if stat is not None:
+            sizes = np.array([s["npix"] for s in stat[cell_mask]])
+            axes[1, 0].hist(sizes, bins=25, color="seagreen", edgecolor="white")
+            axes[1, 0].set_xlabel("Pixels")
+            axes[1, 0].set_ylabel("Count")
+            axes[1, 0].set_title("Cell ROI Size")
+
+        # Compactness distribution
+        if stat is not None:
+            compacts = np.array([s.get("compact", 0) for s in stat[cell_mask]])
+            axes[1, 1].hist(compacts, bins=25, color="mediumpurple", edgecolor="white")
+            axes[1, 1].set_xlabel("Compactness")
+            axes[1, 1].set_ylabel("Count")
+            axes[1, 1].set_title("ROI Compactness (higher = rounder)")
+
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close()
+
+        # Per-cell stats table
+        with st.expander("Per-cell statistics"):
+            import pandas as pd
+            cell_idx = np.where(cell_mask)[0]
+            stats_df = pd.DataFrame({
+                "ROI": cell_idx,
+                "SNR": np.round(snrs, 2),
+                "Skewness": np.round(skews, 2),
+                "Size (px)": [stat[i]["npix"] for i in cell_idx] if stat is not None else 0,
+                "Compact": [round(stat[i].get("compact", 0), 3) for i in cell_idx] if stat is not None else 0,
+                "Prob": np.round(iscell[cell_idx, 1], 3) if iscell is not None else 0,
+            })
+            st.dataframe(stats_df, width="stretch")
+    else:
+        st.info("No cell traces available for stats.")
 
 
 # ── Registration ─────────────────────────────────────────────────────────
