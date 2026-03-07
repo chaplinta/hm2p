@@ -34,6 +34,7 @@ sessions_page = st.Page(str(_app_dir / "pages/sessions_page.py"), title="Session
 pipeline_page = st.Page(str(_app_dir / "pages/pipeline_page.py"), title="Pipeline", icon=":material/monitoring:")
 suite2p_page = st.Page(str(_app_dir / "pages/suite2p_page.py"), title="Suite2p", icon=":material/neurology:")
 sync_page = st.Page(str(_app_dir / "pages/sync_page.py"), title="Sync", icon=":material/sync:")
+analysis_page = st.Page(str(_app_dir / "pages/analysis_page.py"), title="Analysis", icon=":material/analytics:")
 
-pg = st.navigation([sessions_page, pipeline_page, suite2p_page, sync_page])
+pg = st.navigation([sessions_page, pipeline_page, suite2p_page, sync_page, analysis_page])
 pg.run()
