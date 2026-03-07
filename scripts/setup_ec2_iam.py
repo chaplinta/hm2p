@@ -36,7 +36,7 @@ ACCOUNT_ID = "390897005556"
 
 ROLE_NAME = "hm2p-ec2-role"
 POLICY_NAME = "hm2p-ec2-policy"
-PROFILE_NAME = "hm2p-ec2-profile"
+PROFILE_NAME = "hm2p-ec2-role"
 LOG_GROUP = "/hm2p/suite2p"
 
 # Policy: S3 access to hm2p buckets + CloudWatch Logs

@@ -128,19 +128,67 @@ aws s3api put-bucket-lifecycle-configuration \
 
 ---
 
-## 6. EC2 IAM Role (for instances to access S3)
+## 6. EC2 IAM Role + Instance Profile
 
-Create a role that EC2 instances assume automatically — no keys needed on the instance:
+EC2 instances need an IAM role to access S3 and CloudWatch without embedded credentials.
+The `launch_suite2p_ec2.py` script auto-detects the instance profile and uses it.
 
-1. **IAM → Roles → Create role**
-2. Trusted entity: **AWS service → EC2**
-3. Attach policies:
-   - `AmazonS3FullAccess` (or a custom policy scoped to `hm2p-*` buckets)
-   - `AmazonEC2ContainerRegistryReadOnly` (if pulling Docker images from ECR)
-4. Name: `hm2p-ec2-role`
+### What was created
 
-When launching an EC2 instance, assign this role under **IAM instance profile**.
-The instance can then run `aws s3 cp ...` without any credentials configured.
+| Resource | Name | Purpose |
+| --- | --- | --- |
+| IAM Policy | `hm2p-ec2-policy` | S3 read (`hm2p-rawdata`), S3 read/write (`hm2p-derivatives`), CloudWatch Logs (`/hm2p/suite2p`) |
+| IAM Role | `hm2p-ec2-role` | EC2 trusted entity, `hm2p-ec2-policy` attached |
+| Instance Profile | `hm2p-ec2-role` | Auto-created with the role (console creates both with same name) |
+| CloudWatch Log Group | `/hm2p/suite2p` | Receives logs from EC2 instances |
+
+### Setup (one-time, already done)
+
+**Option A — Python script** (from a machine with admin IAM access):
+
+```bash
+python3 scripts/setup_ec2_iam.py
+```
+
+**Option B — AWS Console** (as root or admin user):
+
+1. IAM → Policies → Create policy → JSON → paste the policy from `scripts/setup_ec2_iam.py`
+   → name it `hm2p-ec2-policy`
+2. IAM → Roles → Create role → AWS service → EC2 → attach `hm2p-ec2-policy`
+   → name it `hm2p-ec2-role` (this also creates an instance profile with the same name)
+3. CloudWatch → Log groups → Create → name `/hm2p/suite2p` (region: ap-southeast-2)
+
+**Option C — AWS CLI / CloudShell:**
+
+```bash
+python3 scripts/setup_ec2_iam.py --dry-run
+# Prints all 6 aws CLI commands to copy-paste
+```
+
+### How it works
+
+When `launch_suite2p_ec2.py` runs:
+1. It tries to detect the instance profile via IAM API
+2. If found (or if `--use-profile` is passed), it attaches the profile to the instance
+   and skips embedding credentials in user-data
+3. If not found, it falls back to embedding S3 credentials from `~/.aws/credentials`
+
+The IAM endpoint is blocked from the devcontainer, so use `--use-profile` to force it:
+
+```bash
+python scripts/launch_suite2p_ec2.py --use-profile
+```
+
+### Monitoring with CloudWatch
+
+When the instance profile is used, logs stream to CloudWatch automatically:
+
+```bash
+# From devcontainer
+python scripts/launch_suite2p_ec2.py --logs
+```
+
+Or view in the AWS Console: CloudWatch → Log groups → `/hm2p/suite2p`.
 
 ---
 
@@ -261,7 +309,11 @@ Override defaults with `--profile` or `--bucket`:
 | `hm2p-rawdata` versioning | Enabled |
 | `hm2p-rawdata` lifecycle | STANDARD → IA after 30 days |
 | Data upload (26 sessions, 91.4 GiB, 503 objects) | Complete — verified |
-| `hm2p-agent` IAM user | S3 access only (no IAM/Batch) |
+| `hm2p-agent` IAM user | S3 + EC2 access (no IAM/Batch) |
+| `hm2p-ec2-role` IAM role + instance profile | S3 + CloudWatch Logs (for EC2 instances) |
+| `hm2p-ec2-policy` IAM policy | Scoped to hm2p S3 buckets + `/hm2p/suite2p` log group |
+| `/hm2p/suite2p` CloudWatch log group | Created in ap-southeast-2 |
+| Suite2p cloud run (26 sessions) | Complete — all outputs in `s3://hm2p-derivatives/ca_extraction/` |
 | AWS Batch (compute envs + job queues) | Not yet created (needs admin) |
 
 ---

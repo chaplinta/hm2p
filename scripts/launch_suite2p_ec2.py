@@ -44,7 +44,7 @@ KEY_NAME = "hm2p-suite2p"
 SG_NAME = "hm2p-suite2p-sg"
 RAWDATA_BUCKET = "hm2p-rawdata"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
-INSTANCE_PROFILE_NAME = "hm2p-ec2-profile"
+INSTANCE_PROFILE_NAME = "hm2p-ec2-role"
 CW_LOG_GROUP = "/hm2p/suite2p"
 TAG = {"Key": "Project", "Value": "hm2p-suite2p"}
 STATE_FILE = Path.home() / ".hm2p-suite2p-instance.json"
@@ -459,7 +459,7 @@ def launch(args):
     sg_id = ensure_security_group(ec2)
 
     # Check for IAM instance profile (provides S3 + CloudWatch without embedded keys)
-    use_profile = has_instance_profile()
+    use_profile = args.use_profile or has_instance_profile()
     if use_profile:
         print(f"Using IAM instance profile: {INSTANCE_PROFILE_NAME}")
         print("  (no embedded credentials — S3 + CloudWatch via IAM role)")
@@ -641,6 +641,8 @@ def main():
     group.add_argument("--logs", action="store_true", help="Stream CloudWatch logs")
     group.add_argument("--terminate", action="store_true", help="Terminate instance")
     group.add_argument("--dry-run", action="store_true", help="Print user-data without launching")
+    parser.add_argument("--use-profile", action="store_true",
+                        help="Force use of IAM instance profile (skip embedded credentials)")
     args = parser.parse_args()
 
     if args.status:
