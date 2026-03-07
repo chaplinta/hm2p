@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Launch an EC2 g4dn.xlarge Spot instance to run Suite2p on all sessions.
+"""Launch an EC2 g4dn.xlarge instance to run Suite2p on all sessions.
 
 Usage (from devcontainer or any machine with boto3 + AWS credentials):
     python scripts/launch_suite2p_ec2.py
@@ -7,16 +7,21 @@ Usage (from devcontainer or any machine with boto3 + AWS credentials):
 The script:
 1. Creates an EC2 key pair (for SSH monitoring) — saved to ~/.ssh/hm2p-suite2p.pem
 2. Creates a security group allowing SSH
-3. Launches a g4dn.xlarge Spot instance with the Deep Learning AMI
-4. User-data bootstraps: install suite2p, process all sessions, self-terminate
+3. Detects IAM instance profile (if setup_ec2_iam.py was run)
+4. Launches a g4dn.xlarge instance with the Deep Learning AMI
+5. User-data bootstraps: install suite2p, process all sessions, self-terminate
 
 Monitor:
-    python scripts/launch_suite2p_ec2.py --status
-    python scripts/launch_suite2p_ec2.py --logs       # streams CloudWatch or console output
+    python scripts/launch_suite2p_ec2.py --status      # instance state + SSH info
+    python scripts/launch_suite2p_ec2.py --progress    # S3 progress file
+    python scripts/launch_suite2p_ec2.py --logs        # CloudWatch logs (needs IAM profile)
     python scripts/launch_suite2p_ec2.py --terminate   # kill early if needed
 
-S3 credentials for the instance are read from ~/.aws/credentials [hm2p-agent] profile
-(S3-only access). EC2 launch uses the [default] profile (needs EC2 permissions).
+Authentication modes:
+    - With IAM instance profile (recommended): run setup_ec2_iam.py first.
+      Instance gets S3 + CloudWatch access via IAM role. No embedded credentials.
+    - Without profile: S3 credentials from ~/.aws/credentials [hm2p-agent] are
+      embedded in user-data. CloudWatch logging not available.
 """
 
 from __future__ import annotations
@@ -39,12 +44,25 @@ KEY_NAME = "hm2p-suite2p"
 SG_NAME = "hm2p-suite2p-sg"
 RAWDATA_BUCKET = "hm2p-rawdata"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
+INSTANCE_PROFILE_NAME = "hm2p-ec2-profile"
+CW_LOG_GROUP = "/hm2p/suite2p"
 TAG = {"Key": "Project", "Value": "hm2p-suite2p"}
 STATE_FILE = Path.home() / ".hm2p-suite2p-instance.json"
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def has_instance_profile() -> bool:
+    """Check if the hm2p EC2 instance profile exists."""
+    try:
+        iam = boto3.client("iam")
+        resp = iam.get_instance_profile(InstanceProfileName=INSTANCE_PROFILE_NAME)
+        roles = resp["InstanceProfile"]["Roles"]
+        return len(roles) > 0
+    except Exception:
+        return False
+
 
 def get_s3_credentials() -> tuple[str, str, str]:
     """Read hm2p-agent S3 credentials from ~/.aws/credentials."""
@@ -78,11 +96,64 @@ def get_sessions() -> list[dict]:
     return sessions
 
 
-def build_user_data(sessions: list[dict]) -> str:
-    """Build the cloud-init user-data script."""
-    key_id, secret, region = get_s3_credentials()
+def build_user_data(sessions: list[dict], use_instance_profile: bool = False) -> str:
+    """Build the cloud-init user-data script.
 
+    Args:
+        sessions: List of session dicts with exp_id, sub, ses keys.
+        use_instance_profile: If True, skip embedding AWS credentials (IAM role
+            on the instance provides S3 + CloudWatch access). If False, embed
+            credentials from ~/.aws/credentials.
+    """
     session_json = json.dumps(sessions)
+
+    # Build credentials block
+    if use_instance_profile:
+        creds_block = textwrap.dedent(f"""\
+            # --- AWS credentials via IAM instance profile (no embedded keys) ---
+            mkdir -p /root/.aws
+            cat > /root/.aws/config << 'CONF'
+            [default]
+            region = {REGION}
+            output = json
+            CONF
+            sed -i 's/^            //' /root/.aws/config
+            echo "Using IAM instance profile for AWS access"
+        """)
+    else:
+        key_id, secret, region = get_s3_credentials()
+        creds_block = textwrap.dedent(f"""\
+            # --- AWS credentials (embedded — use setup_ec2_iam.py to switch to IAM role) ---
+            mkdir -p /root/.aws
+            cat > /root/.aws/credentials << 'CREDS'
+            [default]
+            aws_access_key_id = {key_id}
+            aws_secret_access_key = {secret}
+            CREDS
+            cat > /root/.aws/config << 'CONF'
+            [default]
+            region = {region}
+            output = json
+            CONF
+            sed -i 's/^            //' /root/.aws/credentials /root/.aws/config
+            echo "Using embedded AWS credentials"
+        """)
+
+    # Build CloudWatch log streaming block
+    cw_block = textwrap.dedent(f"""\
+        # --- CloudWatch Logs ---
+        pip3 install --quiet watchtower 2>/dev/null || true
+        python3 -c "
+        import logging, watchtower
+        handler = watchtower.CloudWatchLogHandler(
+            log_group_name='{CW_LOG_GROUP}',
+            log_stream_name='$(hostname)-$(date +%Y%m%dT%H%M%S)',
+        )
+        logging.getLogger().addHandler(handler)
+        logging.getLogger().setLevel(logging.INFO)
+        logging.info('CloudWatch logging initialized')
+        " 2>/dev/null && echo "CloudWatch logging enabled" || echo "CloudWatch logging not available (missing IAM permissions or watchtower)"
+    """)
 
     script = textwrap.dedent(f"""\
         #!/bin/bash
@@ -92,21 +163,7 @@ def build_user_data(sessions: list[dict]) -> str:
         echo "=== hm2p Suite2p cloud run ==="
         echo "Started: $(date -u)"
 
-        # --- AWS credentials (S3-only) ---
-        mkdir -p /root/.aws
-        cat > /root/.aws/credentials << 'CREDS'
-        [default]
-        aws_access_key_id = {key_id}
-        aws_secret_access_key = {secret}
-        CREDS
-        cat > /root/.aws/config << 'CONF'
-        [default]
-        region = {region}
-        output = json
-        CONF
-        # Fix indentation in heredoc
-        sed -i 's/^        //' /root/.aws/credentials /root/.aws/config
-
+{textwrap.indent(creds_block, "        ")}
         # --- System setup ---
         export DEBIAN_FRONTEND=noninteractive
 
@@ -129,6 +186,7 @@ def build_user_data(sessions: list[dict]) -> str:
         nvidia-smi || echo "WARNING: No GPU detected"
         python3 -c "import suite2p; print('suite2p imported OK')" || echo "WARNING: suite2p import failed"
 
+{textwrap.indent(cw_block, "        ")}
         # --- Download custom classifier from S3 ---
         mkdir -p /tmp/hm2p-config
         aws s3 cp s3://{DERIVATIVES_BUCKET}/config/suite2p/classifier_soma.npy /tmp/hm2p-config/classifier_soma.npy
@@ -399,33 +457,48 @@ def launch(args):
 
     key_name = ensure_key_pair(ec2)
     sg_id = ensure_security_group(ec2)
-    user_data = build_user_data(sessions)
 
-    # Request On-Demand instance (Spot quota is 0 on new accounts)
-    resp = ec2.run_instances(
-        ImageId=AMI_ID,
-        InstanceType=INSTANCE_TYPE,
-        KeyName=key_name,
-        SecurityGroupIds=[sg_id],
-        MinCount=1,
-        MaxCount=1,
-        BlockDeviceMappings=[{
+    # Check for IAM instance profile (provides S3 + CloudWatch without embedded keys)
+    use_profile = has_instance_profile()
+    if use_profile:
+        print(f"Using IAM instance profile: {INSTANCE_PROFILE_NAME}")
+        print("  (no embedded credentials — S3 + CloudWatch via IAM role)")
+    else:
+        print("No IAM instance profile found — embedding S3 credentials in user-data")
+        print("  Run 'python scripts/setup_ec2_iam.py' to create the profile")
+
+    user_data = build_user_data(sessions, use_instance_profile=use_profile)
+
+    # Build run_instances kwargs
+    launch_kwargs = {
+        "ImageId": AMI_ID,
+        "InstanceType": INSTANCE_TYPE,
+        "KeyName": key_name,
+        "SecurityGroupIds": [sg_id],
+        "MinCount": 1,
+        "MaxCount": 1,
+        "BlockDeviceMappings": [{
             "DeviceName": "/dev/sda1",
             "Ebs": {
-                "VolumeSize": 100,  # 100 GB root volume
+                "VolumeSize": 100,
                 "VolumeType": "gp3",
                 "DeleteOnTermination": True,
             },
         }],
-        UserData=user_data,
-        TagSpecifications=[{
+        "UserData": user_data,
+        "TagSpecifications": [{
             "ResourceType": "instance",
             "Tags": [
                 TAG,
                 {"Key": "Name", "Value": "hm2p-suite2p-run"},
             ],
         }],
-    )
+    }
+
+    if use_profile:
+        launch_kwargs["IamInstanceProfile"] = {"Name": INSTANCE_PROFILE_NAME}
+
+    resp = ec2.run_instances(**launch_kwargs)
 
     instance_id = resp["Instances"][0]["InstanceId"]
     print(f"\nInstance launched: {instance_id}")
@@ -493,6 +566,49 @@ def terminate(args):
     STATE_FILE.unlink()
 
 
+def logs(args):
+    """Stream CloudWatch logs from the running instance."""
+    logs_client = boto3.client("logs", region_name=REGION)
+
+    # List log streams in the group
+    try:
+        resp = logs_client.describe_log_streams(
+            logGroupName=CW_LOG_GROUP,
+            orderBy="LastEventTime",
+            descending=True,
+            limit=5,
+        )
+    except logs_client.exceptions.ResourceNotFoundException:
+        print(f"Log group '{CW_LOG_GROUP}' not found.")
+        print("Run 'python scripts/setup_ec2_iam.py' to create it.")
+        return
+    except Exception as e:
+        print(f"Error accessing CloudWatch Logs: {e}")
+        print("The h2mp-agent user may not have CloudWatch permissions.")
+        print("Check IAM policies or use --status for SSH-based log access.")
+        return
+
+    streams = resp.get("logStreams", [])
+    if not streams:
+        print(f"No log streams in {CW_LOG_GROUP}")
+        print("The instance may not have started logging yet.")
+        return
+
+    # Show the most recent stream
+    stream_name = streams[0]["logStreamName"]
+    print(f"Log stream: {stream_name}")
+    print(f"---")
+
+    resp = logs_client.get_log_events(
+        logGroupName=CW_LOG_GROUP,
+        logStreamName=stream_name,
+        startFromHead=False,
+        limit=100,
+    )
+    for event in resp.get("events", []):
+        print(event["message"])
+
+
 def progress(args):
     """Check processing progress from S3 progress file."""
     s3 = boto3.client("s3", region_name=REGION)
@@ -522,6 +638,7 @@ def main():
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--status", action="store_true", help="Check instance status")
     group.add_argument("--progress", action="store_true", help="Check processing progress from S3")
+    group.add_argument("--logs", action="store_true", help="Stream CloudWatch logs")
     group.add_argument("--terminate", action="store_true", help="Terminate instance")
     group.add_argument("--dry-run", action="store_true", help="Print user-data without launching")
     args = parser.parse_args()
@@ -530,6 +647,8 @@ def main():
         status(args)
     elif args.progress:
         progress(args)
+    elif args.logs:
+        logs(args)
     elif args.terminate:
         terminate(args)
     elif args.dry_run:
