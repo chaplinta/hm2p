@@ -87,7 +87,7 @@ Do not pin to old versions without a documented compatibility reason.
 **Primary science goal:** Compare HD tuning, population HD decoding, and visual cue dependence between Penk+ and CamKII+ RSP neurons. Test whether each population anchors HD to visual vs path-integration cues.
 **Neural recording:** two-photon GCaMP calcium imaging (~30 Hz, single or dual plane).
 **Behaviour:** overhead camera (~100 fps, Basler acA1300-200um), DAQ-synchronised to imaging.
-**Body parts tracked:** `ear-left`, `ear-right`, `back-upper`, `back-middle`, `back-tail`.
+**Body parts tracked (SuperAnimal TopViewMouse names):** `left_ear`, `right_ear`, `mid_back`, `mouse_center`, `tail_base`.
 **Session ID format:** `YYYYMMDD_HH_MM_SS_<animal_id>` (e.g. `20220804_13_52_02_1117646`).
 **NeuroBlueprint session name:** `ses-{YYYYMMDD}T{HHMMSS}` (e.g. `ses-20220804T135202`) — full timestamp required as multiple sessions per day exist.
 **Ground-truth registry:** `metadata/animals.csv`, `metadata/experiments.csv`.

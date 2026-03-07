@@ -60,7 +60,8 @@ def _run_dlc(
     """Run DeepLabCut inference on a single video.
 
     By default uses the SuperAnimal-TopViewMouse pretrained model (DLC 3.x),
-    which tracks nose, ears, neck, spine, tail — no custom model needed.
+    which tracks 27 keypoints including ears, back, and tail — no custom model needed.
+    FasterRCNN detector crops a tight bounding box before pose estimation.
     Set ``superanimal=None`` to use a custom model from ``model_dir``.
 
     Args:

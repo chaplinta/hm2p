@@ -21,7 +21,7 @@ from hm2p.kinematics.compute import (
     run,
 )
 
-KEYPOINTS = ["ear-left", "ear-right", "back-upper", "back-middle", "back-tail"]
+KEYPOINTS = ["left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"]
 
 
 # ---------------------------------------------------------------------------
@@ -299,11 +299,11 @@ class TestKinematicsRun:
         kp_idx = {k: i for i, k in enumerate(KEYPOINTS)}
 
         t = np.linspace(0, 4 * np.pi, n_frames)
-        pos_data[:, 0, kp_idx["ear-left"], 0] = 400 + 10 * np.cos(t)
-        pos_data[:, 1, kp_idx["ear-left"], 0] = 300 + 10 * np.sin(t)
-        pos_data[:, 0, kp_idx["ear-right"], 0] = 400 - 10 * np.cos(t)
-        pos_data[:, 1, kp_idx["ear-right"], 0] = 300 - 10 * np.sin(t)
-        for kp in ["back-upper", "back-middle", "back-tail"]:
+        pos_data[:, 0, kp_idx["left_ear"], 0] = 400 + 10 * np.cos(t)
+        pos_data[:, 1, kp_idx["left_ear"], 0] = 300 + 10 * np.sin(t)
+        pos_data[:, 0, kp_idx["right_ear"], 0] = 400 - 10 * np.cos(t)
+        pos_data[:, 1, kp_idx["right_ear"], 0] = 300 - 10 * np.sin(t)
+        for kp in ["mid_back", "mouse_center", "tail_base"]:
             pos_data[:, 0, kp_idx[kp], 0] = np.linspace(200, 600, n_frames)
             pos_data[:, 1, kp_idx[kp], 0] = np.linspace(100, 400, n_frames)
 

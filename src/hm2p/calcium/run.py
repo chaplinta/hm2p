@@ -106,9 +106,16 @@ def run(
     )
     dff = compute_dff(F_corr, F0)
 
+    # --- Event detection (Voigts & Harnett) ---
+    from hm2p.calcium.events import detect_events_batch
+
+    batch_result = detect_events_batch(dff, fps=fps)
+
     datasets: dict[str, np.ndarray] = {
         "frame_times": frame_times,
         "dff": dff,
+        "event_masks": batch_result.event_masks,
+        "noise_probs": batch_result.noise_probs,
     }
 
     # --- Optional CASCADE spike inference ---

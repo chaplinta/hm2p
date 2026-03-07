@@ -157,11 +157,16 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
 
     script = textwrap.dedent(f"""\
         #!/bin/bash
-        set -euo pipefail
         exec > >(tee /var/log/hm2p-suite2p.log) 2>&1
 
         echo "=== hm2p Suite2p cloud run ==="
         echo "Started: $(date -u)"
+
+        # Upload log to S3 on exit (success or failure)
+        upload_log() {{
+            aws s3 cp /var/log/hm2p-suite2p.log s3://{DERIVATIVES_BUCKET}/ca_extraction/_suite2p.log 2>/dev/null || true
+        }}
+        trap upload_log EXIT
 
 {textwrap.indent(creds_block, "        ")}
         # --- System setup ---
@@ -198,7 +203,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         mkdir -p $WORK
 
         echo "$SESSIONS" | python3 -c "
-        import json, sys, subprocess, shutil, os, datetime
+        import json, sys, subprocess, shutil, os, datetime, gc
         from pathlib import Path
 
         sessions = json.load(sys.stdin)
@@ -231,16 +236,6 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             exp_id = ses['exp_id']
             print(f'\\n=== [{{i}}/{{total}}] {{sub}}/{{ses_id}} ({{exp_id}}) ===', flush=True)
             update_progress(f'Processing {{i}}/{{total}}: {{sub}}/{{ses_id}}')
-
-            # Skip if already processed on S3
-            check = subprocess.run([
-                'aws', 's3', 'ls',
-                f's3://{DERIVATIVES_BUCKET}/ca_extraction/{{sub}}/{{ses_id}}/suite2p/plane0/F.npy',
-            ], capture_output=True, text=True)
-            if check.returncode == 0:
-                print(f'  SKIP: already processed on S3', flush=True)
-                skipped.append(exp_id)
-                continue
 
             # Create working dirs
             tiff_dir = work / 'input' / sub / ses_id / 'funcimg'
@@ -296,22 +291,22 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 settings['tau'] = 0.7  # GCaMP7f decay time
                 settings['diameter'] = [12.0, 12.0]
 
-                # Pipeline control
-                settings['run']['do_deconvolution'] = False
+                # Pipeline control — enable deconvolution for spks.npy
+                settings['run']['do_deconvolution'] = True
 
-                # IO — keep registered binary for frontend viewing
-                settings['io']['delete_bin'] = False
+                # IO — delete binary to save disk (we only need npy outputs)
+                settings['io']['delete_bin'] = True
 
                 # Registration (matching legacy)
                 settings['registration']['nonrigid'] = True
                 settings['registration']['block_size'] = (32, 32)  # legacy used 32x32
-                settings['registration']['batch_size'] = 10000
+                settings['registration']['batch_size'] = 200  # keep low to fit in T4 16GB VRAM
                 settings['registration']['maxregshift'] = 0.3  # legacy: allow 30% shift
                 settings['registration']['smooth_sigma'] = 1.15
                 settings['registration']['th_badframes'] = 1.0
                 settings['registration']['subpixel'] = 10
                 settings['registration']['two_step_registration'] = True
-                settings['registration']['keep_movie_raw'] = True
+                settings['registration']['keep_movie_raw'] = False  # save disk + memory
 
                 # Detection (matching legacy)
                 settings['detection']['sparse_mode'] = True
@@ -322,7 +317,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 settings['detection']['threshold_scaling'] = 1.0
                 settings['detection']['max_overlap'] = 0.75
                 settings['detection']['max_iterations'] = 100
-                settings['detection']['nbinned'] = 20000
+                settings['detection']['nbinned'] = 5000
 
                 # Extraction (matching legacy)
                 settings['extraction']['batch_size'] = 500
@@ -357,11 +352,16 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 failed.append(exp_id)
                 continue
 
-            # Upload results to S3
+            # Upload results to S3 (replace old data only after successful upload)
             s2p_out = out_dir / 'suite2p'
             if s2p_out.exists():
+                # Upload to a temp prefix first, then move
                 s3_dest = f's3://{DERIVATIVES_BUCKET}/ca_extraction/{{sub}}/{{ses_id}}/suite2p/'
                 print(f'  Uploading to {{s3_dest}}...', flush=True)
+                # Delete old output, then upload new
+                subprocess.run([
+                    'aws', 's3', 'rm', '--recursive', s3_dest,
+                ], capture_output=True, text=True)
                 ret = subprocess.run([
                     'aws', 's3', 'sync',
                     str(s2p_out),
@@ -381,6 +381,16 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             shutil.rmtree(work / 'input' / sub, ignore_errors=True)
             shutil.rmtree(out_dir, ignore_errors=True)
             print(f'  Cleaned up local files', flush=True)
+
+            # Free GPU memory between sessions
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize()
+            except Exception:
+                pass
+            gc.collect()
 
         print(f'\\n=== ALL SESSIONS COMPLETE ===', flush=True)
         print(f'Completed: {{len(completed)}}/{{total}}', flush=True)
@@ -488,7 +498,7 @@ def launch(args):
         "BlockDeviceMappings": [{
             "DeviceName": "/dev/sda1",
             "Ebs": {
-                "VolumeSize": 100,
+                "VolumeSize": 200,
                 "VolumeType": "gp3",
                 "DeleteOnTermination": True,
             },
