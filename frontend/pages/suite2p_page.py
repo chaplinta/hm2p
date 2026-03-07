@@ -25,6 +25,77 @@ st.title("Suite2p Results")
 experiments = load_experiments()
 exp_ids = [e["exp_id"] for e in experiments]
 
+
+# ── S3 completion summary ─────────────────────────────────────────────────
+@st.cache_data(ttl=120)
+def get_suite2p_session_summary() -> list[dict]:
+    """Check each session for Suite2p output on S3 and count ROIs."""
+    import json
+
+    s3 = __import__("boto3").client("s3", region_name="ap-southeast-2")
+    results = []
+    for exp in experiments:
+        exp_id = exp["exp_id"]
+        sub, ses = parse_session_id(exp_id)
+        prefix = f"ca_extraction/{sub}/{ses}/suite2p/plane0/"
+        info: dict = {"exp_id": exp_id, "sub": sub, "ses": ses, "done": False, "n_rois": 0, "n_cells": 0}
+        try:
+            resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=prefix, MaxKeys=1)
+            if resp.get("KeyCount", 0) > 0:
+                info["done"] = True
+                # Try to get ROI count from iscell.npy
+                try:
+                    import io as _io
+
+                    obj = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key=prefix + "iscell.npy")
+                    iscell_data = np.load(_io.BytesIO(obj["Body"].read()), allow_pickle=True)
+                    info["n_rois"] = len(iscell_data)
+                    info["n_cells"] = int(iscell_data[:, 0].sum())
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        results.append(info)
+    return results
+
+
+with st.expander("Suite2p S3 Completion Summary", expanded=False):
+    if st.button("Refresh Suite2p summary"):
+        get_suite2p_session_summary.clear()
+    try:
+        summary = get_suite2p_session_summary()
+        n_done = sum(1 for s in summary if s["done"])
+        total_rois = sum(s["n_rois"] for s in summary)
+        total_cells = sum(s["n_cells"] for s in summary)
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Sessions complete", f"{n_done}/{len(summary)}")
+        col2.metric("Total ROIs", total_rois)
+        col3.metric("Total cells", total_cells)
+        col4.metric("Avg cells/session", f"{total_cells / max(n_done, 1):.0f}")
+
+        if n_done > 0:
+            st.progress(n_done / len(summary), text=f"{n_done}/{len(summary)} sessions processed")
+
+            import pandas as pd
+
+            df = pd.DataFrame(summary)
+            df["status"] = df["done"].map({True: "Done", False: "Pending"})
+            st.dataframe(
+                df[["exp_id", "status", "n_rois", "n_cells"]].rename(
+                    columns={"exp_id": "Session", "status": "Status", "n_rois": "ROIs", "n_cells": "Cells"}
+                ),
+                use_container_width=True,
+                hide_index=True,
+            )
+    except Exception as e:
+        log.exception("Error fetching Suite2p summary")
+        st.warning(f"Could not query S3: {e}")
+
+st.markdown("---")
+
+# ── Per-session viewer ────────────────────────────────────────────────────
+
 # Use selected session from Sessions page, or let user pick
 default_idx = 0
 if "selected_exp_id" in st.session_state:

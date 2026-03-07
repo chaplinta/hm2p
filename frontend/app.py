@@ -35,6 +35,7 @@ pipeline_page = st.Page(str(_app_dir / "pages/pipeline_page.py"), title="Pipelin
 suite2p_page = st.Page(str(_app_dir / "pages/suite2p_page.py"), title="Suite2p", icon=":material/neurology:")
 sync_page = st.Page(str(_app_dir / "pages/sync_page.py"), title="Sync", icon=":material/sync:")
 analysis_page = st.Page(str(_app_dir / "pages/analysis_page.py"), title="Analysis", icon=":material/analytics:")
+aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":material/cloud:")
 
-pg = st.navigation([sessions_page, pipeline_page, suite2p_page, sync_page, analysis_page])
+pg = st.navigation([sessions_page, pipeline_page, suite2p_page, sync_page, analysis_page, aws_page])
 pg.run()

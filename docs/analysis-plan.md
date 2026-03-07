@@ -162,7 +162,46 @@ For each combination, compute all tuning metrics. Then visualize:
 
 ---
 
-## 5. Data flow
+## 5. DLC pose estimation pipeline decision
+
+### Model choice
+
+Using **SuperAnimal TopViewMouse** from DeepLabCut 3.0rc13 with the **HRNet-W32**
+backbone. This is a foundation model pre-trained on a large corpus of top-view mouse
+data, so it generalises to our overhead camera setup without fine-tuning.
+
+### Detector removed for cropped videos
+
+The default DLC 3.0 pipeline uses a FasterRCNN detector stage to crop animals before
+pose inference. For our data (single mouse, already cropped to arena), the detector is
+unnecessary and too slow: only ~7 it/s even with `batch_size=8`. We run **pose-only
+inference** (no detection stage), which is substantially faster.
+
+### Inference settings
+
+- `batch_size=64` for pose inference
+- GPU: NVIDIA T4 on EC2 g4dn.xlarge (ap-southeast-2)
+- No fine-tuning or transfer learning -- using the foundation model weights directly
+
+### Keypoints
+
+The SuperAnimal TopViewMouse model outputs **27 keypoints**. For downstream kinematics
+(Stage 3), we use the following subset:
+
+| SuperAnimal keypoint | Pipeline variable |
+|---|---|
+| `left_ear` | ear-left |
+| `right_ear` | ear-right |
+| `mid_back` | back-upper |
+| `mouse_center` | back-middle |
+| `tail_base` | back-tail |
+
+The remaining 22 keypoints are retained in the pose output files but not used for
+head direction or position computation.
+
+---
+
+## 6. Data flow
 
 ```
 ca.h5           →  dF/F, deconv (spks), event_masks  (n_rois × n_imaging_frames)
@@ -176,7 +215,7 @@ analysis/       →  condition split, tuning curves, significance, comparison
 
 ---
 
-## 6. Visualization (frontend)
+## 7. Visualization (frontend)
 
 ### Activity by condition tab
 - Violin/box plots of event rate per condition, split by celltype
@@ -200,7 +239,7 @@ analysis/       →  condition split, tuning curves, significance, comparison
 
 ---
 
-## 7. References
+## 8. References
 
 - HD tuning, MVL, shuffled significance: Zong et al. 2022 (Cell)
 - Skaggs spatial information: Skaggs et al. 1996

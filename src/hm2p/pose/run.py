@@ -102,6 +102,8 @@ def _run_dlc(
             detector_name="fasterrcnn_resnet50_fpn_v2",
             videotype=".mp4",
             dest_folder=str(output_dir),
+            batch_size=64,
+            detector_batch_size=16,
             plot_trajectories=False,
             create_labeled_video=False,
         )

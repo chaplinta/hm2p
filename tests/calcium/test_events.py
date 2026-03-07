@@ -297,3 +297,63 @@ class TestComputeEventRate:
         rate_all = compute_event_rate(onsets, 300, 30.0)
         # Fewer good events and slightly shorter duration
         assert rate_clean < rate_all
+
+    def test_all_frames_bad(self):
+        """All frames bad gives zero rate."""
+        onsets = np.array([10, 20])
+        bad = np.ones(100, dtype=bool)
+        rate = compute_event_rate(onsets, 100, 30.0, bad_frames=bad)
+        assert rate == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Additional edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestEstimateNoiseProbabilityEdgeCases:
+    def test_all_zeros(self):
+        """All-zero trace should produce all-zero normalised trace."""
+        trace = np.zeros(200)
+        noise_prob, trace_norm = estimate_noise_probability(trace)
+        assert np.allclose(trace_norm, 0.0)
+
+    def test_negative_values_clipped(self):
+        """Negative values are rectified (clipped to 0) before processing."""
+        trace = np.full(200, -5.0)
+        noise_prob, trace_norm = estimate_noise_probability(trace)
+        assert noise_prob.shape == (200,)
+
+
+class TestDetectEventsSingleEdgeCases:
+    def test_very_short_trace(self):
+        """Detection on a very short trace (5 frames) should not crash."""
+        trace = np.array([0.0, 0.0, 5.0, 0.0, 0.0])
+        result = detect_events_single(trace, smooth_sigma=None)
+        assert result.event_mask.shape == (5,)
+
+    def test_constant_high_signal(self):
+        """Constant high trace should have no events (no rising edge)."""
+        trace = np.ones(300) * 10.0
+        result = detect_events_single(trace)
+        # Flat signal normalises to zero, no crossings
+        assert len(result.onsets) == 0
+
+
+class TestComputeEventSNREdgeCases:
+    def test_all_event_frames(self):
+        """When all frames are in events, non-event noise is zero -> NaN."""
+        dff = np.ones(100)
+        mask = np.ones(100, dtype=np.int32)
+        amps = np.array([2.0])
+        snr = compute_event_snr(dff, mask, amps)
+        assert np.isnan(snr)
+
+    def test_zero_noise_std(self):
+        """When non-event frames have zero std, SNR is NaN."""
+        dff = np.ones(100)  # constant everywhere
+        mask = np.zeros(100, dtype=np.int32)
+        mask[50:60] = 1
+        amps = np.array([1.0])
+        snr = compute_event_snr(dff, mask, amps)
+        assert np.isnan(snr)

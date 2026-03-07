@@ -239,20 +239,47 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             video_path = mp4s[0]
             print(f'  Video: {{video_path.name}} ({{video_path.stat().st_size/1e6:.1f}} MB)', flush=True)
 
+            # Subsample video to 30fps to speed up DLC (original is ~100fps)
+            subsampled_path = video_dir / f'{{video_path.stem}}_30fps.mp4'
+            print(f'  Subsampling to 30fps...', flush=True)
+            sub_ret = subprocess.run([
+                'ffmpeg', '-y', '-i', str(video_path),
+                '-r', '30', '-c:v', 'libx264', '-preset', 'fast',
+                '-crf', '18', str(subsampled_path),
+            ], capture_output=True, text=True)
+            if sub_ret.returncode == 0 and subsampled_path.exists():
+                orig_size = video_path.stat().st_size / 1e6
+                new_size = subsampled_path.stat().st_size / 1e6
+                print(f'  Subsampled: {{orig_size:.1f}} MB -> {{new_size:.1f}} MB', flush=True)
+                dlc_video = subsampled_path
+            else:
+                print(f'  WARNING: ffmpeg subsample failed, using original video', flush=True)
+                print(f'  ffmpeg stderr: {{sub_ret.stderr[:300]}}', flush=True)
+                dlc_video = video_path
+
             # Run DLC with SuperAnimal pretrained model (DLC 3.0, PyTorch)
             print(f'  Running DLC (superanimal_topviewmouse, hrnet_w32)...', flush=True)
             try:
                 import deeplabcut
                 deeplabcut.video_inference_superanimal(
-                    [str(video_path)],
+                    [str(dlc_video)],
                     superanimal_name='superanimal_topviewmouse',
                     model_name='hrnet_w32',
                     detector_name='fasterrcnn_resnet50_fpn_v2',
                     videotype='.mp4',
                     dest_folder=str(out_dir),
+                    batch_size=64,
+                    detector_batch_size=16,
                     plot_trajectories=False,
                     create_labeled_video=False,
                 )
+                # Save tracking metadata
+                import json as _json
+                meta = {{'tracking_fps': 30 if dlc_video == subsampled_path else 100,
+                         'original_fps': 100,
+                         'model': 'superanimal_topviewmouse_hrnet_w32',
+                         'detector': 'fasterrcnn_resnet50_fpn_v2'}}
+                (out_dir / 'dlc_meta.json').write_text(_json.dumps(meta, indent=2))
                 print(f'  DLC DONE', flush=True)
             except Exception as e:
                 err_msg = str(e)

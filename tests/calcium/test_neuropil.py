@@ -52,6 +52,30 @@ def test_fixed_coefficient_property_range(coefficient: float) -> None:
     assert np.all(np.isfinite(result))
 
 
+def test_fixed_coefficient_zero(rng: np.random.Generator) -> None:
+    """Coefficient of 0 returns F unchanged."""
+    F = rng.uniform(100, 500, (5, 100)).astype(np.float32)
+    Fneu = rng.uniform(50, 200, (5, 100)).astype(np.float32)
+    result = subtract_fixed_coefficient(F, Fneu, coefficient=0.0)
+    np.testing.assert_array_equal(result, F)
+
+
+def test_fixed_coefficient_one(rng: np.random.Generator) -> None:
+    """Coefficient of 1 subtracts full neuropil."""
+    F = rng.uniform(100, 500, (5, 100)).astype(np.float32)
+    Fneu = rng.uniform(50, 200, (5, 100)).astype(np.float32)
+    result = subtract_fixed_coefficient(F, Fneu, coefficient=1.0)
+    np.testing.assert_allclose(result, F - Fneu, rtol=1e-5)
+
+
+def test_fixed_coefficient_can_go_negative() -> None:
+    """Result can be negative when Fneu > F."""
+    F = np.full((1, 10), 100.0, dtype=np.float32)
+    Fneu = np.full((1, 10), 200.0, dtype=np.float32)
+    result = subtract_fixed_coefficient(F, Fneu, coefficient=0.7)
+    assert np.all(result < 0)
+
+
 def test_fissa_not_implemented() -> None:
     """subtract_fissa raises NotImplementedError (deferred)."""
     F = np.ones((5, 100), dtype=np.float32)
