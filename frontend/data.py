@@ -5,11 +5,14 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 import boto3
 import streamlit as st
+
+log = logging.getLogger("hm2p.frontend")
 
 REGION = "ap-southeast-2"
 RAWDATA_BUCKET = "hm2p-rawdata"
@@ -29,16 +32,22 @@ STAGE_PREFIXES = {
 def load_experiments() -> list[dict[str, str]]:
     """Load experiments.csv into a list of dicts."""
     csv_path = METADATA_DIR / "experiments.csv"
+    log.info("Loading experiments from %s", csv_path)
     with open(csv_path) as f:
-        return list(csv.DictReader(f))
+        rows = list(csv.DictReader(f))
+    log.info("Loaded %d experiments", len(rows))
+    return rows
 
 
 @st.cache_data(ttl=300)
 def load_animals() -> list[dict[str, str]]:
     """Load animals.csv into a list of dicts."""
     csv_path = METADATA_DIR / "animals.csv"
+    log.info("Loading animals from %s", csv_path)
     with open(csv_path) as f:
-        return list(csv.DictReader(f))
+        rows = list(csv.DictReader(f))
+    log.info("Loaded %d animals", len(rows))
+    return rows
 
 
 def parse_session_id(exp_id: str) -> tuple[str, str]:
@@ -61,6 +70,7 @@ def get_pipeline_status() -> dict[str, dict[str, bool]]:
 
     Returns dict[exp_id -> dict[stage_prefix -> bool]].
     """
+    log.info("Checking pipeline status on S3 (26 sessions x %d stages)", len(STAGE_PREFIXES))
     s3 = get_s3_client()
     experiments = load_experiments()
     status: dict[str, dict[str, bool]] = {}
@@ -77,8 +87,14 @@ def get_pipeline_status() -> dict[str, dict[str, bool]]:
                 )
                 status[exp_id][prefix] = resp.get("KeyCount", 0) > 0
             except Exception:
+                log.exception("Error checking S3 %s/%s", DERIVATIVES_BUCKET, s3_prefix)
                 status[exp_id][prefix] = False
 
+    done_counts = {
+        prefix: sum(1 for s in status.values() if s.get(prefix))
+        for prefix in STAGE_PREFIXES
+    }
+    log.info("Pipeline status: %s", done_counts)
     return status
 
 
@@ -90,8 +106,13 @@ def get_progress(stage: str) -> dict[str, Any] | None:
         obj = s3.get_object(
             Bucket=DERIVATIVES_BUCKET, Key=f"{stage}/_progress.json"
         )
-        return json.loads(obj["Body"].read())
+        data = json.loads(obj["Body"].read())
+        log.info("Progress for %s: %s", stage, data.get("status", "?"))
+        return data
+    except s3.exceptions.NoSuchKey:
+        return None
     except Exception:
+        log.exception("Error fetching progress for %s", stage)
         return None
 
 
@@ -120,14 +141,17 @@ def get_ec2_instances() -> list[dict]:
                         "project": tags.get("Project", ""),
                     }
                 )
+        log.info("Found %d running EC2 instances", len(instances))
         return instances
     except Exception:
+        log.exception("Error listing EC2 instances")
         return []
 
 
 @st.cache_data(ttl=60)
 def list_s3_session_files(bucket: str, prefix: str) -> list[dict]:
     """List files in an S3 prefix."""
+    log.info("Listing S3 files: s3://%s/%s", bucket, prefix)
     s3 = get_s3_client()
     files = []
     try:
@@ -141,18 +165,23 @@ def list_s3_session_files(bucket: str, prefix: str) -> list[dict]:
                         "modified": str(obj["LastModified"]),
                     }
                 )
+        log.info("Found %d files in s3://%s/%s", len(files), bucket, prefix)
     except Exception:
-        pass
+        log.exception("Error listing S3 files: s3://%s/%s", bucket, prefix)
     return files
 
 
 def download_s3_bytes(bucket: str, key: str) -> bytes | None:
     """Download an S3 object as bytes."""
+    log.debug("Downloading s3://%s/%s", bucket, key)
     s3 = get_s3_client()
     try:
         obj = s3.get_object(Bucket=bucket, Key=key)
-        return obj["Body"].read()
+        data = obj["Body"].read()
+        log.info("Downloaded s3://%s/%s (%.1f KB)", bucket, key, len(data) / 1024)
+        return data
     except Exception:
+        log.exception("Error downloading s3://%s/%s", bucket, key)
         return None
 
 

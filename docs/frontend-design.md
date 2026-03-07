@@ -108,21 +108,19 @@ Scientific analysis tools, built on top of Stages 1–5 outputs.
 
 ## Architecture
 
-### Technology Choice: TBD
+### Technology Choice: Streamlit
 
-Options under consideration (decision deferred):
+**Streamlit** selected for initial implementation — fastest to build, Python-native.
+Can migrate to Panel or Dash later if linked brushing becomes critical.
 
-| Framework | Pros | Cons |
-| --- | --- | --- |
-| **Streamlit** | Fastest to build, Python-native, good for data scientists | Re-runs script on widget change, limited layout, no linked brushing |
-| **Panel (HoloViz)** | Linked brushing, Jupyter-native, handles large data via Datashader | Steeper learning curve, more boilerplate |
-| **Dash (Plotly)** | Good interactive plots, React-like callbacks | More boilerplate than Streamlit |
-| **NWB Widgets / Neurosift** | Free NWB viewers with ROI + trace support | Requires NWB export first |
+Run locally from devcontainer:
 
-Key factors for decision:
-- Linked views (click ROI → see trace) strongly favors Panel
-- Speed of initial development favors Streamlit
-- Future analysis complexity favors Panel or Dash
+```bash
+streamlit run frontend/app.py
+```
+
+Deployment (deferred): Cloudflare Tunnel + Access for private Google OAuth,
+or Tailscale for zero-config private access.
 
 ### Data Access Pattern
 
@@ -187,25 +185,33 @@ For a single-user research project, local or a small EC2 instance is simplest.
 
 ---
 
-## Implementation Plan (suggested phases)
+## Implementation Status
 
-### Phase 1 — Navigation + Pipeline Monitoring
-- Session table from `experiments.csv` + `animals.csv`
-- Pipeline status matrix (which stages complete per session, from S3 listing)
-- Progress polling for active jobs
-- Framework decision made here
+### Phase 1 — Navigation + Pipeline Monitoring (done)
+- Session table from `experiments.csv` + `animals.csv` with filters
+- Pipeline status matrix (S3 listing per stage per session)
+- Active EC2 instance display
+- Progress polling from `_progress.json`
+- Failed session error details
 
-### Phase 2 — Processed Data Viewer
-- Suite2p visualization (mean image, ROIs, traces, classification)
-- Kinematics plots (HD, position, speed)
-- Load numpy/HDF5 from S3 on demand
+### Phase 2 — Suite2p Viewer (done)
+- Mean image + ROI contours (cell/non-cell overlay)
+- dF/F traces with neuropil and deconvolved options
+- Classification probability histogram
+- Registration shift plots + reference image
+- TIFF summary images from ops.npy (mean, max-proj, enhanced, reference)
+- Registered frame viewer (S3 range request on data.bin)
+- Raw TIFF file listing from S3
 
-### Phase 3 — Raw Data Browser
-- TIFF summary images (pre-computed during Stage 1)
-- Video thumbnails / keyframe viewer
-- TDMS timing visualization
+### Phase 3 — DLC / Pose Viewer (pending)
+- Keypoint overlay on video frames
+- Trajectory plots, likelihood heatmaps
 
-### Phase 4 — Analysis
+### Phase 4 — Kinematics Viewer (pending)
+- HD time series + polar plot
+- Position heatmap, speed, AHV
+
+### Phase 5 — Analysis (future)
 - HD tuning curves
 - Light on/off comparisons
 - Population-level summaries by celltype

@@ -291,37 +291,45 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
 
                 settings = suite2p.default_settings()
 
-                # Core imaging parameters (matching legacy ops_default.npy)
+                # Core imaging parameters (matching legacy pipeline)
                 settings['fs'] = 29.97
-                settings['tau'] = 1.0
+                settings['tau'] = 0.7  # GCaMP7f decay time
                 settings['diameter'] = [12.0, 12.0]
 
                 # Pipeline control
                 settings['run']['do_deconvolution'] = False
 
-                # IO
-                settings['io']['delete_bin'] = True
+                # IO — keep registered binary for frontend viewing
+                settings['io']['delete_bin'] = False
 
                 # Registration (matching legacy)
                 settings['registration']['nonrigid'] = True
-                settings['registration']['block_size'] = (128, 128)
-                settings['registration']['batch_size'] = 100
-                settings['registration']['maxregshift'] = 0.1
+                settings['registration']['block_size'] = (32, 32)  # legacy used 32x32
+                settings['registration']['batch_size'] = 10000
+                settings['registration']['maxregshift'] = 0.3  # legacy: allow 30% shift
                 settings['registration']['smooth_sigma'] = 1.15
                 settings['registration']['th_badframes'] = 1.0
                 settings['registration']['subpixel'] = 10
+                settings['registration']['two_step_registration'] = True
+                settings['registration']['keep_movie_raw'] = True
 
                 # Detection (matching legacy)
+                settings['detection']['sparse_mode'] = True
+                settings['detection']['spatial_scale'] = 0  # auto-detect
+                settings['detection']['denoise'] = True
+                settings['detection']['connected'] = True  # soma masks connected
+                settings['detection']['smooth_masks'] = True
                 settings['detection']['threshold_scaling'] = 1.0
                 settings['detection']['max_overlap'] = 0.75
-                settings['detection']['sparsery_settings']['highpass_neuropil'] = 25
+                settings['detection']['max_iterations'] = 100
+                settings['detection']['nbinned'] = 20000
 
                 # Extraction (matching legacy)
                 settings['extraction']['batch_size'] = 500
                 settings['extraction']['neuropil_extract'] = True
                 settings['extraction']['neuropil_coefficient'] = 0.7
                 settings['extraction']['inner_neuropil_radius'] = 2
-                settings['extraction']['min_neuropil_pixels'] = 350
+                settings['extraction']['min_neuropil_pixels'] = 100  # legacy: 100 (fewer pixels)
                 settings['extraction']['allow_overlap'] = False
 
                 # Classification - custom soma classifier
