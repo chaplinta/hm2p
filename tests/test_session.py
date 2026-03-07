@@ -161,3 +161,105 @@ def test_load_registry(tmp_path: Path) -> None:
     assert s.gcamp == "GCaMP7f"
     assert s.orientation == 15.0
     assert s.bad_behav_times == "02:30-03:00"
+
+
+def test_load_registry_multiple_sessions(tmp_path: Path) -> None:
+    from hm2p.session import load_registry
+
+    animals_csv = tmp_path / "animals.csv"
+    experiments_csv = tmp_path / "experiments.csv"
+
+    animals_csv.write_text(
+        textwrap.dedent("""\
+            animal_id,strain,gcamp,celltype,virus_id
+            1117646,Penk-Cre,GCaMP7f,penk,ADD3
+            1116663,CamKII,GCaMP8f,nonpenk,344
+        """)
+    )
+    experiments_csv.write_text(
+        textwrap.dedent("""\
+            exp_id,extractor,tracker,orientation,bad_behav_times
+            20220804_13_52_02_1117646,suite2p,dlc,15.0,02:30-03:00
+            20221015_10_00_00_1116663,suite2p,dlc,0,
+        """)
+    )
+
+    sessions = load_registry(animals_csv, experiments_csv)
+    assert len(sessions) == 2
+    ids = {s.session_id for s in sessions}
+    assert "20220804_13_52_02_1117646" in ids
+    assert "20221015_10_00_00_1116663" in ids
+
+
+def test_load_registry_defaults(tmp_path: Path) -> None:
+    """Missing extractor/tracker columns default to suite2p/dlc."""
+    from hm2p.session import load_registry
+
+    animals_csv = tmp_path / "animals.csv"
+    experiments_csv = tmp_path / "experiments.csv"
+
+    animals_csv.write_text(
+        textwrap.dedent("""\
+            animal_id,strain,gcamp,celltype,virus_id
+            1117646,Penk-Cre,GCaMP7f,penk,ADD3
+        """)
+    )
+    experiments_csv.write_text(
+        textwrap.dedent("""\
+            exp_id,orientation,bad_behav_times
+            20220804_13_52_02_1117646,0,
+        """)
+    )
+
+    sessions = load_registry(animals_csv, experiments_csv)
+    s = sessions[0]
+    assert s.extractor == "suite2p"
+    assert s.tracker == "dlc"
+    assert s.orientation == 0.0
+
+
+def test_get_session_found(tmp_path: Path) -> None:
+    from hm2p.session import get_session
+
+    animals_csv = tmp_path / "animals.csv"
+    experiments_csv = tmp_path / "experiments.csv"
+
+    animals_csv.write_text(
+        textwrap.dedent("""\
+            animal_id,strain,gcamp,celltype,virus_id
+            1117646,Penk-Cre,GCaMP7f,penk,ADD3
+        """)
+    )
+    experiments_csv.write_text(
+        textwrap.dedent("""\
+            exp_id,extractor,tracker,orientation,bad_behav_times
+            20220804_13_52_02_1117646,suite2p,dlc,15.0,
+        """)
+    )
+
+    s = get_session("20220804_13_52_02_1117646", animals_csv, experiments_csv)
+    assert s.session_id == "20220804_13_52_02_1117646"
+    assert s.celltype == "penk"
+
+
+def test_get_session_not_found(tmp_path: Path) -> None:
+    from hm2p.session import get_session
+
+    animals_csv = tmp_path / "animals.csv"
+    experiments_csv = tmp_path / "experiments.csv"
+
+    animals_csv.write_text(
+        textwrap.dedent("""\
+            animal_id,strain,gcamp,celltype,virus_id
+            1117646,Penk-Cre,GCaMP7f,penk,ADD3
+        """)
+    )
+    experiments_csv.write_text(
+        textwrap.dedent("""\
+            exp_id,extractor,tracker,orientation,bad_behav_times
+            20220804_13_52_02_1117646,suite2p,dlc,15.0,
+        """)
+    )
+
+    with pytest.raises(KeyError, match="not found"):
+        get_session("99999999_00_00_00_0000000", animals_csv, experiments_csv)
