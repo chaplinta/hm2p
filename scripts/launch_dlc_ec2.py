@@ -112,11 +112,16 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
 
     script = textwrap.dedent(f"""\
         #!/bin/bash
-        set -euo pipefail
         exec > >(tee /var/log/hm2p-dlc.log) 2>&1
 
         echo "=== hm2p DLC pose estimation ==="
         echo "Started: $(date -u)"
+
+        # Upload log to S3 on exit (for debugging)
+        upload_log() {{
+            aws s3 cp /var/log/hm2p-dlc.log s3://{DERIVATIVES_BUCKET}/pose/_dlc_log.txt 2>/dev/null || true
+        }}
+        trap upload_log EXIT
 
 {textwrap.indent(creds_block, "        ")}
         # --- System setup ---
@@ -131,17 +136,21 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         echo "dpkg lock free"
 
         apt-get update -qq
-        apt-get install -y -qq python3-pip python3-dev awscli ffmpeg
+        apt-get install -y -qq python3-pip python3-dev awscli ffmpeg || echo "WARNING: apt-get had errors"
 
         # --- Install DeepLabCut 3.0 (PyTorch backend) ---
         # DLC 3.0rc uses PyTorch (not TF) — works with DL AMI's pre-installed PyTorch+CUDA
         # --break-system-packages needed on Ubuntu 22.04+ (PEP 668)
         pip3 install --break-system-packages --quiet --pre deeplabcut
+        echo "DLC install exit code: $?"
 
         # --- Verify GPU + DLC ---
         nvidia-smi || echo "WARNING: No GPU detected"
-        python3 -c "import deeplabcut; print(f'DLC {{deeplabcut.__version__}} imported OK')" || echo "WARNING: DLC import failed"
+        python3 -c "import deeplabcut; print(f'DLC version: {{deeplabcut.__version__}}')" || echo "WARNING: DLC import failed"
         python3 -c "import torch; print(f'PyTorch {{torch.__version__}}, CUDA: {{torch.cuda.is_available()}}, GPUs: {{torch.cuda.device_count()}}')" || echo "WARNING: PyTorch GPU check failed"
+
+        # Upload log after install phase
+        upload_log
 
         # --- Process sessions ---
         SESSIONS='{session_json}'
@@ -157,6 +166,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         total = len(sessions)
         completed = []
         failed = []
+        failed_errors = {{}}
         skipped = []
 
         def update_progress(status_msg=''):
@@ -167,6 +177,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 'skipped': len(skipped),
                 'completed_sessions': completed,
                 'failed_sessions': failed,
+                'failed_errors': failed_errors,
                 'status': status_msg,
                 'updated': datetime.datetime.utcnow().isoformat() + 'Z',
             }}
@@ -211,8 +222,10 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 '--exclude', '*side*',
             ], capture_output=True, text=True)
             if ret.returncode != 0:
-                print(f'  ERROR downloading: {{ret.stderr}}', flush=True)
+                err_msg = ret.stderr[:500] if ret.stderr else 'download failed'
+                print(f'  ERROR downloading: {{err_msg}}', flush=True)
                 failed.append(exp_id)
+                failed_errors[exp_id] = f'download: {{err_msg}}'
                 continue
 
             mp4s = list(video_dir.glob('*overhead*.mp4')) + list(video_dir.glob('*cropped*.mp4'))
@@ -234,6 +247,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                     [str(video_path)],
                     superanimal_name='superanimal_topviewmouse',
                     model_name='hrnet_w32',
+                    detector_name='fasterrcnn_resnet50_fpn_v2',
                     videotype='.mp4',
                     dest_folder=str(out_dir),
                     plot_trajectories=False,
@@ -241,10 +255,12 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 )
                 print(f'  DLC DONE', flush=True)
             except Exception as e:
-                print(f'  ERROR in DLC: {{e}}', flush=True)
+                err_msg = str(e)
+                print(f'  ERROR in DLC: {{err_msg}}', flush=True)
                 import traceback
                 traceback.print_exc()
                 failed.append(exp_id)
+                failed_errors[exp_id] = err_msg[:500]
                 continue
 
             # Upload results to S3
@@ -261,11 +277,15 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 if ret.returncode != 0:
                     print(f'  ERROR uploading: {{ret.stderr}}', flush=True)
                     failed.append(exp_id)
+                    failed_errors[exp_id] = f'upload: {{ret.stderr[:500]}}'
                 else:
                     print(f'  Upload DONE', flush=True)
                     completed.append(exp_id)
             else:
                 print(f'  WARNING: no DLC output found in {{out_dir}}', flush=True)
+                # List what IS in out_dir for debugging
+                all_files = list(out_dir.rglob('*'))
+                print(f'  Files in out_dir: {{[str(f) for f in all_files[:20]]}}', flush=True)
                 failed.append(exp_id)
 
             # Cleanup

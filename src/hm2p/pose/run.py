@@ -98,6 +98,7 @@ def _run_dlc(
             [str(video_path)],
             superanimal_name=superanimal,
             model_name="hrnet_w32",
+            detector_name="fasterrcnn_resnet50_fpn_v2",
             videotype=".mp4",
             dest_folder=str(output_dir),
             plot_trajectories=False,
