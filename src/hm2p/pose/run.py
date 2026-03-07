@@ -94,11 +94,11 @@ def _run_dlc(
 
     if superanimal:
         log.info("Running DLC SuperAnimal (%s) on %s", superanimal, video_path.name)
-        deeplabcut.analyze_videos(
-            superanimal,
+        deeplabcut.video_inference_superanimal(
             [str(video_path)],
-            destfolder=str(output_dir),
-            save_as_csv=False,
+            superanimal,
+            videotype="mp4",
+            dest_folder=str(output_dir),
         )
     else:
         config_path = model_dir / "config.yaml"

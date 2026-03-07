@@ -131,14 +131,18 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         echo "dpkg lock free"
 
         apt-get update -qq
-        apt-get install -y -qq python3-pip awscli ffmpeg
+        apt-get install -y -qq python3-pip python3-dev awscli ffmpeg
 
         # --- Install DeepLabCut ---
-        pip3 install --quiet "deeplabcut[tf]"
+        # DLC 2.3 needs TensorFlow for SuperAnimal inference
+        # --break-system-packages needed on Ubuntu 22.04+ (PEP 668)
+        pip3 install --break-system-packages --quiet "tensorflow[and-cuda]"
+        pip3 install --break-system-packages --quiet deeplabcut
 
         # --- Verify GPU + DLC ---
         nvidia-smi || echo "WARNING: No GPU detected"
         python3 -c "import deeplabcut; print('DLC imported OK')" || echo "WARNING: DLC import failed"
+        python3 -c "import tensorflow as tf; print(f'TF {{tf.__version__}}, GPUs: {{len(tf.config.list_physical_devices(\"GPU\"))}}')" || echo "WARNING: TF GPU check failed"
 
         # --- Process sessions ---
         SESSIONS='{session_json}'
@@ -185,7 +189,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 'aws', 's3', 'ls',
                 f's3://{DERIVATIVES_BUCKET}/pose/{{sub}}/{{ses_id}}/',
             ], capture_output=True, text=True)
-            if check.returncode == 0 and 'DLC' in check.stdout:
+            if check.returncode == 0 and ('.h5' in check.stdout or '.csv' in check.stdout):
                 print(f'  SKIP: already processed on S3', flush=True)
                 skipped.append(exp_id)
                 continue
@@ -227,11 +231,11 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             print(f'  Running DLC (superanimal_topviewmouse)...', flush=True)
             try:
                 import deeplabcut
-                deeplabcut.analyze_videos(
-                    'superanimal_topviewmouse',
+                deeplabcut.video_inference_superanimal(
                     [str(video_path)],
-                    destfolder=str(out_dir),
-                    save_as_csv=True,
+                    'superanimal_topviewmouse',
+                    videotype='mp4',
+                    dest_folder=str(out_dir),
                 )
                 print(f'  DLC DONE', flush=True)
             except Exception as e:
@@ -242,16 +246,15 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 continue
 
             # Upload results to S3
-            h5_files = list(out_dir.glob('*DLC*.h5')) + list(out_dir.glob('*DLC*.csv'))
-            if h5_files:
+            # video_inference_superanimal outputs: *superanimal* or *DLC* files
+            out_files = list(out_dir.glob('*.h5')) + list(out_dir.glob('*.csv')) + list(out_dir.glob('*.json'))
+            if out_files:
                 s3_dest = f's3://{DERIVATIVES_BUCKET}/pose/{{sub}}/{{ses_id}}/'
-                print(f'  Uploading to {{s3_dest}}...', flush=True)
+                print(f'  Uploading {{len(out_files)}} files to {{s3_dest}}...', flush=True)
                 ret = subprocess.run([
                     'aws', 's3', 'sync',
                     str(out_dir),
                     s3_dest,
-                    '--exclude', '*',
-                    '--include', '*DLC*',
                 ], capture_output=True, text=True)
                 if ret.returncode != 0:
                     print(f'  ERROR uploading: {{ret.stderr}}', flush=True)
