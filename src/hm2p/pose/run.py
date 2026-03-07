@@ -96,9 +96,12 @@ def _run_dlc(
         log.info("Running DLC SuperAnimal (%s) on %s", superanimal, video_path.name)
         deeplabcut.video_inference_superanimal(
             [str(video_path)],
-            superanimal,
-            videotype="mp4",
+            superanimal_name=superanimal,
+            model_name="hrnet_w32",
+            videotype=".mp4",
             dest_folder=str(output_dir),
+            plot_trajectories=False,
+            create_labeled_video=False,
         )
     else:
         config_path = model_dir / "config.yaml"

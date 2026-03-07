@@ -133,16 +133,15 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         apt-get update -qq
         apt-get install -y -qq python3-pip python3-dev awscli ffmpeg
 
-        # --- Install DeepLabCut ---
-        # DLC 2.3 needs TensorFlow for SuperAnimal inference
+        # --- Install DeepLabCut 3.0 (PyTorch backend) ---
+        # DLC 3.0rc uses PyTorch (not TF) — works with DL AMI's pre-installed PyTorch+CUDA
         # --break-system-packages needed on Ubuntu 22.04+ (PEP 668)
-        pip3 install --break-system-packages --quiet "tensorflow[and-cuda]"
-        pip3 install --break-system-packages --quiet deeplabcut
+        pip3 install --break-system-packages --quiet --pre deeplabcut
 
         # --- Verify GPU + DLC ---
         nvidia-smi || echo "WARNING: No GPU detected"
-        python3 -c "import deeplabcut; print('DLC imported OK')" || echo "WARNING: DLC import failed"
-        python3 -c "import tensorflow as tf; print(f'TF {{tf.__version__}}, GPUs: {{len(tf.config.list_physical_devices(\"GPU\"))}}')" || echo "WARNING: TF GPU check failed"
+        python3 -c "import deeplabcut; print(f'DLC {{deeplabcut.__version__}} imported OK')" || echo "WARNING: DLC import failed"
+        python3 -c "import torch; print(f'PyTorch {{torch.__version__}}, CUDA: {{torch.cuda.is_available()}}, GPUs: {{torch.cuda.device_count()}}')" || echo "WARNING: PyTorch GPU check failed"
 
         # --- Process sessions ---
         SESSIONS='{session_json}'
@@ -227,15 +226,18 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             video_path = mp4s[0]
             print(f'  Video: {{video_path.name}} ({{video_path.stat().st_size/1e6:.1f}} MB)', flush=True)
 
-            # Run DLC with SuperAnimal pretrained model
-            print(f'  Running DLC (superanimal_topviewmouse)...', flush=True)
+            # Run DLC with SuperAnimal pretrained model (DLC 3.0, PyTorch)
+            print(f'  Running DLC (superanimal_topviewmouse, hrnet_w32)...', flush=True)
             try:
                 import deeplabcut
                 deeplabcut.video_inference_superanimal(
                     [str(video_path)],
-                    'superanimal_topviewmouse',
-                    videotype='mp4',
+                    superanimal_name='superanimal_topviewmouse',
+                    model_name='hrnet_w32',
+                    videotype='.mp4',
                     dest_folder=str(out_dir),
+                    plot_trajectories=False,
+                    create_labeled_video=False,
                 )
                 print(f'  DLC DONE', flush=True)
             except Exception as e:
