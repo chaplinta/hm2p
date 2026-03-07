@@ -419,3 +419,32 @@ class TestRunPipeline:
         sync = read_h5(out_h5)
         assert sync["hd_deg"].shape == (50,)
         assert sync["dff"].shape == (5, 50)
+
+    def test_off_by_one_frame_times_trimmed(self, tmp_path):
+        """Suite2p often has N+1 frame_times for N dF/F frames; sync should trim."""
+        from hm2p.io.hdf5 import read_h5, write_h5
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+        _write_synthetic_kinematics(kin_h5, n=600)
+
+        # Write ca.h5 with N+1 frame_times for N dF/F columns
+        n_rois, n_frames = 8, 180
+        write_h5(
+            ca_h5,
+            arrays={
+                "frame_times": np.linspace(0, 6.0, n_frames + 1, dtype=np.float64),
+                "dff": np.random.default_rng(7).standard_normal(
+                    (n_rois, n_frames)
+                ).astype(np.float32),
+            },
+            attrs={"session_id": "test", "fps_imaging": 30.0, "extractor": "suite2p"},
+        )
+
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5)
+        sync = read_h5(out_h5)
+        # Resampled kinematics should match dff columns, not frame_times length
+        assert sync["hd_deg"].shape == (n_frames,)
+        assert sync["dff"].shape == (n_rois, n_frames)

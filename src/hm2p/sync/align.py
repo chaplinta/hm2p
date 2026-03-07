@@ -89,6 +89,13 @@ def run(
     src_times = kin["frame_times"]  # camera rate timestamps
     dst_times = ca["frame_times"]  # imaging rate timestamps (target grid)
 
+    # Fix Suite2p off-by-one: frame_times may have N+1 entries for N dF/F frames.
+    # Trim to match dff columns so all arrays have consistent length.
+    if "dff" in ca:
+        n_imaging = ca["dff"].shape[1]
+        if len(dst_times) == n_imaging + 1:
+            dst_times = dst_times[:n_imaging]
+
     datasets: dict[str, np.ndarray] = {}
 
     # Resample kinematics to imaging rate
