@@ -109,15 +109,25 @@ def build_user_data(sessions: list[dict]) -> str:
 
         # --- System setup ---
         export DEBIAN_FRONTEND=noninteractive
+
+        # Wait for unattended-upgrades / dpkg lock to release (common on Ubuntu AMIs)
+        echo "Waiting for dpkg lock..."
+        while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+            echo "  dpkg locked, waiting 10s..."
+            sleep 10
+        done
+        echo "dpkg lock free"
+
         apt-get update -qq
         apt-get install -y -qq python3-pip awscli
 
         # --- Install suite2p ---
+        # Deep Learning AMI has PyTorch+CUDA pre-installed; install suite2p on top
         pip3 install --quiet suite2p
 
         # --- Verify GPU ---
         nvidia-smi || echo "WARNING: No GPU detected"
-        python3 -c "import suite2p; print(f'suite2p {{suite2p.__version__}}')"
+        python3 -c "import suite2p; print('suite2p imported OK')" || echo "WARNING: suite2p import failed"
 
         # --- Download custom classifier from S3 ---
         mkdir -p /tmp/hm2p-config
@@ -130,7 +140,7 @@ def build_user_data(sessions: list[dict]) -> str:
         mkdir -p $WORK
 
         echo "$SESSIONS" | python3 -c "
-        import json, sys, subprocess, shutil, os
+        import json, sys, subprocess, shutil, os, datetime
         from pathlib import Path
 
         sessions = json.load(sys.stdin)
@@ -140,10 +150,29 @@ def build_user_data(sessions: list[dict]) -> str:
         failed = []
         skipped = []
 
+        def update_progress(status_msg=''):
+            progress = {{
+                'total': total,
+                'completed': len(completed),
+                'failed': len(failed),
+                'skipped': len(skipped),
+                'completed_sessions': completed,
+                'failed_sessions': failed,
+                'status': status_msg,
+                'updated': datetime.datetime.utcnow().isoformat() + 'Z',
+            }}
+            progress_file = work / 'progress.json'
+            progress_file.write_text(json.dumps(progress, indent=2))
+            subprocess.run([
+                'aws', 's3', 'cp', str(progress_file),
+                's3://{DERIVATIVES_BUCKET}/ca_extraction/_progress.json',
+            ], capture_output=True)
+
         for i, ses in enumerate(sessions, 1):
             sub, ses_id = ses['sub'], ses['ses']
             exp_id = ses['exp_id']
             print(f'\\n=== [{{i}}/{{total}}] {{sub}}/{{ses_id}} ({{exp_id}}) ===', flush=True)
+            update_progress(f'Processing {{i}}/{{total}}: {{sub}}/{{ses_id}}')
 
             # Skip if already processed on S3
             check = subprocess.run([
@@ -293,6 +322,7 @@ def build_user_data(sessions: list[dict]) -> str:
         print(f'Failed:    {{len(failed)}}', flush=True)
         if failed:
             print(f'Failed sessions: {{failed}}', flush=True)
+        update_progress('ALL DONE')
         "
 
         echo ""
@@ -463,6 +493,26 @@ def terminate(args):
     STATE_FILE.unlink()
 
 
+def progress(args):
+    """Check processing progress from S3 progress file."""
+    s3 = boto3.client("s3", region_name=REGION)
+    try:
+        resp = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key="ca_extraction/_progress.json")
+        data = json.loads(resp["Body"].read())
+        print(f"Status:    {data['status']}")
+        print(f"Progress:  {data['completed']}/{data['total']} completed, "
+              f"{data['failed']} failed, {data['skipped']} skipped")
+        print(f"Updated:   {data['updated']}")
+        if data.get("completed_sessions"):
+            print(f"\nCompleted: {', '.join(data['completed_sessions'])}")
+        if data.get("failed_sessions"):
+            print(f"Failed:    {', '.join(data['failed_sessions'])}")
+    except s3.exceptions.NoSuchKey:
+        print("No progress file found. Processing may not have started yet.")
+    except Exception as e:
+        print(f"Error reading progress: {e}")
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -471,12 +521,15 @@ def main():
     parser = argparse.ArgumentParser(description="Launch Suite2p on EC2 g4dn Spot")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--status", action="store_true", help="Check instance status")
+    group.add_argument("--progress", action="store_true", help="Check processing progress from S3")
     group.add_argument("--terminate", action="store_true", help="Terminate instance")
     group.add_argument("--dry-run", action="store_true", help="Print user-data without launching")
     args = parser.parse_args()
 
     if args.status:
         status(args)
+    elif args.progress:
+        progress(args)
     elif args.terminate:
         terminate(args)
     elif args.dry_run:
