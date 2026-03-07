@@ -659,34 +659,34 @@ Notebooks
     instance via boto3, bootstraps Suite2p, processes all 26 sessions, uploads results
     to S3, and self-terminates. Supports `--status`, `--terminate`, `--dry-run`.
 
-### In Progress
+### In Progress / Recently Completed
 
-14. 🔄 **Run Suite2p on all sessions (Stage 1)** — validated locally on CPU in
-    devcontainer. Test session `sub-1117788/ses-20221018T105617` (1.05 GB TIFF):
-    99 ROIs detected in 14,577 frames, completed in 62 seconds on CPU.
-    Suite2p 1.0 API changes handled (`run_s2p(db=..., settings=...)`) and
-    `sparsedetect` mode() bug patched. Remaining: run on all 26 sessions
-    (cloud GPU once quota approved, or sequentially on CPU ~27 min total).
+14. ✅ **Suite2p cloud run (Stage 1)** — All 26 sessions processed on EC2 g4dn.xlarge
+    (GPU) with custom soma classifier and legacy parameters. Results uploaded to
+    `s3://hm2p-derivatives/ca_extraction/{sub}/{ses}/suite2p/`. Local validation on
+    `sub-1117788/ses-20221018T105617`: 99 ROIs, 25 cells (custom classifier), 14577 frames.
+    Key fixes: Suite2p 1.0 API (`run_s2p(db=..., settings=...)`), `sparsedetect` mode()
+    bug patch, dpkg lock wait for Ubuntu DLAMI, S3 progress tracking.
+15. ✅ **Visualization script** — `scripts/viz_suite2p.py` generates multi-panel figure
+    (mean image + ROIs, cell map, classification histogram, top-N dF/F traces).
+    Example output: `docs/figures/suite2p_example_sub-1117788.png`.
 
-### Cloud Infrastructure (ready but deferred)
-
-AWS cloud execution infrastructure is built and ready but deferred due to new-account
-quota limits (G/VT vCPU = 0). All scripts and configs exist for when quotas are approved:
+### Cloud Infrastructure
 
 - `scripts/launch_suite2p_ec2.py` — boto3 script to launch g4dn.xlarge, process all
-  sessions, upload results to S3, self-terminate. Supports `--status`/`--terminate`.
+  sessions, upload results to S3, self-terminate. Supports `--status`/`--progress`/`--terminate`.
+- S3 progress tracking: `--progress` reads `_progress.json` from S3.
+- Custom classifier at `s3://hm2p-derivatives/config/suite2p/classifier_soma.npy`.
+- EC2 key pair (`hm2p-suite2p`) and security group (`hm2p-suite2p-sg`) already created.
+- G/VT On-Demand vCPU quota: 4 (sufficient for g4dn.xlarge).
 - `scripts/aws_batch_setup.sh` — creates Batch compute environments + job queues.
 - `scripts/ecr_push.sh` — builds and pushes GPU/CPU Docker images to ECR.
 - `workflow/profiles/aws-batch/config.yaml` — Snakemake AWS Batch profile.
-- EC2 key pair (`hm2p-suite2p`) and security group (`hm2p-suite2p-sg`) already created.
-- G/VT On-Demand quota increase to 4 vCPUs requested (pending approval).
 
 ### Remaining
 
-15. ⬜ **Complete Suite2p on all sessions** — after local validation, run remaining
-    sessions on cloud GPU (once quota approved) or local GPU machine.
-16. ⬜ **Run DLC pose estimation (Stage 2)** — same approach (local subset first, then
-    cloud). Requires DLC model weights in `sourcedata/trackers/dlc/`.
+16. ⬜ **Run DLC pose estimation (Stage 2)** — same EC2 approach. Requires DLC model
+    weights in `sourcedata/trackers/dlc/`.
 17. ⬜ **CASCADE spike inference** — requires separate conda env (tensorflow==2.3,
     Python 3.8 only). See `docs/manual-installs.md`. Can run on CPU after Stage 4
     dF/F0 is computed.
@@ -695,4 +695,5 @@ quota limits (G/VT vCPU = 0). All scripts and configs exist for when quotas are 
 19. ⬜ **neuroconv NWB export** — write NWB files from ca.h5 + kinematics.h5 for DANDI
     archiving. Stub only.
 20. ⬜ **Rotate hm2p-agent S3 credentials** — current access key was exposed in EC2
-    user-data script. Rotate when cloud runs resume.
+    user-data script. Rotate after cloud runs complete.
+21. ⬜ **Frontend / dashboard** — visualization and analysis interface (TBD).

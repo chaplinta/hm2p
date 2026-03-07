@@ -264,12 +264,15 @@ instructions (local macOS and devcontainer).
 | Project skeleton (pyproject.toml, pre-commit, CI) | Done |
 | HDF5 schema validation | Done |
 | Stage 0 — TDMS ingest (`ingest/daq.py`) | Done |
+| **Stage 1 — Suite2p cloud run (all 26 sessions)** | **Done** |
+| Stage 2 — DLC pose estimation | Pending |
 | Stage 3 — Kinematics (`kinematics/compute.py`) | Done |
 | Stage 4 — Calcium processing (`calcium/`) | Done (CASCADE deferred — needs conda env) |
 | Stage 5 — Sync (`sync/align.py`) | Done |
 | Suite2p extractor (`extraction/suite2p.py`) | Done |
 | CaImAn extractor (`extraction/caiman.py`) | Done |
 | S3 data upload (26 sessions) | Done |
+| EC2 cloud run infrastructure | Done (`scripts/launch_suite2p_ec2.py`) |
 | Snakemake DAG | Pending — rules defined, shell commands needed |
 | Docker images for cloud | Pending |
 | NWB export (neuroconv) | Pending — stub only |
