@@ -238,10 +238,10 @@ def run_session(
         import h5py
 
         with h5py.File(output_path, "r") as f:
-            n_frames = len(f["hd"]) if "hd" in f else "?"
+            n_frames = len(f["hd_deg"]) if "hd_deg" in f else "?"
             print(f"  Frames: {n_frames}")
-            if "speed" in f:
-                speed = f["speed"][:]
+            if "speed_cm_s" in f:
+                speed = f["speed_cm_s"][:]
                 print(f"  Speed: mean={np.nanmean(speed):.2f} cm/s, "
                       f"max={np.nanmax(speed):.2f} cm/s")
             if "active" in f:

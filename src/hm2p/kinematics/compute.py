@@ -224,12 +224,12 @@ def load_pose_dataset(pose_path: Path, tracker: str) -> xr.Dataset:
         xarray.Dataset with dimensions (time, individuals, keypoints, space)
         and a 'confidence' DataArray.
     """
-    from movement.io import load_dataset
+    from movement.io import load_poses
 
     if tracker not in _TRACKER_MAP:
         raise ValueError(f"Unknown tracker '{tracker}'. Known trackers: {list(_TRACKER_MAP)}")
     source_software = _TRACKER_MAP[tracker]
-    return load_dataset(file=pose_path, source_software=source_software)
+    return load_poses.from_file(file=pose_path, source_software=source_software)
 
 
 def apply_orientation_rotation(ds: xr.Dataset, angle_deg: float) -> xr.Dataset:
