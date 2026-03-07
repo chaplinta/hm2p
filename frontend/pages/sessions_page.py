@@ -13,6 +13,15 @@ from frontend.data import (
     parse_session_id,
 )
 
+# Map stage prefixes to page names for navigation
+STAGE_PAGE_MAP = {
+    "ca_extraction": "Suite2p",
+    "pose": "Pipeline",
+    "kinematics": "Pipeline",
+    "calcium": "Pipeline",
+    "sync": "Sync",
+}
+
 st.title("Sessions")
 
 experiments = load_experiments()
@@ -78,7 +87,17 @@ if not exclude_filter:
 # Summary
 n_penk = len(filtered[filtered["celltype"] == "penk"])
 n_nonpenk = len(filtered[filtered["celltype"] == "nonpenk"])
-st.markdown(f"**{len(filtered)}** sessions ({n_penk} penk, {n_nonpenk} nonpenk)")
+stage_cols = list(STAGE_PREFIXES.values())
+
+# Pipeline progress summary
+done_counts = {}
+for col in stage_cols:
+    done_counts[col] = len(filtered[filtered[col] == "Done"])
+progress_parts = [f"{col.split(' — ')[1]}: {done_counts[col]}/{len(filtered)}" for col in stage_cols]
+st.markdown(
+    f"**{len(filtered)}** sessions ({n_penk} penk, {n_nonpenk} nonpenk) | "
+    + " | ".join(progress_parts)
+)
 
 # Color-code pipeline status
 def style_status(val):
@@ -86,9 +105,39 @@ def style_status(val):
         return "background-color: #d4edda"
     return ""
 
-stage_cols = list(STAGE_PREFIXES.values())
 styled = filtered.style.map(style_status, subset=stage_cols)
 st.dataframe(styled, width="stretch", height=600)
+
+# Quick navigation to pipeline pages
+st.markdown("---")
+st.subheader("Navigate to Pipeline Page")
+st.caption("Select a session and stage to view details on the relevant page.")
+
+nav_col1, nav_col2, nav_col3 = st.columns(3)
+with nav_col1:
+    nav_session = st.selectbox(
+        "Session",
+        options=filtered["exp_id"].tolist(),
+        format_func=lambda x: f"{x} ({filtered[filtered['exp_id']==x]['celltype'].values[0]})",
+        key="nav_session",
+    )
+with nav_col2:
+    nav_stage = st.selectbox(
+        "Stage",
+        options=list(STAGE_PREFIXES.keys()),
+        format_func=lambda k: STAGE_PREFIXES[k],
+        key="nav_stage",
+    )
+with nav_col3:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("Go to page", type="primary"):
+        if nav_session:
+            sub, ses = parse_session_id(nav_session)
+            st.session_state["selected_sub"] = sub
+            st.session_state["selected_ses"] = ses
+            st.session_state["selected_exp_id"] = nav_session
+            page_name = STAGE_PAGE_MAP.get(nav_stage, "Pipeline")
+            st.switch_page(f"pages/{page_name.lower()}_page.py")
 
 # Session detail
 st.markdown("---")
@@ -97,6 +146,7 @@ selected = st.selectbox(
     "Select session",
     options=filtered["exp_id"].tolist(),
     format_func=lambda x: f"{x} ({filtered[filtered['exp_id']==x]['celltype'].values[0]})",
+    key="detail_session",
 )
 
 if selected:
@@ -119,6 +169,16 @@ if selected:
         st.markdown("**Animal metadata:**")
         for key in ["celltype", "strain", "gcamp", "virus_id", "hemisphere", "sex"]:
             st.text(f"  {key}: {animal.get(key, '')}")
+
+    # Pipeline status for this session
+    st.markdown("**Pipeline status:**")
+    status = pipeline_status.get(selected, {})
+    status_cols = st.columns(len(STAGE_PREFIXES))
+    for i, (prefix, label) in enumerate(STAGE_PREFIXES.items()):
+        with status_cols[i]:
+            done = status.get(prefix, False)
+            icon = "white_check_mark" if done else "x"
+            st.markdown(f":{icon}: {label.split(' — ')[1]}")
 
     # Store selected session for other pages
     st.session_state["selected_sub"] = sub
