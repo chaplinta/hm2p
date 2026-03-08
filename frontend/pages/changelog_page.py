@@ -10,6 +10,7 @@ st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.
 # Changelog entries — newest first
 # Each entry: (date, time, category, description)
 CHANGELOG = [
+    ("2026-03-08", "13:00", "feature", "Add Signal Quality page — photobleaching trend analysis, noise floor estimation, temporal autocorrelation with half-decay time, per-ROI quality grading (A-D), SNR vs skewness scatter, CSV export"),
     ("2026-03-08", "12:00", "feature", "Add Maze Analysis module and page — rose maze topology graph (23 cells, 8 T-junctions, 6 dead ends), exploration efficiency, turn bias, path efficiency, monotonic path detection, behavioural mode segmentation, sequence entropy. Inspired by Rosenberg et al. (2021) eLife"),
     ("2026-03-08", "11:00", "feature", "Add Publication Statistics page — ready-to-report methods text, Penk vs non-Penk comparisons (SNR, event rate, active fraction, max dF/F), per-session table, CSV export"),
     ("2026-03-08", "10:30", "feature", "Add Cross-Session Light Analysis — aggregate light modulation index across all sessions, Penk vs non-Penk comparison with Mann-Whitney, KS test, Wilcoxon"),
