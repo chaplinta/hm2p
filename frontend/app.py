@@ -31,6 +31,7 @@ log.info("Page loaded: rendering app")
 # --- Multipage navigation using Streamlit's native system ---
 _app_dir = Path(__file__).resolve().parent
 sessions_page = st.Page(str(_app_dir / "pages/sessions_page.py"), title="Sessions", icon=":material/table:")
+animals_page = st.Page(str(_app_dir / "pages/animals_page.py"), title="Animals", icon=":material/pets:")
 pipeline_page = st.Page(str(_app_dir / "pages/pipeline_page.py"), title="Pipeline", icon=":material/monitoring:")
 suite2p_page = st.Page(str(_app_dir / "pages/suite2p_page.py"), title="Suite2p", icon=":material/neurology:")
 calcium_page = st.Page(str(_app_dir / "pages/calcium_page.py"), title="Calcium", icon=":material/science:")
@@ -51,7 +52,7 @@ changelog_page = st.Page(str(_app_dir / "pages/changelog_page.py"), title="Chang
 aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":material/cloud:")
 
 pg = st.navigation({
-    "Overview": [sessions_page, pipeline_page, batch_page],
+    "Overview": [sessions_page, animals_page, pipeline_page, batch_page],
     "Pipeline": [suite2p_page, calcium_page, dlc_page, sync_page],
     "Explore": [explorer_page, timeline_page, gallery_page, events_page, correlations_page, trace_compare_page],
     "Analysis": [analysis_page, compare_page, population_page, qc_page],
