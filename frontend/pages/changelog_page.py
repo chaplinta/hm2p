@@ -10,6 +10,7 @@ st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.
 # Changelog entries — newest first
 # Each entry: (date, time, category, description)
 CHANGELOG = [
+    ("2026-03-08", "09:00", "feature", "Add downstream pipeline orchestrator (run_downstream_pipeline.py) — auto-runs Stages 3/5/6 when DLC completes, with --watch mode"),
     ("2026-03-08", "08:30", "feature", "Add Animal Summary page — per-animal ROI counts, quality metrics, Penk vs non-Penk stats, session list per animal"),
     ("2026-03-08", "08:15", "fix", "Remove duplicate st.set_page_config from analysis page (fixes StreamlitAPIException in multipage mode)"),
     ("2026-03-08", "08:00", "feature", "Add Trace Comparison page — overlay/stack/normalize multiple ROI traces, auto-find most correlated pair, cross-correlation lag analysis"),
