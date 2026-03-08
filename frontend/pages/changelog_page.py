@@ -10,6 +10,7 @@ st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.
 # Changelog entries — newest first
 # Each entry: (date, time, category, description)
 CHANGELOG = [
+    ("2026-03-08", "10:00", "feature", "Add Light/Dark Analysis page — compare activity between light-on and light-off epochs using timestamps.h5, modulation index, per-cycle analysis, population response"),
     ("2026-03-08", "09:30", "feature", "Add Home page — project dashboard with pipeline status overview, quick navigation links, recent changelog"),
     ("2026-03-08", "09:00", "feature", "Add downstream pipeline orchestrator (run_downstream_pipeline.py) — auto-runs Stages 3/5/6 when DLC completes, with --watch mode"),
     ("2026-03-08", "08:30", "feature", "Add Animal Summary page — per-animal ROI counts, quality metrics, Penk vs non-Penk stats, session list per animal"),
