@@ -57,6 +57,7 @@ signal_quality_page = st.Page(str(_app_dir / "pages/signal_quality_page.py"), ti
 hd_tuning_page = st.Page(str(_app_dir / "pages/hd_tuning_page.py"), title="HD Tuning", icon=":material/explore:")
 decoder_page = st.Page(str(_app_dir / "pages/decoder_page.py"), title="Decoder", icon=":material/psychology:")
 stability_page = st.Page(str(_app_dir / "pages/stability_page.py"), title="Stability", icon=":material/balance:")
+pop_dynamics_page = st.Page(str(_app_dir / "pages/pop_dynamics_page.py"), title="Pop. Dynamics", icon=":material/scatter_plot:")
 changelog_page = st.Page(str(_app_dir / "pages/changelog_page.py"), title="Changelog", icon=":material/history:")
 aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":material/cloud:")
 
@@ -64,7 +65,7 @@ pg = st.navigation({
     "Overview": [home_page, sessions_page, animals_page, pipeline_page, batch_page],
     "Pipeline": [suite2p_page, calcium_page, dlc_page, sync_page],
     "Explore": [explorer_page, timeline_page, gallery_page, events_page, correlations_page, trace_compare_page],
-    "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, decoder_page, stability_page, signal_quality_page, qc_page],
+    "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, decoder_page, stability_page, pop_dynamics_page, signal_quality_page, qc_page],
     "System": [aws_page, changelog_page],
 })
 pg.run()
