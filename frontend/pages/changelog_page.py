@@ -10,6 +10,7 @@ st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.
 # Changelog entries — newest first
 # Each entry: (date, time, category, description)
 CHANGELOG = [
+    ("2026-03-08", "08:00", "feature", "Add Trace Comparison page — overlay/stack/normalize multiple ROI traces, auto-find most correlated pair, cross-correlation lag analysis"),
     ("2026-03-08", "07:30", "feature", "Add QC Report page — automated quality grading (A-D), per-ROI quality checks, metadata display"),
     ("2026-03-08", "07:15", "improvement", "Reorganize navigation into sections: Overview, Pipeline, Explore, Analysis, System"),
     ("2026-03-08", "07:10", "fix", "Fix flaky hypothesis test (SI non-negativity tolerance 1e-10 -> 1e-9 for denormalized floats)"),

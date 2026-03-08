@@ -44,6 +44,7 @@ timeline_page = st.Page(str(_app_dir / "pages/timeline_page.py"), title="Timelin
 gallery_page = st.Page(str(_app_dir / "pages/gallery_page.py"), title="ROI Gallery", icon=":material/grid_view:")
 events_page = st.Page(str(_app_dir / "pages/events_page.py"), title="Events", icon=":material/electric_bolt:")
 correlations_page = st.Page(str(_app_dir / "pages/correlations_page.py"), title="Correlations", icon=":material/hub:")
+trace_compare_page = st.Page(str(_app_dir / "pages/trace_compare_page.py"), title="Trace Compare", icon=":material/compare_arrows:")
 batch_page = st.Page(str(_app_dir / "pages/batch_page.py"), title="Batch", icon=":material/dashboard:")
 qc_page = st.Page(str(_app_dir / "pages/qc_report_page.py"), title="QC Report", icon=":material/verified:")
 changelog_page = st.Page(str(_app_dir / "pages/changelog_page.py"), title="Changelog", icon=":material/history:")
@@ -52,7 +53,7 @@ aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":mate
 pg = st.navigation({
     "Overview": [sessions_page, pipeline_page, batch_page],
     "Pipeline": [suite2p_page, calcium_page, dlc_page, sync_page],
-    "Explore": [explorer_page, timeline_page, gallery_page, events_page, correlations_page],
+    "Explore": [explorer_page, timeline_page, gallery_page, events_page, correlations_page, trace_compare_page],
     "Analysis": [analysis_page, compare_page, population_page, qc_page],
     "System": [aws_page, changelog_page],
 })
