@@ -52,6 +52,7 @@ correlations_page = st.Page(str(_app_dir / "pages/correlations_page.py"), title=
 trace_compare_page = st.Page(str(_app_dir / "pages/trace_compare_page.py"), title="Trace Compare", icon=":material/compare_arrows:")
 batch_page = st.Page(str(_app_dir / "pages/batch_page.py"), title="Batch", icon=":material/dashboard:")
 qc_page = st.Page(str(_app_dir / "pages/qc_report_page.py"), title="QC Report", icon=":material/verified:")
+maze_page = st.Page(str(_app_dir / "pages/maze_page.py"), title="Maze", icon=":material/map:")
 changelog_page = st.Page(str(_app_dir / "pages/changelog_page.py"), title="Changelog", icon=":material/history:")
 aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":material/cloud:")
 
@@ -59,7 +60,7 @@ pg = st.navigation({
     "Overview": [home_page, sessions_page, animals_page, pipeline_page, batch_page],
     "Pipeline": [suite2p_page, calcium_page, dlc_page, sync_page],
     "Explore": [explorer_page, timeline_page, gallery_page, events_page, correlations_page, trace_compare_page],
-    "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, qc_page],
+    "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, qc_page],
     "System": [aws_page, changelog_page],
 })
 pg.run()
