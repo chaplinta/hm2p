@@ -11,6 +11,7 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
+from frontend.data import load_all_sync_data, session_filter_sidebar
 from hm2p.analysis.stability import (
     dark_drift_rate,
     drift_per_epoch,
@@ -25,53 +26,51 @@ st.caption(
     "Key question: does HD tuning drift when visual cues are removed?"
 )
 
+# Load real data
+all_data = load_all_sync_data()
+if all_data["n_sessions"] == 0:
+    st.warning(
+        "No data available yet. This page will populate when the relevant "
+        "pipeline stage completes."
+    )
+    st.stop()
 
-def _make_cell_with_dark_drift(
-    n_frames=9000, pref=90.0, kappa=3.0, dark_drift_deg=0.0,
-    noise=0.15, cycle_frames=1800, seed=42,
-):
-    """Generate HD cell with optional drift during dark epochs."""
-    rng = np.random.default_rng(seed)
-    hd = np.cumsum(rng.normal(0, 5, n_frames)) % 360.0
-    theta = np.deg2rad(hd)
-    signal = np.zeros(n_frames)
+sessions = session_filter_sidebar(all_data["sessions"])
+if not sessions:
+    st.warning("No sessions match the current filters.")
+    st.stop()
 
-    # Build light_on mask
-    light_on = np.zeros(n_frames, dtype=bool)
-    for start in range(0, n_frames, 2 * cycle_frames):
-        light_on[start:min(start + cycle_frames, n_frames)] = True
+# Session selector
+session_labels = [f"{s['exp_id']} ({s['celltype']}, {s['n_rois']} ROIs)" for s in sessions]
+sel_idx = st.sidebar.selectbox("Session", range(len(sessions)),
+                                format_func=lambda i: session_labels[i], key="drift_ses")
+sess = sessions[sel_idx]
 
-    # Track cumulative drift within dark epochs
-    current_pref = pref
-    drift_per_frame = dark_drift_deg / cycle_frames
-    for i in range(n_frames):
-        if not light_on[i]:
-            current_pref += drift_per_frame
-        else:
-            current_pref = pref  # Snap back to anchored PD in light
-        signal[i] = 0.1 + np.exp(kappa * np.cos(theta[i] - np.deg2rad(current_pref)))
-
-    signal /= signal.max()
-    signal += rng.normal(0, noise, n_frames)
-    signal = np.clip(signal, 0, None)
-    mask = np.ones(n_frames, dtype=bool)
-    return signal, hd, mask, light_on
-
-
-# Sidebar controls
-st.sidebar.header("Cell Parameters")
-kappa = st.sidebar.slider("κ (concentration)", 0.5, 8.0, 3.0, 0.5, key="drift_kappa")
-noise = st.sidebar.slider("Noise σ", 0.05, 0.5, 0.15, 0.05, key="drift_noise")
-dark_drift = st.sidebar.slider("Dark drift (°/epoch)", 0.0, 90.0, 20.0, 5.0, key="drift_deg")
-n_frames = st.sidebar.slider("Frames", 6000, 18000, 9000, 1800, key="drift_n")
-cycle_s = st.sidebar.slider("Cycle duration (s)", 30, 120, 60, 10, key="drift_cycle")
+signals = sess["dff"]  # (n_rois, n_frames)
+hd = sess["hd_deg"]
+mask = sess["active"] & ~sess["bad_behav"]
+light_on = sess["light_on"]
+n_cells = signals.shape[0]
+n_frames = signals.shape[1]
 fps = 30.0
-cycle_frames = int(cycle_s * fps)
 
-signal, hd, mask, light_on = _make_cell_with_dark_drift(
-    n_frames=n_frames, kappa=kappa, noise=noise,
-    dark_drift_deg=dark_drift, cycle_frames=cycle_frames,
-)
+if n_cells == 0:
+    st.warning("No ROIs in this session after filtering.")
+    st.stop()
+
+# Cell selector in sidebar
+cell_main = st.sidebar.selectbox("Primary cell", range(n_cells),
+                                  format_func=lambda x: f"Cell {x+1}", key="drift_main_cell")
+signal = signals[cell_main]
+
+# Estimate cycle length from light_on transitions
+diffs = np.diff(light_on.astype(int))
+transition_frames = np.where(np.abs(diffs) > 0)[0]
+if len(transition_frames) >= 2:
+    cycle_frames = int(np.median(np.diff(transition_frames)))
+else:
+    cycle_frames = int(60 * fps)  # default 60s
+cycle_s = cycle_frames / fps
 
 tab_epoch, tab_drift_rate, tab_compare, tab_ld = st.tabs([
     "Epoch PD Tracking", "Drift Rate", "Light vs Dark Tuning", "Sliding Window",
@@ -97,7 +96,7 @@ with tab_epoch:
             ))
             fig.update_layout(
                 height=300, title="Preferred Direction per Epoch",
-                xaxis_title="Time (s)", yaxis_title="PD (°)",
+                xaxis_title="Time (s)", yaxis_title="PD (deg)",
                 yaxis=dict(range=[0, 360]),
             )
             # Add light/dark background shading
@@ -119,7 +118,7 @@ with tab_epoch:
             )])
             fig.update_layout(
                 height=300, title="Cumulative PD Drift",
-                xaxis_title="Time (s)", yaxis_title="Cumulative drift (°)",
+                xaxis_title="Time (s)", yaxis_title="Cumulative drift (deg)",
             )
             for start in range(0, n_frames, 2 * cycle_frames):
                 fig.add_vrect(
@@ -151,10 +150,10 @@ with tab_drift_rate:
     )
 
     col1, col2 = st.columns(2)
-    col1.metric("Light drift rate", f"{dr['light_drift_deg_per_s']:.2f} °/s")
-    col2.metric("Dark drift rate", f"{dr['dark_drift_deg_per_s']:.2f} °/s")
+    col1.metric("Light drift rate", f"{dr['light_drift_deg_per_s']:.2f} deg/s")
+    col2.metric("Dark drift rate", f"{dr['dark_drift_deg_per_s']:.2f} deg/s")
 
-    if dark_drift > 0:
+    if dr["dark_drift_deg_per_s"] > 0:
         ratio = dr["dark_drift_deg_per_s"] / max(dr["light_drift_deg_per_s"], 1e-10)
         st.markdown(f"**Dark/Light ratio:** {ratio:.1f}x")
 
@@ -176,7 +175,7 @@ with tab_drift_rate:
         ))
     fig.update_layout(
         height=300, title="PD Trajectory (Sliding Windows)",
-        xaxis_title="Time (s)", yaxis_title="PD (°)",
+        xaxis_title="Time (s)", yaxis_title="PD (deg)",
         yaxis=dict(range=[0, 360]),
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -188,7 +187,7 @@ with tab_compare:
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Correlation", f"{ld['correlation']:.3f}")
-    col2.metric("PD shift", f"{ld['pd_shift_deg']:.1f}°")
+    col2.metric("PD shift", f"{ld['pd_shift_deg']:.1f}")
     col3.metric("MVL ratio", f"{ld['mvl_dark'] / max(ld['mvl_light'], 1e-10):.2f}")
 
     # Polar overlay
@@ -257,7 +256,7 @@ with tab_ld:
         ))
         fig.update_layout(
             height=250, title="Preferred Direction Over Time",
-            xaxis_title="Time (s)", yaxis_title="PD (°)",
+            xaxis_title="Time (s)", yaxis_title="PD (deg)",
             yaxis=dict(range=[0, 360]),
         )
         for start in range(0, n_frames, 2 * cycle_frames):

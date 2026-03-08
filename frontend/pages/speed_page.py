@@ -10,6 +10,7 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
+from frontend.data import load_all_sync_data, session_filter_sidebar
 from hm2p.analysis.speed import (
     hd_tuning_by_speed,
     speed_modulation_index,
@@ -23,39 +24,35 @@ st.caption(
     "Important control for isolating visual vs speed-related gain changes."
 )
 
+# Load real data
+all_data = load_all_sync_data()
+if all_data["n_sessions"] == 0:
+    st.warning(
+        "No data available yet. This page will populate when the relevant "
+        "pipeline stage completes."
+    )
+    st.stop()
 
-def _make_population(n_cells=8, n_frames=5000, kappa=3.0, speed_gain=0.3,
-                     noise=0.15, seed=42):
-    """Generate population with speed modulation."""
-    rng = np.random.default_rng(seed)
-    hd = np.cumsum(rng.normal(0, 5, n_frames)) % 360.0
-    speed = np.abs(rng.normal(10, 5, n_frames))  # cm/s
-    theta = np.deg2rad(hd)
-    prefs = np.linspace(0, 360, n_cells, endpoint=False)
-    signals = np.zeros((n_cells, n_frames))
+sessions = session_filter_sidebar(all_data["sessions"])
+if not sessions:
+    st.warning("No sessions match the current filters.")
+    st.stop()
 
-    for i in range(n_cells):
-        k = np.clip(rng.normal(kappa, 0.5), 0.5, 10.0)
-        sg = np.clip(rng.normal(speed_gain, 0.15), -0.2, 1.0)
-        signals[i] = 0.1 + np.exp(k * np.cos(theta - np.deg2rad(prefs[i])))
-        signals[i] /= signals[i].max()
-        signals[i] *= (1 + sg * speed / np.max(speed))
-        signals[i] += rng.normal(0, noise, n_frames)
-        signals[i] = np.clip(signals[i], 0, None)
+# Session selector
+session_labels = [f"{s['exp_id']} ({s['celltype']}, {s['n_rois']} ROIs)" for s in sessions]
+sel_idx = st.sidebar.selectbox("Session", range(len(sessions)),
+                                format_func=lambda i: session_labels[i], key="spd_ses")
+sess = sessions[sel_idx]
 
-    mask = np.ones(n_frames, dtype=bool)
-    return signals, hd, speed, mask
+signals = sess["dff"]  # (n_rois, n_frames)
+hd = sess["hd_deg"]
+speed = sess["speed_cm_s"]
+mask = sess["active"] & ~sess["bad_behav"]
+n_cells = signals.shape[0]
 
-
-# Parameters
-n_cells = st.sidebar.slider("Cells", 3, 15, 8, 1, key="spd_n")
-kappa = st.sidebar.slider("κ", 0.5, 8.0, 3.0, 0.5, key="spd_kappa")
-speed_gain = st.sidebar.slider("Speed gain", -0.2, 1.0, 0.3, 0.1, key="spd_gain")
-noise = st.sidebar.slider("Noise", 0.05, 0.5, 0.15, 0.05, key="spd_noise")
-
-signals, hd, speed, mask = _make_population(
-    n_cells=n_cells, kappa=kappa, speed_gain=speed_gain, noise=noise,
-)
+if n_cells == 0:
+    st.warning("No ROIs in this session after filtering.")
+    st.stop()
 
 tab_pop, tab_single, tab_hd = st.tabs(["Population", "Single Cell", "HD by Speed"])
 

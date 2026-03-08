@@ -12,6 +12,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from frontend.data import load_all_sync_data, session_filter_sidebar
 from hm2p.analysis.gain import (
     epoch_gain_tracking,
     gain_modulation_index,
@@ -25,44 +26,36 @@ st.caption(
     "Gain changes reveal direct visual modulation of HD tuning."
 )
 
+# Load real data
+all_data = load_all_sync_data()
+if all_data["n_sessions"] == 0:
+    st.warning(
+        "No data available yet. This page will populate when the relevant "
+        "pipeline stage completes."
+    )
+    st.stop()
 
-def _make_population(n_cells=10, n_frames=9000, kappa=3.0, noise=0.15,
-                     dark_gain=1.0, cycle_frames=1800, seed=42):
-    """Generate population with optional gain reduction in dark."""
-    rng = np.random.default_rng(seed)
-    hd = np.cumsum(rng.normal(0, 5, n_frames)) % 360.0
-    theta = np.deg2rad(hd)
-    prefs = np.linspace(0, 360, n_cells, endpoint=False)
+sessions = session_filter_sidebar(all_data["sessions"])
+if not sessions:
+    st.warning("No sessions match the current filters.")
+    st.stop()
 
-    light_on = np.zeros(n_frames, dtype=bool)
-    for start in range(0, n_frames, 2 * cycle_frames):
-        light_on[start:min(start + cycle_frames, n_frames)] = True
+# Session selector
+session_labels = [f"{s['exp_id']} ({s['celltype']}, {s['n_rois']} ROIs)" for s in sessions]
+sel_idx = st.sidebar.selectbox("Session", range(len(sessions)),
+                                format_func=lambda i: session_labels[i], key="gain_ses")
+sess = sessions[sel_idx]
 
-    signals = np.zeros((n_cells, n_frames))
-    for i in range(n_cells):
-        k = np.clip(rng.normal(kappa, 0.5), 0.5, 10.0)
-        signals[i] = 0.1 + np.exp(k * np.cos(theta - np.deg2rad(prefs[i])))
-        signals[i] /= signals[i].max()
-        # Apply gain reduction in dark
-        cell_dark_gain = np.clip(rng.normal(dark_gain, 0.1), 0.1, 2.0)
-        signals[i][~light_on] *= cell_dark_gain
-        signals[i] += rng.normal(0, noise, n_frames)
-        signals[i] = np.clip(signals[i], 0, None)
+signals = sess["dff"]  # (n_rois, n_frames)
+hd = sess["hd_deg"]
+mask = sess["active"] & ~sess["bad_behav"]
+light_on = sess["light_on"]
+n_cells = signals.shape[0]
+fps = 30.0
 
-    mask = np.ones(n_frames, dtype=bool)
-    return signals, hd, mask, light_on
-
-
-# Parameters
-st.sidebar.header("Population")
-n_cells = st.sidebar.slider("Cells", 3, 15, 8, 1, key="gain_n")
-kappa = st.sidebar.slider("κ", 0.5, 8.0, 3.0, 0.5, key="gain_kappa")
-noise = st.sidebar.slider("Noise σ", 0.05, 0.5, 0.15, 0.05, key="gain_noise")
-dark_gain = st.sidebar.slider("Dark gain", 0.2, 1.5, 0.7, 0.05, key="gain_dark")
-
-signals, hd, mask, light_on = _make_population(
-    n_cells=n_cells, kappa=kappa, noise=noise, dark_gain=dark_gain,
-)
+if n_cells == 0:
+    st.warning("No ROIs in this session after filtering.")
+    st.stop()
 
 tab_pop, tab_single, tab_epoch = st.tabs(["Population", "Single Cell", "Epoch Tracking"])
 
@@ -174,7 +167,6 @@ with tab_epoch:
                              format_func=lambda x: f"Cell {x+1}", key="gain_epoch_cell")
 
     et = epoch_gain_tracking(signals[cell_idx2], hd, mask, light_on)
-    fps = 30.0
 
     if et["n_epochs"] > 0:
         times = et["epoch_centers"] / fps

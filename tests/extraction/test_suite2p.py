@@ -7,7 +7,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from hm2p.extraction.suite2p import Suite2pExtractor, classify_roi_types
+from hm2p.extraction.suite2p import (
+    Suite2pExtractor,
+    _classify_heuristic,
+    classify_roi_types,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers: write synthetic Suite2p plane0 files
@@ -47,6 +51,9 @@ def _write_plane0(
                     "aspect_ratio": ar,
                     "radius": rng.uniform(3.0, 12.0),
                     "compact": 1.0 / ar,
+                    "skew": rng.uniform(0.5, 5.0),
+                    "npix": int(rng.integers(50, 500)),
+                    "npix_norm": rng.uniform(0.5, 3.0),
                     "ypix": np.array([0, 1, 2], dtype=int),
                     "xpix": np.array([0, 1, 2], dtype=int),
                 }
@@ -155,23 +162,22 @@ class TestSuite2pOptionalMethods:
         with pytest.raises(RuntimeError, match="ops.npy"):
             ext.get_sampling_frequency()
 
-    def test_get_roi_types_without_stat(self, tmp_path: Path) -> None:
-        """Without stat.npy, all ROIs default to 'soma'."""
+    def test_get_roi_types_without_stat_raises(self, tmp_path: Path) -> None:
+        """Without stat.npy, raises RuntimeError."""
         s2p = tmp_path / "suite2p"
         _write_plane0(s2p, n_rois=8, n_cells=5)
         ext = Suite2pExtractor(s2p)
-        types = ext.get_roi_types()
-        assert len(types) == 5
-        assert all(t == "soma" for t in types)
+        with pytest.raises(RuntimeError, match="stat.npy"):
+            ext.get_roi_types()
 
     def test_get_roi_types_with_stat(self, tmp_path: Path) -> None:
-        """With stat.npy, elongated ROIs get 'dend' label."""
+        """With stat.npy, ROIs classified as soma/dend/artefact."""
         s2p = tmp_path / "suite2p"
         _write_plane0(s2p, n_rois=9, n_cells=6, include_stat=True)
         ext = Suite2pExtractor(s2p)
         types = ext.get_roi_types()
         assert len(types) == 6
-        assert all(t in ("soma", "dend") for t in types)
+        assert all(t in ("soma", "dend", "artefact") for t in types)
 
 
 # ---------------------------------------------------------------------------
@@ -179,34 +185,36 @@ class TestSuite2pOptionalMethods:
 # ---------------------------------------------------------------------------
 
 
-class TestClassifyRoiTypes:
+class TestClassifyHeuristic:
+    """Tests for the heuristic fallback classifier."""
+
     def test_output_length(self) -> None:
         stat = [
             {"aspect_ratio": 1.2, "radius": 5.0, "compact": 0.8},
             {"aspect_ratio": 4.0, "radius": 3.0, "compact": 0.25},
             {"aspect_ratio": 1.5, "radius": 7.0, "compact": 0.67},
         ]
-        labels = classify_roi_types(stat)
+        labels = _classify_heuristic(stat)
         assert len(labels) == 3
 
     def test_soma_classification(self) -> None:
         stat = [{"aspect_ratio": 1.2, "radius": 5.0, "compact": 0.8}]
-        labels = classify_roi_types(stat)
+        labels = _classify_heuristic(stat)
         assert labels[0] == "soma"
 
     def test_dend_classification(self) -> None:
         stat = [{"aspect_ratio": 4.0, "radius": 4.0, "compact": 0.25}]
-        labels = classify_roi_types(stat)
+        labels = _classify_heuristic(stat)
         assert labels[0] == "dend"
 
     def test_artefact_classification_small_radius(self) -> None:
         stat = [{"aspect_ratio": 1.0, "radius": 1.0, "compact": 1.0}]
-        labels = classify_roi_types(stat)
+        labels = _classify_heuristic(stat)
         assert labels[0] == "artefact"
 
     def test_artefact_classification_low_compact(self) -> None:
         stat = [{"aspect_ratio": 1.0, "radius": 5.0, "compact": 0.05}]
-        labels = classify_roi_types(stat)
+        labels = _classify_heuristic(stat)
         assert labels[0] == "artefact"
 
     def test_valid_labels_only(self) -> None:
@@ -220,11 +228,67 @@ class TestClassifyRoiTypes:
                     "compact": rng.uniform(0.05, 1.0),
                 }
             )
-        labels = classify_roi_types(stat)
+        labels = _classify_heuristic(stat)
         assert all(label in ("soma", "dend", "artefact") for label in labels)
 
     def test_missing_keys_use_defaults(self) -> None:
         """Missing stat keys fall back to defaults (soma)."""
         stat = [{}]
-        labels = classify_roi_types(stat)
+        labels = _classify_heuristic(stat)
         assert labels[0] == "soma"
+
+
+class TestClassifyRoiTypes:
+    """Tests for classify_roi_types using Suite2p trained classifiers."""
+
+    def test_uses_suite2p_classifiers(self) -> None:
+        """Classifiers produce valid labels for all ROIs."""
+        stat = [{
+            "aspect_ratio": 1.2, "radius": 5.0, "compact": 0.8,
+            "skew": 3.0, "npix_norm": 1.5, "npix": 200,
+        }]
+        labels = classify_roi_types(stat)
+        assert len(labels) == 1
+        assert labels[0] in ("soma", "dend", "artefact")
+
+    def test_valid_labels_only(self) -> None:
+        """All labels must be one of the three valid types."""
+        rng = np.random.default_rng(7)
+        stat = []
+        for _ in range(20):
+            stat.append({
+                "aspect_ratio": rng.uniform(0.5, 8.0),
+                "radius": rng.uniform(1.0, 15.0),
+                "compact": rng.uniform(0.05, 1.0),
+                "skew": rng.uniform(0.1, 5.0),
+                "npix_norm": rng.uniform(0.3, 4.0),
+                "npix": int(rng.integers(20, 500)),
+            })
+        labels = classify_roi_types(stat)
+        assert all(label in ("soma", "dend", "artefact") for label in labels)
+
+    def test_missing_classifier_raises(self, tmp_path: Path) -> None:
+        """Raises FileNotFoundError when classifiers are missing."""
+        stat = [{"aspect_ratio": 1.0, "radius": 5.0, "compact": 0.8}]
+        with pytest.raises(FileNotFoundError, match="classifier_soma"):
+            classify_roi_types(
+                stat,
+                classifier_soma_path=tmp_path / "classifier_soma.npy",
+                classifier_dend_path=tmp_path / "classifier_dend.npy",
+            )
+
+    def test_dend_only_if_not_soma(self) -> None:
+        """ROI classified as dend only if dend=True AND soma=False."""
+        from unittest.mock import patch
+
+        # Mock classify to return soma=True, dend=True → should be soma
+        def mock_classify(stat_arr, classfile):
+            n = len(stat_arr)
+            return np.column_stack([np.ones(n), np.ones(n)])
+
+        with patch(
+            "suite2p.classification.classify.classify", mock_classify
+        ):
+            stat = [{"skew": 2.0, "compact": 0.5, "npix_norm": 1.0}]
+            labels = classify_roi_types(stat)
+            assert labels[0] == "soma"

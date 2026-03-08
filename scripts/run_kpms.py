@@ -1,0 +1,380 @@
+#!/usr/bin/env python3
+"""Run keypoint-MoSeq syllable discovery on DLC pose outputs.
+
+Designed to run inside the hm2p-kpms Docker container with an isolated
+Python environment (keypoint-MoSeq pins numpy<=1.26).
+
+Can run in two modes:
+  1. Local:  --dlc-dir /path/to/pose files
+  2. S3:     --s3-bucket hm2p-derivatives --all-sessions
+
+Outputs syllable_id (int16) and syllable_prob (float32) arrays as .npz
+files, one per session. These are later appended to kinematics.h5 by
+the main pipeline (append_syllables_to_h5).
+
+Reference:
+    Weinreb et al. 2024. "Keypoint-MoSeq: parsing behavior by linking point
+    tracking to pose dynamics." Nature Methods 21:1329-1339.
+    doi:10.1038/s41592-024-02318-2
+    https://github.com/dattalab/keypoint-moseq
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import io
+import json
+import logging
+import sys
+import tempfile
+from pathlib import Path
+
+import numpy as np
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("kpms")
+
+
+# ── S3 helpers ──────────────────────────────────────────────────────────────
+
+def get_s3_client(region: str = "ap-southeast-2"):
+    import boto3
+    return boto3.client("s3", region_name=region)
+
+
+def download_s3_file(s3, bucket: str, key: str, local_path: Path) -> bool:
+    """Download a file from S3. Returns True on success."""
+    try:
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        s3.download_file(bucket, key, str(local_path))
+        log.info("Downloaded s3://%s/%s → %s", bucket, key, local_path)
+        return True
+    except Exception:
+        log.debug("Not found: s3://%s/%s", bucket, key)
+        return False
+
+
+def upload_s3_file(s3, local_path: Path, bucket: str, key: str):
+    """Upload a file to S3."""
+    s3.upload_file(str(local_path), bucket, key)
+    log.info("Uploaded %s → s3://%s/%s", local_path, bucket, key)
+
+
+def parse_session_id(exp_id: str) -> tuple[str, str]:
+    """Convert exp_id to (sub, ses) NeuroBlueprint names."""
+    parts = exp_id.split("_")
+    animal = parts[-1]
+    sub = f"sub-{animal}"
+    ses = f"ses-{parts[0]}T{parts[1]}{parts[2]}{parts[3]}"
+    return sub, ses
+
+
+# ── keypoint-MoSeq wrapper ─────────────────────────────────────────────────
+
+def fit_kpms(
+    dlc_files: dict[str, Path],
+    project_dir: Path,
+    bodyparts: list[str],
+    kappa: float = 1e6,
+    num_pcs: int = 10,
+    num_iters: int = 50,
+) -> dict[str, dict[str, np.ndarray]]:
+    """Fit keypoint-MoSeq AR-HMM on DLC .h5 files.
+
+    Args:
+        dlc_files: Dict of session_id → DLC .h5 file path.
+        project_dir: Working directory for kpms config/checkpoints.
+        bodyparts: List of body part names to use.
+        kappa: AR-HMM stickiness (higher = longer syllables).
+        num_pcs: Number of PCA components.
+        num_iters: Number of fitting iterations.
+
+    Returns:
+        Dict of session_id → {"syllable_id": (N,) int16,
+                               "syllable_prob": (N, S) float32}
+    """
+    import keypoint_moseq as kpms
+
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    # Initialize project config
+    config_path = project_dir / "config.yml"
+    if not config_path.exists():
+        kpms.setup_project(
+            project_dir=str(project_dir),
+            deeplabcut_config=None,
+            bodyparts=bodyparts,
+            use_bodyparts=bodyparts,
+        )
+
+    # Update config with our parameters
+    config = kpms.load_config(str(project_dir))
+    config["kappa"] = kappa
+    config["num_pcs"] = num_pcs
+
+    # Load DLC data
+    log.info("Loading %d DLC files...", len(dlc_files))
+    coordinates, confidences = kpms.load_deeplabcut_results(
+        dlc_results={sid: str(p) for sid, p in dlc_files.items()},
+        **config,
+    )
+
+    # PCA fitting
+    log.info("Fitting PCA (num_pcs=%d)...", num_pcs)
+    pca = kpms.fit_pca(
+        coordinates=coordinates,
+        confidences=confidences,
+        **config,
+    )
+
+    # AR-HMM fitting
+    log.info("Fitting AR-HMM (kappa=%.0e, n_iters=%d)...", kappa, num_iters)
+    model = kpms.fit_model(
+        pca=pca,
+        coordinates=coordinates,
+        confidences=confidences,
+        project_dir=str(project_dir),
+        num_iters=num_iters,
+        **config,
+    )
+
+    # Extract results
+    log.info("Extracting syllable assignments...")
+    results = kpms.extract_results(model, project_dir=str(project_dir), **config)
+
+    # Build output dict
+    output = {}
+    for session_id in dlc_files:
+        if session_id in results:
+            syllable_id = np.array(results[session_id]["syllable"], dtype=np.int16)
+            # Get posterior probabilities if available
+            if "syllable_probability" in results[session_id]:
+                syllable_prob = np.array(
+                    results[session_id]["syllable_probability"], dtype=np.float32
+                )
+            else:
+                syllable_prob = None
+
+            output[session_id] = {
+                "syllable_id": syllable_id,
+                "syllable_prob": syllable_prob,
+            }
+            log.info(
+                "  %s: %d frames, %d unique syllables",
+                session_id, len(syllable_id), len(np.unique(syllable_id)),
+            )
+        else:
+            log.warning("  %s: not in results (skipped by kpms?)", session_id)
+
+    return output
+
+
+# ── Main ────────────────────────────────────────────────────────────────────
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Run keypoint-MoSeq syllable discovery on DLC outputs."
+    )
+    parser.add_argument(
+        "--dlc-dir", type=Path, default=None,
+        help="Local directory containing DLC .h5 files.",
+    )
+    parser.add_argument(
+        "--project-dir", type=Path, default=Path("/tmp/kpms_project"),
+        help="Working directory for kpms config/checkpoints.",
+    )
+    parser.add_argument(
+        "--output-dir", type=Path, default=None,
+        help="Local directory to write syllable .npz files.",
+    )
+    parser.add_argument(
+        "--s3-bucket", type=str, default="hm2p-derivatives",
+        help="S3 bucket for derivatives.",
+    )
+    parser.add_argument(
+        "--all-sessions", action="store_true",
+        help="Process all sessions from metadata/experiments.csv via S3.",
+    )
+    parser.add_argument(
+        "--sessions", nargs="*", default=None,
+        help="Specific session exp_ids to process.",
+    )
+    parser.add_argument(
+        "--bodyparts", nargs="*",
+        default=["left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"],
+        help="Body parts to use for fitting.",
+    )
+    parser.add_argument("--kappa", type=float, default=1e6)
+    parser.add_argument("--num-pcs", type=int, default=10)
+    parser.add_argument("--num-iters", type=int, default=50)
+    parser.add_argument(
+        "--skip-existing", action="store_true",
+        help="Skip sessions that already have syllable output on S3.",
+    )
+
+    args = parser.parse_args()
+
+    # ── Determine which sessions to process ─────────────────────────────────
+
+    if args.dlc_dir:
+        # Local mode: find DLC .h5 files
+        dlc_files = {}
+        for h5 in sorted(args.dlc_dir.glob("**/*DLC*.h5")):
+            # Infer session_id from directory structure
+            session_id = h5.stem.split("DLC")[0].rstrip("_")
+            dlc_files[session_id] = h5
+        log.info("Found %d DLC files in %s", len(dlc_files), args.dlc_dir)
+
+    elif args.all_sessions or args.sessions:
+        # S3 mode: download DLC outputs
+        s3 = get_s3_client()
+
+        # Load experiments
+        metadata_dir = Path("metadata")
+        if not metadata_dir.exists():
+            metadata_dir = Path("/app/metadata")
+        csv_path = metadata_dir / "experiments.csv"
+        with open(csv_path) as f:
+            experiments = list(csv.DictReader(f))
+
+        if args.sessions:
+            experiments = [e for e in experiments if e["exp_id"] in args.sessions]
+
+        tmpdir = Path(tempfile.mkdtemp(prefix="kpms_dlc_"))
+        dlc_files = {}
+
+        for exp in experiments:
+            exp_id = exp["exp_id"]
+            sub, ses = parse_session_id(exp_id)
+
+            # Check if syllable output already exists
+            if args.skip_existing:
+                syllable_key = f"kinematics/{sub}/{ses}/syllables.npz"
+                try:
+                    s3.head_object(Bucket=args.s3_bucket, Key=syllable_key)
+                    log.info("Skipping %s (syllables already on S3)", exp_id)
+                    continue
+                except Exception:
+                    pass
+
+            # Download DLC .h5 from pose/
+            pose_prefix = f"pose/{sub}/{ses}/"
+            try:
+                resp = s3.list_objects_v2(
+                    Bucket=args.s3_bucket, Prefix=pose_prefix,
+                )
+                h5_keys = [
+                    obj["Key"] for obj in resp.get("Contents", [])
+                    if obj["Key"].endswith(".h5") and "DLC" in obj["Key"]
+                ]
+            except Exception:
+                log.warning("No pose data for %s", exp_id)
+                continue
+
+            if not h5_keys:
+                log.warning("No DLC .h5 found for %s at %s", exp_id, pose_prefix)
+                continue
+
+            # Download first matching DLC file
+            local_h5 = tmpdir / f"{exp_id}.h5"
+            if download_s3_file(s3, args.s3_bucket, h5_keys[0], local_h5):
+                dlc_files[exp_id] = local_h5
+
+        log.info("Downloaded %d DLC files from S3", len(dlc_files))
+
+    else:
+        parser.error("Provide --dlc-dir, --all-sessions, or --sessions")
+        return
+
+    if not dlc_files:
+        log.error("No DLC files to process. Exiting.")
+        sys.exit(1)
+
+    # ── Run keypoint-MoSeq ──────────────────────────────────────────────────
+
+    log.info("Starting keypoint-MoSeq fitting on %d sessions...", len(dlc_files))
+
+    results = fit_kpms(
+        dlc_files=dlc_files,
+        project_dir=args.project_dir,
+        bodyparts=args.bodyparts,
+        kappa=args.kappa,
+        num_pcs=args.num_pcs,
+        num_iters=args.num_iters,
+    )
+
+    log.info("Fitting complete. %d sessions have results.", len(results))
+
+    # ── Save outputs ────────────────────────────────────────────────────────
+
+    if args.output_dir:
+        args.output_dir.mkdir(parents=True, exist_ok=True)
+
+    for session_id, data in results.items():
+        npz_data = {"syllable_id": data["syllable_id"]}
+        if data.get("syllable_prob") is not None:
+            npz_data["syllable_prob"] = data["syllable_prob"]
+
+        if args.output_dir:
+            # Save locally
+            out_path = args.output_dir / f"{session_id}_syllables.npz"
+            np.savez_compressed(out_path, **npz_data)
+            log.info("Saved %s", out_path)
+
+        if args.all_sessions or args.sessions:
+            # Upload to S3
+            s3 = get_s3_client()
+            sub, ses = parse_session_id(session_id)
+            s3_key = f"kinematics/{sub}/{ses}/syllables.npz"
+
+            with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as tmp:
+                np.savez_compressed(tmp.name, **npz_data)
+                upload_s3_file(s3, Path(tmp.name), args.s3_bucket, s3_key)
+
+    # ── Summary ─────────────────────────────────────────────────────────────
+
+    total_syllables = set()
+    for data in results.values():
+        total_syllables.update(np.unique(data["syllable_id"]).tolist())
+
+    summary = {
+        "n_sessions": len(results),
+        "n_unique_syllables": len(total_syllables),
+        "sessions": {
+            sid: {
+                "n_frames": len(d["syllable_id"]),
+                "n_syllables": len(np.unique(d["syllable_id"])),
+            }
+            for sid, d in results.items()
+        },
+        "params": {
+            "kappa": args.kappa,
+            "num_pcs": args.num_pcs,
+            "num_iters": args.num_iters,
+            "bodyparts": args.bodyparts,
+        },
+    }
+
+    log.info("Summary: %d sessions, %d unique syllables across all sessions",
+             summary["n_sessions"], summary["n_unique_syllables"])
+
+    # Save summary
+    if args.output_dir:
+        with open(args.output_dir / "kpms_summary.json", "w") as f:
+            json.dump(summary, f, indent=2)
+
+    if args.all_sessions or args.sessions:
+        s3 = get_s3_client()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+            json.dump(summary, tmp, indent=2)
+            tmp.flush()
+            upload_s3_file(s3, Path(tmp.name), args.s3_bucket, "kinematics/kpms_summary.json")
+
+
+if __name__ == "__main__":
+    main()

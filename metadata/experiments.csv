@@ -19,7 +19,7 @@ exp_index,exp_id,implant_date,zstack_id,fibre,lens,orientation,extractor,tracker
 18,20220804_11_21_59_1117646,,,TFB,f4mm,0,suite2p,dlc,,,,0,0,
 19,20220804_13_52_02_1117646,,,TFB,f4mm,0,suite2p,dlc,,,,0,1,Not a good 2p recording
 20,20221003_14_36_54_1118020,29/9/2022,20220929_11_28_44_1117217,TFB,f6mm,90,suite2p,dlc,,,,1,0,Wrong name in z-stack?
-21,20221004_10_42_58_1118023,29/9/2022,20220929_15_57_54_1118023,TFB,f6mm,90,suite2p,dlc,1,,,1,1,Camera sync problem. Tether gets gradually more retrictive post 20 minutes.
+21,20221004_10_42_58_1118023,29/9/2022,20220929_15_57_54_1118023,TFB,f6mm,90,suite2p,dlc,1,,,1,0,Side-left camera failed after 15s (irrelevant). Overhead + 2P sync perfect. Tether restrictive post 20 min — use bad_behav_times.
 22,20221010_11_43_35_1118018,,,TFB,f6mm,90,suite2p,dlc,,,,0,0,"Only 2 neurons, but suite2p did not detect properly"
 23,20221018_10_56_17_1117788,17/10/2022,20221017_14_28_09_1117788,TFB,f6mm,90,suite2p,dlc,,12561-14577;,3:55-4:22;15:00-15:14;21:30-end,1,0,Tether gets gradually more restrictive
 24,20221115_13_27_42_1118213,9/11/2022,20221109_14_50_24_1118213,TFB,f6mm,90,suite2p,dlc,1,,,1,0,

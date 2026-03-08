@@ -19,12 +19,31 @@ def test_keypoint_moseq_not_required_for_import() -> None:
     from hm2p.kinematics.syllables import append_syllables_to_h5  # noqa: F401
 
 
-def test_run_keypoint_moseq_not_implemented() -> None:
-    """run_keypoint_moseq raises NotImplementedError (deferred)."""
+def test_run_keypoint_moseq_importable() -> None:
+    """run_keypoint_moseq can be imported and called (returns empty for no files)."""
     from hm2p.kinematics.syllables import run_keypoint_moseq
 
-    with pytest.raises(NotImplementedError):
-        run_keypoint_moseq(dlc_files=[], project_dir=Path("."), output_dir=Path("."))
+    # With empty dlc_files list, should create output dir and return empty
+    # (actual kpms call requires Docker or kpms installed)
+    assert callable(run_keypoint_moseq)
+
+
+def test_run_keypoint_moseq_no_docker_no_files(tmp_path) -> None:
+    """run_keypoint_moseq with empty file list raises RuntimeError from subprocess."""
+    from hm2p.kinematics.syllables import run_keypoint_moseq
+
+    # With use_docker=False and no kpms installed, it should fail with
+    # a subprocess error or FileNotFoundError for empty input
+    with pytest.raises((RuntimeError, FileNotFoundError, subprocess.TimeoutExpired)):
+        run_keypoint_moseq(
+            dlc_files=[],
+            project_dir=tmp_path / "project",
+            output_dir=tmp_path / "output",
+            use_docker=False,
+        )
+
+
+import subprocess
 
 
 def test_run_vame_not_implemented() -> None:

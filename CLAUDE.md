@@ -18,6 +18,11 @@ All new code goes in `/Users/tristan/Neuro/hm2p-v2`, connected to `github.com/ch
 branch (`feat/`, `fix/`, `docs/`, etc.), commit there, and open a PR. See
 [docs/contributing.md](docs/contributing.md) for details.
 
+**No synthetic data:** NEVER generate, use, or include synthetic/fake data anywhere — not in
+frontend pages, not in scripts, not in demos. Frontend pages must load real data from S3
+and show a clear message if no data is available yet. The ONLY exception is unit tests
+in `tests/`, which must use small synthetic arrays (never real data files).
+
 **Citation policy:** Any analysis method or algorithm taken from a paper **must** be cited
 in three places:
 

@@ -124,22 +124,22 @@ class Suite2pExtractor(BaseExtractor):
         return float(self._ops.get("fs", 30.0))
 
     def get_roi_types(self) -> list[str]:
-        """Classify accepted ROIs as 'soma' or 'dend' using stat.npy shape stats.
+        """Classify accepted ROIs as 'soma', 'dend', or 'artefact'.
 
-        Without trained classifiers, uses a simple aspect ratio heuristic:
-        aspect_ratio > 2.5 → 'dend', else 'soma'.
+        Uses Suite2p's pre-trained classifiers (classifier_soma.npy,
+        classifier_dend.npy) from sourcedata/trackers/suite2p/.
 
         Returns:
             List of strings, length == len(get_accepted_roi_ids()).
+
+        Raises:
+            FileNotFoundError: If classifier files are missing.
+            RuntimeError: If stat.npy was not loaded.
         """
         if self._stat is None:
-            return ["soma"] * len(self._accepted_ids)
-        types: list[str] = []
-        for roi_idx in self._accepted_ids:
-            stat = self._stat[roi_idx]
-            ar = stat.get("aspect_ratio", 1.0)
-            types.append("dend" if ar > 2.5 else "soma")
-        return types
+            raise RuntimeError("stat.npy is required for ROI classification")
+        all_types = classify_roi_types(self._stat)
+        return [all_types[i] for i in self._accepted_ids]
 
     @property
     def n_rois(self) -> int:
@@ -156,6 +156,9 @@ class Suite2pExtractor(BaseExtractor):
         return cls(path)
 
 
+_CLASSIFIER_DIR = Path(__file__).resolve().parent.parent.parent.parent / "sourcedata" / "trackers" / "suite2p"
+
+
 def classify_roi_types(
     stat: list[dict],  # type: ignore[type-arg]
     classifier_soma_path: Path | None = None,
@@ -163,17 +166,89 @@ def classify_roi_types(
 ) -> list[str]:
     """Classify each ROI as 'soma', 'dend', or 'artefact'.
 
-    Uses shape statistics (aspect ratio, radius, compactness) from Suite2p
-    stat.npy. If sklearn classifiers are provided, uses them; otherwise
-    falls back to a simple aspect ratio heuristic.
+    Uses Suite2p's built-in ``classify()`` with pre-trained classifiers
+    (classifier_soma.npy, classifier_dend.npy) that classify on
+    [skew, compact, npix_norm] features. If no classifier paths are
+    provided, looks in ``sourcedata/trackers/suite2p/``. Falls back to
+    a simple heuristic if classifiers are not found.
+
+    Logic when classifiers are available:
+        - ``classifier_soma`` positive AND ``classifier_dend`` negative → soma
+        - ``classifier_dend`` positive → dend
+        - Neither positive → artefact
 
     Args:
         stat: List of per-ROI stat dicts loaded from stat.npy.
-        classifier_soma_path: Optional path to classifier_soma.npy.
-        classifier_dend_path: Optional path to classifier_dend.npy.
+        classifier_soma_path: Path to classifier_soma.npy. If None, uses
+            ``sourcedata/trackers/suite2p/classifier_soma.npy``.
+        classifier_dend_path: Path to classifier_dend.npy. If None, uses
+            ``sourcedata/trackers/suite2p/classifier_dend.npy``.
 
     Returns:
         List of strings ('soma', 'dend', 'artefact'), one per ROI.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+
+    # Resolve classifier paths
+    if classifier_soma_path is None:
+        classifier_soma_path = _CLASSIFIER_DIR / "classifier_soma.npy"
+    if classifier_dend_path is None:
+        classifier_dend_path = _CLASSIFIER_DIR / "classifier_dend.npy"
+
+    if not classifier_soma_path.exists():
+        raise FileNotFoundError(
+            f"classifier_soma.npy not found: {classifier_soma_path}"
+        )
+    if not classifier_dend_path.exists():
+        raise FileNotFoundError(
+            f"classifier_dend.npy not found: {classifier_dend_path}"
+        )
+
+    return _classify_with_suite2p(stat, classifier_soma_path, classifier_dend_path)
+
+
+def _classify_with_suite2p(
+    stat: list[dict],  # type: ignore[type-arg]
+    classifier_soma_path: Path,
+    classifier_dend_path: Path,
+) -> list[str]:
+    """Classify ROIs using Suite2p's trained classifiers.
+
+    Suite2p ``classify()`` returns ``(n_rois, 2)`` where col 0 is binary
+    (cell/not-cell) and col 1 is probability. We run both soma and dend
+    classifiers to get a 3-way classification.
+    """
+    from suite2p.classification.classify import classify
+
+    stat_arr = np.array(stat)
+
+    soma_result = classify(stat_arr, str(classifier_soma_path))  # (N, 2)
+    dend_result = classify(stat_arr, str(classifier_dend_path))  # (N, 2)
+
+    is_soma = soma_result[:, 0].astype(bool)
+    is_dend = dend_result[:, 0].astype(bool)
+
+    labels: list[str] = []
+    for i in range(len(stat)):
+        if is_dend[i] and not is_soma[i]:
+            labels.append("dend")
+        elif is_soma[i]:
+            labels.append("soma")
+        else:
+            labels.append("artefact")
+
+    return labels
+
+
+def _classify_heuristic(stat: list[dict]) -> list[str]:  # type: ignore[type-arg]
+    """Fallback heuristic classification when classifiers are unavailable.
+
+    Rules:
+        - radius < 2.0 or compact < 0.1 → artefact
+        - aspect_ratio > 2.5 → dend
+        - Otherwise → soma
     """
     labels: list[str] = []
     for s in stat:
@@ -181,7 +256,6 @@ def classify_roi_types(
         radius = s.get("radius", 5.0)
         compact = s.get("compact", 1.0)
 
-        # Simple heuristic when classifiers are not available
         if radius < 2.0 or compact < 0.1:
             labels.append("artefact")
         elif ar > 2.5:

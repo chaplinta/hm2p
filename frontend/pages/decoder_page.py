@@ -1,19 +1,26 @@
 """Population Decoder — Bayesian HD decoding from population activity.
 
-Demonstrates how head direction can be decoded from the activity of a
-population of HD cells using a Bayesian maximum-likelihood approach.
+Decodes head direction from the activity of a population of HD cells
+using a Bayesian maximum-likelihood approach.
+
+Requires real sync.h5 data from S3.
 """
 
 from __future__ import annotations
+
+import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import streamlit as st
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
+
 st.title("Population Decoder")
 st.caption(
     "Bayesian maximum-likelihood head direction decoding from population activity. "
-    "Demonstrates cross-validated decoding accuracy with synthetic HD cell populations."
+    "Cross-validated decoding accuracy from real HD cell populations."
 )
 
 import plotly.express as px
@@ -27,53 +34,63 @@ from hm2p.analysis.decoder import (
 )
 
 
-def _make_population(n_cells=10, n_frames=3000, kappa=3.0, noise=0.1, seed=42):
-    """Generate synthetic population of HD cells."""
-    rng = np.random.default_rng(seed)
-    hd_deg = np.cumsum(rng.normal(0, 5, n_frames)) % 360.0
-    theta = np.deg2rad(hd_deg)
-    mask = np.ones(n_frames, dtype=bool)
-    prefs = np.linspace(0, 360, n_cells, endpoint=False)
-    signals = np.zeros((n_cells, n_frames), dtype=np.float64)
-    for i in range(n_cells):
-        pref_rad = np.deg2rad(prefs[i])
-        rate = 0.1 + np.exp(kappa * np.cos(theta - pref_rad))
-        rate /= rate.max()
-        rate += rng.normal(0, noise, n_frames)
-        signals[i] = np.clip(rate, 0, None)
-    return signals, hd_deg, mask, prefs
+# --- Data loading ---
+
+def _try_load_real():
+    """Attempt to load real sync.h5 data."""
+    try:
+        from frontend.data import load_all_sync_data, session_filter_sidebar
+        all_data = load_all_sync_data()
+        if all_data["n_sessions"] > 0:
+            sessions = session_filter_sidebar(all_data["sessions"])
+            return sessions, True
+    except Exception:
+        pass
+    return None, False
 
 
-# --- Controls ---
-col_c1, col_c2, col_c3, col_c4 = st.columns(4)
-with col_c1:
-    n_cells = st.slider("Number of cells", 3, 50, 15, 1, key="dec_n")
-with col_c2:
-    kappa = st.slider("Tuning sharpness (κ)", 0.5, 8.0, 3.0, 0.5, key="dec_kappa")
-with col_c3:
-    noise_level = st.slider("Noise level", 0.05, 1.0, 0.2, 0.05, key="dec_noise")
-with col_c4:
-    n_frames = st.select_slider("Frames", [500, 1000, 2000, 3000, 5000], value=2000,
-                                 key="dec_frames")
+real_sessions, has_real = _try_load_real()
 
-tab_decode, tab_cv, tab_sweep = st.tabs(["Decode", "Cross-Validation", "Parameter Sweep"])
+if not has_real or not real_sessions:
+    st.warning(
+        "No data available yet. This page will populate when the relevant "
+        "pipeline stage completes."
+    )
+    st.stop()
+
+st.success(
+    f"Loaded {len(real_sessions)} sessions, "
+    f"{sum(s['n_rois'] for s in real_sessions)} total cells"
+)
+
+# Session selection
+session_labels = [s["exp_id"] for s in real_sessions]
+sel_session_idx = st.selectbox("Session", range(len(session_labels)),
+                                format_func=lambda i: session_labels[i],
+                                key="dec_session")
+ses_data = real_sessions[sel_session_idx]
+
+signals = ses_data["dff"]
+hd = ses_data["hd_deg"]
+mask = ses_data["active"] & ~ses_data["bad_behav"]
+n_cells = ses_data["n_rois"]
+n_frames = signals.shape[1]
+
+tab_decode, tab_cv = st.tabs(["Decode", "Cross-Validation"])
 
 # --- Single decode ---
 with tab_decode:
     st.subheader("Frame-by-Frame Decoding")
 
-    signals, hd, mask, prefs = _make_population(
-        n_cells=n_cells, n_frames=n_frames, kappa=kappa, noise=noise_level,
-    )
     dec = build_decoder(signals, hd, mask)
     decoded, posterior = decode_hd(signals, dec)
     errs = decode_error(decoded, hd % 360.0)
 
     # Metrics
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Mean abs error", f"{errs['mean_abs_error']:.1f}°")
-    col2.metric("Median abs error", f"{errs['median_abs_error']:.1f}°")
-    col3.metric("Circular std", f"{errs['circular_std_error']:.1f}°")
+    col1.metric("Mean abs error", f"{errs['mean_abs_error']:.1f} deg")
+    col2.metric("Median abs error", f"{errs['median_abs_error']:.1f} deg")
+    col3.metric("Circular std", f"{errs['circular_std_error']:.1f} deg")
     col4.metric("Cells used", n_cells)
 
     # Decoded vs actual (time series)
@@ -89,7 +106,7 @@ with tab_decode:
     ))
     fig.update_layout(
         height=300, title=f"Decoded vs Actual HD (first {n_show} frames)",
-        xaxis_title="Frame", yaxis_title="HD (°)",
+        xaxis_title="Frame", yaxis_title="HD (deg)",
         yaxis=dict(range=[0, 360]),
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -104,7 +121,7 @@ with tab_decode:
         fig.add_vline(x=0, line_color="red", line_dash="dash")
         fig.update_layout(
             height=300, title="Error Distribution",
-            xaxis_title="Error (°)", yaxis_title="Count",
+            xaxis_title="Error (deg)", yaxis_title="Count",
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -121,7 +138,7 @@ with tab_decode:
         ))
         fig.update_layout(
             height=300, title="Decoded vs Actual",
-            xaxis_title="Actual HD (°)", yaxis_title="Decoded HD (°)",
+            xaxis_title="Actual HD (deg)", yaxis_title="Decoded HD (deg)",
             xaxis=dict(range=[0, 360]), yaxis=dict(range=[0, 360]),
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -133,9 +150,9 @@ with tab_decode:
             posterior[:n_post].T,
             x=list(range(n_post)),
             y=[f"{b:.0f}" for b in dec["bin_centers"]],
-            labels=dict(x="Frame", y="HD (°)", color="P"),
+            labels=dict(x="Frame", y="HD (deg)", color="P"),
             color_continuous_scale="Hot",
-            title=f"Posterior P(HD | activity) — first {n_post} frames",
+            title=f"Posterior P(HD | activity) -- first {n_post} frames",
             aspect="auto",
         )
         # Overlay actual HD
@@ -163,15 +180,15 @@ with tab_cv:
 
     cv_errs = cv_result["errors"]
     col1, col2, col3 = st.columns(3)
-    col1.metric("CV mean abs error", f"{cv_errs['mean_abs_error']:.1f}°")
-    col2.metric("CV median abs error", f"{cv_errs['median_abs_error']:.1f}°")
+    col1.metric("CV mean abs error", f"{cv_errs['mean_abs_error']:.1f} deg")
+    col2.metric("CV median abs error", f"{cv_errs['median_abs_error']:.1f} deg")
     col3.metric("Folds", n_folds)
 
     # Comparison: train vs CV
     st.markdown(
-        f"**Train error:** {errs['mean_abs_error']:.1f}° — "
-        f"**CV error:** {cv_errs['mean_abs_error']:.1f}° — "
-        f"**Overfit gap:** {cv_errs['mean_abs_error'] - errs['mean_abs_error']:.1f}°"
+        f"**Train error:** {errs['mean_abs_error']:.1f} deg --- "
+        f"**CV error:** {cv_errs['mean_abs_error']:.1f} deg --- "
+        f"**Overfit gap:** {cv_errs['mean_abs_error'] - errs['mean_abs_error']:.1f} deg"
     )
 
     # CV error histogram
@@ -181,54 +198,10 @@ with tab_cv:
     fig.add_vline(x=0, line_color="red", line_dash="dash")
     fig.update_layout(
         height=300, title="CV Error Distribution",
-        xaxis_title="Error (°)", yaxis_title="Count",
+        xaxis_title="Error (deg)", yaxis_title="Count",
     )
     st.plotly_chart(fig, use_container_width=True)
 
-
-# --- Parameter sweep ---
-with tab_sweep:
-    st.subheader("How Population Size & Tuning Affect Decoding")
-
-    sweep_type = st.radio(
-        "Sweep", ["Number of cells", "Tuning sharpness (κ)"],
-        horizontal=True, key="dec_sweep",
-    )
-
-    sweep_data = []
-    if sweep_type == "Number of cells":
-        for n in [3, 5, 8, 10, 15, 20, 30]:
-            sig, h, m, _ = _make_population(n_cells=n, n_frames=1500, kappa=kappa,
-                                              noise=noise_level, seed=42)
-            d = build_decoder(sig, h, m)
-            dec_hd, _ = decode_hd(sig, d)
-            e = decode_error(dec_hd, h % 360)
-            sweep_data.append({"Value": n, "MAE (°)": e["mean_abs_error"]})
-        x_label = "Number of cells"
-    else:
-        for k in [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0]:
-            sig, h, m, _ = _make_population(n_cells=n_cells, n_frames=1500,
-                                              kappa=k, noise=noise_level, seed=42)
-            d = build_decoder(sig, h, m)
-            dec_hd, _ = decode_hd(sig, d)
-            e = decode_error(dec_hd, h % 360)
-            sweep_data.append({"Value": k, "MAE (°)": e["mean_abs_error"]})
-        x_label = "κ"
-
-    sweep_df = pd.DataFrame(sweep_data)
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=sweep_df["Value"], y=sweep_df["MAE (°)"],
-        mode="lines+markers", marker_color="royalblue",
-    ))
-    fig.add_hline(y=90, line_color="red", line_dash="dash",
-                  annotation_text="Chance level (90°)")
-    fig.update_layout(
-        height=350, title=f"Decoding Error vs {x_label}",
-        xaxis_title=x_label, yaxis_title="Mean Abs Error (°)",
-    )
-    st.plotly_chart(fig, use_container_width=True)
-    st.dataframe(sweep_df, hide_index=True)
 
 # --- Footer ---
 st.markdown("---")

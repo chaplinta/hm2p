@@ -1,4 +1,13 @@
-"""Data access layer — loads metadata CSVs and S3 pipeline status."""
+"""Data access layer — loads metadata CSVs and S3 pipeline status.
+
+Performance notes:
+    - Heavy data (sync.h5, ca.h5) is cached in st.session_state for the
+      lifetime of the browser session. This avoids re-downloading 100+ MB
+      on every page navigation.
+    - S3 byte downloads are cached with @st.cache_data (TTL 1800s / 30 min).
+    - Filtering (celltype, animal, ROI type) operates on the cached data
+      without triggering new S3 downloads.
+"""
 
 from __future__ import annotations
 
@@ -29,7 +38,7 @@ STAGE_PREFIXES = {
 }
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_experiments() -> list[dict[str, str]]:
     """Load experiments.csv into a list of dicts."""
     csv_path = METADATA_DIR / "experiments.csv"
@@ -40,7 +49,7 @@ def load_experiments() -> list[dict[str, str]]:
     return rows
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600)
 def load_animals() -> list[dict[str, str]]:
     """Load animals.csv into a list of dicts."""
     csv_path = METADATA_DIR / "animals.csv"
@@ -65,7 +74,7 @@ def get_s3_client():
     return boto3.client("s3", region_name=REGION)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=120)
 def get_pipeline_status() -> dict[str, dict[str, bool]]:
     """Check which pipeline stages have outputs for each session.
 
@@ -149,7 +158,7 @@ def get_ec2_instances() -> list[dict]:
         return []
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=120)
 def list_s3_session_files(bucket: str, prefix: str) -> list[dict]:
     """List files in an S3 prefix."""
     log.info("Listing S3 files: s3://%s/%s", bucket, prefix)
@@ -172,8 +181,9 @@ def list_s3_session_files(bucket: str, prefix: str) -> list[dict]:
     return files
 
 
+@st.cache_data(ttl=1800)
 def download_s3_bytes(bucket: str, key: str) -> bytes | None:
-    """Download an S3 object as bytes."""
+    """Download an S3 object as bytes. Cached for 30 minutes."""
     log.debug("Downloading s3://%s/%s", bucket, key)
     s3 = get_s3_client()
     try:
@@ -186,24 +196,62 @@ def download_s3_bytes(bucket: str, key: str) -> bytes | None:
         return None
 
 
-@st.cache_data(ttl=300)
+# ── Session-state cached data loaders ──────────────────────────────────────
+#
+# These use st.session_state to cache heavy data (sync.h5, ca.h5) for the
+# entire browser session. Data is downloaded once and reused across all
+# page navigations. Call invalidate_session_cache() to force reload.
+
+
+def _session_state_key(name: str) -> str:
+    return f"_hm2p_cache_{name}"
+
+
+def invalidate_session_cache(name: str | None = None) -> None:
+    """Clear cached data from session state.
+
+    Args:
+        name: Cache key to clear ("sync_data", "ca_data"). If None, clears all.
+    """
+    if name is None:
+        for k in list(st.session_state.keys()):
+            if k.startswith("_hm2p_cache_"):
+                del st.session_state[k]
+    else:
+        key = _session_state_key(name)
+        if key in st.session_state:
+            del st.session_state[key]
+
+
 def load_all_sync_data() -> dict:
-    """Load sync.h5 data for ALL sessions that have it.
+    """Load sync.h5 data for ALL sessions. Cached in session state.
 
     Returns dict with:
         ``"sessions"`` — list of dicts, each with keys:
             exp_id, sub, ses, animal_id, celltype, dff, hd_deg, speed_cm_s,
-            light_on, active, bad_behav, n_rois, n_frames, frame_times
+            light_on, active, bad_behav, n_rois, n_frames, frame_times,
+            roi_types
         ``"n_sessions"`` — number of sessions loaded
         ``"n_total_rois"`` — total ROIs across all sessions
     """
+    cache_key = _session_state_key("sync_data")
+    if cache_key in st.session_state:
+        return st.session_state[cache_key]
+
+    result = _fetch_all_sync_data()
+    st.session_state[cache_key] = result
+    return result
+
+
+@st.cache_data(ttl=1800)
+def _fetch_all_sync_data() -> dict:
+    """Internal: download and parse all sync.h5 files from S3."""
     import h5py
     import numpy as np
 
     experiments = load_experiments()
     animals = load_animals()
     animal_map = {a["animal_id"]: a for a in animals}
-    s3 = get_s3_client()
     sessions = []
 
     for exp in experiments:
@@ -212,11 +260,8 @@ def load_all_sync_data() -> dict:
         animal_id = exp_id.split("_")[-1]
         animal_info = animal_map.get(animal_id, {})
 
-        key = f"sync/{sub}/{ses}/sync.h5"
-        try:
-            resp = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key=key)
-            data = resp["Body"].read()
-        except Exception:
+        data = download_s3_bytes(DERIVATIVES_BUCKET, f"sync/{sub}/{ses}/sync.h5")
+        if data is None:
             continue
 
         try:
@@ -229,7 +274,6 @@ def load_all_sync_data() -> dict:
                 active = f["active"][:] if "active" in f else np.ones(len(hd_deg), dtype=bool)
                 bad_behav = f["bad_behav"][:] if "bad_behav" in f else np.zeros(len(hd_deg), dtype=bool)
                 frame_times = f["frame_times"][:] if "frame_times" in f else np.arange(len(hd_deg), dtype=float)
-                # roi_types: 0=soma, 1=dend, 2=artefact; default all soma
                 roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
 
             sessions.append({
@@ -260,37 +304,114 @@ def load_all_sync_data() -> dict:
     }
 
 
-def session_filter_sidebar(sessions: list[dict], show_roi_filter: bool = True) -> list[dict]:
+def load_all_ca_data() -> list[dict]:
+    """Load ca.h5 data for ALL sessions. Cached in session state.
+
+    Returns list of dicts with: exp_id, animal_id, celltype, dff, fps,
+    roi_types, n_rois, n_frames.
+    """
+    cache_key = _session_state_key("ca_data")
+    if cache_key in st.session_state:
+        return st.session_state[cache_key]
+
+    result = _fetch_all_ca_data()
+    st.session_state[cache_key] = result
+    return result
+
+
+@st.cache_data(ttl=1800)
+def _fetch_all_ca_data() -> list[dict]:
+    """Internal: download and parse all ca.h5 files from S3."""
+    import h5py
+    import numpy as np
+
+    experiments = load_experiments()
+    animals = load_animals()
+    animal_map = {a["animal_id"]: a for a in animals}
+    sessions = []
+
+    for exp in experiments:
+        exp_id = exp["exp_id"]
+        sub, ses = parse_session_id(exp_id)
+        animal_id = exp_id.split("_")[-1]
+        animal_info = animal_map.get(animal_id, {})
+
+        data = download_s3_bytes(DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5")
+        if data is None:
+            continue
+
+        try:
+            with h5py.File(io.BytesIO(data), "r") as f:
+                dff = f["dff"][:]
+                fps = float(f.attrs.get("fps_imaging", 30.0))
+                roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
+
+            sessions.append({
+                "exp_id": exp_id,
+                "sub": sub,
+                "ses": ses,
+                "animal_id": animal_id,
+                "celltype": animal_info.get("celltype", "unknown"),
+                "dff": dff,
+                "fps": fps,
+                "roi_types": roi_types,
+                "n_rois": dff.shape[0],
+                "n_frames": dff.shape[1],
+            })
+        except Exception:
+            log.exception("Error reading ca.h5 for %s", exp_id)
+            continue
+
+    return sessions
+
+
+def session_filter_sidebar(
+    sessions: list[dict],
+    show_roi_filter: bool = True,
+    key_prefix: str = "filter",
+) -> list[dict]:
     """Add optional sidebar filters for celltype, animal, and ROI type.
 
-    When ``show_roi_filter`` is True, adds a soma/dendrite selector. If the user
-    selects "Soma only" (default), each session's ``dff`` and ``roi_types`` are
-    filtered to keep only soma ROIs, and ``n_rois`` is updated.
+    Filtering operates on the already-cached session list — no new S3
+    downloads are triggered by filter changes.
 
-    Returns filtered (and optionally ROI-subsetted) list.
+    When ``show_roi_filter`` is True, adds a soma/dendrite selector. If the
+    user selects "Soma only" (default), each session's ``dff`` and
+    ``roi_types`` are filtered to keep only soma ROIs.
+
+    Args:
+        sessions: List of session dicts from load_all_sync_data or load_all_ca_data.
+        show_roi_filter: Whether to show ROI type radio.
+        key_prefix: Streamlit widget key prefix (use unique per page to avoid
+                    key collisions across pages).
+
+    Returns:
+        Filtered (and optionally ROI-subsetted) list.
     """
     if not sessions:
         return sessions
 
+    import numpy as np
+
     celltypes = sorted(set(s["celltype"] for s in sessions))
     animals = sorted(set(s["animal_id"] for s in sessions))
 
-    ROI_TYPE_MAP = {0: "soma", 1: "dend", 2: "artefact"}
-
     with st.sidebar:
-        st.header("Filters (optional)")
+        st.header("Filters")
         sel_celltypes = st.multiselect(
-            "Cell type", celltypes, default=celltypes, key="filter_celltype",
+            "Cell type", celltypes, default=celltypes,
+            key=f"{key_prefix}_celltype",
         )
         sel_animals = st.multiselect(
-            "Animal", animals, default=animals, key="filter_animal",
+            "Animal", animals, default=animals,
+            key=f"{key_prefix}_animal",
         )
         if show_roi_filter:
             roi_filter = st.radio(
                 "ROI type",
                 ["Soma only", "Dendrite only", "All ROIs"],
                 index=0,
-                key="filter_roi_type",
+                key=f"{key_prefix}_roi_type",
             )
         else:
             roi_filter = "All ROIs"
@@ -302,7 +423,6 @@ def session_filter_sidebar(sessions: list[dict], show_roi_filter: bool = True) -
 
     # Apply ROI type filtering within each session
     if roi_filter != "All ROIs":
-        import numpy as np
         target_code = 0 if roi_filter == "Soma only" else 1
         roi_filtered = []
         for s in filtered:
@@ -316,14 +436,13 @@ def session_filter_sidebar(sessions: list[dict], show_roi_filter: bool = True) -
                     s_copy["n_rois"] = int(mask.sum())
                     roi_filtered.append(s_copy)
             else:
-                # No roi_types info — include as-is (assumed soma)
                 roi_filtered.append(s)
         filtered = roi_filtered
 
     return filtered
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)
 def get_s3_bucket_size(bucket: str) -> dict:
     """Get total size and file count for an S3 bucket (or prefix).
 
@@ -347,7 +466,7 @@ def get_s3_bucket_size(bucket: str) -> dict:
     }
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=600)
 def get_s3_prefix_sizes(bucket: str, prefixes: list[str]) -> dict[str, dict]:
     """Get size per S3 prefix (stage).
 
@@ -374,11 +493,92 @@ def get_s3_prefix_sizes(bucket: str, prefixes: list[str]) -> dict[str, dict]:
     return result
 
 
+@st.cache_data(ttl=1800)
 def download_s3_numpy(bucket: str, key: str):
-    """Download and load a .npy file from S3."""
+    """Download and load a .npy file from S3. Cached for 30 minutes."""
     import numpy as np
 
     data = download_s3_bytes(bucket, key)
     if data is None:
         return None
     return np.load(io.BytesIO(data), allow_pickle=True)
+
+
+# ── Suite2p spatial data loader ───────────────────────────────────────────
+
+
+def load_all_suite2p_spatial() -> dict[str, dict]:
+    """Load Suite2p stat.npy, ops.npy, iscell.npy for ALL sessions.
+
+    Cached in session state (persists across page navigations, 1800s TTL
+    via the underlying @st.cache_data fetcher).
+
+    Returns dict keyed by exp_id with values containing:
+        mean_img: np.ndarray or None
+        shape_features: list of dicts (one per accepted ROI)
+        accepted_ids: list of int (Suite2p global indices of accepted cells)
+    """
+    cache_key = _session_state_key("suite2p_spatial")
+    if cache_key in st.session_state:
+        return st.session_state[cache_key]
+
+    result = _fetch_all_suite2p_spatial()
+    st.session_state[cache_key] = result
+    return result
+
+
+@st.cache_data(ttl=1800)
+def _fetch_all_suite2p_spatial() -> dict[str, dict]:
+    """Internal: download and parse Suite2p spatial files from S3."""
+    import numpy as np
+
+    experiments = load_experiments()
+    result: dict[str, dict] = {}
+
+    for exp in experiments:
+        exp_id = exp["exp_id"]
+        sub, ses = parse_session_id(exp_id)
+
+        s2p_prefix = f"ca_extraction/{sub}/{ses}/suite2p/plane0/"
+        stat = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "stat.npy")
+        ops = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "ops.npy")
+        iscell = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "iscell.npy")
+
+        # Extract mean image from ops
+        mean_img = None
+        if ops is not None:
+            ops_dict = ops.item() if isinstance(ops, np.ndarray) and ops.ndim == 0 else ops
+            mean_img = ops_dict.get("meanImg")
+
+        # Get accepted cell indices
+        cell_mask = iscell[:, 0].astype(bool) if iscell is not None else None
+        accepted_ids = list(np.flatnonzero(cell_mask)) if cell_mask is not None else None
+
+        # Build per-ROI shape features from stat.npy
+        shape_features: list[dict | None] = []
+        if stat is not None and accepted_ids is not None:
+            stat_list = list(stat)
+            for global_idx in accepted_ids:
+                if global_idx < len(stat_list):
+                    s = stat_list[global_idx]
+                    shape_features.append({
+                        "aspect_ratio": float(s.get("aspect_ratio", 1.0)),
+                        "radius": float(s.get("radius", 5.0)),
+                        "compact": float(s.get("compact", 1.0)),
+                        "npix": int(s.get("npix", 0)),
+                        "skew": float(s.get("skew", 0.0)),
+                        "med_y": int(s.get("med", [0, 0])[0]),
+                        "med_x": int(s.get("med", [0, 0])[1]),
+                        "ypix": s.get("ypix", np.array([], dtype=int)),
+                        "xpix": s.get("xpix", np.array([], dtype=int)),
+                    })
+                else:
+                    shape_features.append(None)
+
+        result[exp_id] = {
+            "mean_img": mean_img,
+            "shape_features": shape_features,
+            "accepted_ids": accepted_ids,
+        }
+
+    return result

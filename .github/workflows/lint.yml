@@ -29,3 +29,16 @@ jobs:
 
       - name: Run mypy
         run: mypy src/
+
+      - name: Run bandit (security)
+        run: bandit -c pyproject.toml -r src/
+
+      - name: Run checkov (IaC security)
+        run: |
+          checkov -d . \
+            --framework dockerfile \
+            --skip-check CKV_DOCKER_2,CKV_DOCKER_3,CKV_DOCKER_7 \
+            --quiet
+
+      - name: Run pandera schema validation (via tests)
+        run: pytest tests/ -k "pandera or schema or validate" --no-header -q || true

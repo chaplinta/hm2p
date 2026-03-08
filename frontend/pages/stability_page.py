@@ -2,13 +2,20 @@
 
 Visualizes temporal stability of head direction tuning: first/second half
 comparison, sliding window MVL/PD tracking, and light/dark epoch comparison.
+
+Requires real sync.h5 data from S3.
 """
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 st.title("Tuning Stability")
 st.caption(
@@ -25,37 +32,47 @@ from hm2p.analysis.stability import (
 )
 
 
-def _make_cell(n=8000, pref=90.0, kappa=3.0, drift_deg=0.0, noise=0.1, seed=42):
-    """Generate synthetic HD cell with optional preferred direction drift."""
-    rng = np.random.default_rng(seed)
-    hd = np.cumsum(rng.normal(0, 5, n)) % 360.0
-    theta = np.deg2rad(hd)
-    prefs = np.linspace(pref, pref + drift_deg, n)
-    signal = np.zeros(n)
-    for i in range(n):
-        signal[i] = 0.1 + np.exp(kappa * np.cos(theta[i] - np.deg2rad(prefs[i])))
-    signal /= signal.max()
-    signal += rng.normal(0, noise, n)
-    signal = np.clip(signal, 0, None)
-    mask = np.ones(n, dtype=bool)
-    return signal, hd, mask
+# --- Data loading ---
+
+def _try_load_real():
+    """Attempt to load real sync.h5 data."""
+    try:
+        from frontend.data import load_all_sync_data, session_filter_sidebar
+        all_data = load_all_sync_data()
+        if all_data["n_sessions"] > 0:
+            sessions = session_filter_sidebar(all_data["sessions"])
+            return sessions, True
+    except Exception:
+        pass
+    return None, False
 
 
-# Controls
-col_c1, col_c2, col_c3, col_c4 = st.columns(4)
-with col_c1:
-    pref_deg = st.slider("Preferred dir (°)", 0, 359, 90, 10, key="stab_pref")
-with col_c2:
-    kappa = st.slider("Tuning κ", 0.5, 8.0, 3.0, 0.5, key="stab_kappa")
-with col_c3:
-    drift = st.slider("PD drift (°)", 0, 180, 0, 10, key="stab_drift",
-                       help="Total preferred direction drift over the session")
-with col_c4:
-    noise = st.slider("Noise", 0.05, 0.8, 0.15, 0.05, key="stab_noise")
+real_sessions, has_real = _try_load_real()
 
-signal, hd, mask = _make_cell(
-    n=8000, pref=pref_deg, kappa=kappa, drift_deg=drift, noise=noise,
+if not has_real or not real_sessions:
+    st.warning(
+        "No data available yet. This page will populate when the relevant "
+        "pipeline stage completes."
+    )
+    st.stop()
+
+st.success(
+    f"Loaded {len(real_sessions)} sessions, "
+    f"{sum(s['n_rois'] for s in real_sessions)} total cells"
 )
+
+# Session and cell selection
+session_labels = [s["exp_id"] for s in real_sessions]
+sel_session_idx = st.selectbox("Session", range(len(session_labels)),
+                                format_func=lambda i: session_labels[i],
+                                key="stab_session")
+ses_data = real_sessions[sel_session_idx]
+n_rois = ses_data["n_rois"]
+sel_cell = st.slider("Cell index", 0, max(0, n_rois - 1), 0, key="stab_cell")
+
+signal = ses_data["dff"][sel_cell]
+hd = ses_data["hd_deg"]
+mask = ses_data["active"] & ~ses_data["bad_behav"]
 
 tab_halves, tab_sliding, tab_lightdark = st.tabs([
     "First/Second Half", "Sliding Window", "Light/Dark",
@@ -68,7 +85,7 @@ with tab_halves:
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Correlation", f"{result['correlation']:.3f}")
-    col2.metric("PD shift", f"{result['pd_shift_deg']:.1f}°")
+    col2.metric("PD shift", f"{result['pd_shift_deg']:.1f} deg")
     col3.metric("MVL (1st half)", f"{result['mvl_half1']:.3f}")
     col4.metric("MVL (2nd half)", f"{result['mvl_half2']:.3f}")
 
@@ -138,17 +155,17 @@ with tab_sliding:
             ))
             fig.update_layout(
                 height=300, title="Preferred Direction Over Time",
-                xaxis_title="Frame", yaxis_title="PD (°)",
+                xaxis_title="Frame", yaxis_title="PD (deg)",
                 yaxis=dict(range=[0, 360]),
             )
             st.plotly_chart(fig, use_container_width=True)
 
         # Summary stats
         st.markdown(
-            f"**Windows:** {sw['n_windows']} — "
-            f"**MVL range:** {sw['mvls'].min():.3f}–{sw['mvls'].max():.3f} — "
-            f"**MVL std:** {np.std(sw['mvls']):.3f} — "
-            f"**PD range:** {sw['preferred_dirs'].min():.0f}°–{sw['preferred_dirs'].max():.0f}°"
+            f"**Windows:** {sw['n_windows']} --- "
+            f"**MVL range:** {sw['mvls'].min():.3f}--{sw['mvls'].max():.3f} --- "
+            f"**MVL std:** {np.std(sw['mvls']):.3f} --- "
+            f"**PD range:** {sw['preferred_dirs'].min():.0f} deg--{sw['preferred_dirs'].max():.0f} deg"
         )
     else:
         st.warning("Not enough frames for sliding window analysis.")
@@ -157,25 +174,26 @@ with tab_sliding:
 with tab_lightdark:
     st.subheader("Light vs Dark Tuning")
 
-    cycle_s = st.slider("Light cycle (seconds)", 10, 120, 60, 10, key="stab_cycle")
-    fps = 30
-    cycle_frames = cycle_s * fps
-
-    # Create alternating light/dark pattern
-    light_on = np.zeros(len(signal), dtype=bool)
-    for start in range(0, len(signal), 2 * cycle_frames):
-        light_on[start:min(start + cycle_frames, len(signal))] = True
+    # Use light_on from the session data if available
+    if "light_on" in ses_data:
+        light_on = ses_data["light_on"]
+    else:
+        st.warning(
+            "No light_on data available for this session. "
+            "Light/dark analysis requires TDMS-derived light timestamps in sync.h5."
+        )
+        st.stop()
 
     n_light = light_on.sum()
     n_dark = (~light_on).sum()
-    st.markdown(f"**Light frames:** {n_light} ({n_light/len(signal)*100:.0f}%) — "
+    st.markdown(f"**Light frames:** {n_light} ({n_light/len(signal)*100:.0f}%) --- "
                 f"**Dark frames:** {n_dark} ({n_dark/len(signal)*100:.0f}%)")
 
     ld = light_dark_stability(signal, hd, mask, light_on)
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Correlation", f"{ld['correlation']:.3f}")
-    col2.metric("PD shift", f"{ld['pd_shift_deg']:.1f}°")
+    col2.metric("PD shift", f"{ld['pd_shift_deg']:.1f} deg")
     col3.metric("MVL (light)", f"{ld['mvl_light']:.3f}")
     col4.metric("MVL (dark)", f"{ld['mvl_dark']:.3f}")
 

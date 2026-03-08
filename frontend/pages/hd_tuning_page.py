@@ -3,15 +3,21 @@
 Dedicated page for visualizing and analysing head direction tuning:
 polar tuning curves, MVL distributions, preferred direction maps,
 tuning width, and significance testing with circular shuffle.
+
+Requires real sync.h5 data from S3.
 """
 
 from __future__ import annotations
 
 import logging
+import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 log = logging.getLogger("hm2p.frontend.hd_tuning")
 
@@ -32,64 +38,62 @@ from hm2p.analysis.tuning import (
     tuning_width_fwhm,
 )
 
-# --- Synthetic HD cell generator ---
+
+# --- Data loading ---
+
+def _try_load_real():
+    """Attempt to load real sync.h5 data."""
+    try:
+        from frontend.data import load_all_sync_data, session_filter_sidebar
+        all_data = load_all_sync_data()
+        if all_data["n_sessions"] > 0:
+            sessions = session_filter_sidebar(all_data["sessions"])
+            return sessions, True
+    except Exception:
+        pass
+    return None, False
 
 
-def _generate_synthetic_hd_cell(
-    n_frames: int = 5000,
-    preferred_deg: float = 180.0,
-    concentration: float = 2.0,
-    noise_level: float = 0.3,
-    baseline: float = 0.1,
-    seed: int = 42,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Generate synthetic HD cell data (signal, hd_deg, mask).
+real_sessions, has_real = _try_load_real()
 
-    Uses a von Mises tuning function with additive noise.
-    """
-    rng = np.random.default_rng(seed)
-    # Random head direction trajectory (smoothed random walk)
-    hd_steps = rng.normal(0, 5, n_frames)
-    hd_deg = np.cumsum(hd_steps) % 360.0
+if not has_real or not real_sessions:
+    st.warning(
+        "No data available yet. This page will populate when the relevant "
+        "pipeline stage completes."
+    )
+    st.stop()
 
-    # Von Mises tuning: signal peaks at preferred_deg
-    theta = np.deg2rad(hd_deg)
-    pref_rad = np.deg2rad(preferred_deg)
-    signal = baseline + np.exp(concentration * np.cos(theta - pref_rad))
-    signal /= np.max(signal)  # Normalise to [0, 1]-ish range
-    signal += rng.normal(0, noise_level, n_frames)
-    signal = np.clip(signal, 0, None)
-
-    # All frames valid
-    mask = np.ones(n_frames, dtype=bool)
-    return signal, hd_deg, mask
-
+st.success(
+    f"Loaded {len(real_sessions)} sessions, "
+    f"{sum(s['n_rois'] for s in real_sessions)} total cells"
+)
 
 # --- Tabs ---
-tab_single, tab_population, tab_significance, tab_params = st.tabs([
-    "Single Cell", "Population", "Significance", "Parameter Explorer",
+tab_single, tab_population, tab_significance = st.tabs([
+    "Single Cell", "Population", "Significance",
 ])
 
-# --- Single Cell Demo ---
+# --- Single Cell ---
 with tab_single:
     st.subheader("Single Cell Tuning Curve")
 
-    col_pref, col_conc, col_noise = st.columns(3)
-    with col_pref:
-        pref_deg = st.slider("Preferred direction (°)", 0, 359, 180, 5, key="hd_pref")
-    with col_conc:
-        concentration = st.slider("Concentration (κ)", 0.1, 10.0, 2.0, 0.1, key="hd_kappa")
-    with col_noise:
-        noise = st.slider("Noise level", 0.0, 1.0, 0.3, 0.05, key="hd_noise")
+    # Session and cell selection
+    session_labels = [s["exp_id"] for s in real_sessions]
+    sel_session_idx = st.selectbox("Session", range(len(session_labels)),
+                                   format_func=lambda i: session_labels[i],
+                                   key="hd_session")
+    ses_data = real_sessions[sel_session_idx]
+    n_rois = ses_data["n_rois"]
+    sel_cell = st.slider("Cell index", 0, max(0, n_rois - 1), 0, key="hd_cell")
 
     n_bins = st.select_slider("Number of bins", options=[12, 18, 24, 36, 72], value=36,
                                key="hd_nbins")
-    sigma = st.slider("Smoothing σ (°)", 0.0, 30.0, 6.0, 1.0, key="hd_sigma")
+    sigma = st.slider("Smoothing sigma (deg)", 0.0, 30.0, 6.0, 1.0, key="hd_sigma")
 
-    signal, hd_deg, mask = _generate_synthetic_hd_cell(
-        preferred_deg=pref_deg, concentration=concentration,
-        noise_level=noise, seed=42,
-    )
+    signal = ses_data["dff"][sel_cell]
+    hd_deg = ses_data["hd_deg"]
+    mask = ses_data["active"] & ~ses_data["bad_behav"]
+
     tc, bin_centers = compute_hd_tuning_curve(
         signal, hd_deg, mask, n_bins=n_bins, smoothing_sigma_deg=sigma,
     )
@@ -102,14 +106,13 @@ with tab_single:
     # Metrics row
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("MVL", f"{mvl:.3f}")
-    col2.metric("Preferred dir", f"{pd_deg:.1f}°")
-    col3.metric("FWHM", f"{fwhm:.1f}°")
-    col4.metric("Peak/Trough", f"{ptr:.2f}" if not np.isnan(ptr) else "—")
+    col2.metric("Preferred dir", f"{pd_deg:.1f}deg")
+    col3.metric("FWHM", f"{fwhm:.1f}deg")
+    col4.metric("Peak/Trough", f"{ptr:.2f}" if not np.isnan(ptr) else "---")
 
     # Polar plot
     col_polar, col_linear = st.columns(2)
     with col_polar:
-        # Close the polar curve by appending first point
         theta_plot = np.concatenate([np.deg2rad(bin_centers), [np.deg2rad(bin_centers[0])]])
         r_plot = np.concatenate([tc, [tc[0]]])
         r_plot = np.where(np.isnan(r_plot), 0, r_plot)
@@ -122,7 +125,6 @@ with tab_single:
             line=dict(color="royalblue", width=2),
             name="Tuning curve",
         ))
-        # Preferred direction arrow
         fig.add_trace(go.Scatterpolar(
             r=[0, np.nanmax(tc) * mvl], theta=[pd_deg, pd_deg],
             mode="lines",
@@ -150,11 +152,11 @@ with tab_single:
             name="Tuning curve",
         ))
         fig.add_vline(x=pd_deg, line_color="red", line_dash="dash",
-                      annotation_text=f"PD={pd_deg:.0f}°")
+                      annotation_text=f"PD={pd_deg:.0f}deg")
         fig.update_layout(
             height=400,
             title="Linear Tuning Curve",
-            xaxis_title="Head Direction (°)",
+            xaxis_title="Head Direction (deg)",
             yaxis_title="Mean signal",
             xaxis=dict(range=[0, 360]),
         )
@@ -162,7 +164,6 @@ with tab_single:
 
     # Raw data scatter
     with st.expander("Raw Data"):
-        # Subsample for performance
         n_show = min(2000, len(signal))
         idx = np.linspace(0, len(signal) - 1, n_show, dtype=int)
         fig = go.Figure()
@@ -178,103 +179,104 @@ with tab_single:
         ))
         fig.update_layout(
             height=300, title="Signal vs Head Direction",
-            xaxis_title="HD (°)", yaxis_title="Signal",
+            xaxis_title="HD (deg)", yaxis_title="Signal",
             xaxis=dict(range=[0, 360]),
         )
         st.plotly_chart(fig, use_container_width=True)
 
 
-# --- Population Demo ---
+# --- Population ---
 with tab_population:
     st.subheader("Population HD Tuning")
-    st.markdown(
-        "Simulating a population of HD cells with uniformly distributed "
-        "preferred directions and varying tuning sharpness."
-    )
 
-    n_cells = st.slider("Number of cells", 5, 50, 20, 5, key="pop_n")
-    pop_kappa = st.slider("Population κ (mean)", 0.5, 8.0, 3.0, 0.5, key="pop_kappa")
-    pop_noise = st.slider("Population noise", 0.05, 0.8, 0.2, 0.05, key="pop_noise")
-
-    # Generate population
-    rng_pop = np.random.default_rng(123)
-    prefs = np.linspace(0, 360, n_cells, endpoint=False)
-    kappas = np.clip(rng_pop.normal(pop_kappa, 1.0, n_cells), 0.5, 15.0)
-
-    pop_data = []
     all_tcs = []
-    for i in range(n_cells):
-        sig, hd, msk = _generate_synthetic_hd_cell(
-            n_frames=3000, preferred_deg=prefs[i],
-            concentration=kappas[i], noise_level=pop_noise, seed=i * 17,
-        )
-        tc_i, bc_i = compute_hd_tuning_curve(sig, hd, msk, n_bins=36)
-        mvl_i = mean_vector_length(tc_i, bc_i)
-        pd_i = preferred_direction(tc_i, bc_i)
-        fwhm_i = tuning_width_fwhm(tc_i, bc_i)
-        pop_data.append({
-            "Cell": i + 1, "Pref Dir (°)": f"{pd_i:.0f}",
-            "MVL": f"{mvl_i:.3f}", "FWHM (°)": f"{fwhm_i:.0f}",
-            "κ (input)": f"{kappas[i]:.1f}",
-        })
-        all_tcs.append(tc_i)
+    pop_data = []
+    bc_shared = None
 
-    # MVL histogram
-    mvls = [mean_vector_length(tc_i, bc_i) for tc_i in all_tcs]
-    col_hist, col_rose = st.columns(2)
-    with col_hist:
-        fig = go.Figure(data=[go.Histogram(x=mvls, nbinsx=15, marker_color="royalblue")])
-        fig.update_layout(
-            height=300, title="MVL Distribution",
-            xaxis_title="Mean Vector Length", yaxis_title="Count",
+    for ses_data in real_sessions:
+        signals = ses_data["dff"]
+        hd = ses_data["hd_deg"]
+        msk = ses_data["active"] & ~ses_data["bad_behav"]
+        exp_id = ses_data["exp_id"]
+        celltype = ses_data["celltype"]
+
+        for ci in range(ses_data["n_rois"]):
+            tc_i, bc_i = compute_hd_tuning_curve(signals[ci], hd, msk, n_bins=36)
+            if bc_shared is None:
+                bc_shared = bc_i
+            mvl_i = mean_vector_length(tc_i, bc_i)
+            pd_i = preferred_direction(tc_i, bc_i)
+            fwhm_i = tuning_width_fwhm(tc_i, bc_i)
+            pop_data.append({
+                "Session": exp_id,
+                "Cell": ci,
+                "Celltype": celltype,
+                "Pref Dir (deg)": f"{pd_i:.0f}",
+                "MVL": mvl_i,
+                "FWHM (deg)": f"{fwhm_i:.0f}",
+            })
+            all_tcs.append(tc_i)
+
+    n_cells = len(all_tcs)
+
+    if n_cells == 0:
+        st.warning("No cells found across loaded sessions.")
+    else:
+        # MVL histogram
+        mvls = [d["MVL"] for d in pop_data]
+        col_hist, col_rose = st.columns(2)
+        with col_hist:
+            fig = go.Figure(data=[go.Histogram(x=mvls, nbinsx=15, marker_color="royalblue")])
+            fig.update_layout(
+                height=300, title="MVL Distribution",
+                xaxis_title="Mean Vector Length", yaxis_title="Count",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col_rose:
+            pds = [preferred_direction(tc_i, bc_shared) for tc_i in all_tcs]
+            fig = go.Figure()
+            fig.add_trace(go.Barpolar(
+                r=[1] * len(pds), theta=pds,
+                marker_color=mvls,
+                marker_colorscale="Viridis",
+                marker_showscale=True,
+                marker_colorbar=dict(title="MVL"),
+                width=360 / max(n_cells, 1) * 0.8,
+            ))
+            fig.update_layout(
+                height=300,
+                polar=dict(angularaxis=dict(direction="clockwise", rotation=90)),
+                title="Preferred Directions",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        # All tuning curves heatmap
+        tc_matrix = np.array([np.where(np.isnan(t), 0, t) for t in all_tcs])
+        row_max = tc_matrix.max(axis=1, keepdims=True)
+        row_max[row_max == 0] = 1
+        tc_norm = tc_matrix / row_max
+
+        sort_idx = np.argsort(pds)
+        tc_sorted = tc_norm[sort_idx]
+
+        fig = px.imshow(
+            tc_sorted,
+            x=[f"{b:.0f}" for b in bc_shared],
+            y=[f"Cell {sort_idx[i]}" for i in range(n_cells)],
+            labels=dict(x="HD (deg)", y="Cell", color="Norm. rate"),
+            color_continuous_scale="Hot",
+            title="Population Tuning Curves (sorted by preferred direction)",
+            aspect="auto",
         )
+        fig.update_layout(height=max(300, n_cells * 15 + 100))
         st.plotly_chart(fig, use_container_width=True)
 
-    with col_rose:
-        # Preferred direction rose plot
-        pds = [preferred_direction(tc_i, bc_i) for tc_i in all_tcs]
-        fig = go.Figure()
-        fig.add_trace(go.Barpolar(
-            r=[1] * len(pds), theta=pds,
-            marker_color=mvls,
-            marker_colorscale="Viridis",
-            marker_showscale=True,
-            marker_colorbar=dict(title="MVL"),
-            width=360 / n_cells * 0.8,
-        ))
-        fig.update_layout(
-            height=300,
-            polar=dict(angularaxis=dict(direction="clockwise", rotation=90)),
-            title="Preferred Directions",
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    # All tuning curves heatmap
-    tc_matrix = np.array([np.where(np.isnan(t), 0, t) for t in all_tcs])
-    # Normalise each row
-    row_max = tc_matrix.max(axis=1, keepdims=True)
-    row_max[row_max == 0] = 1
-    tc_norm = tc_matrix / row_max
-
-    # Sort by preferred direction
-    sort_idx = np.argsort(pds)
-    tc_sorted = tc_norm[sort_idx]
-
-    fig = px.imshow(
-        tc_sorted,
-        x=[f"{b:.0f}" for b in bc_i],
-        y=[f"Cell {sort_idx[i]+1}" for i in range(n_cells)],
-        labels=dict(x="HD (°)", y="Cell", color="Norm. rate"),
-        color_continuous_scale="Hot",
-        title="Population Tuning Curves (sorted by preferred direction)",
-        aspect="auto",
-    )
-    fig.update_layout(height=max(300, n_cells * 15 + 100))
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Data table
-    with st.expander("Cell Details"):
-        st.dataframe(pd.DataFrame(pop_data), hide_index=True)
+        # Data table
+        with st.expander("Cell Details"):
+            df_pop = pd.DataFrame(pop_data)
+            df_pop["MVL"] = df_pop["MVL"].apply(lambda x: f"{x:.3f}")
+            st.dataframe(df_pop, hide_index=True)
 
 
 # --- Significance Testing ---
@@ -286,18 +288,17 @@ with tab_significance:
         "(Skaggs et al., 1993)."
     )
 
-    col_s1, col_s2, col_s3 = st.columns(3)
-    with col_s1:
-        sig_pref = st.slider("Preferred dir (°)", 0, 359, 90, 10, key="sig_pref")
-    with col_s2:
-        sig_kappa = st.slider("κ (tuning strength)", 0.0, 5.0, 1.5, 0.1, key="sig_kappa")
-    with col_s3:
-        n_shuffles = st.select_slider("Shuffles", [100, 500, 1000], value=500, key="sig_n")
+    # Session and cell selection for significance
+    sig_session_idx = st.selectbox("Session", range(len(session_labels)),
+                                    format_func=lambda i: session_labels[i],
+                                    key="sig_session")
+    sig_ses = real_sessions[sig_session_idx]
+    sig_cell = st.slider("Cell index", 0, max(0, sig_ses["n_rois"] - 1), 0, key="sig_cell")
+    n_shuffles = st.select_slider("Shuffles", [100, 500, 1000], value=500, key="sig_n")
 
-    signal_s, hd_s, mask_s = _generate_synthetic_hd_cell(
-        preferred_deg=sig_pref, concentration=sig_kappa,
-        noise_level=0.3, seed=77,
-    )
+    signal_s = sig_ses["dff"][sig_cell]
+    hd_s = sig_ses["hd_deg"]
+    mask_s = sig_ses["active"] & ~sig_ses["bad_behav"]
 
     with st.spinner("Running shuffle test..."):
         from hm2p.analysis.significance import hd_tuning_significance
@@ -362,7 +363,6 @@ with tab_significance:
     with col_r:
         st.markdown("**Rayleigh Test**")
         from hm2p.analysis.comparison import rayleigh_test
-        # Use the HD angles weighted by signal as a quick Rayleigh test
         ray = rayleigh_test(hd_s[mask_s], weights=signal_s[mask_s])
         st.metric("Rayleigh Z", f"{ray['z']:.2f}")
         st.metric("Rayleigh p", f"{ray['p_value']:.4f}")
@@ -375,84 +375,8 @@ with tab_significance:
         st.metric("Half correlation", f"{sh['correlation']:.3f}")
         st.metric("MVL half 1", f"{sh['mvl_half1']:.4f}")
         st.metric("MVL half 2", f"{sh['mvl_half2']:.4f}")
-        st.metric("PD shift", f"{sh['pd_shift']:.1f}°")
+        st.metric("PD shift", f"{sh['pd_shift']:.1f}deg")
 
-
-# --- Parameter Explorer ---
-with tab_params:
-    st.subheader("How Parameters Affect Tuning Metrics")
-    st.markdown(
-        "Sweep a single parameter while holding others fixed to understand "
-        "how concentration (κ), noise, and bin count affect MVL and FWHM."
-    )
-
-    sweep_param = st.radio(
-        "Sweep parameter", ["κ (concentration)", "Noise level", "Number of bins"],
-        horizontal=True, key="sweep_param",
-    )
-
-    sweep_results = []
-    if sweep_param == "κ (concentration)":
-        values = np.arange(0.5, 8.1, 0.5)
-        for v in values:
-            s, h, m = _generate_synthetic_hd_cell(concentration=v, seed=42)
-            t, b = compute_hd_tuning_curve(s, h, m)
-            sweep_results.append({
-                "Value": v,
-                "MVL": mean_vector_length(t, b),
-                "FWHM": tuning_width_fwhm(t, b),
-            })
-        x_label = "κ"
-    elif sweep_param == "Noise level":
-        values = np.arange(0.05, 1.01, 0.05)
-        for v in values:
-            s, h, m = _generate_synthetic_hd_cell(noise_level=v, seed=42)
-            t, b = compute_hd_tuning_curve(s, h, m)
-            sweep_results.append({
-                "Value": v,
-                "MVL": mean_vector_length(t, b),
-                "FWHM": tuning_width_fwhm(t, b),
-            })
-        x_label = "Noise"
-    else:
-        values = [6, 12, 18, 24, 36, 48, 72, 90]
-        for v in values:
-            s, h, m = _generate_synthetic_hd_cell(seed=42)
-            t, b = compute_hd_tuning_curve(s, h, m, n_bins=v)
-            sweep_results.append({
-                "Value": v,
-                "MVL": mean_vector_length(t, b),
-                "FWHM": tuning_width_fwhm(t, b),
-            })
-        x_label = "n_bins"
-
-    sweep_df = pd.DataFrame(sweep_results)
-
-    col_sw1, col_sw2 = st.columns(2)
-    with col_sw1:
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=sweep_df["Value"], y=sweep_df["MVL"],
-            mode="lines+markers", marker_color="royalblue",
-        ))
-        fig.update_layout(
-            height=300, title=f"MVL vs {x_label}",
-            xaxis_title=x_label, yaxis_title="MVL",
-        )
-        st.plotly_chart(fig, use_container_width=True)
-    with col_sw2:
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=sweep_df["Value"], y=sweep_df["FWHM"],
-            mode="lines+markers", marker_color="orange",
-        ))
-        fig.update_layout(
-            height=300, title=f"FWHM vs {x_label}",
-            xaxis_title=x_label, yaxis_title="FWHM (°)",
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-    st.dataframe(sweep_df, hide_index=True)
 
 # --- Footer ---
 st.markdown("---")

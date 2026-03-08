@@ -8,10 +8,25 @@ Neither backend requires any labelled frames.
 
 This module is not run as part of the core Stages 0–5 pipeline. It is a
 post-hoc optional step that appends syllable_id / syllable_prob to kinematics.h5.
+
+keypoint-MoSeq runs in an **isolated Docker container** (docker/kpms.Dockerfile)
+because it pins numpy<=1.26 and JAX versions that conflict with the main
+hm2p environment. The `run_keypoint_moseq()` function orchestrates this
+via `docker run` or a subprocess call to scripts/run_kpms.py.
+
+References:
+    Weinreb et al. 2024. "Keypoint-MoSeq: parsing behavior by linking point
+    tracking to pose dynamics." Nature Methods 21:1329-1339.
+    doi:10.1038/s41592-024-02318-2
+    https://github.com/dattalab/keypoint-moseq
 """
 
 from __future__ import annotations
 
+import json
+import logging
+import subprocess
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -20,26 +35,115 @@ import numpy as np
 if TYPE_CHECKING:
     import xarray as xr
 
+log = logging.getLogger(__name__)
+
+KPMS_DOCKER_IMAGE = "hm2p-kpms"
+
 
 def run_keypoint_moseq(
     dlc_files: list[Path],
     project_dir: Path,
     output_dir: Path,
+    bodyparts: list[str] | None = None,
+    kappa: float = 1e6,
+    num_pcs: int = 10,
+    num_iters: int = 50,
+    use_docker: bool = True,
 ) -> dict[str, np.ndarray]:
     """Fit a keypoint-MoSeq AR-HMM model on one or more sessions.
 
-    Reads DLC .h5 files directly (no movement conversion needed).
-    Returns syllable IDs per frame for each session.
+    Runs in an isolated environment because kpms pins numpy<=1.26.
+
+    When ``use_docker=True`` (default), runs via Docker container
+    (hm2p-kpms image). When ``use_docker=False``, calls
+    scripts/run_kpms.py directly (requires kpms in current env).
 
     Args:
         dlc_files: List of DLC .h5 pose files, one per session.
         project_dir: Directory for keypoint-MoSeq config + model checkpoints.
-        output_dir: Where to write syllable outputs.
+        output_dir: Where to write syllable .npz outputs.
+        bodyparts: Body parts to use. Defaults to SuperAnimal TopViewMouse set.
+        kappa: AR-HMM stickiness parameter.
+        num_pcs: Number of PCA components.
+        num_iters: Number of fitting iterations.
+        use_docker: Whether to run via Docker (True) or subprocess (False).
 
     Returns:
         Dict mapping session_id → (N,) int16 syllable ID array.
+
+    Raises:
+        RuntimeError: If the kpms process fails.
+        FileNotFoundError: If Docker image not found or script missing.
     """
-    raise NotImplementedError
+    if bodyparts is None:
+        bodyparts = ["left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"]
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy DLC files to a temp directory with clean names
+    dlc_dir = Path(tempfile.mkdtemp(prefix="kpms_dlc_"))
+    for h5 in dlc_files:
+        import shutil
+        shutil.copy2(h5, dlc_dir / h5.name)
+
+    if use_docker:
+        cmd = [
+            "docker", "run", "--rm",
+            "-v", f"{dlc_dir}:/data/dlc",
+            "-v", f"{project_dir}:/data/project",
+            "-v", f"{output_dir}:/data/output",
+            KPMS_DOCKER_IMAGE,
+            "--dlc-dir", "/data/dlc",
+            "--project-dir", "/data/project",
+            "--output-dir", "/data/output",
+            "--bodyparts", *bodyparts,
+            "--kappa", str(kappa),
+            "--num-pcs", str(num_pcs),
+            "--num-iters", str(num_iters),
+        ]
+    else:
+        # Direct subprocess — requires kpms installed in current env
+        script = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "run_kpms.py"
+        if not script.exists():
+            raise FileNotFoundError(f"run_kpms.py not found at {script}")
+
+        cmd = [
+            "python", str(script),
+            "--dlc-dir", str(dlc_dir),
+            "--project-dir", str(project_dir),
+            "--output-dir", str(output_dir),
+            "--bodyparts", *bodyparts,
+            "--kappa", str(kappa),
+            "--num-pcs", str(num_pcs),
+            "--num-iters", str(num_iters),
+        ]
+
+    log.info("Running kpms: %s", " ".join(str(c) for c in cmd[:8]) + "...")
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=7200)
+
+    if result.returncode != 0:
+        log.error("kpms failed (exit %d):\n%s", result.returncode, result.stderr[-2000:])
+        raise RuntimeError(
+            f"keypoint-MoSeq failed with exit code {result.returncode}. "
+            f"stderr: {result.stderr[-500:]}"
+        )
+
+    if result.stdout:
+        log.info("kpms stdout:\n%s", result.stdout[-1000:])
+
+    # Load results from output .npz files
+    outputs: dict[str, np.ndarray] = {}
+    for npz_path in sorted(output_dir.glob("*_syllables.npz")):
+        session_id = npz_path.stem.replace("_syllables", "")
+        data = np.load(npz_path)
+        outputs[session_id] = data["syllable_id"].astype(np.int16)
+        log.info("Loaded syllables for %s: %d frames, %d unique",
+                 session_id, len(outputs[session_id]),
+                 len(np.unique(outputs[session_id])))
+
+    return outputs
 
 
 def run_vame(

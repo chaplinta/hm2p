@@ -2,13 +2,20 @@
 
 Visualizes how neural activity relates to angular head velocity: AHV tuning
 curves, CW/CCW asymmetry, and anticipatory time delay estimation.
+
+Requires real sync.h5 data from S3.
 """
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 st.title("AHV Analysis")
 st.caption(
@@ -26,39 +33,48 @@ from hm2p.analysis.ahv import (
 )
 
 
-def _make_ahv_cell(n=5000, pref_hd=90.0, kappa=3.0, ahv_gain=0.002,
-                    preferred_ahv=100.0, seed=42):
-    """Generate synthetic cell with HD + AHV modulation."""
-    rng = np.random.default_rng(seed)
-    hd = np.cumsum(rng.normal(0, 8, n)) % 360.0
-    ahv = compute_ahv(hd, fps=30.0, smoothing_frames=3)
-    theta = np.deg2rad(hd)
-    # HD tuning
-    signal = 0.1 + np.exp(kappa * np.cos(theta - np.deg2rad(pref_hd)))
-    signal /= signal.max()
-    # AHV modulation (Gaussian centered on preferred AHV)
-    ahv_mod = 1 + ahv_gain * np.exp(-(ahv - preferred_ahv)**2 / (2 * 200**2))
-    signal *= ahv_mod
-    signal += rng.normal(0, 0.1, n)
-    signal = np.clip(signal, 0, None)
-    mask = np.ones(n, dtype=bool)
-    return signal, hd, ahv, mask
+# --- Data loading ---
+
+def _try_load_real():
+    """Attempt to load real sync.h5 data."""
+    try:
+        from frontend.data import load_all_sync_data, session_filter_sidebar
+        all_data = load_all_sync_data()
+        if all_data["n_sessions"] > 0:
+            sessions = session_filter_sidebar(all_data["sessions"])
+            return sessions, True
+    except Exception:
+        pass
+    return None, False
 
 
-# Controls
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    pref_hd = st.slider("Preferred HD (°)", 0, 359, 90, 10, key="ahv_pref")
-with col2:
-    kappa = st.slider("HD tuning κ", 0.5, 8.0, 3.0, 0.5, key="ahv_kappa")
-with col3:
-    ahv_gain = st.slider("AHV modulation", 0.0, 0.01, 0.003, 0.001, key="ahv_gain")
-with col4:
-    pref_ahv = st.slider("Preferred AHV (°/s)", -300, 300, 100, 50, key="ahv_pref_ahv")
+real_sessions, has_real = _try_load_real()
 
-signal, hd, ahv, mask = _make_ahv_cell(
-    pref_hd=pref_hd, kappa=kappa, ahv_gain=ahv_gain, preferred_ahv=pref_ahv,
+if not has_real or not real_sessions:
+    st.warning(
+        "No data available yet. This page will populate when the relevant "
+        "pipeline stage completes."
+    )
+    st.stop()
+
+st.success(
+    f"Loaded {len(real_sessions)} sessions, "
+    f"{sum(s['n_rois'] for s in real_sessions)} total cells"
 )
+
+# Session and cell selection
+session_labels = [s["exp_id"] for s in real_sessions]
+sel_session_idx = st.selectbox("Session", range(len(session_labels)),
+                                format_func=lambda i: session_labels[i],
+                                key="ahv_session")
+ses_data = real_sessions[sel_session_idx]
+n_rois = ses_data["n_rois"]
+sel_cell = st.slider("Cell index", 0, max(0, n_rois - 1), 0, key="ahv_cell")
+
+signal = ses_data["dff"][sel_cell]
+hd = ses_data["hd_deg"]
+mask = ses_data["active"] & ~ses_data["bad_behav"]
+ahv = compute_ahv(hd, fps=30.0, smoothing_frames=3)
 
 tab_tuning, tab_atd, tab_summary = st.tabs(["AHV Tuning", "Time Delay", "Summary"])
 
@@ -72,7 +88,7 @@ with tab_tuning:
     col_m1.metric("CW mean", f"{mod['cw_mean']:.3f}")
     col_m2.metric("CCW mean", f"{mod['ccw_mean']:.3f}")
     col_m3.metric("Asymmetry", f"{mod['asymmetry_index']:.3f}")
-    col_m4.metric("Preferred AHV", f"{mod['preferred_ahv']:.0f}°/s")
+    col_m4.metric("Preferred AHV", f"{mod['preferred_ahv']:.0f} deg/s")
 
     col_tc, col_hist = st.columns(2)
     with col_tc:
@@ -87,7 +103,7 @@ with tab_tuning:
                       annotation_text=f"Pref={mod['preferred_ahv']:.0f}")
         fig.update_layout(
             height=350, title="AHV Tuning Curve",
-            xaxis_title="Angular Head Velocity (°/s)",
+            xaxis_title="Angular Head Velocity (deg/s)",
             yaxis_title="Mean Signal",
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -99,7 +115,7 @@ with tab_tuning:
         fig.add_vline(x=0, line_dash="dash", line_color="gray")
         fig.update_layout(
             height=350, title="AHV Distribution",
-            xaxis_title="AHV (°/s)", yaxis_title="Count",
+            xaxis_title="AHV (deg/s)", yaxis_title="Count",
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -116,7 +132,7 @@ with tab_tuning:
         ))
         fig.update_layout(
             height=300, title="Signal vs AHV",
-            xaxis_title="AHV (°/s)", yaxis_title="Signal",
+            xaxis_title="AHV (deg/s)", yaxis_title="Signal",
         )
         st.plotly_chart(fig, use_container_width=True)
 

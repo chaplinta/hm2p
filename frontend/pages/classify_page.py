@@ -1,8 +1,7 @@
 """Cell Classification — automated HD cell identification.
 
 Shows ALL cells across ALL sessions by default. Optional filtering
-by cell type or animal in the sidebar. Falls back to synthetic demo
-if no sync.h5 data is available.
+by cell type or animal in the sidebar. Requires sync.h5 data from S3.
 """
 
 from __future__ import annotations
@@ -50,33 +49,16 @@ def _try_load_real():
     return None, False
 
 
-def _make_population(n_hd=6, n_noise=6, n_frames=3000, kappa=3.0,
-                     noise=0.2, seed=42):
-    """Generate a mixed population of HD and non-HD cells."""
-    rng = np.random.default_rng(seed)
-    hd = np.cumsum(rng.normal(0, 5, n_frames)) % 360.0
-    theta = np.deg2rad(hd)
-    n_total = n_hd + n_noise
-    signals = np.zeros((n_total, n_frames))
-
-    prefs = np.linspace(0, 360, n_hd, endpoint=False)
-    for i in range(n_hd):
-        kappas_i = np.clip(rng.normal(kappa, 0.8), 0.5, 10.0)
-        signals[i] = 0.1 + np.exp(kappas_i * np.cos(theta - np.deg2rad(prefs[i])))
-        signals[i] /= signals[i].max()
-        signals[i] += rng.normal(0, noise, n_frames)
-        signals[i] = np.clip(signals[i], 0, None)
-
-    for i in range(n_hd, n_total):
-        signals[i] = np.abs(rng.normal(1, 0.5, n_frames))
-
-    mask = np.ones(n_frames, dtype=bool)
-    return signals, hd, mask
-
-
 # ── Parameters (sidebar) ───────────────────────────────────────────────────
 
 real_sessions, has_real = _try_load_real()
+
+if not has_real or not real_sessions:
+    st.warning(
+        "No data available yet. This page will populate when the relevant "
+        "pipeline stage completes."
+    )
+    st.stop()
 
 st.sidebar.header("Thresholds")
 mvl_thresh = st.sidebar.slider("MVL threshold", 0.05, 0.5, 0.15, 0.01, key="cls_mvl")
@@ -89,59 +71,22 @@ n_shuffles = st.sidebar.slider("Shuffles", 100, 1000, 300, 50, key="cls_shuf")
 
 # ── Run classification ──────────────────────────────────────────────────────
 
-if has_real and real_sessions:
-    st.success(
-        f"Loaded {len(real_sessions)} sessions, "
-        f"{sum(s['n_rois'] for s in real_sessions)} total cells"
-    )
+st.success(
+    f"Loaded {len(real_sessions)} sessions, "
+    f"{sum(s['n_rois'] for s in real_sessions)} total cells"
+)
 
-    all_cells = []
-    all_signals_for_tuning = {}  # (exp_id, cell_idx) -> (signal, hd, mask)
+all_cells = []
+all_signals_for_tuning = {}  # (exp_id, cell_idx) -> (signal, hd, mask)
 
-    with st.spinner("Classifying all cells..."):
-        for ses_data in real_sessions:
-            signals = ses_data["dff"]
-            hd = ses_data["hd_deg"]
-            mask = ses_data["active"] & ~ses_data["bad_behav"]
-            exp_id = ses_data["exp_id"]
-            celltype = ses_data["celltype"]
+with st.spinner("Classifying all cells..."):
+    for ses_data in real_sessions:
+        signals = ses_data["dff"]
+        hd = ses_data["hd_deg"]
+        mask = ses_data["active"] & ~ses_data["bad_behav"]
+        exp_id = ses_data["exp_id"]
+        celltype = ses_data["celltype"]
 
-            pop = classify_population(
-                signals, hd, mask,
-                mvl_threshold=mvl_thresh,
-                p_threshold=p_thresh,
-                reliability_threshold=rel_thresh,
-                n_shuffles=n_shuffles,
-                rng=np.random.default_rng(42),
-            )
-            table = classification_summary_table(pop)
-            for row in table:
-                row["exp_id"] = exp_id
-                row["celltype"] = celltype
-                row["animal_id"] = ses_data["animal_id"]
-                all_cells.append(row)
-                # Store for tuning curve plots
-                idx = row["cell"]
-                all_signals_for_tuning[(exp_id, idx)] = (signals[idx], hd, mask)
-
-    df = pd.DataFrame(all_cells)
-    n_total = len(df)
-    use_synthetic = False
-
-else:
-    st.info("No sync data available — showing synthetic demo.")
-    use_synthetic = True
-
-    st.sidebar.header("Population")
-    n_hd = st.sidebar.slider("HD cells", 2, 15, 6, 1, key="cls_nhd")
-    n_noise = st.sidebar.slider("Noise cells", 2, 15, 6, 1, key="cls_nnoise")
-    kappa = st.sidebar.slider("Mean κ", 0.5, 8.0, 3.0, 0.5, key="cls_kappa")
-    noise = st.sidebar.slider("Noise σ", 0.05, 0.8, 0.2, 0.05, key="cls_noise")
-
-    signals, hd, mask = _make_population(n_hd=n_hd, n_noise=n_noise,
-                                          kappa=kappa, noise=noise)
-
-    with st.spinner("Classifying cells..."):
         pop = classify_population(
             signals, hd, mask,
             mvl_threshold=mvl_thresh,
@@ -150,18 +95,18 @@ else:
             n_shuffles=n_shuffles,
             rng=np.random.default_rng(42),
         )
+        table = classification_summary_table(pop)
+        for row in table:
+            row["exp_id"] = exp_id
+            row["celltype"] = celltype
+            row["animal_id"] = ses_data["animal_id"]
+            all_cells.append(row)
+            # Store for tuning curve plots
+            idx = row["cell"]
+            all_signals_for_tuning[(exp_id, idx)] = (signals[idx], hd, mask)
 
-    table = classification_summary_table(pop)
-    for row in table:
-        row["exp_id"] = "synthetic"
-        row["celltype"] = "demo"
-        row["animal_id"] = "demo"
-    df = pd.DataFrame(table)
-    n_total = len(df)
-
-    all_signals_for_tuning = {
-        ("synthetic", i): (signals[i], hd, mask) for i in range(n_total)
-    }
+df = pd.DataFrame(all_cells)
+n_total = len(df)
 
 
 # ── Summary metrics ────────────────────────────────────────────────────────
@@ -174,12 +119,11 @@ col2.metric("HD Cells", n_hd_found)
 col3.metric("Non-HD Cells", n_total - n_hd_found)
 col4.metric("HD Fraction", f"{n_hd_found / n_total:.1%}" if n_total > 0 else "N/A")
 
-if not use_synthetic:
-    # Per-celltype breakdown
-    for ct in df["celltype"].unique():
-        sub = df[df["celltype"] == ct]
-        n_ct_hd = sub["is_hd"].sum()
-        st.caption(f"**{ct}**: {len(sub)} cells, {n_ct_hd} HD ({n_ct_hd/len(sub):.0%})")
+# Per-celltype breakdown
+for ct in df["celltype"].unique():
+    sub = df[df["celltype"] == ct]
+    n_ct_hd = sub["is_hd"].sum()
+    st.caption(f"**{ct}**: {len(sub)} cells, {n_ct_hd} HD ({n_ct_hd/len(sub):.0%})")
 
 
 # ── Tabs ────────────────────────────────────────────────────────────────────
@@ -189,9 +133,8 @@ tab_table, tab_scatter, tab_tuning = st.tabs(["Summary Table", "Metric Scatter",
 with tab_table:
     df_show = df[["cell", "is_hd", "grade", "mvl", "p_value", "reliability",
                    "mi", "preferred_direction"]].copy()
-    if not use_synthetic:
-        df_show.insert(0, "session", df["exp_id"])
-        df_show.insert(1, "celltype", df["celltype"])
+    df_show.insert(0, "session", df["exp_id"])
+    df_show.insert(1, "celltype", df["celltype"])
 
     df_show["mvl"] = df_show["mvl"].apply(lambda x: f"{x:.3f}")
     df_show["p_value"] = df_show["p_value"].apply(lambda x: f"{x:.4f}")
@@ -208,8 +151,8 @@ with tab_table:
     st.dataframe(styled, use_container_width=True, hide_index=True, height=400)
 
     st.markdown(
-        "**Grades:** A = strong HD (MVL≥0.4, reliability≥0.8) · "
-        "B = moderate HD (MVL≥0.25) · C = weak HD · D = non-HD"
+        "**Grades:** A = strong HD (MVL>=0.4, reliability>=0.8) · "
+        "B = moderate HD (MVL>=0.25) · C = weak HD · D = non-HD"
     )
 
 with tab_scatter:
@@ -219,12 +162,8 @@ with tab_scatter:
     mis = df["mi"].values
     labels = [f"Cell {r['cell']}" for _, r in df.iterrows()]
 
-    if not use_synthetic:
-        colors = df["celltype"].values
-        color_map = None  # Let plotly auto-assign
-    else:
-        colors = ["HD" if h else "Non-HD" for h in df["is_hd"]]
-        color_map = {"HD": "green", "Non-HD": "red"}
+    colors = df["celltype"].values
+    color_map = None  # Let plotly auto-assign
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -285,9 +224,7 @@ with tab_tuning:
                     r=r_plot, theta=np.rad2deg(theta_plot),
                     mode="lines", line=dict(color="green", width=2),
                 )])
-                title = f"Cell {row['cell']}"
-                if not use_synthetic:
-                    title = f"{row['exp_id'][-7:]} C{row['cell']} ({row['celltype']})"
+                title = f"{row['exp_id'][-7:]} C{row['cell']} ({row['celltype']})"
                 fig.update_layout(
                     height=220, margin=dict(l=30, r=30, t=40, b=20),
                     title=f"{title} MVL={row['mvl']:.3f} [{row['grade']}]",

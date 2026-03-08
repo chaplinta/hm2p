@@ -387,3 +387,139 @@ def compute_event_rate(
 
     duration_min = n_good / fps / 60.0
     return float(n_good_events / duration_min) if duration_min > 0 else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Event dynamics characterization
+# ---------------------------------------------------------------------------
+
+def characterize_events(
+    dff_trace: np.ndarray,
+    event_result: EventResult,
+    fps: float,
+) -> list[dict]:
+    """Characterize each detected event's dynamics.
+
+    Per-event metrics following Voigts & Harnett 2020
+    (doi:10.1016/j.neuron.2019.10.016):
+      - amplitude: peak dF/F during event
+      - duration_s: onset-to-offset in seconds
+      - rise_frames: onset to peak frame count
+      - rise_time_s: onset to peak in seconds
+      - decay_frames: peak to offset frame count
+      - decay_time_s: peak to offset in seconds
+      - auc: area under curve (integral of dF/F during event)
+      - mean_dff: mean dF/F during event
+
+    Args:
+        dff_trace: (n_frames,) float — dF/F0 trace.
+        event_result: EventResult from detect_events_single.
+        fps: Imaging frame rate (Hz).
+
+    Returns:
+        List of dicts, one per event.
+    """
+    events = []
+    for onset, offset, amp in zip(
+        event_result.onsets, event_result.offsets, event_result.amplitudes
+    ):
+        segment = dff_trace[onset:offset]
+        duration_frames = offset - onset
+        peak_idx_local = int(np.argmax(segment))
+
+        events.append({
+            "onset": int(onset),
+            "offset": int(offset),
+            "amplitude": float(amp),
+            "duration_frames": duration_frames,
+            "duration_s": duration_frames / fps,
+            "rise_frames": peak_idx_local,
+            "rise_time_s": peak_idx_local / fps,
+            "decay_frames": duration_frames - peak_idx_local,
+            "decay_time_s": (duration_frames - peak_idx_local) / fps,
+            "auc": float(np.sum(segment)) / fps,
+            "mean_dff": float(np.mean(segment)),
+        })
+    return events
+
+
+def summarize_cell_dynamics(
+    dff_trace: np.ndarray,
+    event_result: EventResult,
+    fps: float,
+    bad_frames: np.ndarray | None = None,
+) -> dict:
+    """Compute per-cell summary statistics of calcium event dynamics.
+
+    Aggregates characterize_events() output into population-level metrics.
+
+    Args:
+        dff_trace: (n_frames,) float — dF/F0 trace.
+        event_result: EventResult from detect_events_single.
+        fps: Imaging frame rate (Hz).
+        bad_frames: Optional (n_frames,) bool — frames to exclude.
+
+    Returns:
+        Dict with summary statistics.
+    """
+    events = characterize_events(dff_trace, event_result, fps)
+    n_events = len(events)
+
+    rate = compute_event_rate(event_result.onsets, len(dff_trace), fps, bad_frames)
+    snr = compute_event_snr(dff_trace, event_result.event_mask,
+                            event_result.amplitudes, bad_frames)
+
+    if n_events == 0:
+        return {
+            "n_events": 0,
+            "event_rate": rate,
+            "snr": snr,
+            "mean_amplitude": np.nan,
+            "median_amplitude": np.nan,
+            "mean_duration_s": np.nan,
+            "median_duration_s": np.nan,
+            "mean_rise_time_s": np.nan,
+            "mean_decay_time_s": np.nan,
+            "mean_auc": np.nan,
+            "mean_dff_during_events": np.nan,
+            "fraction_active": 0.0,
+            "mean_iei_s": np.nan,
+        }
+
+    amps = np.array([e["amplitude"] for e in events])
+    durations = np.array([e["duration_s"] for e in events])
+    rises = np.array([e["rise_time_s"] for e in events])
+    decays = np.array([e["decay_time_s"] for e in events])
+    aucs = np.array([e["auc"] for e in events])
+    mean_dffs = np.array([e["mean_dff"] for e in events])
+
+    # Fraction of recording that is "active" (event frames / total frames)
+    active_frames = int(event_result.event_mask.sum())
+    total_frames = len(dff_trace)
+    if bad_frames is not None:
+        total_frames = int((~bad_frames).sum())
+        active_frames = int((event_result.event_mask.astype(bool) & ~bad_frames).sum())
+    fraction_active = active_frames / max(total_frames, 1)
+
+    # Inter-event intervals
+    if n_events > 1:
+        ieis = np.diff(event_result.onsets) / fps
+        mean_iei = float(np.mean(ieis))
+    else:
+        mean_iei = np.nan
+
+    return {
+        "n_events": n_events,
+        "event_rate": rate,
+        "snr": snr,
+        "mean_amplitude": float(np.mean(amps)),
+        "median_amplitude": float(np.median(amps)),
+        "mean_duration_s": float(np.mean(durations)),
+        "median_duration_s": float(np.median(durations)),
+        "mean_rise_time_s": float(np.mean(rises)),
+        "mean_decay_time_s": float(np.mean(decays)),
+        "mean_auc": float(np.mean(aucs)),
+        "mean_dff_during_events": float(np.mean(mean_dffs)),
+        "fraction_active": fraction_active,
+        "mean_iei_s": mean_iei,
+    }

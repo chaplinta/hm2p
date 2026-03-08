@@ -10,6 +10,7 @@ import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
 
+from frontend.data import load_all_sync_data, session_filter_sidebar
 from hm2p.analysis.anchoring import (
     anchoring_speed,
     anchoring_time_course,
@@ -23,54 +24,56 @@ st.caption(
     "when lights turn back on after darkness?"
 )
 
+# Load real data
+all_data = load_all_sync_data()
+if all_data["n_sessions"] == 0:
+    st.warning(
+        "No data available yet. This page will populate when the relevant "
+        "pipeline stage completes."
+    )
+    st.stop()
 
-def _make_cell(n_frames=12000, pref=90.0, kappa=3.0, drift=0.0,
-               noise=0.15, cycle_frames=1800, seed=42):
-    """Generate cell with drift in dark, snap-back in light."""
-    rng = np.random.default_rng(seed)
-    hd = np.cumsum(rng.normal(0, 5, n_frames)) % 360.0
+sessions = session_filter_sidebar(all_data["sessions"])
+if not sessions:
+    st.warning("No sessions match the current filters.")
+    st.stop()
 
-    light_on = np.zeros(n_frames, dtype=bool)
-    for start in range(0, n_frames, 2 * cycle_frames):
-        light_on[start:min(start + cycle_frames, n_frames)] = True
+# Session selector
+session_labels = [f"{s['exp_id']} ({s['celltype']}, {s['n_rois']} ROIs)" for s in sessions]
+sel_idx = st.sidebar.selectbox("Session", range(len(sessions)),
+                                format_func=lambda i: session_labels[i], key="anch_ses")
+sess = sessions[sel_idx]
 
-    current_pref = pref
-    drift_per_frame = drift / cycle_frames
-    signal = np.zeros(n_frames)
-    for i in range(n_frames):
-        if not light_on[i]:
-            current_pref += drift_per_frame
-        else:
-            current_pref = pref
-        signal[i] = 0.1 + np.exp(kappa * np.cos(np.deg2rad(hd[i]) - np.deg2rad(current_pref)))
-
-    signal /= signal.max()
-    signal += rng.normal(0, noise, n_frames)
-    signal = np.clip(signal, 0, None)
-    mask = np.ones(n_frames, dtype=bool)
-    return signal, hd, mask, light_on
-
-
-# Parameters
-st.sidebar.header("Cell")
-kappa = st.sidebar.slider("κ", 0.5, 8.0, 3.5, 0.5, key="anch_kappa")
-noise = st.sidebar.slider("Noise", 0.05, 0.5, 0.15, 0.05, key="anch_noise")
-drift_deg = st.sidebar.slider("Dark drift (°/epoch)", 0.0, 90.0, 30.0, 5.0, key="anch_drift")
-cycle_s = st.sidebar.slider("Cycle (s)", 30, 120, 60, 10, key="anch_cycle")
-
+signals = sess["dff"]  # (n_rois, n_frames)
+hd = sess["hd_deg"]
+mask = sess["active"] & ~sess["bad_behav"]
+light_on = sess["light_on"]
+n_cells = signals.shape[0]
 fps = 30.0
-cycle_frames = int(cycle_s * fps)
-n_frames = int(cycle_frames * 7)  # ~3.5 full cycles
 
-signal, hd, mask, light_on = _make_cell(
-    n_frames=n_frames, kappa=kappa, noise=noise,
-    drift=drift_deg, cycle_frames=cycle_frames,
-)
+if n_cells == 0:
+    st.warning("No ROIs in this session after filtering.")
+    st.stop()
+
+# Cell selector in sidebar
+cell_main = st.sidebar.selectbox("Primary cell", range(n_cells),
+                                  format_func=lambda x: f"Cell {x+1}", key="anch_main_cell")
+
+signal = signals[cell_main]
+
+# Estimate cycle length from light transitions
+transitions = find_transitions(light_on)
+if len(transitions) >= 2:
+    cycle_frames = int(np.median(np.diff([t["frame"] for t in transitions])))
+else:
+    cycle_frames = int(60 * fps)  # default 60s
+
+cycle_s = cycle_frames / fps
 
 tab_tc, tab_speed, tab_compare = st.tabs(["Time Course", "Anchoring Speed", "Multi-Cell"])
 
 with tab_tc:
-    st.subheader("PD Deviation Around Dark→Light Transitions")
+    st.subheader("PD Deviation Around Dark->Light Transitions")
 
     result = anchoring_time_course(
         signal, hd, mask, light_on, fps=fps,
@@ -82,7 +85,7 @@ with tab_tc:
 
     col1, col2 = st.columns(2)
     col1.metric("Transitions averaged", result["n_transitions"])
-    col2.metric("Reference PD", f"{result['reference_pd']:.1f}°")
+    col2.metric("Reference PD", f"{result['reference_pd']:.1f}")
 
     if result["n_transitions"] > 0:
         t = result["time_offsets_s"]
@@ -101,7 +104,7 @@ with tab_tc:
         fig.update_layout(
             height=300, title="PD Deviation from Reference (transition-aligned)",
             xaxis_title="Time from transition (s)",
-            yaxis_title="|PD deviation| (°)",
+            yaxis_title="|PD deviation| (deg)",
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -124,13 +127,13 @@ with tab_speed:
     st.subheader("Re-Anchoring Speed")
 
     if result["n_transitions"] > 0:
-        speed = anchoring_speed(result["pd_deviations"], result["time_offsets_s"])
+        speed_result = anchoring_speed(result["pd_deviations"], result["time_offsets_s"])
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Pre-deviation", f"{speed['pre_deviation']:.1f}°")
-        col2.metric("Post-deviation", f"{speed['post_deviation']:.1f}°")
-        col3.metric("Half-time", f"{speed['half_time_s']:.1f}s" if np.isfinite(speed['half_time_s']) else "N/A")
-        col4.metric("Anchoring strength", f"{speed['anchoring_strength']:.2f}" if np.isfinite(speed['anchoring_strength']) else "N/A")
+        col1.metric("Pre-deviation", f"{speed_result['pre_deviation']:.1f}")
+        col2.metric("Post-deviation", f"{speed_result['post_deviation']:.1f}")
+        col3.metric("Half-time", f"{speed_result['half_time_s']:.1f}s" if np.isfinite(speed_result['half_time_s']) else "N/A")
+        col4.metric("Anchoring strength", f"{speed_result['anchoring_strength']:.2f}" if np.isfinite(speed_result['anchoring_strength']) else "N/A")
 
         st.markdown(
             "**Interpretation:** Anchoring strength near 1 means the cell fully "
@@ -139,36 +142,29 @@ with tab_speed:
         )
 
         # Visual summary
-        if np.isfinite(speed["anchoring_strength"]):
-            if speed["anchoring_strength"] > 0.7:
-                st.success("Strong visual anchoring — PD snaps back to reference.")
-            elif speed["anchoring_strength"] > 0.3:
-                st.info("Moderate anchoring — partial re-alignment to visual cues.")
+        if np.isfinite(speed_result["anchoring_strength"]):
+            if speed_result["anchoring_strength"] > 0.7:
+                st.success("Strong visual anchoring -- PD snaps back to reference.")
+            elif speed_result["anchoring_strength"] > 0.3:
+                st.info("Moderate anchoring -- partial re-alignment to visual cues.")
             else:
-                st.warning("Weak anchoring — HD representation largely path-integration driven.")
+                st.warning("Weak anchoring -- HD representation largely path-integration driven.")
     else:
         st.warning("No transitions found.")
 
 with tab_compare:
     st.subheader("Multi-Cell Comparison")
     st.markdown(
-        "Compare anchoring across cells with different drift amounts. "
-        "Simulates what Penk vs non-Penk comparison would look like."
+        "Compare anchoring across all cells in this session."
     )
-
-    n_compare = st.slider("Cells to compare", 2, 8, 4, 1, key="anch_compare_n")
 
     strengths = []
     half_times = []
-    drifts = np.linspace(5, 80, n_compare)
+    cell_labels = []
 
-    for i, d in enumerate(drifts):
-        sig, hd_c, mask_c, lo = _make_cell(
-            n_frames=n_frames, kappa=kappa, noise=noise,
-            drift=d, cycle_frames=cycle_frames, seed=i + 42,
-        )
+    for i in range(n_cells):
         tc_result = anchoring_time_course(
-            sig, hd_c, mask_c, lo, fps=fps,
+            signals[i], hd, mask, light_on, fps=fps,
             window_frames=int(cycle_frames * 0.3),
             step_frames=int(cycle_frames * 0.05),
             pre_transition_s=cycle_s * 0.8,
@@ -181,16 +177,15 @@ with tab_compare:
         else:
             strengths.append(np.nan)
             half_times.append(np.nan)
-
-    labels = [f"Cell {i+1}\n(drift={d:.0f}°)" for i, d in enumerate(drifts)]
+        cell_labels.append(f"Cell {i+1}")
 
     col1, col2 = st.columns(2)
     with col1:
         fig = go.Figure(data=[go.Bar(
-            x=labels,
+            x=cell_labels,
             y=strengths,
-            marker_color=["green" if s > 0.5 else "orange" if s > 0.2 else "red"
-                          for s in (s if np.isfinite(s) else 0 for s in strengths)],
+            marker_color=["green" if (np.isfinite(s) and s > 0.5) else "orange" if (np.isfinite(s) and s > 0.2) else "red"
+                          for s in strengths],
         )])
         fig.update_layout(
             height=300, title="Anchoring Strength by Cell",
@@ -199,14 +194,17 @@ with tab_compare:
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
+        finite_mask = [np.isfinite(s) for s in strengths]
         fig = go.Figure(data=[go.Scatter(
-            x=list(drifts), y=strengths,
+            x=list(range(n_cells)),
+            y=strengths,
             mode="markers+lines",
             marker=dict(size=10, color="royalblue"),
+            text=cell_labels,
         )])
         fig.update_layout(
-            height=300, title="Drift vs Anchoring Strength",
-            xaxis_title="Dark drift (°/epoch)",
+            height=300, title="Anchoring Strength Across Cells",
+            xaxis_title="Cell index",
             yaxis_title="Anchoring strength",
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -214,7 +212,7 @@ with tab_compare:
 # Footer
 st.markdown("---")
 st.caption(
-    "Transition-aligned analysis averages PD deviation across all dark→light "
+    "Transition-aligned analysis averages PD deviation across all dark->light "
     "transitions. Gray shading = dark period before transition. "
     "Red dashed line = lights on."
 )

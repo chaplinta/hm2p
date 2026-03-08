@@ -18,6 +18,7 @@ st.caption(
 
 import plotly.graph_objects as go
 
+from frontend.data import load_all_sync_data, session_filter_sidebar
 from hm2p.analysis.information import (
     information_per_cell,
     mutual_information_binned,
@@ -26,35 +27,34 @@ from hm2p.analysis.information import (
 )
 from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length
 
+# Load real data
+all_data = load_all_sync_data()
+if all_data["n_sessions"] == 0:
+    st.warning(
+        "No data available yet. This page will populate when the relevant "
+        "pipeline stage completes."
+    )
+    st.stop()
 
-def _make_population(n_cells=15, n_frames=3000, kappa=3.0, noise=0.15, seed=42):
-    """Generate HD-tuned population."""
-    rng = np.random.default_rng(seed)
-    hd = np.cumsum(rng.normal(0, 5, n_frames)) % 360.0
-    theta = np.deg2rad(hd)
-    prefs = np.linspace(0, 360, n_cells, endpoint=False)
-    kappas = np.clip(rng.normal(kappa, 1.0, n_cells), 0.3, 15.0)
-    signals = np.zeros((n_cells, n_frames))
-    for i in range(n_cells):
-        signals[i] = 0.1 + np.exp(kappas[i] * np.cos(theta - np.deg2rad(prefs[i])))
-        signals[i] /= signals[i].max()
-        signals[i] += rng.normal(0, noise, n_frames)
-        signals[i] = np.clip(signals[i], 0, None)
-    mask = np.ones(n_frames, dtype=bool)
-    return signals, hd, mask, prefs, kappas
+sessions = session_filter_sidebar(all_data["sessions"])
+if not sessions:
+    st.warning("No sessions match the current filters.")
+    st.stop()
 
+# Session selector
+session_labels = [f"{s['exp_id']} ({s['celltype']}, {s['n_rois']} ROIs)" for s in sessions]
+sel_idx = st.sidebar.selectbox("Session", range(len(sessions)),
+                                format_func=lambda i: session_labels[i], key="info_ses")
+sess = sessions[sel_idx]
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    n_cells = st.slider("Cells", 5, 30, 12, 1, key="info_n")
-with col2:
-    kappa = st.slider("Mean κ", 0.5, 8.0, 3.0, 0.5, key="info_kappa")
-with col3:
-    noise = st.slider("Noise", 0.05, 0.8, 0.2, 0.05, key="info_noise")
+signals = sess["dff"]  # (n_rois, n_frames)
+hd = sess["hd_deg"]
+mask = sess["active"] & ~sess["bad_behav"]
+n_cells = signals.shape[0]
 
-signals, hd, mask, prefs, kappas = _make_population(
-    n_cells=n_cells, kappa=kappa, noise=noise,
-)
+if n_cells == 0:
+    st.warning("No ROIs in this session after filtering.")
+    st.stop()
 
 tab_mi, tab_skaggs, tab_redundancy = st.tabs(["Mutual Information", "Skaggs Info", "Redundancy"])
 
