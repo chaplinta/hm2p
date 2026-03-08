@@ -43,28 +43,14 @@ def discretize_position(
 
     xv = x[valid]
     yv = y[valid]
+    valid_idx = np.flatnonzero(valid)
 
-    # Floor to get candidate cell
-    col = np.floor(xv).astype(int)
-    row = np.floor(yv).astype(int)
-
-    # Clip to grid bounds
-    col = np.clip(col, 0, 6)
-    row = np.clip(row, 0, 4)
-
-    # For each position, check if the floored cell is accessible
-    # If not, find the nearest accessible cell by distance
+    # Find nearest accessible cell center for each position
     for i in range(len(xv)):
-        candidate = (int(col[i]), int(row[i]))
-        if candidate in maze.cell_to_idx:
-            result[np.flatnonzero(valid)[i]] = maze.cell_to_idx[candidate]
-        else:
-            # Nearest accessible cell by Euclidean distance to center
-            dx = centers[:, 0] - xv[i]
-            dy = centers[:, 1] - yv[i]
-            dist = dx * dx + dy * dy
-            nearest = int(np.argmin(dist))
-            result[np.flatnonzero(valid)[i]] = nearest
+        dx = centers[:, 0] - xv[i]
+        dy = centers[:, 1] - yv[i]
+        dist = dx * dx + dy * dy
+        result[valid_idx[i]] = int(np.argmin(dist))
 
     return result
 
