@@ -74,7 +74,6 @@ def _download_h5(bucket: str, key: str) -> dict:
 # Page layout
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="Analysis", layout="wide")
 st.title("Analysis — Multi-Signal HD & Place Tuning")
 
 # Sidebar
