@@ -41,8 +41,8 @@ def tuning_curve_correlation(
     a = curve_a[valid]
     b = curve_b[valid]
 
-    # Handle constant arrays (zero std)
-    if np.std(a) == 0 or np.std(b) == 0:
+    # Handle constant arrays (zero or near-zero std)
+    if np.std(a) < 1e-15 or np.std(b) < 1e-15:
         return float("nan")
 
     return float(np.corrcoef(a, b)[0, 1])
@@ -102,7 +102,7 @@ def rate_map_correlation(
     av = a[valid]
     bv = b[valid]
 
-    if np.std(av) == 0 or np.std(bv) == 0:
+    if np.std(av) < 1e-15 or np.std(bv) < 1e-15:
         return float("nan")
 
     return float(np.corrcoef(av, bv)[0, 1])

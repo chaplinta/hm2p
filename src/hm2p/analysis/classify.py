@@ -10,7 +10,7 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-from hm2p.analysis.comparison import rayleigh_test, split_half_reliability
+from hm2p.analysis.comparison import split_half_reliability
 from hm2p.analysis.information import mutual_information_binned
 from hm2p.analysis.significance import hd_tuning_significance
 from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length

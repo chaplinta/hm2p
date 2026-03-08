@@ -175,7 +175,8 @@ def decode_error(
     S = np.mean(np.sin(theta))
     R = np.sqrt(C**2 + S**2)
     circ_mean = float(np.rad2deg(np.arctan2(S, C)))
-    circ_std = float(np.rad2deg(np.sqrt(-2 * np.log(max(R, 1e-10)))))
+    R_clipped = min(max(R, 1e-10), 1.0)  # Clip to [eps, 1] for numerical safety
+    circ_std = float(np.rad2deg(np.sqrt(-2 * np.log(R_clipped))))
 
     return {
         "errors_deg": errors,

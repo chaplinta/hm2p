@@ -95,12 +95,10 @@ def mutual_information_binned(
     p_sig = joint.sum(axis=1)
     p_hd = joint.sum(axis=0)
 
-    # MI = sum p(x,y) log2(p(x,y) / (p(x) * p(y)))
-    mi = 0.0
-    for i in range(n_signal_bins):
-        for j in range(n_hd_bins):
-            if joint[i, j] > 0 and p_sig[i] > 0 and p_hd[j] > 0:
-                mi += joint[i, j] * np.log2(joint[i, j] / (p_sig[i] * p_hd[j]))
+    # MI = sum p(x,y) log2(p(x,y) / (p(x) * p(y)))  — vectorized
+    outer = p_sig[:, None] * p_hd[None, :]
+    valid = (joint > 0) & (outer > 0)
+    mi = np.sum(joint[valid] * np.log2(joint[valid] / outer[valid]))
     return float(mi)
 
 
@@ -202,11 +200,9 @@ def synergy_redundancy(
     p_sig = joint.sum(axis=1)
     p_hd = joint.sum(axis=0)
 
-    info_joint = 0.0
-    for i in range(n_joint):
-        for j in range(n_hd_bins):
-            if joint[i, j] > 0 and p_sig[i] > 0 and p_hd[j] > 0:
-                info_joint += joint[i, j] * np.log2(joint[i, j] / (p_sig[i] * p_hd[j]))
+    outer = p_sig[:, None] * p_hd[None, :]
+    valid = (joint > 0) & (outer > 0)
+    info_joint = float(np.sum(joint[valid] * np.log2(joint[valid] / outer[valid])))
 
     redundancy = info_a + info_b - info_joint
 
