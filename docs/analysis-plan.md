@@ -211,7 +211,32 @@ timestamps.h5   →  frame times for both modalities
 sync/align.py   →  resample kinematics to imaging frame times
 
 analysis/       →  condition split, tuning curves, significance, comparison
+
+Stage 6 output: analysis.h5  (per session, saved to S3)
+  /{signal_type}/activity/{metric}           (n_rois,)
+  /{signal_type}/hd/{condition}/tuning_curves (n_rois, n_bins)
+  /{signal_type}/hd/{condition}/mvl           (n_rois,)
+  /{signal_type}/hd/{condition}/p_value       (n_rois,)
+  /{signal_type}/hd/{condition}/significant   (n_rois,)
+  /{signal_type}/hd/comparison/{metric}       (n_rois,)
+  /{signal_type}/place/{condition}/...        same structure
+  /params/*                                   analysis parameters
 ```
+
+### Multi-signal analysis pipeline
+
+The analysis pipeline (`scripts/run_stage6_analysis.py`) runs every analysis metric
+using **all available calcium measures**:
+
+| Signal | Source | What it captures |
+|--------|--------|-----------------|
+| `dff` | dF/F0 from ca.h5 | Raw fluorescence changes |
+| `deconv` | Suite2p deconvolved (spks) | Inferred spike rate |
+| `events` | V&H event masks (binary) | Detected calcium transients |
+
+Results are saved per signal type so the frontend can directly compare whether
+conclusions (e.g. "ROI 5 is HD-tuned") hold across all measures. Agreement
+is quantified using Jaccard similarity of the significant-ROI sets.
 
 ---
 
