@@ -10,6 +10,7 @@ st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.
 # Changelog entries — newest first
 # Each entry: (date, time, category, description)
 CHANGELOG = [
+    ("2026-03-08", "07:00", "feature", "Add Correlations & Ensembles page — pairwise correlation matrix with hierarchical clustering, PCA dimensionality, population co-activation analysis"),
     ("2026-03-08", "06:30", "feature", "Add Event Browser page — browse individual calcium transients, waveform gallery with mean, event statistics (IEI, duration, peak), population raster"),
     ("2026-03-08", "06:00", "feature", "Add Batch Overview page — at-a-glance quality metrics for all sessions, ROI counts, SNR bars, event rate comparisons, CSV export"),
     ("2026-03-08", "05:30", "feature", "Add ROI Gallery page — grid view of all ROIs with mini traces, event overlays, sortable by SNR/event rate, quality filtering"),
