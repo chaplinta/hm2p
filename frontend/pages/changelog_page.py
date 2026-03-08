@@ -10,6 +10,7 @@ st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.
 # Changelog entries — newest first
 # Each entry: (date, time, category, description)
 CHANGELOG = [
+    ("2026-03-08", "18:30", "feature", "Add Gain Modulation page and module — response amplitude comparison between light and dark, gain modulation index per cell, dynamic range scatter, epoch-by-epoch gain tracking"),
     ("2026-03-08", "18:00", "feature", "Add Drift Analysis page — PD drift tracking during light/dark cycles, epoch-by-epoch PD/MVL, cumulative drift, dark vs light drift rate comparison, sliding window overlay with light cycle shading"),
     ("2026-03-08", "17:30", "feature", "Add Cell Classification page and module — automated HD cell identification using MVL, shuffle significance, split-half reliability; population summary table with quality grades (A-D), metric scatter plots, tuning curve gallery"),
     ("2026-03-08", "17:00", "feature", "Add Information Theory page and module — per-cell MI, MI vs MVL scatter, Skaggs information rate, pairwise synergy/redundancy matrix"),
