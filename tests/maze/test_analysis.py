@@ -8,6 +8,7 @@ import pytest
 from hm2p.maze.analysis import (
     cell_occupancy,
     classify_turn,
+    cross_entropy,
     exploration_efficiency,
     find_monotonic_paths,
     maze_exploration_summary,
@@ -16,6 +17,8 @@ from hm2p.maze.analysis import (
     per_junction_turn_bias,
     segment_modes,
     sequence_entropy,
+    transition_entropy,
+    transition_matrix,
     turn_bias,
 )
 from hm2p.maze.topology import build_rose_maze
@@ -260,6 +263,87 @@ class TestSequenceEntropy:
         seq = rng.integers(0, 3, 100)
         ctx, ent = sequence_entropy(seq, max_context=5)
         assert np.all(ent >= 0)
+
+
+# ---------------------------------------------------------------------------
+# Markov model
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionMatrix:
+    def test_row_stochastic(self):
+        """Rows should sum to 1."""
+        seq = np.array([0, 1, 0, 1, 2, 0])
+        tm = transition_matrix(seq, 3)
+        for i in range(3):
+            if tm[i].sum() > 0:
+                assert abs(tm[i].sum() - 1.0) < 1e-10
+
+    def test_deterministic_sequence(self):
+        """0→1→2→0→1→2 should have deterministic transitions."""
+        seq = np.array([0, 1, 2, 0, 1, 2])
+        tm = transition_matrix(seq, 3)
+        assert tm[0, 1] == 1.0
+        assert tm[1, 2] == 1.0
+        assert tm[2, 0] == 1.0
+
+    def test_pseudocount(self):
+        """Pseudocount should smooth probabilities."""
+        seq = np.array([0, 1, 0, 1])
+        tm = transition_matrix(seq, 3, pseudocount=1.0)
+        # All transitions should be > 0 with pseudocount
+        assert np.all(tm > 0)
+
+    def test_empty_sequence(self):
+        tm = transition_matrix(np.array([], dtype=np.int32), 3)
+        np.testing.assert_array_equal(tm, 0)
+
+
+class TestTransitionEntropy:
+    def test_deterministic_zero_entropy(self):
+        """Deterministic transitions should have zero entropy."""
+        seq = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2])
+        tm = transition_matrix(seq, 3)
+        h = transition_entropy(tm, seq)
+        assert h < 0.01
+
+    def test_uniform_max_entropy(self):
+        """Uniform transitions should have maximum entropy."""
+        # Create uniform transition matrix
+        tm = np.ones((3, 3)) / 3
+        seq = np.array([0, 1, 2] * 100)
+        h = transition_entropy(tm, seq)
+        # Should be close to log2(3) ≈ 1.585
+        assert abs(h - np.log2(3)) < 0.1
+
+    def test_non_negative(self):
+        seq = np.array([0, 1, 0, 2, 1, 0, 2, 1])
+        tm = transition_matrix(seq, 3)
+        h = transition_entropy(tm, seq)
+        assert h >= 0
+
+
+class TestCrossEntropy:
+    def test_same_distribution_low_ce(self):
+        """Cross-entropy should be low when test matches training."""
+        seq = np.array([0, 1, 0, 1, 0, 1] * 50)
+        tm = transition_matrix(seq, 3)
+        ce = cross_entropy(seq, tm, 3)
+        assert ce < 2.0  # Low because predictable
+
+    def test_mismatched_higher_ce(self):
+        """Mismatched test data should have higher cross-entropy."""
+        train = np.array([0, 1, 0, 1] * 50)
+        test = np.array([0, 2, 0, 2] * 50)
+        tm = transition_matrix(train, 3, pseudocount=0.1)
+        ce_match = cross_entropy(train, tm, 3)
+        ce_mismatch = cross_entropy(test, tm, 3)
+        assert ce_mismatch > ce_match
+
+    def test_empty_sequence(self):
+        tm = np.ones((3, 3)) / 3
+        ce = cross_entropy(np.array([], dtype=np.int32), tm, 3)
+        assert ce == 0.0
 
 
 # ---------------------------------------------------------------------------

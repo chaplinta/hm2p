@@ -489,6 +489,111 @@ def sequence_entropy(
 
 
 # ---------------------------------------------------------------------------
+# First-order Markov transition model (Rosenberg FirstTransProb)
+# ---------------------------------------------------------------------------
+
+
+def transition_matrix(
+    cell_seq: np.ndarray,
+    n_cells: int,
+    pseudocount: float = 0.0,
+) -> np.ndarray:
+    """Compute first-order transition probability matrix.
+
+    P[i, j] = probability of moving to cell j given currently at cell i.
+
+    Inspired by Rosenberg et al. FirstTransProb.
+
+    Args:
+        cell_seq: (M,) int array of cell indices (no consecutive duplicates).
+        n_cells: total number of cells.
+        pseudocount: additive smoothing (0 = MLE, >0 = Laplace).
+
+    Returns:
+        (n_cells, n_cells) float array — row-stochastic transition matrix.
+    """
+    counts = np.full((n_cells, n_cells), pseudocount)
+    for i in range(len(cell_seq) - 1):
+        a, b = cell_seq[i], cell_seq[i + 1]
+        if 0 <= a < n_cells and 0 <= b < n_cells:
+            counts[a, b] += 1
+
+    # Normalize rows
+    row_sums = counts.sum(axis=1, keepdims=True)
+    row_sums[row_sums == 0] = 1  # Avoid division by zero
+    return counts / row_sums
+
+
+def transition_entropy(
+    trans_mat: np.ndarray,
+    cell_seq: np.ndarray,
+) -> float:
+    """Compute average transition entropy (bits per step).
+
+    Weighted by empirical state occupancy.
+
+    Args:
+        trans_mat: (N, N) transition probability matrix.
+        cell_seq: (M,) cell sequence (for occupancy weighting).
+
+    Returns:
+        Average conditional entropy H(X_{t+1} | X_t) in bits.
+    """
+    n = trans_mat.shape[0]
+    # Empirical state distribution
+    counts = np.zeros(n)
+    for c in cell_seq:
+        if 0 <= c < n:
+            counts[c] += 1
+    total = counts.sum()
+    if total == 0:
+        return 0.0
+    pi = counts / total
+
+    # Per-state entropy
+    h = 0.0
+    for i in range(n):
+        if pi[i] > 0:
+            row = trans_mat[i]
+            for p in row:
+                if p > 0:
+                    h -= pi[i] * p * np.log2(p)
+    return float(h)
+
+
+def cross_entropy(
+    cell_seq: np.ndarray,
+    trans_mat: np.ndarray,
+    n_cells: int,
+) -> float:
+    """Compute cross-entropy of a sequence under a transition model.
+
+    Lower = better fit. Used for model evaluation (Rosenberg style).
+
+    Args:
+        cell_seq: (M,) test sequence.
+        trans_mat: (N, N) transition matrix (from training data).
+        n_cells: total number of cells.
+
+    Returns:
+        Cross-entropy in bits per step.
+    """
+    log_prob = 0.0
+    n_transitions = 0
+    for i in range(len(cell_seq) - 1):
+        a, b = cell_seq[i], cell_seq[i + 1]
+        if 0 <= a < n_cells and 0 <= b < n_cells:
+            p = trans_mat[a, b]
+            if p > 0:
+                log_prob -= np.log2(p)
+            else:
+                log_prob += 20  # Penalty for impossible transition
+            n_transitions += 1
+
+    return log_prob / n_transitions if n_transitions > 0 else 0.0
+
+
+# ---------------------------------------------------------------------------
 # Summary statistics
 # ---------------------------------------------------------------------------
 
