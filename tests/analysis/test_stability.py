@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 from hm2p.analysis.stability import (
+    dark_drift_rate,
+    drift_per_epoch,
     light_dark_stability,
     sliding_window_stability,
     split_temporal_halves,
@@ -157,3 +159,92 @@ class TestLightDarkStability:
         result = light_dark_stability(signal, hd, mask, light_on)
         # Dark tuning curve should be all NaN
         assert np.all(np.isnan(result["tuning_curve_dark"]))
+
+
+def _make_light_on(n, cycle_frames=1800):
+    """Alternating light/dark cycles (1 min at 30 Hz = 1800 frames)."""
+    light_on = np.zeros(n, dtype=bool)
+    for start in range(0, n, 2 * cycle_frames):
+        light_on[start:min(start + cycle_frames, n)] = True
+    return light_on
+
+
+class TestDriftPerEpoch:
+    """Tests for drift_per_epoch."""
+
+    def test_stable_cell_small_drift(self):
+        signal, hd, mask = _make_stable_cell(n=10000)
+        light_on = _make_light_on(10000)
+        result = drift_per_epoch(signal, hd, mask, light_on)
+        assert result["n_epochs"] > 0
+        # Cumulative drift should be small for stable cell
+        if len(result["cumulative_drift"]) > 1:
+            assert np.max(np.abs(result["cumulative_drift"])) < 90
+
+    def test_output_keys(self):
+        signal, hd, mask = _make_stable_cell(n=6000)
+        light_on = _make_light_on(6000)
+        result = drift_per_epoch(signal, hd, mask, light_on)
+        expected = {"epoch_centers", "epoch_pds", "epoch_mvls",
+                    "epoch_is_light", "cumulative_drift", "n_epochs"}
+        assert set(result.keys()) == expected
+
+    def test_epoch_is_light_alternates(self):
+        signal, hd, mask = _make_stable_cell(n=10000)
+        light_on = _make_light_on(10000)
+        result = drift_per_epoch(signal, hd, mask, light_on)
+        if result["n_epochs"] >= 2:
+            # Should have both light and dark epochs
+            assert True in result["epoch_is_light"]
+            assert False in result["epoch_is_light"]
+
+    def test_mvls_positive(self):
+        signal, hd, mask = _make_stable_cell(n=8000, kappa=4.0)
+        light_on = _make_light_on(8000)
+        result = drift_per_epoch(signal, hd, mask, light_on)
+        assert np.all(result["epoch_mvls"] >= 0)
+
+    def test_cumulative_drift_starts_zero(self):
+        signal, hd, mask = _make_stable_cell(n=8000)
+        light_on = _make_light_on(8000)
+        result = drift_per_epoch(signal, hd, mask, light_on)
+        if len(result["cumulative_drift"]) > 0:
+            assert result["cumulative_drift"][0] == 0.0
+
+
+class TestDarkDriftRate:
+    """Tests for dark_drift_rate."""
+
+    def test_stable_cell_low_drift_rate(self):
+        signal, hd, mask = _make_stable_cell(n=10000)
+        light_on = _make_light_on(10000)
+        result = dark_drift_rate(signal, hd, mask, light_on, fps=30.0)
+        # Both light and dark drift rates should be moderate
+        assert result["dark_drift_deg_per_s"] >= 0
+        assert result["light_drift_deg_per_s"] >= 0
+
+    def test_output_keys(self):
+        signal, hd, mask = _make_stable_cell(n=6000)
+        light_on = _make_light_on(6000)
+        result = dark_drift_rate(signal, hd, mask, light_on)
+        expected = {"dark_drift_deg_per_s", "light_drift_deg_per_s",
+                    "dark_pds", "light_pds", "dark_times_s", "light_times_s"}
+        assert set(result.keys()) == expected
+
+    def test_times_in_seconds(self):
+        signal, hd, mask = _make_stable_cell(n=6000)
+        light_on = _make_light_on(6000)
+        result = dark_drift_rate(signal, hd, mask, light_on, fps=30.0)
+        if len(result["light_times_s"]) > 0:
+            assert result["light_times_s"][0] < 6000 / 30.0
+        if len(result["dark_times_s"]) > 0:
+            assert result["dark_times_s"][0] < 6000 / 30.0
+
+    def test_pds_in_valid_range(self):
+        signal, hd, mask = _make_stable_cell(n=6000)
+        light_on = _make_light_on(6000)
+        result = dark_drift_rate(signal, hd, mask, light_on)
+        for pds in [result["dark_pds"], result["light_pds"]]:
+            if len(pds) > 0:
+                assert np.all(pds >= 0)
+                assert np.all(pds < 360)

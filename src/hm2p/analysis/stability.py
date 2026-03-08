@@ -191,3 +191,175 @@ def light_dark_stability(
         "tuning_curve_dark": tc_dark,
         "bin_centers": bc,
     }
+
+
+def drift_per_epoch(
+    signal: npt.NDArray[np.floating],
+    hd_deg: npt.NDArray[np.floating],
+    mask: npt.NDArray[np.bool_],
+    light_on: npt.NDArray[np.bool_],
+    n_bins: int = 36,
+    smoothing_sigma_deg: float = 6.0,
+) -> dict:
+    """Measure PD drift across sequential light/dark epochs.
+
+    Identifies individual light and dark epochs (contiguous blocks),
+    computes tuning curve per epoch, and tracks PD and MVL over time.
+
+    Parameters
+    ----------
+    signal : (n_frames,) float
+    hd_deg : (n_frames,) float
+    mask : (n_frames,) bool
+    light_on : (n_frames,) bool
+    n_bins : int
+    smoothing_sigma_deg : float
+
+    Returns
+    -------
+    dict
+        ``"epoch_centers"`` — frame index at centre of each epoch.
+        ``"epoch_pds"`` — preferred direction per epoch.
+        ``"epoch_mvls"`` — MVL per epoch.
+        ``"epoch_is_light"`` — bool per epoch.
+        ``"cumulative_drift"`` — cumulative PD drift from first epoch.
+        ``"n_epochs"`` — number of epochs.
+    """
+    n = len(signal)
+    # Find epoch boundaries
+    changes = np.where(np.diff(light_on.astype(int)) != 0)[0] + 1
+    boundaries = np.concatenate([[0], changes, [n]])
+
+    centers = []
+    pds = []
+    mvls = []
+    is_light = []
+
+    for i in range(len(boundaries) - 1):
+        start = boundaries[i]
+        end = boundaries[i + 1]
+        if end - start < n_bins:
+            continue
+
+        epoch_mask = np.zeros_like(mask)
+        epoch_mask[start:end] = mask[start:end]
+
+        if epoch_mask.sum() < n_bins:
+            continue
+
+        tc, bc = compute_hd_tuning_curve(
+            signal, hd_deg, epoch_mask, n_bins=n_bins,
+            smoothing_sigma_deg=smoothing_sigma_deg,
+        )
+        centers.append((start + end) // 2)
+        pds.append(preferred_direction(tc, bc))
+        mvls.append(mean_vector_length(tc, bc))
+        is_light.append(bool(light_on[start]))
+
+    pds_arr = np.array(pds, dtype=np.float64)
+    # Cumulative drift from first epoch
+    if len(pds_arr) > 0:
+        diffs = np.diff(pds_arr)
+        diffs = ((diffs + 180) % 360) - 180  # wrap
+        cum_drift = np.concatenate([[0.0], np.cumsum(diffs)])
+    else:
+        cum_drift = np.array([], dtype=np.float64)
+
+    return {
+        "epoch_centers": np.array(centers, dtype=int),
+        "epoch_pds": pds_arr,
+        "epoch_mvls": np.array(mvls, dtype=np.float64),
+        "epoch_is_light": np.array(is_light, dtype=bool),
+        "cumulative_drift": cum_drift,
+        "n_epochs": len(centers),
+    }
+
+
+def dark_drift_rate(
+    signal: npt.NDArray[np.floating],
+    hd_deg: npt.NDArray[np.floating],
+    mask: npt.NDArray[np.bool_],
+    light_on: npt.NDArray[np.bool_],
+    fps: float = 30.0,
+    window_frames: int = 300,
+    step_frames: int = 100,
+    n_bins: int = 36,
+    smoothing_sigma_deg: float = 6.0,
+) -> dict:
+    """Estimate drift rate during dark epochs.
+
+    Uses sliding windows within dark epochs to compute PD change per second.
+
+    Parameters
+    ----------
+    signal : (n_frames,) float
+    hd_deg : (n_frames,) float
+    mask : (n_frames,) bool
+    light_on : (n_frames,) bool
+    fps : float
+    window_frames : int
+    step_frames : int
+    n_bins : int
+    smoothing_sigma_deg : float
+
+    Returns
+    -------
+    dict
+        ``"dark_drift_deg_per_s"`` — mean absolute drift rate in dark.
+        ``"light_drift_deg_per_s"`` — mean absolute drift rate in light.
+        ``"dark_pds"`` — PDs during dark windows.
+        ``"light_pds"`` — PDs during light windows.
+        ``"dark_times_s"`` — time of each dark window centre.
+        ``"light_times_s"`` — time of each light window centre.
+    """
+    n = len(signal)
+    dark_centers = []
+    dark_pds = []
+    light_centers = []
+    light_pds = []
+
+    for start in range(0, n - window_frames + 1, step_frames):
+        end = start + window_frames
+        win_mask = np.zeros_like(mask)
+        win_mask[start:end] = mask[start:end]
+
+        if win_mask.sum() < n_bins:
+            continue
+
+        # Determine if mostly light or dark
+        light_frac = light_on[start:end].mean()
+
+        tc, bc = compute_hd_tuning_curve(
+            signal, hd_deg, win_mask, n_bins=n_bins,
+            smoothing_sigma_deg=smoothing_sigma_deg,
+        )
+        pd = preferred_direction(tc, bc)
+        center = (start + end) // 2
+
+        if light_frac > 0.5:
+            light_centers.append(center)
+            light_pds.append(pd)
+        else:
+            dark_centers.append(center)
+            dark_pds.append(pd)
+
+    def _drift_rate(pds_list, centers_list):
+        if len(pds_list) < 2:
+            return 0.0
+        pds = np.array(pds_list)
+        times = np.array(centers_list) / fps
+        diffs = np.diff(pds)
+        diffs = ((diffs + 180) % 360) - 180
+        dt = np.diff(times)
+        dt[dt == 0] = 1e-10
+        rates = np.abs(diffs) / dt
+        return float(np.mean(rates))
+
+    return {
+        "dark_drift_deg_per_s": _drift_rate(dark_pds, dark_centers),
+        "light_drift_deg_per_s": _drift_rate(light_pds, light_centers),
+        "dark_pds": np.array(dark_pds, dtype=np.float64),
+        "light_pds": np.array(light_pds, dtype=np.float64),
+        "dark_times_s": np.array(dark_centers, dtype=np.float64) / fps,
+        "light_times_s": np.array(light_centers, dtype=np.float64) / fps,
+    }
