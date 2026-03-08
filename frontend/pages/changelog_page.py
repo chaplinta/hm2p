@@ -10,6 +10,7 @@ st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.
 # Changelog entries — newest first
 # Each entry: (date, time, category, description)
 CHANGELOG = [
+    ("2026-03-08", "16:30", "feature", "Add AHV Analysis page and module — angular head velocity tuning curves, CW/CCW asymmetry index, anticipatory time delay estimation, AHV distribution"),
     ("2026-03-08", "16:00", "feature", "Add Population Dynamics page and module — PCA dimensionality with HD-colored PC1/PC2 ring, pairwise correlations, population vector correlation matrix, ensemble coherence over time"),
     ("2026-03-08", "15:30", "feature", "Add Stability Analysis page and module — first/second half tuning comparison, sliding window MVL/PD tracking, light/dark epoch analysis with polar plot overlays"),
     ("2026-03-08", "15:00", "feature", "Add Population Decoder page — Bayesian max-likelihood HD decoding, cross-validated accuracy, decoded-vs-actual scatter, posterior heatmap, population size/sharpness sweep"),
