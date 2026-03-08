@@ -16,10 +16,11 @@ from frontend.data import (
 # Map stage prefixes to page names for navigation
 STAGE_PAGE_MAP = {
     "ca_extraction": "Suite2p",
-    "pose": "Pipeline",
-    "kinematics": "Pipeline",
-    "calcium": "Pipeline",
+    "pose": "DLC Pose",
+    "kinematics": "Explorer",
+    "calcium": "Calcium",
     "sync": "Sync",
+    "analysis": "Analysis",
 }
 
 st.title("Sessions")

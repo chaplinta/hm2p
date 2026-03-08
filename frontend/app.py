@@ -38,11 +38,13 @@ dlc_page = st.Page(str(_app_dir / "pages/dlc_page.py"), title="DLC Pose", icon="
 sync_page = st.Page(str(_app_dir / "pages/sync_page.py"), title="Sync", icon=":material/sync:")
 analysis_page = st.Page(str(_app_dir / "pages/analysis_page.py"), title="Analysis", icon=":material/analytics:")
 compare_page = st.Page(str(_app_dir / "pages/compare_page.py"), title="Compare", icon=":material/compare:")
+explorer_page = st.Page(str(_app_dir / "pages/explorer_page.py"), title="Explorer", icon=":material/explore:")
 changelog_page = st.Page(str(_app_dir / "pages/changelog_page.py"), title="Changelog", icon=":material/history:")
 aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":material/cloud:")
 
 pg = st.navigation([
     sessions_page, pipeline_page, suite2p_page, calcium_page,
-    dlc_page, sync_page, analysis_page, compare_page, changelog_page, aws_page,
+    dlc_page, sync_page, analysis_page, compare_page, explorer_page,
+    changelog_page, aws_page,
 ])
 pg.run()
