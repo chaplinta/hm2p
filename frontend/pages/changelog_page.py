@@ -1,0 +1,67 @@
+"""Changelog page — tracks features, bug fixes, and updates with timestamps."""
+
+from __future__ import annotations
+
+import streamlit as st
+
+st.title("Changelog")
+st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.")
+
+# Changelog entries — newest first
+# Each entry: (date, time, category, description)
+CHANGELOG = [
+    ("2026-03-08", "03:30", "feature", "Add Changelog page to track all features and fixes with timestamps"),
+    ("2026-03-08", "03:25", "feature", "Add Cross-Session Comparison page with Penk vs non-Penk analysis, Mann-Whitney U tests"),
+    ("2026-03-08", "03:20", "feature", "Add DLC Pose monitoring page with live progress, EC2 status, trajectory viewer, likelihood QC"),
+    ("2026-03-08", "03:15", "feature", "Add Calcium data viewer with interactive traces, event overlays, heatmaps, correlation matrix, cell drill-down"),
+    ("2026-03-08", "03:10", "feature", "Expand Analysis page with multi-signal comparison (dF/F, deconv, events), MVL cross-signal scatter, significance agreement (Jaccard)"),
+    ("2026-03-08", "03:05", "feature", "Add Population Summary tab with per-ROI metrics across all signal types, CSV export"),
+    ("2026-03-08", "03:00", "feature", "Add Stage 6 analysis script (run_stage6_analysis.py) — runs analysis with all signal types and saves to analysis.h5 on S3"),
+    ("2026-03-08", "02:55", "feature", "Add analysis/save.py — HDF5 persistence for multi-signal analysis results"),
+    ("2026-03-08", "02:50", "fix", "Update pipeline page with accurate stage statuses (Stage 4 complete at 26/26, Stage 6 ready)"),
+    ("2026-03-08", "02:45", "feature", "Add analysis stage to S3 tracking (STAGE_PREFIXES now has 6 stages)"),
+    ("2026-03-07", "22:33", "fix", "Fix Suite2p off-by-one: trim frame_times to match dF/F columns in sync"),
+    ("2026-03-07", "20:00", "feature", "Expand test coverage to 626 tests (92% coverage)"),
+    ("2026-03-07", "18:00", "fix", "Fix kinematics tests for movement 0.14 API (load_poses.from_file)"),
+    ("2026-03-07", "16:00", "feature", "Add pipeline navigation and sync status to sessions page"),
+    ("2026-03-07", "15:00", "fix", "Fix movement API (0.14) and kinematics stats keys"),
+]
+
+CATEGORY_COLORS = {
+    "feature": "green",
+    "fix": "orange",
+    "improvement": "blue",
+    "breaking": "red",
+}
+
+CATEGORY_ICONS = {
+    "feature": ":sparkles:",
+    "fix": ":wrench:",
+    "improvement": ":chart_with_upwards_trend:",
+    "breaking": ":warning:",
+}
+
+# Filters
+categories = sorted(set(c[2] for c in CHANGELOG))
+selected_cats = st.multiselect("Filter by category", categories, default=categories)
+
+# Group by date
+from collections import defaultdict
+
+by_date: dict[str, list] = defaultdict(list)
+for date, time, cat, desc in CHANGELOG:
+    if cat in selected_cats:
+        by_date[date].append((time, cat, desc))
+
+for date in sorted(by_date.keys(), reverse=True):
+    st.subheader(date)
+    for time, cat, desc in sorted(by_date[date], reverse=True):
+        color = CATEGORY_COLORS.get(cat, "gray")
+        icon = CATEGORY_ICONS.get(cat, "")
+        st.markdown(f"**{time}** — :{color}[{cat}] — {desc}")
+
+st.markdown("---")
+st.caption(
+    "Entries are added automatically when features are built or bugs are fixed. "
+    "Newest entries appear at the top."
+)
