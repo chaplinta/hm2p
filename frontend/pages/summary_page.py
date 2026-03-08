@@ -1,33 +1,56 @@
-"""Summary Dashboard — key metrics at a glance for a single session.
+"""Summary Dashboard — key metrics at a glance across ALL sessions.
 
-Combines HD tuning, drift, gain, anchoring, and speed metrics
-into a single-page overview with colour-coded quality indicators.
+Shows all cells pooled across sessions by default, with optional
+filtering by celltype or animal. Falls back to synthetic data if
+no sync.h5 data is available yet.
 """
 
 from __future__ import annotations
+
+import logging
+import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from hm2p.analysis.anchoring import anchoring_speed, anchoring_time_course
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
+
 from hm2p.analysis.classify import classify_population, classification_summary_table
 from hm2p.analysis.gain import population_gain_modulation
 from hm2p.analysis.speed import speed_modulation_index
 from hm2p.analysis.stability import drift_per_epoch
 from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length
 
-st.title("Session Summary")
+log = logging.getLogger("hm2p.frontend.summary")
+
+st.title("Population Summary")
 st.caption(
-    "At-a-glance overview combining classification, drift, gain, "
-    "anchoring, and speed metrics for a synthetic session."
+    "At-a-glance overview of ALL cells across ALL sessions. "
+    "Filter by cell type or animal in the sidebar."
 )
 
 
-def _make_session(n_cells=10, n_frames=12000, kappa=3.0, noise=0.15,
-                  dark_drift=20.0, dark_gain=0.8, speed_gain=0.3,
-                  cycle_frames=1800, seed=42):
+# ── Data loading ────────────────────────────────────────────────────────────
+
+def _try_load_real_data():
+    """Attempt to load real sync.h5 data from S3."""
+    try:
+        from frontend.data import load_all_sync_data, session_filter_sidebar
+        all_data = load_all_sync_data()
+        if all_data["n_sessions"] > 0:
+            sessions = session_filter_sidebar(all_data["sessions"])
+            return sessions, True
+    except Exception as e:
+        log.debug("Could not load real data: %s", e)
+    return None, False
+
+
+def _make_synthetic_session(n_cells=10, n_frames=12000, kappa=3.0, noise=0.15,
+                            dark_drift=20.0, dark_gain=0.8, speed_gain=0.3,
+                            cycle_frames=1800, seed=42):
     """Generate a full synthetic session with all behavioural variables."""
     rng = np.random.default_rng(seed)
     hd = np.cumsum(rng.normal(0, 5, n_frames)) % 360.0
@@ -40,7 +63,7 @@ def _make_session(n_cells=10, n_frames=12000, kappa=3.0, noise=0.15,
         light_on[start:min(start + cycle_frames, n_frames)] = True
 
     signals = np.zeros((n_cells, n_frames))
-    n_hd = n_cells * 2 // 3  # 2/3 are HD-tuned
+    n_hd = n_cells * 2 // 3
 
     for i in range(n_cells):
         if i < n_hd:
@@ -70,122 +93,191 @@ def _make_session(n_cells=10, n_frames=12000, kappa=3.0, noise=0.15,
     return signals, hd, speed, mask, light_on
 
 
-# Sidebar
-n_cells = st.sidebar.slider("Total cells", 5, 20, 10, 1, key="sum_n")
-kappa = st.sidebar.slider("κ", 0.5, 8.0, 3.0, 0.5, key="sum_kappa")
-dark_drift = st.sidebar.slider("Dark drift (°)", 0.0, 60.0, 20.0, 5.0, key="sum_drift")
-dark_gain = st.sidebar.slider("Dark gain", 0.3, 1.2, 0.8, 0.05, key="sum_dgain")
+# ── Try real data, fall back to synthetic ───────────────────────────────────
 
-signals, hd, speed, mask, light_on = _make_session(
-    n_cells=n_cells, kappa=kappa, dark_drift=dark_drift, dark_gain=dark_gain,
-)
+real_sessions, has_real = _try_load_real_data()
 
-# Run classification
-with st.spinner("Running analysis..."):
-    pop = classify_population(
-        signals, hd, mask, n_shuffles=200,
-        rng=np.random.default_rng(42),
+if has_real and real_sessions:
+    st.success(
+        f"Loaded {len(real_sessions)} sessions, "
+        f"{sum(s['n_rois'] for s in real_sessions)} total cells"
+    )
+    use_synthetic = False
+
+    # Pooled data for analysis — run per session, aggregate results
+    all_cells_info = []
+    session_labels = []
+
+    for ses_data in real_sessions:
+        signals = ses_data["dff"]
+        hd = ses_data["hd_deg"]
+        mask = ses_data["active"] & ~ses_data["bad_behav"]
+        light_on = ses_data["light_on"]
+        speed = ses_data["speed_cm_s"]
+        n_rois = ses_data["n_rois"]
+        exp_id = ses_data["exp_id"]
+        celltype = ses_data["celltype"]
+
+        # Classify per session
+        pop = classify_population(
+            signals, hd, mask, n_shuffles=200,
+            rng=np.random.default_rng(42),
+        )
+        table = classification_summary_table(pop)
+        for row in table:
+            row["exp_id"] = exp_id
+            row["celltype"] = celltype
+            row["animal_id"] = ses_data["animal_id"]
+            all_cells_info.append(row)
+
+        # Gain + speed per cell
+        gains = population_gain_modulation(signals, hd, mask, light_on)
+        for i in range(n_rois):
+            smi = speed_modulation_index(signals[i], speed, mask)
+            all_cells_info[-n_rois + i]["gain_index"] = gains[i]["gain_index"]
+            all_cells_info[-n_rois + i]["smi"] = smi["speed_modulation_index"]
+
+    # Build DataFrame
+    df = pd.DataFrame(all_cells_info)
+    n_total = len(df)
+    n_hd = df["is_hd"].sum()
+
+else:
+    use_synthetic = True
+    st.info("No sync data available yet — showing synthetic demo. "
+            "Real data will load automatically when Stage 5 (sync) completes.")
+
+    # Synthetic fallback
+    n_cells = st.sidebar.slider("Total cells", 5, 20, 10, 1, key="sum_n")
+    kappa = st.sidebar.slider("κ", 0.5, 8.0, 3.0, 0.5, key="sum_kappa")
+    dark_drift = st.sidebar.slider("Dark drift (°)", 0.0, 60.0, 20.0, 5.0, key="sum_drift")
+    dark_gain = st.sidebar.slider("Dark gain", 0.3, 1.2, 0.8, 0.05, key="sum_dgain")
+
+    signals, hd, speed, mask, light_on = _make_synthetic_session(
+        n_cells=n_cells, kappa=kappa, dark_drift=dark_drift, dark_gain=dark_gain,
     )
 
-# === Top metrics ===
-col1, col2, col3, col4, col5 = st.columns(5)
-col1.metric("Total Cells", n_cells)
-col2.metric("HD Cells", pop["n_hd"])
-col3.metric("Non-HD", pop["n_non_hd"])
-col4.metric("HD Fraction", f"{pop['fraction_hd']:.0%}")
+    with st.spinner("Running analysis..."):
+        pop = classify_population(
+            signals, hd, mask, n_shuffles=200,
+            rng=np.random.default_rng(42),
+        )
 
-# Mean MVL of HD cells
-hd_mvls = [pop["cells"][i]["mvl"] for i in pop["hd_indices"]]
-col5.metric("Mean HD MVL", f"{np.mean(hd_mvls):.3f}" if hd_mvls else "N/A")
+    table = classification_summary_table(pop)
+    gains = population_gain_modulation(signals, hd, mask, light_on)
+    for i, row in enumerate(table):
+        smi = speed_modulation_index(signals[i], speed, mask)
+        row["gain_index"] = gains[i]["gain_index"]
+        row["smi"] = smi["speed_modulation_index"]
+        row["exp_id"] = "synthetic"
+        row["celltype"] = "demo"
+        row["animal_id"] = "demo"
+
+    df = pd.DataFrame(table)
+    n_total = len(df)
+    n_hd = df["is_hd"].sum()
+
+
+# ── Top metrics ─────────────────────────────────────────────────────────────
+
+col1, col2, col3, col4, col5 = st.columns(5)
+col1.metric("Total Cells", n_total)
+col2.metric("HD Cells", int(n_hd))
+col3.metric("Non-HD", int(n_total - n_hd))
+col4.metric("HD Fraction", f"{n_hd / n_total:.0%}" if n_total > 0 else "N/A")
+
+hd_mvls = df[df["is_hd"]]["mvl"].values
+col5.metric("Mean HD MVL", f"{np.mean(hd_mvls):.3f}" if len(hd_mvls) > 0 else "N/A")
+
+if not use_synthetic:
+    n_sessions = len(real_sessions)
+    celltypes = df["celltype"].value_counts()
+    ct_str = " | ".join(f"{ct}: {n}" for ct, n in celltypes.items())
+    st.caption(f"{n_sessions} sessions | {ct_str}")
 
 st.markdown("---")
 
-# === Classification table ===
+# ── Classification table ────────────────────────────────────────────────────
+
 st.subheader("Cell Classification")
-table = classification_summary_table(pop)
-df = pd.DataFrame(table)
-df["cell"] = df["cell"].apply(lambda x: f"Cell {x+1}")
-df_display = df.copy()
-df_display["mvl"] = df["mvl"].apply(lambda x: f"{x:.3f}")
-df_display["p_value"] = df["p_value"].apply(lambda x: f"{x:.4f}")
-df_display["reliability"] = df["reliability"].apply(lambda x: f"{x:.3f}")
-df_display["mi"] = df["mi"].apply(lambda x: f"{x:.4f}")
-df_display["preferred_direction"] = df["preferred_direction"].apply(lambda x: f"{x:.1f}°")
-st.dataframe(df_display, use_container_width=True, hide_index=True, height=200)
+df_display = df[["cell", "is_hd", "grade", "mvl", "p_value", "reliability", "mi",
+                  "preferred_direction"]].copy()
+if not use_synthetic:
+    df_display.insert(0, "session", df["exp_id"])
+    df_display.insert(1, "celltype", df["celltype"])
 
-# === Key analysis panels ===
-st.subheader("Key Metrics")
+df_display["mvl"] = df_display["mvl"].apply(lambda x: f"{x:.3f}")
+df_display["p_value"] = df_display["p_value"].apply(lambda x: f"{x:.4f}")
+df_display["reliability"] = df_display["reliability"].apply(lambda x: f"{x:.3f}")
+df_display["mi"] = df_display["mi"].apply(lambda x: f"{x:.4f}")
+df_display["preferred_direction"] = df_display["preferred_direction"].apply(lambda x: f"{x:.1f}°")
 
-col_drift, col_gain, col_speed = st.columns(3)
+st.dataframe(df_display, use_container_width=True, hide_index=True, height=300)
 
-with col_drift:
-    st.markdown("**Drift Analysis**")
-    if pop["hd_indices"]:
-        # Use first HD cell for drift analysis
-        idx0 = pop["hd_indices"][0]
-        dr = drift_per_epoch(signals[idx0], hd, mask, light_on)
-        if dr["n_epochs"] > 0 and len(dr["cumulative_drift"]) > 1:
-            max_drift = float(np.max(np.abs(dr["cumulative_drift"])))
-            st.metric("Max drift", f"{max_drift:.1f}°")
-            if max_drift > 45:
-                st.warning("Significant drift detected")
-            else:
-                st.success("Stable PD")
-        else:
-            st.info("Insufficient epochs")
+st.markdown(
+    "**Grades:** A = strong HD (MVL≥0.4, reliability≥0.8) · "
+    "B = moderate HD (MVL≥0.25) · C = weak HD · D = non-HD"
+)
+
+# ── Key metrics panels ──────────────────────────────────────────────────────
+
+st.subheader("Population Metrics")
+col_mvl, col_gain, col_speed = st.columns(3)
+
+with col_mvl:
+    st.markdown("**MVL Distribution**")
+    fig = go.Figure()
+    if not use_synthetic and "celltype" in df.columns:
+        for ct in df["celltype"].unique():
+            subset = df[df["celltype"] == ct]
+            fig.add_trace(go.Histogram(x=subset["mvl"], name=ct, opacity=0.7))
     else:
-        st.info("No HD cells")
+        fig.add_trace(go.Histogram(x=df["mvl"], name="All", marker_color="royalblue"))
+    fig.update_layout(height=250, xaxis_title="MVL", yaxis_title="Count",
+                       barmode="overlay", margin=dict(t=10, b=30))
+    st.plotly_chart(fig, use_container_width=True, key="mvl_hist")
 
 with col_gain:
     st.markdown("**Gain Modulation**")
-    gains = population_gain_modulation(signals, hd, mask, light_on)
-    gmi_values = [g["gain_index"] for g in gains]
-    mean_gmi = np.mean(gmi_values)
-    st.metric("Mean GMI", f"{mean_gmi:.3f}")
-    if abs(mean_gmi) > 0.15:
-        st.info(f"{'Light > Dark' if mean_gmi > 0 else 'Dark > Light'}")
-    else:
-        st.success("Similar gain")
+    if "gain_index" in df.columns:
+        mean_gmi = df["gain_index"].mean()
+        st.metric("Mean GMI", f"{mean_gmi:.3f}")
+        fig = go.Figure()
+        fig.add_trace(go.Histogram(x=df["gain_index"], marker_color="orange"))
+        fig.add_vline(x=0, line_dash="dash", line_color="gray")
+        fig.update_layout(height=200, xaxis_title="GMI", margin=dict(t=10, b=30))
+        st.plotly_chart(fig, use_container_width=True, key="gmi_hist")
 
 with col_speed:
     st.markdown("**Speed Modulation**")
-    smis = []
-    for i in range(n_cells):
-        r = speed_modulation_index(signals[i], speed, mask)
-        smis.append(r["speed_modulation_index"])
-    mean_smi = np.mean(smis)
-    st.metric("Mean SMI", f"{mean_smi:.3f}")
-    if abs(mean_smi) > 0.1:
-        st.info("Speed-modulated population")
-    else:
-        st.success("Speed-independent")
+    if "smi" in df.columns:
+        mean_smi = df["smi"].mean()
+        st.metric("Mean SMI", f"{mean_smi:.3f}")
+        fig = go.Figure()
+        fig.add_trace(go.Histogram(x=df["smi"], marker_color="green"))
+        fig.add_vline(x=0, line_dash="dash", line_color="gray")
+        fig.update_layout(height=200, xaxis_title="SMI", margin=dict(t=10, b=30))
+        st.plotly_chart(fig, use_container_width=True, key="smi_hist")
 
-# === Population polar plot ===
-st.subheader("HD Cell Tuning Overview")
-if pop["hd_indices"]:
-    fig = go.Figure()
-    for i, idx in enumerate(pop["hd_indices"][:8]):  # Limit to 8
-        tc, bc = compute_hd_tuning_curve(signals[idx], hd, mask)
-        theta_plot = np.concatenate([np.deg2rad(bc), [np.deg2rad(bc[0])]])
-        r_plot = np.concatenate([tc / tc.max(), [tc[0] / tc.max()]])  # Normalise
-        fig.add_trace(go.Scatterpolar(
-            r=r_plot, theta=np.rad2deg(theta_plot),
-            mode="lines", name=f"Cell {idx+1}",
-            line=dict(width=2),
-        ))
-    fig.update_layout(
-        height=350,
-        title="Normalised HD Tuning Curves (HD Cells)",
-        polar=dict(radialaxis=dict(showticklabels=False)),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-else:
-    st.info("No HD cells detected.")
+# ── Grade breakdown by celltype ─────────────────────────────────────────────
+
+if not use_synthetic and "celltype" in df.columns:
+    st.markdown("---")
+    st.subheader("Classification by Cell Type")
+    for ct in df["celltype"].unique():
+        subset = df[df["celltype"] == ct]
+        n_ct = len(subset)
+        n_ct_hd = subset["is_hd"].sum()
+        grade_counts = subset["grade"].value_counts().to_dict()
+        grades_str = " | ".join(f"{g}: {n}" for g, n in sorted(grade_counts.items()))
+        st.markdown(
+            f"**{ct}** — {n_ct} cells, {n_ct_hd} HD ({n_ct_hd/n_ct:.0%}) — {grades_str}"
+        )
 
 # Footer
 st.markdown("---")
 st.caption(
     "Summary combines classification (MVL + shuffle + reliability), "
-    "drift tracking, gain modulation, and speed modulation. "
+    "gain modulation index, and speed modulation index across all cells. "
     "Use individual analysis pages for detailed exploration."
 )

@@ -1,10 +1,15 @@
 """Cell Classification — automated HD cell identification.
 
-Combines MVL, shuffle significance, split-half reliability, and mutual
-information to classify cells as HD-tuned or non-HD.
+Shows ALL cells across ALL sessions by default. Optional filtering
+by cell type or animal in the sidebar. Falls back to synthetic demo
+if no sync.h5 data is available.
 """
 
 from __future__ import annotations
+
+import logging
+import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -12,17 +17,37 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
+
 from hm2p.analysis.classify import (
     classification_summary_table,
     classify_population,
 )
 from hm2p.analysis.tuning import compute_hd_tuning_curve
 
+log = logging.getLogger("hm2p.frontend.classify")
+
 st.title("Cell Classification")
 st.caption(
     "Automated HD cell identification using MVL, shuffle significance, "
-    "split-half reliability, and mutual information."
+    "split-half reliability, and mutual information. "
+    "Shows all cells across all sessions by default."
 )
+
+
+# ── Data loading ────────────────────────────────────────────────────────────
+
+def _try_load_real():
+    """Attempt to load real sync.h5 data."""
+    try:
+        from frontend.data import load_all_sync_data, session_filter_sidebar
+        all_data = load_all_sync_data()
+        if all_data["n_sessions"] > 0:
+            sessions = session_filter_sidebar(all_data["sessions"])
+            return sessions, True
+    except Exception:
+        pass
+    return None, False
 
 
 def _make_population(n_hd=6, n_noise=6, n_frames=3000, kappa=3.0,
@@ -34,7 +59,6 @@ def _make_population(n_hd=6, n_noise=6, n_frames=3000, kappa=3.0,
     n_total = n_hd + n_noise
     signals = np.zeros((n_total, n_frames))
 
-    # HD-tuned cells with varying preferences
     prefs = np.linspace(0, 360, n_hd, endpoint=False)
     for i in range(n_hd):
         kappas_i = np.clip(rng.normal(kappa, 0.8), 0.5, 10.0)
@@ -43,7 +67,6 @@ def _make_population(n_hd=6, n_noise=6, n_frames=3000, kappa=3.0,
         signals[i] += rng.normal(0, noise, n_frames)
         signals[i] = np.clip(signals[i], 0, None)
 
-    # Non-HD noise cells
     for i in range(n_hd, n_total):
         signals[i] = np.abs(rng.normal(1, 0.5, n_frames))
 
@@ -51,12 +74,9 @@ def _make_population(n_hd=6, n_noise=6, n_frames=3000, kappa=3.0,
     return signals, hd, mask
 
 
-# Parameters
-st.sidebar.header("Population")
-n_hd = st.sidebar.slider("HD cells", 2, 15, 6, 1, key="cls_nhd")
-n_noise = st.sidebar.slider("Noise cells", 2, 15, 6, 1, key="cls_nnoise")
-kappa = st.sidebar.slider("Mean κ", 0.5, 8.0, 3.0, 0.5, key="cls_kappa")
-noise = st.sidebar.slider("Noise σ", 0.05, 0.8, 0.2, 0.05, key="cls_noise")
+# ── Parameters (sidebar) ───────────────────────────────────────────────────
+
+real_sessions, has_real = _try_load_real()
 
 st.sidebar.header("Thresholds")
 mvl_thresh = st.sidebar.slider("MVL threshold", 0.05, 0.5, 0.15, 0.01, key="cls_mvl")
@@ -66,46 +86,126 @@ rel_thresh = st.sidebar.slider("Reliability threshold", 0.1, 0.9, 0.5, 0.05,
                                 key="cls_rel")
 n_shuffles = st.sidebar.slider("Shuffles", 100, 1000, 300, 50, key="cls_shuf")
 
-signals, hd, mask = _make_population(n_hd=n_hd, n_noise=n_noise,
-                                      kappa=kappa, noise=noise)
 
-with st.spinner("Classifying cells..."):
-    pop = classify_population(
-        signals, hd, mask,
-        mvl_threshold=mvl_thresh,
-        p_threshold=p_thresh,
-        reliability_threshold=rel_thresh,
-        n_shuffles=n_shuffles,
-        rng=np.random.default_rng(42),
+# ── Run classification ──────────────────────────────────────────────────────
+
+if has_real and real_sessions:
+    st.success(
+        f"Loaded {len(real_sessions)} sessions, "
+        f"{sum(s['n_rois'] for s in real_sessions)} total cells"
     )
 
-# Summary metrics
+    all_cells = []
+    all_signals_for_tuning = {}  # (exp_id, cell_idx) -> (signal, hd, mask)
+
+    with st.spinner("Classifying all cells..."):
+        for ses_data in real_sessions:
+            signals = ses_data["dff"]
+            hd = ses_data["hd_deg"]
+            mask = ses_data["active"] & ~ses_data["bad_behav"]
+            exp_id = ses_data["exp_id"]
+            celltype = ses_data["celltype"]
+
+            pop = classify_population(
+                signals, hd, mask,
+                mvl_threshold=mvl_thresh,
+                p_threshold=p_thresh,
+                reliability_threshold=rel_thresh,
+                n_shuffles=n_shuffles,
+                rng=np.random.default_rng(42),
+            )
+            table = classification_summary_table(pop)
+            for row in table:
+                row["exp_id"] = exp_id
+                row["celltype"] = celltype
+                row["animal_id"] = ses_data["animal_id"]
+                all_cells.append(row)
+                # Store for tuning curve plots
+                idx = row["cell"]
+                all_signals_for_tuning[(exp_id, idx)] = (signals[idx], hd, mask)
+
+    df = pd.DataFrame(all_cells)
+    n_total = len(df)
+    use_synthetic = False
+
+else:
+    st.info("No sync data available — showing synthetic demo.")
+    use_synthetic = True
+
+    st.sidebar.header("Population")
+    n_hd = st.sidebar.slider("HD cells", 2, 15, 6, 1, key="cls_nhd")
+    n_noise = st.sidebar.slider("Noise cells", 2, 15, 6, 1, key="cls_nnoise")
+    kappa = st.sidebar.slider("Mean κ", 0.5, 8.0, 3.0, 0.5, key="cls_kappa")
+    noise = st.sidebar.slider("Noise σ", 0.05, 0.8, 0.2, 0.05, key="cls_noise")
+
+    signals, hd, mask = _make_population(n_hd=n_hd, n_noise=n_noise,
+                                          kappa=kappa, noise=noise)
+
+    with st.spinner("Classifying cells..."):
+        pop = classify_population(
+            signals, hd, mask,
+            mvl_threshold=mvl_thresh,
+            p_threshold=p_thresh,
+            reliability_threshold=rel_thresh,
+            n_shuffles=n_shuffles,
+            rng=np.random.default_rng(42),
+        )
+
+    table = classification_summary_table(pop)
+    for row in table:
+        row["exp_id"] = "synthetic"
+        row["celltype"] = "demo"
+        row["animal_id"] = "demo"
+    df = pd.DataFrame(table)
+    n_total = len(df)
+
+    all_signals_for_tuning = {
+        ("synthetic", i): (signals[i], hd, mask) for i in range(n_total)
+    }
+
+
+# ── Summary metrics ────────────────────────────────────────────────────────
+
+n_hd_found = int(df["is_hd"].sum())
+
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Cells", n_hd + n_noise)
-col2.metric("HD Cells", pop["n_hd"])
-col3.metric("Non-HD Cells", pop["n_non_hd"])
-col4.metric("HD Fraction", f"{pop['fraction_hd']:.1%}")
+col1.metric("Total Cells", n_total)
+col2.metric("HD Cells", n_hd_found)
+col3.metric("Non-HD Cells", n_total - n_hd_found)
+col4.metric("HD Fraction", f"{n_hd_found / n_total:.1%}" if n_total > 0 else "N/A")
+
+if not use_synthetic:
+    # Per-celltype breakdown
+    for ct in df["celltype"].unique():
+        sub = df[df["celltype"] == ct]
+        n_ct_hd = sub["is_hd"].sum()
+        st.caption(f"**{ct}**: {len(sub)} cells, {n_ct_hd} HD ({n_ct_hd/len(sub):.0%})")
+
+
+# ── Tabs ────────────────────────────────────────────────────────────────────
 
 tab_table, tab_scatter, tab_tuning = st.tabs(["Summary Table", "Metric Scatter", "Tuning Curves"])
 
 with tab_table:
-    table = classification_summary_table(pop)
-    df = pd.DataFrame(table)
-    df["cell"] = df["cell"].apply(lambda x: f"Cell {x+1}")
-    df["mvl"] = df["mvl"].apply(lambda x: f"{x:.3f}")
-    df["p_value"] = df["p_value"].apply(lambda x: f"{x:.4f}")
-    df["reliability"] = df["reliability"].apply(lambda x: f"{x:.3f}")
-    df["mi"] = df["mi"].apply(lambda x: f"{x:.4f}")
-    df["preferred_direction"] = df["preferred_direction"].apply(lambda x: f"{x:.1f}°")
+    df_show = df[["cell", "is_hd", "grade", "mvl", "p_value", "reliability",
+                   "mi", "preferred_direction"]].copy()
+    if not use_synthetic:
+        df_show.insert(0, "session", df["exp_id"])
+        df_show.insert(1, "celltype", df["celltype"])
 
-    # Color HD vs non-HD
+    df_show["mvl"] = df_show["mvl"].apply(lambda x: f"{x:.3f}")
+    df_show["p_value"] = df_show["p_value"].apply(lambda x: f"{x:.4f}")
+    df_show["reliability"] = df_show["reliability"].apply(lambda x: f"{x:.3f}")
+    df_show["mi"] = df_show["mi"].apply(lambda x: f"{x:.4f}")
+    df_show["preferred_direction"] = df_show["preferred_direction"].apply(lambda x: f"{x:.1f}°")
+
     def _highlight_hd(row):
         if row["is_hd"]:
             return ["background-color: rgba(0, 180, 0, 0.15)"] * len(row)
         return [""] * len(row)
 
-    styled = df.style.apply(_highlight_hd, axis=1)
-    st.dataframe(styled, use_container_width=True, hide_index=True)
+    styled = df_show.style.apply(_highlight_hd, axis=1)
+    st.dataframe(styled, use_container_width=True, hide_index=True, height=400)
 
     st.markdown(
         "**Grades:** A = strong HD (MVL≥0.4, reliability≥0.8) · "
@@ -113,23 +213,26 @@ with tab_table:
     )
 
 with tab_scatter:
-    # MVL vs p-value scatter
-    cells = pop["cells"]
-    mvls = [c["mvl"] for c in cells]
-    pvals = [c["p_value"] for c in cells]
-    reliabilities = [c["reliability"] for c in cells]
-    mis = [c["mi"] for c in cells]
-    labels = [f"Cell {i+1}" for i in range(len(cells))]
-    is_hd = [c["is_hd"] for c in cells]
-    colors = ["HD" if h else "Non-HD" for h in is_hd]
+    mvls = df["mvl"].values
+    pvals = df["p_value"].values
+    reliabilities = df["reliability"].values
+    mis = df["mi"].values
+    labels = [f"Cell {r['cell']}" for _, r in df.iterrows()]
+
+    if not use_synthetic:
+        colors = df["celltype"].values
+        color_map = None  # Let plotly auto-assign
+    else:
+        colors = ["HD" if h else "Non-HD" for h in df["is_hd"]]
+        color_map = {"HD": "green", "Non-HD": "red"}
 
     col_a, col_b = st.columns(2)
     with col_a:
         fig = px.scatter(
             x=mvls, y=pvals, color=colors, text=labels,
-            labels={"x": "MVL", "y": "p-value", "color": "Class"},
+            labels={"x": "MVL", "y": "p-value", "color": "Type"},
             title="MVL vs Significance",
-            color_discrete_map={"HD": "green", "Non-HD": "red"},
+            color_discrete_map=color_map,
         )
         fig.add_hline(y=p_thresh, line_dash="dash", line_color="gray",
                       annotation_text=f"p={p_thresh}")
@@ -137,80 +240,87 @@ with tab_scatter:
                       annotation_text=f"MVL={mvl_thresh}")
         fig.update_yaxes(type="log")
         fig.update_layout(height=350)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="cls_mvl_p")
 
     with col_b:
         fig = px.scatter(
             x=mvls, y=reliabilities, color=colors, text=labels,
-            labels={"x": "MVL", "y": "Split-half r", "color": "Class"},
+            labels={"x": "MVL", "y": "Split-half r", "color": "Type"},
             title="MVL vs Reliability",
-            color_discrete_map={"HD": "green", "Non-HD": "red"},
+            color_discrete_map=color_map,
         )
         fig.add_hline(y=rel_thresh, line_dash="dash", line_color="gray",
                       annotation_text=f"r={rel_thresh}")
         fig.add_vline(x=mvl_thresh, line_dash="dash", line_color="gray")
         fig.update_layout(height=350)
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, key="cls_mvl_r")
 
     # MI vs MVL
     fig = px.scatter(
         x=mvls, y=mis, color=colors, text=labels,
-        labels={"x": "MVL", "y": "MI (bits)", "color": "Class"},
+        labels={"x": "MVL", "y": "MI (bits)", "color": "Type"},
         title="MVL vs Mutual Information",
-        color_discrete_map={"HD": "green", "Non-HD": "red"},
+        color_discrete_map=color_map,
     )
     fig.update_layout(height=300)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="cls_mvl_mi")
 
 with tab_tuning:
     st.subheader("Tuning Curves by Classification")
 
-    n_total = len(cells)
-    hd_idx = pop["hd_indices"]
-    non_hd_idx = [i for i in range(n_total) if i not in hd_idx]
+    hd_cells = df[df["is_hd"]]
+    non_hd_cells = df[~df["is_hd"]]
 
     col_hd, col_non = st.columns(2)
     with col_hd:
-        st.markdown("**HD Cells**")
-        if hd_idx:
-            for idx in hd_idx:
-                tc, bc = compute_hd_tuning_curve(signals[idx], hd, mask, n_bins=36)
+        st.markdown(f"**HD Cells ({len(hd_cells)})**")
+        for _, row in hd_cells.head(8).iterrows():
+            key = (row["exp_id"], row["cell"])
+            if key in all_signals_for_tuning:
+                sig, hd_arr, msk = all_signals_for_tuning[key]
+                tc, bc = compute_hd_tuning_curve(sig, hd_arr, msk, n_bins=36)
                 theta_plot = np.concatenate([np.deg2rad(bc), [np.deg2rad(bc[0])]])
                 r_plot = np.concatenate([tc, [tc[0]]])
                 fig = go.Figure(data=[go.Scatterpolar(
                     r=r_plot, theta=np.rad2deg(theta_plot),
                     mode="lines", line=dict(color="green", width=2),
-                    name=f"Cell {idx+1}",
                 )])
-                cell_info = cells[idx]
+                title = f"Cell {row['cell']}"
+                if not use_synthetic:
+                    title = f"{row['exp_id'][-7:]} C{row['cell']} ({row['celltype']})"
                 fig.update_layout(
                     height=220, margin=dict(l=30, r=30, t=40, b=20),
-                    title=f"Cell {idx+1} (MVL={cell_info['mvl']:.3f}, grade={classification_summary_table(pop)[idx]['grade']})",
+                    title=f"{title} MVL={row['mvl']:.3f} [{row['grade']}]",
                     polar=dict(radialaxis=dict(showticklabels=False)),
                     showlegend=False,
                 )
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No HD cells detected.")
+                st.plotly_chart(fig, use_container_width=True,
+                               key=f"tc_hd_{row['exp_id']}_{row['cell']}")
+        if len(hd_cells) > 8:
+            st.caption(f"Showing 8 of {len(hd_cells)} HD cells")
 
     with col_non:
-        st.markdown("**Non-HD Cells**")
-        for idx in non_hd_idx[:6]:  # Limit display
-            tc, bc = compute_hd_tuning_curve(signals[idx], hd, mask, n_bins=36)
-            theta_plot = np.concatenate([np.deg2rad(bc), [np.deg2rad(bc[0])]])
-            r_plot = np.concatenate([tc, [tc[0]]])
-            fig = go.Figure(data=[go.Scatterpolar(
-                r=r_plot, theta=np.rad2deg(theta_plot),
-                mode="lines", line=dict(color="red", width=2),
-                name=f"Cell {idx+1}",
-            )])
-            fig.update_layout(
-                height=220, margin=dict(l=30, r=30, t=40, b=20),
-                title=f"Cell {idx+1} (MVL={cells[idx]['mvl']:.3f})",
-                polar=dict(radialaxis=dict(showticklabels=False)),
-                showlegend=False,
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        st.markdown(f"**Non-HD Cells ({len(non_hd_cells)})**")
+        for _, row in non_hd_cells.head(6).iterrows():
+            key = (row["exp_id"], row["cell"])
+            if key in all_signals_for_tuning:
+                sig, hd_arr, msk = all_signals_for_tuning[key]
+                tc, bc = compute_hd_tuning_curve(sig, hd_arr, msk, n_bins=36)
+                theta_plot = np.concatenate([np.deg2rad(bc), [np.deg2rad(bc[0])]])
+                r_plot = np.concatenate([tc, [tc[0]]])
+                fig = go.Figure(data=[go.Scatterpolar(
+                    r=r_plot, theta=np.rad2deg(theta_plot),
+                    mode="lines", line=dict(color="red", width=2),
+                )])
+                fig.update_layout(
+                    height=220, margin=dict(l=30, r=30, t=40, b=20),
+                    title=f"Cell {row['cell']} MVL={row['mvl']:.3f}",
+                    polar=dict(radialaxis=dict(showticklabels=False)),
+                    showlegend=False,
+                )
+                st.plotly_chart(fig, use_container_width=True,
+                               key=f"tc_nhd_{row['exp_id']}_{row['cell']}")
+
 
 # Footer
 st.markdown("---")

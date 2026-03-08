@@ -186,6 +186,152 @@ def download_s3_bytes(bucket: str, key: str) -> bytes | None:
         return None
 
 
+@st.cache_data(ttl=300)
+def load_all_sync_data() -> dict:
+    """Load sync.h5 data for ALL sessions that have it.
+
+    Returns dict with:
+        ``"sessions"`` — list of dicts, each with keys:
+            exp_id, sub, ses, animal_id, celltype, dff, hd_deg, speed_cm_s,
+            light_on, active, bad_behav, n_rois, n_frames, frame_times
+        ``"n_sessions"`` — number of sessions loaded
+        ``"n_total_rois"`` — total ROIs across all sessions
+    """
+    import h5py
+    import numpy as np
+
+    experiments = load_experiments()
+    animals = load_animals()
+    animal_map = {a["animal_id"]: a for a in animals}
+    s3 = get_s3_client()
+    sessions = []
+
+    for exp in experiments:
+        exp_id = exp["exp_id"]
+        sub, ses = parse_session_id(exp_id)
+        animal_id = exp_id.split("_")[-1]
+        animal_info = animal_map.get(animal_id, {})
+
+        key = f"sync/{sub}/{ses}/sync.h5"
+        try:
+            resp = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key=key)
+            data = resp["Body"].read()
+        except Exception:
+            continue
+
+        try:
+            buf = io.BytesIO(data)
+            with h5py.File(buf, "r") as f:
+                dff = f["dff"][:]  # (n_rois, n_frames)
+                hd_deg = f["hd_deg"][:]
+                speed = f["speed_cm_s"][:] if "speed_cm_s" in f else np.zeros(len(hd_deg))
+                light_on = f["light_on"][:] if "light_on" in f else np.ones(len(hd_deg), dtype=bool)
+                active = f["active"][:] if "active" in f else np.ones(len(hd_deg), dtype=bool)
+                bad_behav = f["bad_behav"][:] if "bad_behav" in f else np.zeros(len(hd_deg), dtype=bool)
+                frame_times = f["frame_times"][:] if "frame_times" in f else np.arange(len(hd_deg), dtype=float)
+
+            sessions.append({
+                "exp_id": exp_id,
+                "sub": sub,
+                "ses": ses,
+                "animal_id": animal_id,
+                "celltype": animal_info.get("celltype", "unknown"),
+                "dff": dff,
+                "hd_deg": hd_deg,
+                "speed_cm_s": speed,
+                "light_on": light_on,
+                "active": active,
+                "bad_behav": bad_behav,
+                "n_rois": dff.shape[0],
+                "n_frames": dff.shape[1],
+                "frame_times": frame_times,
+            })
+        except Exception:
+            log.exception("Error reading sync.h5 for %s", exp_id)
+            continue
+
+    return {
+        "sessions": sessions,
+        "n_sessions": len(sessions),
+        "n_total_rois": sum(s["n_rois"] for s in sessions),
+    }
+
+
+def session_filter_sidebar(sessions: list[dict]) -> list[dict]:
+    """Add optional sidebar filters for celltype and animal. Returns filtered list."""
+    if not sessions:
+        return sessions
+
+    celltypes = sorted(set(s["celltype"] for s in sessions))
+    animals = sorted(set(s["animal_id"] for s in sessions))
+
+    with st.sidebar:
+        st.header("Filters (optional)")
+        sel_celltypes = st.multiselect(
+            "Cell type", celltypes, default=celltypes, key="filter_celltype",
+        )
+        sel_animals = st.multiselect(
+            "Animal", animals, default=animals, key="filter_animal",
+        )
+
+    filtered = [
+        s for s in sessions
+        if s["celltype"] in sel_celltypes and s["animal_id"] in sel_animals
+    ]
+    return filtered
+
+
+@st.cache_data(ttl=300)
+def get_s3_bucket_size(bucket: str) -> dict:
+    """Get total size and file count for an S3 bucket (or prefix).
+
+    Returns dict with ``"n_objects"``, ``"total_bytes"``, ``"total_gb"``.
+    """
+    s3 = get_s3_client()
+    total_bytes = 0
+    n_objects = 0
+    try:
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket):
+            for obj in page.get("Contents", []):
+                total_bytes += obj["Size"]
+                n_objects += 1
+    except Exception:
+        log.exception("Error listing bucket %s", bucket)
+    return {
+        "n_objects": n_objects,
+        "total_bytes": total_bytes,
+        "total_gb": total_bytes / 1_073_741_824,
+    }
+
+
+@st.cache_data(ttl=300)
+def get_s3_prefix_sizes(bucket: str, prefixes: list[str]) -> dict[str, dict]:
+    """Get size per S3 prefix (stage).
+
+    Returns dict[prefix -> {"n_objects", "total_bytes", "total_gb"}].
+    """
+    s3 = get_s3_client()
+    result = {}
+    for prefix in prefixes:
+        total_bytes = 0
+        n_objects = 0
+        try:
+            paginator = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=bucket, Prefix=prefix + "/"):
+                for obj in page.get("Contents", []):
+                    total_bytes += obj["Size"]
+                    n_objects += 1
+        except Exception:
+            pass
+        result[prefix] = {
+            "n_objects": n_objects,
+            "total_bytes": total_bytes,
+            "total_gb": total_bytes / 1_073_741_824,
+        }
+    return result
+
+
 def download_s3_numpy(bucket: str, key: str):
     """Download and load a .npy file from S3."""
     import numpy as np
