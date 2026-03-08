@@ -203,15 +203,34 @@ For a single-user research project, local or a small EC2 instance is simplest.
 - Registered frame viewer (S3 range request on data.bin)
 - Raw TIFF file listing from S3
 
-### Phase 3 — DLC / Pose Viewer (pending)
-- Keypoint overlay on video frames
-- Trajectory plots, likelihood heatmaps
+### Phase 3 — DLC / Pose & Calcium Viewer (done)
+- DLC monitoring page: live progress, EC2 status, per-session pose trajectory viewer,
+  likelihood box plots, QC metrics
+- Calcium data viewer: 4-tab interface (Overview heatmap + correlation matrix + per-ROI stats,
+  Trace Viewer with event/deconv overlays, Event Detection analysis, Cell Drill-down)
 
-### Phase 4 — Kinematics Viewer (pending)
-- HD time series + polar plot
-- Position heatmap, speed, AHV
+### Phase 4 — Cross-Session & Population Analysis (done)
+- Cross-session comparison page: Penk vs non-Penk, Mann-Whitney U tests, per-animal grouping
+- Population overview: aggregate 391 ROIs across 26 sessions, SNR/skewness/event rate distributions,
+  quality filtering with adjustable thresholds, full table with CSV export
+- Batch overview: at-a-glance quality metrics, ROI counts, SNR bars, color-coded status table
 
-### Phase 5 — Analysis (future)
-- HD tuning curves
-- Light on/off comparisons
-- Population-level summaries by celltype
+### Phase 5 — Analysis & Exploration (done)
+- Multi-signal analysis page: 6 tabs (Signal Comparison, Activity, HD Tuning, Place Tuning,
+  Robustness, Population Summary). Cross-signal MVL scatter, significance agreement (Jaccard).
+- Data Explorer: unified session drill-down with calcium traces, event overlays, light cycle
+  overlay, timestamps, pose trajectories, S3 file browser
+- Session Timeline: temporal overview with light cycles, speed, population dF/F heatmap,
+  event rate, per-ROI trace browser
+- ROI Gallery: grid view of all ROIs with mini traces, event overlays, sortable by SNR/event
+  rate/max dF/F, quality filtering
+- Event Browser: individual calcium transient analysis with waveform gallery, aligned mean
+  trace, event statistics (duration, peak, AUC, IEI), population raster
+- Correlations & Ensembles: pairwise correlation matrix with hierarchical clustering, PCA
+  dimensionality analysis, population co-activation and ensemble detection
+
+### Phase 6 — Kinematics & Tuning (blocked on DLC)
+- HD tuning curves with light on/off comparison (requires sync.h5)
+- Full condition-split analysis (movement × light × celltype)
+- Place tuning maps
+- Robustness analysis across parameter grids
