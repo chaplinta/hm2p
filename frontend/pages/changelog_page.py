@@ -10,6 +10,7 @@ st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.
 # Changelog entries — newest first
 # Each entry: (date, time, category, description)
 CHANGELOG = [
+    ("2026-03-08", "20:00", "feature", "Add Session Summary dashboard — at-a-glance classification, drift, gain, speed metrics with colour-coded indicators and normalised polar tuning overlay"),
     ("2026-03-08", "19:30", "feature", "Add Speed Modulation page and module — speed tuning curve, speed modulation index, HD tuning by speed tercile, polar overlay comparison"),
     ("2026-03-08", "19:00", "feature", "Add Cue Anchoring page and module — transition-aligned PD re-anchoring analysis, anchoring speed estimation, multi-cell drift vs anchoring comparison"),
     ("2026-03-08", "18:30", "feature", "Add Gain Modulation page and module — response amplitude comparison between light and dark, gain modulation index per cell, dynamic range scatter, epoch-by-epoch gain tracking"),

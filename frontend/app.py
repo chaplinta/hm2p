@@ -31,6 +31,7 @@ log.info("Page loaded: rendering app")
 # --- Multipage navigation using Streamlit's native system ---
 _app_dir = Path(__file__).resolve().parent
 home_page = st.Page(str(_app_dir / "pages/home_page.py"), title="Home", icon=":material/home:", default=True)
+summary_page = st.Page(str(_app_dir / "pages/summary_page.py"), title="Summary", icon=":material/summarize:")
 sessions_page = st.Page(str(_app_dir / "pages/sessions_page.py"), title="Sessions", icon=":material/table:")
 animals_page = st.Page(str(_app_dir / "pages/animals_page.py"), title="Animals", icon=":material/pets:")
 pipeline_page = st.Page(str(_app_dir / "pages/pipeline_page.py"), title="Pipeline", icon=":material/monitoring:")
@@ -69,7 +70,7 @@ changelog_page = st.Page(str(_app_dir / "pages/changelog_page.py"), title="Chang
 aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":material/cloud:")
 
 pg = st.navigation({
-    "Overview": [home_page, sessions_page, animals_page, pipeline_page, batch_page],
+    "Overview": [home_page, summary_page, sessions_page, animals_page, pipeline_page, batch_page],
     "Pipeline": [suite2p_page, calcium_page, dlc_page, sync_page],
     "Explore": [explorer_page, timeline_page, gallery_page, events_page, correlations_page, trace_compare_page],
     "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, decoder_page, stability_page, drift_page, gain_page, anchoring_page, speed_mod_page, pop_dynamics_page, ahv_page, info_theory_page, classify_page, signal_quality_page, qc_page],
