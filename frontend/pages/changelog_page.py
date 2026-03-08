@@ -10,6 +10,7 @@ st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.
 # Changelog entries — newest first
 # Each entry: (date, time, category, description)
 CHANGELOG = [
+    ("2026-03-08", "04:30", "feature", "Add Population Overview page — aggregate SNR, event rates, skewness distributions across all 391 ROIs, Penk vs non-Penk stats, quality filtering, CSV export"),
     ("2026-03-08", "04:00", "feature", "Add Data Explorer page — unified drill-down with calcium traces, event overlays, light cycle overlay, timestamps, pose trajectories, S3 file browser"),
     ("2026-03-08", "03:30", "feature", "Add Changelog page to track all features and fixes with timestamps"),
     ("2026-03-08", "03:25", "feature", "Add Cross-Session Comparison page with Penk vs non-Penk analysis, Mann-Whitney U tests"),
