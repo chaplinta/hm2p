@@ -54,7 +54,11 @@ def _load_dlc_data(sub: str, ses: str) -> tuple:
     if not h5_data:
         return None, None, None, None
 
-    df = pd.read_hdf(io.BytesIO(h5_data))
+    import tempfile
+    with tempfile.NamedTemporaryFile(suffix=".h5", delete=True) as tmp:
+        tmp.write(h5_data)
+        tmp.flush()
+        df = pd.read_hdf(tmp.name)
     if not hasattr(df.columns, "get_level_values"):
         return None, None, None, None
 

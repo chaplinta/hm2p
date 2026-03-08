@@ -332,7 +332,11 @@ if avail.get("pose"):
             h5_data = download_s3_bytes(DERIVATIVES_BUCKET, h5_files[0]["key"])
             if h5_data:
                 try:
-                    df = pd.read_hdf(io.BytesIO(h5_data))
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(suffix=".h5", delete=True) as tmp:
+                        tmp.write(h5_data)
+                        tmp.flush()
+                        df = pd.read_hdf(tmp.name)
                     if isinstance(df.columns, pd.MultiIndex):
                         scorer = df.columns.get_level_values(0)[0]
                         bodyparts = df.columns.get_level_values(1).unique().tolist()

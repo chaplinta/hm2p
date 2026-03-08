@@ -170,7 +170,11 @@ else:
 
             h5_data = download_s3_bytes(DERIVATIVES_BUCKET, h5_key)
             if h5_data:
-                df = pd.read_hdf(io.BytesIO(h5_data))
+                import tempfile
+                with tempfile.NamedTemporaryFile(suffix=".h5", delete=True) as tmp:
+                    tmp.write(h5_data)
+                    tmp.flush()
+                    df = pd.read_hdf(tmp.name)
 
                 # DLC multi-index: scorer -> bodyparts -> coords
                 if isinstance(df.columns, pd.MultiIndex):
