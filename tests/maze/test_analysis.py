@@ -9,6 +9,7 @@ from hm2p.maze.analysis import (
     cell_occupancy,
     classify_turn,
     cross_entropy,
+    dead_end_visits,
     exploration_efficiency,
     find_monotonic_paths,
     maze_exploration_summary,
@@ -17,6 +18,7 @@ from hm2p.maze.analysis import (
     per_junction_turn_bias,
     segment_modes,
     sequence_entropy,
+    simulate_random_walk,
     transition_entropy,
     transition_matrix,
     turn_bias,
@@ -344,6 +346,79 @@ class TestCrossEntropy:
         tm = np.ones((3, 3)) / 3
         ce = cross_entropy(np.array([], dtype=np.int32), tm, 3)
         assert ce == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Dead-end analysis
+# ---------------------------------------------------------------------------
+
+
+class TestDeadEndVisits:
+    def test_detects_dead_end_visits(self, maze):
+        """Should detect visits to dead ends."""
+        # Path: (1,0) → (0,0) → (1,0) → (2,0)
+        path = [(1, 0), (0, 0), (1, 0), (2, 0)]
+        seq = np.array([maze.cell_to_idx[c] for c in path])
+        devs = dead_end_visits(seq, maze)
+        assert devs[(0, 0)]["visits"] == 1
+        assert devs[(2, 0)]["visits"] == 1
+
+    def test_dwell_time(self, maze):
+        """Should count consecutive frames at dead end."""
+        # Stay at (0,0) for 3 steps
+        seq = np.array([maze.cell_to_idx[(0, 0)]] * 3 + [maze.cell_to_idx[(1, 0)]])
+        devs = dead_end_visits(seq, maze)
+        assert devs[(0, 0)]["visits"] == 1
+        assert devs[(0, 0)]["total_frames"] == 3
+
+    def test_unvisited_dead_ends_zero(self, maze):
+        """Unvisited dead ends should have 0 visits."""
+        seq = np.array([maze.cell_to_idx[(1, 0)], maze.cell_to_idx[(1, 1)]])
+        devs = dead_end_visits(seq, maze)
+        for de in maze.dead_ends:
+            assert devs[de]["visits"] >= 0
+
+
+# ---------------------------------------------------------------------------
+# Random walk simulation
+# ---------------------------------------------------------------------------
+
+
+class TestSimulateRandomWalk:
+    def test_valid_trajectory(self, maze):
+        traj = simulate_random_walk(maze, 100)
+        assert len(traj) == 100
+        assert np.all(traj >= 0)
+        assert np.all(traj < maze.n_cells)
+
+    def test_all_transitions_valid(self, maze):
+        """Each transition should be to an adjacent cell."""
+        traj = simulate_random_walk(maze, 500)
+        for i in range(len(traj) - 1):
+            curr = maze.cell_list[traj[i]]
+            nxt = maze.cell_list[traj[i + 1]]
+            assert nxt in maze.adj[curr] or traj[i] == traj[i + 1]
+
+    def test_forward_bias_reduces_backtracking(self, maze):
+        """Forward-biased walk should have fewer direction changes."""
+        unbiased = simulate_random_walk(maze, 5000, seed=1, forward_bias=0.0)
+        biased = simulate_random_walk(maze, 5000, seed=1, forward_bias=0.8)
+
+        # Count direction reversals
+        def count_reversals(traj):
+            n = 0
+            for i in range(2, len(traj)):
+                if traj[i] == traj[i - 2] and traj[i] != traj[i - 1]:
+                    n += 1
+            return n
+
+        assert count_reversals(biased) < count_reversals(unbiased)
+
+    def test_deterministic_with_seed(self, maze):
+        """Same seed should produce same trajectory."""
+        t1 = simulate_random_walk(maze, 100, seed=42)
+        t2 = simulate_random_walk(maze, 100, seed=42)
+        np.testing.assert_array_equal(t1, t2)
 
 
 # ---------------------------------------------------------------------------

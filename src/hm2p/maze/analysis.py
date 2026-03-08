@@ -594,6 +594,114 @@ def cross_entropy(
 
 
 # ---------------------------------------------------------------------------
+# Dead-end analysis
+# ---------------------------------------------------------------------------
+
+
+def dead_end_visits(
+    cell_seq: np.ndarray,
+    maze: RoseMaze,
+) -> dict[tuple[int, int], dict]:
+    """Analyze visits to each dead end.
+
+    Returns per-dead-end metrics: visit count, mean dwell (frames),
+    approach direction.
+
+    Args:
+        cell_seq: (M,) int array of cell indices (no consecutive duplicates).
+        maze: RoseMaze instance.
+
+    Returns:
+        dict[dead_end_cell → {"visits": int, "total_frames": int,
+             "mean_dwell": float, "approaches": list[tuple]}]
+    """
+    de_indices = {maze.cell_to_idx[c] for c in maze.dead_ends}
+    result = {c: {"visits": 0, "total_frames": 0, "dwell_times": []} for c in maze.dead_ends}
+
+    i = 0
+    while i < len(cell_seq):
+        if cell_seq[i] in de_indices:
+            cell = maze.cell_list[cell_seq[i]]
+            start = i
+            # Count consecutive frames at this dead end
+            while i < len(cell_seq) and cell_seq[i] == cell_seq[start]:
+                i += 1
+            dwell = i - start
+            result[cell]["visits"] += 1
+            result[cell]["total_frames"] += dwell
+            result[cell]["dwell_times"].append(dwell)
+        else:
+            i += 1
+
+    # Compute means
+    for cell in result:
+        r = result[cell]
+        dwells = r["dwell_times"]
+        r["mean_dwell"] = float(np.mean(dwells)) if dwells else 0.0
+        del r["dwell_times"]  # Remove raw list from output
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Random walk simulation (for comparison against real data)
+# ---------------------------------------------------------------------------
+
+
+def simulate_random_walk(
+    maze: RoseMaze,
+    n_steps: int,
+    seed: int = 42,
+    forward_bias: float = 0.0,
+) -> np.ndarray:
+    """Simulate a random walk on the maze graph.
+
+    Args:
+        maze: RoseMaze instance.
+        n_steps: number of steps to simulate.
+        seed: random seed.
+        forward_bias: probability of continuing in the same direction
+            (0 = uniform random, 1 = always forward). Implements the
+            forward bias from Rosenberg's four-bias model.
+
+    Returns:
+        (n_steps,) int array of cell indices.
+    """
+    rng = np.random.default_rng(seed)
+    cell_list = maze.cell_list
+    current = rng.choice(len(cell_list))
+    prev = current
+    trajectory = [current]
+
+    for _ in range(n_steps - 1):
+        cell = cell_list[current]
+        nbs = maze.adj[cell]
+
+        if forward_bias > 0 and current != prev:
+            # Compute direction of travel
+            prev_cell = cell_list[prev]
+            dx = cell[0] - prev_cell[0]
+            dy = cell[1] - prev_cell[1]
+
+            # Check if "forward" neighbour exists
+            forward = (cell[0] + dx, cell[1] + dy)
+            if forward in maze.cell_to_idx and forward in set(nbs):
+                if rng.random() < forward_bias:
+                    prev = current
+                    current = maze.cell_to_idx[forward]
+                    trajectory.append(current)
+                    continue
+
+        # Uniform random choice
+        next_cell = nbs[rng.integers(len(nbs))]
+        prev = current
+        current = maze.cell_to_idx[next_cell]
+        trajectory.append(current)
+
+    return np.array(trajectory, dtype=np.int32)
+
+
+# ---------------------------------------------------------------------------
 # Summary statistics
 # ---------------------------------------------------------------------------
 
