@@ -114,8 +114,8 @@ class TestParseSessionId:
 class TestStagePrefixes:
     """Verify the STAGE_PREFIXES constant."""
 
-    def test_has_five_stages(self):
-        assert len(STAGE_PREFIXES) == 5
+    def test_has_six_stages(self):
+        assert len(STAGE_PREFIXES) == 6
 
     def test_expected_keys(self):
         assert set(STAGE_PREFIXES.keys()) == {
@@ -124,6 +124,7 @@ class TestStagePrefixes:
             "kinematics",
             "calcium",
             "sync",
+            "analysis",
         }
 
     def test_ca_extraction_label(self):

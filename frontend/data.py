@@ -25,6 +25,7 @@ STAGE_PREFIXES = {
     "kinematics": "Stage 3 — Kinematics",
     "calcium": "Stage 4 — Calcium",
     "sync": "Stage 5 — Sync",
+    "analysis": "Stage 6 — Analysis",
 }
 
 

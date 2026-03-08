@@ -36,27 +36,27 @@ STAGE_STATUS = {
     "pose": {
         "label": "Stage 2 -- DLC Pose",
         "status": "In progress",
-        "detail": "Running on EC2 g4dn.xlarge (SuperAnimal TopViewMouse, DLC 3.0rc13)",
+        "detail": "Running on EC2 g4dn.xlarge (SuperAnimal TopViewMouse, DLC 3.0rc13, ~3h/session)",
     },
     "movement": {
         "label": "Stage 3 -- Kinematics",
         "status": "Blocked",
-        "detail": "Blocked on Stage 2 (DLC pose estimation)",
+        "detail": "Blocked on Stage 2 (DLC pose estimation); script ready at scripts/run_stage3_kinematics.py",
     },
     "calcium": {
         "label": "Stage 4 -- Calcium processing",
-        "status": "In progress",
-        "detail": "Processing from S3 derivatives (dF/F + event detection)",
+        "status": "Complete",
+        "detail": "26/26 ca.h5 on S3 (dF/F, events, noise_probs; 391 ROIs total)",
     },
     "sync": {
         "label": "Stage 5 -- Sync",
         "status": "Blocked",
-        "detail": "Blocked on Stage 3 + Stage 4",
+        "detail": "Blocked on Stage 3; script ready at scripts/run_stage5_sync.py",
     },
     "analysis": {
         "label": "Stage 6 -- Analysis",
-        "status": "Blocked",
-        "detail": "Framework ready; blocked on Stage 5",
+        "status": "Ready",
+        "detail": "Multi-signal analysis ready (dff/deconv/events); run scripts/run_stage6_analysis.py",
     },
 }
 
