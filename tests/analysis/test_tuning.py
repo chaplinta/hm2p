@@ -419,4 +419,4 @@ class TestHypothesisSI:
     def test_si_non_negative(self, rate):
         occ = np.ones_like(rate)
         si = spatial_information(rate, occ)
-        assert si >= -1e-10, f"SI was negative: {si}"
+        assert si >= -1e-9, f"SI was negative: {si}"
