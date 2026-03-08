@@ -113,28 +113,56 @@ completed_jobs = [
         "sessions": 26,
         "note": "Completed 26/26 sessions",
     },
+    {
+        "stage": "Stage 2 — DLC (sequential, 7 sessions)",
+        "instance": "g4dn.xlarge",
+        "hours": 19,
+        "spot": False,
+        "sessions": 7,
+        "note": "7/26 sessions on T4 On-Demand (~2.7h each, Mar 7-8)",
+    },
 ]
 
-# Planned/in-progress jobs
-planned_jobs = [
-    {
-        "stage": "Stage 2 — DLC (current: single instance)",
-        "instance": "g4dn.xlarge",
-        "hours": 78,
-        "spot": False,
-        "sessions": 26,
-        "note": "~3h/session on T4",
-    },
-    {
-        "stage": "Stage 2 — DLC (planned: 4x parallel A10G)",
-        "instance": "g5.xlarge",
-        "hours": 10,
-        "n_instances": 4,
-        "spot": True,
-        "sessions": 26,
-        "note": "4x parallel, ~1.5h/session on A10G",
-    },
-]
+# In-progress / planned jobs
+planned_jobs = []
+
+# ── Live EC2 instance tracking ────────────────────────────────────────────
+# Query running hm2p instances to estimate current costs
+try:
+    import boto3
+    import datetime
+
+    ec2_client = boto3.client("ec2", region_name=REGION)
+    resp = ec2_client.describe_instances(
+        Filters=[
+            {"Name": "tag:Project", "Values": ["hm2p-dlc", "hm2p"]},
+            {"Name": "instance-state-name", "Values": ["running", "stopped", "stopping"]},
+        ]
+    )
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for res in resp["Reservations"]:
+        for inst in res["Instances"]:
+            tags = {t["Key"]: t["Value"] for t in inst.get("Tags", [])}
+            launch_time = inst.get("LaunchTime")
+            if launch_time:
+                hours_running = (now - launch_time).total_seconds() / 3600
+                itype = inst["InstanceType"]
+                state = inst["State"]["Name"]
+                name = tags.get("Name", inst["InstanceId"])
+                is_spot = inst.get("InstanceLifecycle") == "spot"
+
+                planned_jobs.append({
+                    "stage": f"Active — {name}",
+                    "instance": itype,
+                    "hours": round(hours_running, 1),
+                    "spot": is_spot,
+                    "n_instances": 1,
+                    "sessions": 0,
+                    "note": f"{state} since {str(launch_time)[:19]} UTC"
+                        f" ({'Spot' if is_spot else 'On-Demand'})",
+                })
+except Exception as e:
+    log.warning("Could not query EC2 instances: %s", e)
 
 st.subheader("Completed Jobs")
 total_completed_cost = 0
@@ -154,19 +182,24 @@ for job in completed_jobs:
 
 st.metric("Total Completed", f"${total_completed_cost:.2f}")
 
-st.subheader("Planned / In-Progress")
-for job in planned_jobs:
-    pricing = EC2_PRICING.get(job["instance"], EC2_PRICING["g4dn.xlarge"])
-    rate = pricing["spot_approx"] if job.get("spot") else pricing["on_demand"]
-    n_inst = job.get("n_instances", 1)
-    cost = rate * job["hours"] * n_inst
-    spot_label = "Spot" if job.get("spot") else "On-Demand"
+total_active_cost = 0
+if planned_jobs:
+    st.subheader("Active / In-Progress")
+    for job in planned_jobs:
+        pricing = EC2_PRICING.get(job["instance"], EC2_PRICING["g4dn.xlarge"])
+        rate = pricing["spot_approx"] if job.get("spot") else pricing["on_demand"]
+        n_inst = job.get("n_instances", 1)
+        cost = rate * job["hours"] * n_inst
+        total_active_cost += cost
+        spot_label = "Spot" if job.get("spot") else "On-Demand"
 
-    st.markdown(
-        f"**{job['stage']}** — `{job['instance']}` ({pricing['gpu']}) "
-        f"× {n_inst} — {job['hours']}h {spot_label} — **${cost:.2f}**"
-    )
-    st.caption(f"  {job['note']}")
+        st.markdown(
+            f"**{job['stage']}** — `{job['instance']}` ({pricing['gpu']}) "
+            f"× {n_inst} — {job['hours']}h {spot_label} — **${cost:.2f}**"
+        )
+        st.caption(f"  {job['note']}")
+
+    st.metric("Active Instance Cost (so far)", f"${total_active_cost:.2f}")
 
 
 # ── EC2 Instance Pricing Reference ──────────────────────────────────────────
@@ -239,14 +272,19 @@ except Exception:
 
 s3_monthly = raw_monthly + deriv_monthly
 
-col1, col2, col3 = st.columns(3)
+total_ec2 = total_completed_cost + total_active_cost
+total_all = total_ec2 + s3_monthly
+
+col1, col2, col3, col4 = st.columns(4)
 col1.metric("S3 Storage (monthly)", f"${s3_monthly:.2f}")
-col2.metric("EC2 Compute (to date)", f"${total_completed_cost:.2f}")
-col3.metric("Total to Date", f"${total_completed_cost + s3_monthly:.2f}")
+col2.metric("EC2 Completed", f"${total_completed_cost:.2f}")
+col3.metric("EC2 Active", f"${total_active_cost:.2f}")
+col4.metric("Total to Date", f"${total_all:.2f}")
 
 st.caption(
-    "S3 cost is per month. EC2 cost is cumulative. "
-    "Does not include data transfer egress or API request costs (typically < $0.10)."
+    "S3 cost is per month. EC2 cost is cumulative (completed + active). "
+    "Actual AWS bill may differ slightly due to EBS volumes, data transfer, "
+    "and API request costs. Check AWS Cost Explorer for exact figures."
 )
 
 st.markdown("---")

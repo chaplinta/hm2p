@@ -1,6 +1,11 @@
 """Bootstrap significance testing for HD and place tuning via circular time shift.
 
 All functions are pure numpy — no I/O, no classes.
+
+Circular shift method follows:
+    Muller et al. 1987. "The effects of changes in the environment on the
+    spatial firing of hippocampal complex-spike cells." J Neurosci
+    7(7):1951-1968. doi:10.1523/JNEUROSCI.07-07-01951.1987
 """
 
 from __future__ import annotations

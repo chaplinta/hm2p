@@ -14,7 +14,11 @@ def skaggs_info_rate(
     tuning_curve: npt.NDArray[np.floating],
     occupancy: npt.NDArray[np.floating],
 ) -> float:
-    """Skaggs et al. (1993) spatial/HD information rate (bits/spike).
+    """Spatial/HD information rate (bits/spike).
+
+    Skaggs et al. 1993. "An information-theoretic approach to deciphering
+    the hippocampal code." NIPS 5:1030-1037.
+    doi:10.1162/neco.1996.8.6.1345
 
     SI = sum_i p_i * (r_i / r_mean) * log2(r_i / r_mean)
 

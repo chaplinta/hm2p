@@ -18,6 +18,9 @@ import numpy as np
 # Keys in kinematics.h5 that are boolean (use nearest-neighbour resampling)
 _BOOL_KEYS: frozenset[str] = frozenset({"light_on", "bad_behav", "active"})
 
+# Keys that are categorical integers (use nearest-neighbour, keep dtype)
+_CATEGORICAL_KEYS: frozenset[str] = frozenset({"syllable_id"})
+
 
 def resample_to_imaging_rate(
     values: np.ndarray,
@@ -104,6 +107,17 @@ def run(
             continue
         if key in _BOOL_KEYS:
             datasets[key] = resample_bool_to_imaging_rate(arr, src_times, dst_times)
+        elif key in _CATEGORICAL_KEYS:
+            # Nearest-neighbour for integer categories (syllable_id)
+            indices = np.searchsorted(src_times, dst_times, side="left")
+            indices = np.clip(indices, 0, len(arr) - 1)
+            datasets[key] = arr[indices]
+        elif key == "syllable_prob" and arr.ndim == 2:
+            # 2D probability matrix — resample each column independently
+            resampled = np.empty((len(dst_times), arr.shape[1]), dtype=np.float32)
+            for col in range(arr.shape[1]):
+                resampled[:, col] = resample_to_imaging_rate(arr[:, col], src_times, dst_times)
+            datasets[key] = resampled
         else:
             datasets[key] = resample_to_imaging_rate(arr, src_times, dst_times).astype(np.float32)
 

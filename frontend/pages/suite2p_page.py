@@ -182,8 +182,8 @@ if f_traces is not None and cell_mask.any():
     col4.metric("Frame rate", f"{ops_dict.get('fs', 0):.1f} Hz")
 
 # Tabs
-tab_map, tab_traces, tab_class, tab_stats, tab_reg, tab_tiff = st.tabs(
-    ["ROI Map", "Traces", "Classification", "Cell Stats", "Registration", "TIFF Images"]
+tab_map, tab_traces, tab_soma, tab_class, tab_stats, tab_reg, tab_tiff = st.tabs(
+    ["ROI Map", "Traces", "Soma / Dendrite", "Classification", "Cell Stats", "Registration", "TIFF Images"]
 )
 
 
@@ -274,6 +274,225 @@ with tab_traces:
             plt.tight_layout()
             st.pyplot(fig)
             plt.close()
+
+
+# ── Soma / Dendrite ──────────────────────────────────────────────────────
+with tab_soma:
+    import matplotlib.pyplot as plt
+
+    if stat is None or iscell is None or f_traces is None:
+        st.warning("stat.npy, iscell.npy, and F.npy are required for soma/dendrite classification.")
+    else:
+        from hm2p.extraction.suite2p import classify_roi_types
+
+        # Classify all ROIs (accepted + rejected)
+        all_types = classify_roi_types(list(stat))
+        all_types = np.array(all_types)
+
+        # Filter to accepted cells only
+        cell_idx = np.where(cell_mask)[0]
+        cell_types = all_types[cell_mask]
+        soma_mask = cell_types == "soma"
+        dend_mask = cell_types == "dend"
+        artefact_mask = cell_types == "artefact"
+
+        n_soma = int(soma_mask.sum())
+        n_dend = int(dend_mask.sum())
+        n_artefact = int(artefact_mask.sum())
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Soma", n_soma)
+        col2.metric("Dendrite", n_dend)
+        col3.metric("Artefact", n_artefact)
+        col4.metric("Total cells", n_cells)
+
+        st.caption(
+            "Classification uses Suite2p stat.npy shape features: "
+            "aspect_ratio > 2.5 → dendrite, radius < 2 or compact < 0.1 → artefact, else → soma."
+        )
+
+        # --- Shape feature distributions ---
+        st.subheader("Shape Features by Type")
+
+        aspect_ratios = np.array([s.get("aspect_ratio", 1.0) for s in stat[cell_mask]])
+        radii = np.array([s.get("radius", 5.0) for s in stat[cell_mask]])
+        compacts = np.array([s.get("compact", 1.0) for s in stat[cell_mask]])
+        npix = np.array([s.get("npix", 0) for s in stat[cell_mask]])
+
+        fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+        colors = {"soma": "#2196F3", "dend": "#FF5722", "artefact": "#9E9E9E"}
+
+        for label, mask in [("soma", soma_mask), ("dend", dend_mask), ("artefact", artefact_mask)]:
+            if mask.any():
+                axes[0].hist(aspect_ratios[mask], bins=20, alpha=0.6, color=colors[label], label=f"{label} ({mask.sum()})")
+                axes[1].hist(radii[mask], bins=20, alpha=0.6, color=colors[label], label=label)
+                axes[2].hist(compacts[mask], bins=20, alpha=0.6, color=colors[label], label=label)
+
+        axes[0].axvline(2.5, color="red", linestyle="--", linewidth=1, label="threshold")
+        axes[0].set_xlabel("Aspect Ratio")
+        axes[0].set_title("Aspect Ratio")
+        axes[0].legend(fontsize=8)
+        axes[1].set_xlabel("Radius (px)")
+        axes[1].set_title("Radius")
+        axes[2].set_xlabel("Compactness")
+        axes[2].set_title("Compactness")
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close()
+
+        # --- ROI map colored by type ---
+        st.subheader("ROI Map — Soma vs Dendrite")
+        mean_img = ops_dict.get("meanImg")
+        if mean_img is not None:
+            fig, ax = plt.subplots(figsize=(8, 8))
+            vmin, vmax = np.percentile(mean_img, [1, 99])
+            ax.imshow(mean_img, cmap="gray", vmin=vmin, vmax=vmax)
+
+            ly, lx = mean_img.shape
+            roi_img = np.zeros((ly, lx, 4), dtype=np.float32)
+
+            for i, roi_idx in enumerate(cell_idx):
+                s = stat[roi_idx]
+                ypix = s["ypix"]
+                xpix = s["xpix"]
+                valid = (ypix >= 0) & (ypix < ly) & (xpix >= 0) & (xpix < lx)
+                yp, xp = ypix[valid], xpix[valid]
+
+                if cell_types[i] == "soma":
+                    roi_img[yp, xp] = [0.13, 0.59, 0.95, 0.4]  # blue
+                elif cell_types[i] == "dend":
+                    roi_img[yp, xp] = [1.0, 0.34, 0.13, 0.4]   # orange
+                else:
+                    roi_img[yp, xp] = [0.62, 0.62, 0.62, 0.3]   # grey
+
+            ax.imshow(roi_img)
+            # Legend
+            from matplotlib.patches import Patch
+            ax.legend(
+                handles=[
+                    Patch(facecolor=colors["soma"], alpha=0.6, label=f"Soma ({n_soma})"),
+                    Patch(facecolor=colors["dend"], alpha=0.6, label=f"Dendrite ({n_dend})"),
+                    Patch(facecolor=colors["artefact"], alpha=0.6, label=f"Artefact ({n_artefact})"),
+                ],
+                loc="upper right", fontsize=9,
+            )
+            ax.set_title("ROI Classification: Soma (blue) / Dendrite (orange)")
+            ax.axis("off")
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close()
+
+        # --- Example traces by type ---
+        st.subheader("Example Traces")
+
+        fs = ops_dict.get("fs", 30.0)
+        n_example = st.slider("Traces per type", 1, 10, 3, key="soma_n_traces")
+
+        for label, mask, color in [("Soma", soma_mask, "#2196F3"), ("Dendrite", dend_mask, "#FF5722")]:
+            idx_of_type = cell_idx[mask]
+            if len(idx_of_type) == 0:
+                continue
+
+            st.markdown(f"**{label}** ({len(idx_of_type)} total)")
+            show_idx = idx_of_type[:n_example]
+
+            fig, axes = plt.subplots(len(show_idx), 1, figsize=(14, 1.8 * len(show_idx)), sharex=True)
+            if len(show_idx) == 1:
+                axes = [axes]
+
+            for ax, roi in zip(axes, show_idx):
+                trace = f_traces[roi]
+                f0 = np.percentile(trace, 10)
+                dff = (trace - f0) / f0 if f0 > 0 else trace
+                time_s = np.arange(len(dff)) / fs
+
+                ax.plot(time_s, dff, linewidth=0.5, color=color)
+                ar = stat[roi].get("aspect_ratio", 0)
+                rad = stat[roi].get("radius", 0)
+                ax.set_ylabel(f"ROI {roi}\nAR={ar:.1f}", fontsize=8)
+                ax.spines[["top", "right"]].set_visible(False)
+
+            axes[-1].set_xlabel("Time (s)")
+            fig.suptitle(f"{label} dF/F Traces", fontsize=12, y=1.01)
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close()
+
+        # --- Soma vs Dendrite comparison stats ---
+        st.subheader("Soma vs Dendrite Comparison")
+
+        if n_soma > 0 and n_dend > 0:
+            # Compute dF/F stats per ROI
+            soma_idx = cell_idx[soma_mask]
+            dend_idx = cell_idx[dend_mask]
+
+            def _roi_stats(indices):
+                peak_dff = []
+                mean_dff = []
+                for roi in indices:
+                    trace = f_traces[roi]
+                    f0 = np.percentile(trace, 10)
+                    if f0 > 0:
+                        dff = (trace - f0) / f0
+                        peak_dff.append(np.percentile(dff, 95))
+                        mean_dff.append(np.mean(dff))
+                    else:
+                        peak_dff.append(0)
+                        mean_dff.append(0)
+                return np.array(peak_dff), np.array(mean_dff)
+
+            soma_peak, soma_mean = _roi_stats(soma_idx)
+            dend_peak, dend_mean = _roi_stats(dend_idx)
+
+            fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+
+            # Peak dF/F
+            axes[0].hist(soma_peak, bins=15, alpha=0.6, color=colors["soma"], label="Soma")
+            axes[0].hist(dend_peak, bins=15, alpha=0.6, color=colors["dend"], label="Dendrite")
+            axes[0].set_xlabel("Peak dF/F (95th percentile)")
+            axes[0].set_title("Peak Activity")
+            axes[0].legend(fontsize=8)
+
+            # Mean dF/F
+            axes[1].hist(soma_mean, bins=15, alpha=0.6, color=colors["soma"], label="Soma")
+            axes[1].hist(dend_mean, bins=15, alpha=0.6, color=colors["dend"], label="Dendrite")
+            axes[1].set_xlabel("Mean dF/F")
+            axes[1].set_title("Mean Activity")
+
+            # Size comparison
+            axes[2].hist(npix[soma_mask], bins=15, alpha=0.6, color=colors["soma"], label="Soma")
+            axes[2].hist(npix[dend_mask], bins=15, alpha=0.6, color=colors["dend"], label="Dendrite")
+            axes[2].set_xlabel("ROI size (pixels)")
+            axes[2].set_title("ROI Size")
+
+            plt.tight_layout()
+            st.pyplot(fig)
+            plt.close()
+
+            # Summary table
+            import pandas as pd
+            comparison = pd.DataFrame({
+                "Metric": ["Count", "Mean peak dF/F", "Mean dF/F", "Median size (px)", "Median aspect ratio"],
+                "Soma": [
+                    n_soma,
+                    f"{soma_peak.mean():.3f}",
+                    f"{soma_mean.mean():.3f}",
+                    f"{np.median(npix[soma_mask]):.0f}",
+                    f"{np.median(aspect_ratios[soma_mask]):.2f}",
+                ],
+                "Dendrite": [
+                    n_dend,
+                    f"{dend_peak.mean():.3f}",
+                    f"{dend_mean.mean():.3f}",
+                    f"{np.median(npix[dend_mask]):.0f}",
+                    f"{np.median(aspect_ratios[dend_mask]):.2f}",
+                ],
+            })
+            st.dataframe(comparison, hide_index=True, use_container_width=True)
+        elif n_soma > 0:
+            st.info("No dendrites detected in this session — all accepted ROIs are classified as soma.")
+        else:
+            st.info("No soma detected — unusual, check classification thresholds.")
 
 
 # ── Classification ───────────────────────────────────────────────────────

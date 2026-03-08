@@ -83,6 +83,18 @@ def run(
     F = F_all[cell_mask]
     Fneu = Fneu_all[cell_mask]
 
+    # --- Classify ROI types (soma / dend / artefact) ---
+    from hm2p.extraction.suite2p import classify_roi_types
+
+    plane_dir = suite2p_dir / "plane0"
+    stat_path = plane_dir / "stat.npy"
+    if stat_path.exists():
+        stat = list(np.load(stat_path, allow_pickle=True))
+        all_types = classify_roi_types(stat)
+        roi_types = [all_types[i] for i in np.flatnonzero(cell_mask)]
+    else:
+        roi_types = ["soma"] * int(cell_mask.sum())
+
     # --- Load imaging frame times ---
     ts = read_h5(timestamps_h5)
     frame_times = ts["frame_times_imaging"].astype(np.float64)
@@ -111,11 +123,16 @@ def run(
 
     batch_result = detect_events_batch(dff, fps=fps)
 
+    # Encode roi_types as uint8 array: 0=soma, 1=dend, 2=artefact
+    type_map = {"soma": 0, "dend": 1, "artefact": 2}
+    roi_type_arr = np.array([type_map.get(t, 0) for t in roi_types], dtype=np.uint8)
+
     datasets: dict[str, np.ndarray] = {
         "frame_times": frame_times,
         "dff": dff,
         "event_masks": batch_result.event_masks,
         "noise_probs": batch_result.noise_probs,
+        "roi_types": roi_type_arr,
     }
 
     # --- Optional CASCADE spike inference ---

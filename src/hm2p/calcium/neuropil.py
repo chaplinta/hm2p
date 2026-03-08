@@ -5,6 +5,16 @@ Two methods (configured in config/pipeline.yaml via neuropil_method):
     fissa  — Spatial ICA on ROI masks + raw movie (accurate in dense tissue)
 
 CaImAn handles neuropil internally — this module is a no-op for CaImAn sessions.
+
+References:
+    Pachitariu et al. 2017. "Suite2p: beyond 10,000 neurons with standard
+    two-photon microscopy." doi:10.1101/061507
+    https://github.com/MouseLand/suite2p
+
+    Keemink et al. 2018. "FISSA: A neuropil decontamination toolbox for
+    calcium imaging signals." Sci Rep 8:3493.
+    doi:10.1038/s41598-018-21640-2
+    https://github.com/rochefort-lab/fissa
 """
 
 from __future__ import annotations

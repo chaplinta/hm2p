@@ -81,5 +81,44 @@ def append_syllables_to_h5(
         syllable_ids: (N,) int16 array of syllable indices.
         syllable_probs: Optional (N, S) float32 posterior probabilities.
         backend: Which tool produced the syllables (stored as HDF5 attribute).
+
+    Raises:
+        FileNotFoundError: If kinematics_h5 does not exist.
+        ValueError: If syllable_ids length doesn't match existing frame count.
     """
-    raise NotImplementedError
+    import h5py
+
+    if not kinematics_h5.exists():
+        raise FileNotFoundError(f"kinematics.h5 not found: {kinematics_h5}")
+
+    syllable_ids = np.asarray(syllable_ids, dtype=np.int16)
+    if syllable_ids.ndim != 1:
+        raise ValueError(f"syllable_ids must be 1D, got shape {syllable_ids.shape}")
+
+    with h5py.File(kinematics_h5, "a") as f:
+        # Validate length matches existing data
+        if "frame_times" in f:
+            n_frames = len(f["frame_times"])
+            if len(syllable_ids) != n_frames:
+                raise ValueError(
+                    f"syllable_ids length ({len(syllable_ids)}) != "
+                    f"frame_times length ({n_frames})"
+                )
+
+        # Write syllable_id (overwrite if exists)
+        if "syllable_id" in f:
+            del f["syllable_id"]
+        ds = f.create_dataset("syllable_id", data=syllable_ids)
+        ds.attrs["backend"] = backend
+
+        # Write syllable_prob if provided
+        if syllable_probs is not None:
+            syllable_probs = np.asarray(syllable_probs, dtype=np.float32)
+            if syllable_probs.shape[0] != len(syllable_ids):
+                raise ValueError(
+                    f"syllable_probs rows ({syllable_probs.shape[0]}) != "
+                    f"syllable_ids length ({len(syllable_ids)})"
+                )
+            if "syllable_prob" in f:
+                del f["syllable_prob"]
+            f.create_dataset("syllable_prob", data=syllable_probs)

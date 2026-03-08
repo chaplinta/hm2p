@@ -18,7 +18,11 @@ Algorithm (per ROI):
      the event to be kept (significance filter).
   8. Record event onset/offset indices and peak dF/F amplitude.
 
-Reference: Voigts & Harnett 2020, Neuron.
+Reference:
+    Voigts & Harnett 2020. "Somatic and dendritic encoding of spatial
+    variables in retrosplenial cortex differs during 2D navigation."
+    Neuron 105(2):237-245. doi:10.1016/j.neuron.2019.10.016
+    https://github.com/jvoigts/cell_labeling_bhv
 """
 
 from __future__ import annotations

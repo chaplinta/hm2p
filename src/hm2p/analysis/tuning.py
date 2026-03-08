@@ -3,6 +3,15 @@
 Pure numpy/scipy functions for computing head-direction tuning curves,
 place rate maps, and associated statistics. No I/O — all functions take
 numpy arrays as input and return numpy arrays or scalars.
+
+References:
+    Skaggs et al. 1996. "Theta phase precession in hippocampal neuronal
+    populations and the compression of temporal sequences."
+    Hippocampus 6(2):149-172. doi:10.1002/(SICI)1098-1063(1996)6:2<149::AID-HIPO6>3.0.CO;2-K
+
+    Taube et al. 1990. "Head-direction cells recorded from the
+    postsubiculum in freely moving rats." J Neurosci 10(2):420-435.
+    doi:10.1523/JNEUROSCI.10-02-00420.1990
 """
 
 from __future__ import annotations

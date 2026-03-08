@@ -229,6 +229,8 @@ def load_all_sync_data() -> dict:
                 active = f["active"][:] if "active" in f else np.ones(len(hd_deg), dtype=bool)
                 bad_behav = f["bad_behav"][:] if "bad_behav" in f else np.zeros(len(hd_deg), dtype=bool)
                 frame_times = f["frame_times"][:] if "frame_times" in f else np.arange(len(hd_deg), dtype=float)
+                # roi_types: 0=soma, 1=dend, 2=artefact; default all soma
+                roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
 
             sessions.append({
                 "exp_id": exp_id,
@@ -242,6 +244,7 @@ def load_all_sync_data() -> dict:
                 "light_on": light_on,
                 "active": active,
                 "bad_behav": bad_behav,
+                "roi_types": roi_types,
                 "n_rois": dff.shape[0],
                 "n_frames": dff.shape[1],
                 "frame_times": frame_times,
@@ -257,13 +260,22 @@ def load_all_sync_data() -> dict:
     }
 
 
-def session_filter_sidebar(sessions: list[dict]) -> list[dict]:
-    """Add optional sidebar filters for celltype and animal. Returns filtered list."""
+def session_filter_sidebar(sessions: list[dict], show_roi_filter: bool = True) -> list[dict]:
+    """Add optional sidebar filters for celltype, animal, and ROI type.
+
+    When ``show_roi_filter`` is True, adds a soma/dendrite selector. If the user
+    selects "Soma only" (default), each session's ``dff`` and ``roi_types`` are
+    filtered to keep only soma ROIs, and ``n_rois`` is updated.
+
+    Returns filtered (and optionally ROI-subsetted) list.
+    """
     if not sessions:
         return sessions
 
     celltypes = sorted(set(s["celltype"] for s in sessions))
     animals = sorted(set(s["animal_id"] for s in sessions))
+
+    ROI_TYPE_MAP = {0: "soma", 1: "dend", 2: "artefact"}
 
     with st.sidebar:
         st.header("Filters (optional)")
@@ -273,11 +285,41 @@ def session_filter_sidebar(sessions: list[dict]) -> list[dict]:
         sel_animals = st.multiselect(
             "Animal", animals, default=animals, key="filter_animal",
         )
+        if show_roi_filter:
+            roi_filter = st.radio(
+                "ROI type",
+                ["Soma only", "Dendrite only", "All ROIs"],
+                index=0,
+                key="filter_roi_type",
+            )
+        else:
+            roi_filter = "All ROIs"
 
     filtered = [
         s for s in sessions
         if s["celltype"] in sel_celltypes and s["animal_id"] in sel_animals
     ]
+
+    # Apply ROI type filtering within each session
+    if roi_filter != "All ROIs":
+        import numpy as np
+        target_code = 0 if roi_filter == "Soma only" else 1
+        roi_filtered = []
+        for s in filtered:
+            roi_types = s.get("roi_types")
+            if roi_types is not None and len(roi_types) == s["n_rois"]:
+                mask = roi_types == target_code
+                if mask.any():
+                    s_copy = dict(s)
+                    s_copy["dff"] = s["dff"][mask]
+                    s_copy["roi_types"] = roi_types[mask]
+                    s_copy["n_rois"] = int(mask.sum())
+                    roi_filtered.append(s_copy)
+            else:
+                # No roi_types info — include as-is (assumed soma)
+                roi_filtered.append(s)
+        filtered = roi_filtered
+
     return filtered
 
 

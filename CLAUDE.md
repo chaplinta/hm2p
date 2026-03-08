@@ -18,6 +18,17 @@ All new code goes in `/Users/tristan/Neuro/hm2p-v2`, connected to `github.com/ch
 branch (`feat/`, `fix/`, `docs/`, etc.), commit there, and open a PR. See
 [docs/contributing.md](docs/contributing.md) for details.
 
+**Citation policy:** Any analysis method or algorithm taken from a paper **must** be cited
+in three places:
+
+1. **Code** — module/function docstring with: first author, year, title, journal, DOI,
+   and GitHub URL if available.
+2. **Docs** — relevant markdown files under `docs/`.
+3. **Frontend** — a "Methods & References" expander on any page that uses the method.
+
+Citation format: `Author et al. YEAR. "Title." Journal. doi:XX.XXXX/XXXXX`
+Plus GitHub/code URL if the method has a public implementation.
+
 ---
 
 ## Design Philosophy

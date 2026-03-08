@@ -276,6 +276,33 @@ if not use_synthetic and "celltype" in df.columns:
 
 # Footer
 st.markdown("---")
+
+with st.expander("Methods & References"):
+    st.markdown("""
+**dF/F baseline:** Rolling Gaussian smooth + min + max filter
+(Pachitariu et al. 2017, doi:10.1101/061507).
+[Suite2p GitHub](https://github.com/MouseLand/suite2p)
+
+**Event detection:** Percentile-based noise model with CDF thresholding
+(Voigts & Harnett 2020, doi:10.1016/j.neuron.2019.10.016).
+[GitHub](https://github.com/jvoigts/cell_labeling_bhv)
+
+**HD tuning curves:** Occupancy-normalized spike/calcium rate per angular bin
+(Taube et al. 1990, doi:10.1523/JNEUROSCI.10-02-00420.1990).
+
+**Mean vector length (MVL):** Resultant vector length of tuning curve
+(Skaggs et al. 1996, doi:10.1002/(SICI)1098-1063(1996)6:2<149::AID-HIPO6>3.0.CO;2-K).
+
+**Spatial information:** Skaggs information rate in bits/spike
+(Skaggs et al. 1993, doi:10.1162/neco.1996.8.6.1345).
+
+**Significance testing:** Circular time-shift shuffle
+(Muller et al. 1987, doi:10.1523/JNEUROSCI.07-07-01951.1987).
+
+**Soma/dendrite classification:** Aspect ratio heuristic from Suite2p stat.npy
+(aspect_ratio > 2.5 = dendrite). Analysis defaults to **soma only**.
+""")
+
 st.caption(
     "Summary combines classification (MVL + shuffle + reliability), "
     "gain modulation index, and speed modulation index across all cells. "
