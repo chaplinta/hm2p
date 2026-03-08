@@ -43,6 +43,7 @@ compare_page = st.Page(str(_app_dir / "pages/compare_page.py"), title="Compare",
 population_page = st.Page(str(_app_dir / "pages/population_page.py"), title="Population", icon=":material/groups:")
 light_page = st.Page(str(_app_dir / "pages/light_page.py"), title="Light/Dark", icon=":material/light_mode:")
 light_compare_page = st.Page(str(_app_dir / "pages/light_compare_page.py"), title="Light Compare", icon=":material/wb_twilight:")
+stats_page = st.Page(str(_app_dir / "pages/stats_page.py"), title="Pub Stats", icon=":material/description:")
 explorer_page = st.Page(str(_app_dir / "pages/explorer_page.py"), title="Explorer", icon=":material/explore:")
 timeline_page = st.Page(str(_app_dir / "pages/timeline_page.py"), title="Timeline", icon=":material/timeline:")
 gallery_page = st.Page(str(_app_dir / "pages/gallery_page.py"), title="ROI Gallery", icon=":material/grid_view:")
@@ -58,7 +59,7 @@ pg = st.navigation({
     "Overview": [home_page, sessions_page, animals_page, pipeline_page, batch_page],
     "Pipeline": [suite2p_page, calcium_page, dlc_page, sync_page],
     "Explore": [explorer_page, timeline_page, gallery_page, events_page, correlations_page, trace_compare_page],
-    "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, qc_page],
+    "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, qc_page],
     "System": [aws_page, changelog_page],
 })
 pg.run()

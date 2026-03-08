@@ -10,6 +10,7 @@ st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.
 # Changelog entries — newest first
 # Each entry: (date, time, category, description)
 CHANGELOG = [
+    ("2026-03-08", "11:00", "feature", "Add Publication Statistics page — ready-to-report methods text, Penk vs non-Penk comparisons (SNR, event rate, active fraction, max dF/F), per-session table, CSV export"),
     ("2026-03-08", "10:30", "feature", "Add Cross-Session Light Analysis — aggregate light modulation index across all sessions, Penk vs non-Penk comparison with Mann-Whitney, KS test, Wilcoxon"),
     ("2026-03-08", "10:00", "feature", "Add Light/Dark Analysis page — compare activity between light-on and light-off epochs using timestamps.h5, modulation index, per-cycle analysis, population response"),
     ("2026-03-08", "09:30", "feature", "Add Home page — project dashboard with pipeline status overview, quick navigation links, recent changelog"),
