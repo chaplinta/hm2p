@@ -10,6 +10,7 @@ st.caption("Features, bug fixes, and updates to the hm2p dashboard and pipeline.
 # Changelog entries — newest first
 # Each entry: (date, time, category, description)
 CHANGELOG = [
+    ("2026-03-08", "15:30", "feature", "Add Stability Analysis page and module — first/second half tuning comparison, sliding window MVL/PD tracking, light/dark epoch analysis with polar plot overlays"),
     ("2026-03-08", "15:00", "feature", "Add Population Decoder page — Bayesian max-likelihood HD decoding, cross-validated accuracy, decoded-vs-actual scatter, posterior heatmap, population size/sharpness sweep"),
     ("2026-03-08", "14:45", "feature", "Add Bayesian HD decoder module (decoder.py) — build_decoder, decode_hd, cross_validated_decode, decode_error"),
     ("2026-03-08", "14:30", "feature", "Add HD Tuning Explorer page — interactive polar tuning curves, population MVL distribution, preferred direction rose plot, significance testing with shuffle histogram, parameter sweep explorer"),
