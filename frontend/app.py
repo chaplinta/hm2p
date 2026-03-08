@@ -40,12 +40,14 @@ analysis_page = st.Page(str(_app_dir / "pages/analysis_page.py"), title="Analysi
 compare_page = st.Page(str(_app_dir / "pages/compare_page.py"), title="Compare", icon=":material/compare:")
 population_page = st.Page(str(_app_dir / "pages/population_page.py"), title="Population", icon=":material/groups:")
 explorer_page = st.Page(str(_app_dir / "pages/explorer_page.py"), title="Explorer", icon=":material/explore:")
+timeline_page = st.Page(str(_app_dir / "pages/timeline_page.py"), title="Timeline", icon=":material/timeline:")
+gallery_page = st.Page(str(_app_dir / "pages/gallery_page.py"), title="ROI Gallery", icon=":material/grid_view:")
 changelog_page = st.Page(str(_app_dir / "pages/changelog_page.py"), title="Changelog", icon=":material/history:")
 aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":material/cloud:")
 
 pg = st.navigation([
     sessions_page, pipeline_page, suite2p_page, calcium_page,
     dlc_page, sync_page, analysis_page, compare_page, population_page,
-    explorer_page, changelog_page, aws_page,
+    explorer_page, timeline_page, gallery_page, changelog_page, aws_page,
 ])
 pg.run()
