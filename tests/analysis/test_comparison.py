@@ -9,7 +9,9 @@ from hm2p.analysis.comparison import (
     mvl_ratio,
     preferred_direction_shift,
     rate_map_correlation,
+    rayleigh_test,
     si_ratio,
+    split_half_reliability,
     tuning_curve_correlation,
 )
 
@@ -154,3 +156,103 @@ class TestSiRatio:
         # Uniform map has SI = 0
         ratio = si_ratio(uniform, occ, tuned, occ)
         assert np.isnan(ratio)
+
+
+class TestSplitHalfReliability:
+    """Tests for split_half_reliability."""
+
+    def _make_tuned_cell(self, pref=90.0, kappa=3.0, n=5000, seed=42):
+        rng = np.random.default_rng(seed)
+        hd_deg = np.cumsum(rng.normal(0, 5, n)) % 360.0
+        theta = np.deg2rad(hd_deg)
+        signal = 0.1 + np.exp(kappa * np.cos(theta - np.deg2rad(pref)))
+        signal /= signal.max()
+        signal += rng.normal(0, 0.1, n)
+        signal = np.clip(signal, 0, None)
+        mask = np.ones(n, dtype=bool)
+        return signal, hd_deg, mask
+
+    def test_tuned_cell_high_reliability(self):
+        """Strongly tuned cell should have high split-half correlation."""
+        signal, hd, mask = self._make_tuned_cell(kappa=5.0)
+        result = split_half_reliability(signal, hd, mask)
+        assert result["correlation"] > 0.8
+
+    def test_untuned_cell_low_reliability(self):
+        """Random signal should have low split-half correlation."""
+        rng = np.random.default_rng(42)
+        signal = rng.normal(0, 1, 5000)
+        signal = np.clip(signal, 0, None)
+        hd = np.cumsum(rng.normal(0, 5, 5000)) % 360.0
+        mask = np.ones(5000, dtype=bool)
+        result = split_half_reliability(signal, hd, mask)
+        assert result["correlation"] < 0.5
+
+    def test_pd_shift_small_for_tuned(self):
+        """Preferred direction should be consistent across halves."""
+        signal, hd, mask = self._make_tuned_cell(kappa=5.0)
+        result = split_half_reliability(signal, hd, mask)
+        assert abs(result["pd_shift"]) < 30
+
+    def test_result_keys(self):
+        signal, hd, mask = self._make_tuned_cell()
+        result = split_half_reliability(signal, hd, mask)
+        assert "correlation" in result
+        assert "mvl_half1" in result
+        assert "mvl_half2" in result
+        assert "pd_shift" in result
+
+
+class TestRayleighTest:
+    """Tests for rayleigh_test."""
+
+    def test_uniform_distribution_not_significant(self):
+        """Uniformly distributed angles should not be significant."""
+        angles = np.linspace(0, 360, 100, endpoint=False)
+        result = rayleigh_test(angles)
+        assert result["p_value"] > 0.05
+
+    def test_concentrated_distribution_significant(self):
+        """Concentrated angles should be significant."""
+        rng = np.random.default_rng(42)
+        # Von Mises-like concentration around 90°
+        angles = 90 + rng.normal(0, 10, 200)
+        result = rayleigh_test(angles)
+        assert result["p_value"] < 0.01
+        assert abs(result["mean_direction_deg"] - 90) < 10
+
+    def test_z_statistic_positive(self):
+        """Z should always be non-negative."""
+        rng = np.random.default_rng(42)
+        angles = rng.uniform(0, 360, 50)
+        result = rayleigh_test(angles)
+        assert result["z"] >= 0
+
+    def test_mean_resultant_length_range(self):
+        """R should be in [0, 1]."""
+        angles = np.array([0, 0, 0, 180, 180, 180])
+        result = rayleigh_test(angles)
+        assert 0 <= result["mean_resultant_length"] <= 1
+
+    def test_all_same_angle(self):
+        """All identical angles should give R=1 and significant."""
+        angles = np.full(100, 45.0)
+        result = rayleigh_test(angles)
+        assert result["mean_resultant_length"] == pytest.approx(1.0)
+        assert result["p_value"] < 0.01
+        assert result["mean_direction_deg"] == pytest.approx(45.0, abs=0.1)
+
+    def test_weighted_rayleigh(self):
+        """Weighted Rayleigh should use weights."""
+        angles = np.array([0, 90, 180, 270])
+        # Equal weights → uniform → not significant
+        result_uniform = rayleigh_test(angles, weights=np.ones(4))
+        # Weight heavily on 0° → significant
+        result_weighted = rayleigh_test(angles, weights=np.array([10, 1, 1, 1]))
+        assert result_weighted["mean_resultant_length"] > result_uniform["mean_resultant_length"]
+
+    def test_opposite_angles_low_r(self):
+        """Perfectly balanced opposing angles should have R near 0."""
+        angles = np.array([0, 180, 0, 180, 0, 180])
+        result = rayleigh_test(angles)
+        assert result["mean_resultant_length"] < 0.1

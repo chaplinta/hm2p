@@ -355,6 +355,28 @@ with tab_significance:
     )
     st.plotly_chart(fig, use_container_width=True)
 
+    # Rayleigh test and split-half reliability
+    st.markdown("---")
+    col_r, col_sh = st.columns(2)
+
+    with col_r:
+        st.markdown("**Rayleigh Test**")
+        from hm2p.analysis.comparison import rayleigh_test
+        # Use the HD angles weighted by signal as a quick Rayleigh test
+        ray = rayleigh_test(hd_s[mask_s], weights=signal_s[mask_s])
+        st.metric("Rayleigh Z", f"{ray['z']:.2f}")
+        st.metric("Rayleigh p", f"{ray['p_value']:.4f}")
+        st.metric("Mean resultant R", f"{ray['mean_resultant_length']:.4f}")
+
+    with col_sh:
+        st.markdown("**Split-Half Reliability**")
+        from hm2p.analysis.comparison import split_half_reliability
+        sh = split_half_reliability(signal_s, hd_s, mask_s)
+        st.metric("Half correlation", f"{sh['correlation']:.3f}")
+        st.metric("MVL half 1", f"{sh['mvl_half1']:.4f}")
+        st.metric("MVL half 2", f"{sh['mvl_half2']:.4f}")
+        st.metric("PD shift", f"{sh['pd_shift']:.1f}°")
+
 
 # --- Parameter Explorer ---
 with tab_params:
