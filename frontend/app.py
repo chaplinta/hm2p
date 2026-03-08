@@ -64,6 +64,7 @@ classify_page = st.Page(str(_app_dir / "pages/classify_page.py"), title="Classif
 drift_page = st.Page(str(_app_dir / "pages/drift_page.py"), title="Drift", icon=":material/moving:")
 gain_page = st.Page(str(_app_dir / "pages/gain_page.py"), title="Gain", icon=":material/tune:")
 anchoring_page = st.Page(str(_app_dir / "pages/anchoring_page.py"), title="Anchoring", icon=":material/anchor:")
+speed_mod_page = st.Page(str(_app_dir / "pages/speed_page.py"), title="Speed", icon=":material/speed:")
 changelog_page = st.Page(str(_app_dir / "pages/changelog_page.py"), title="Changelog", icon=":material/history:")
 aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":material/cloud:")
 
@@ -71,7 +72,7 @@ pg = st.navigation({
     "Overview": [home_page, sessions_page, animals_page, pipeline_page, batch_page],
     "Pipeline": [suite2p_page, calcium_page, dlc_page, sync_page],
     "Explore": [explorer_page, timeline_page, gallery_page, events_page, correlations_page, trace_compare_page],
-    "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, decoder_page, stability_page, drift_page, gain_page, anchoring_page, pop_dynamics_page, ahv_page, info_theory_page, classify_page, signal_quality_page, qc_page],
+    "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, decoder_page, stability_page, drift_page, gain_page, anchoring_page, speed_mod_page, pop_dynamics_page, ahv_page, info_theory_page, classify_page, signal_quality_page, qc_page],
     "System": [aws_page, changelog_page],
 })
 pg.run()
