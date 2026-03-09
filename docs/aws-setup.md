@@ -260,7 +260,148 @@ Ensure the Batch job execution role has `ecr:GetAuthorizationToken` and
 
 ---
 
-## 8. Cost Controls
+## 8. Frontend Read-Only Access
+
+The Streamlit frontend only needs read access to S3. Two approaches are
+available — an **EC2 instance role** (recommended, no keys) or an
+**IAM user with access keys** (fallback for local dev).
+
+### 8.1 Option A — EC2 Instance Role (recommended)
+
+When hosting the frontend on EC2, attach an IAM role directly. The instance
+gets temporary credentials automatically via the metadata service — no keys
+to manage, rotate, or leak.
+
+#### Resources created
+
+| Resource | Name | Purpose |
+| --- | --- | --- |
+| IAM Policy | `hm2p-frontend-readonly` | `s3:GetObject` + `s3:ListBucket` on both hm2p buckets |
+| IAM Role | `hm2p-frontend-role` | EC2 trusted entity, readonly policy attached |
+| Instance Profile | `hm2p-frontend-role` | Attaches the role to an EC2 instance |
+
+#### Setup
+
+Run from your **local machine** (not the devcontainer — IAM is blocked there):
+
+```bash
+# Automated setup
+uv run scripts/setup_frontend_iam.py
+
+# Or dry-run to see the AWS CLI commands first
+uv run scripts/setup_frontend_iam.py --dry-run
+```
+
+The script creates the role, instance profile, and attaches the policy.
+
+#### Attach to an EC2 instance
+
+```bash
+# New instance — include at launch time
+aws ec2 run-instances \
+  --image-id ami-0c5204531f799e0c6 \
+  --instance-type t3.micro \
+  --key-name hm2p-suite2p \
+  --security-group-ids sg-020161fb424325e6b \
+  --iam-instance-profile Name=hm2p-frontend-role \
+  --region ap-southeast-2 \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=hm2p-frontend}]'
+
+# Existing instance — attach the profile
+aws ec2 associate-iam-instance-profile \
+  --instance-id i-xxxxxxxxxxxx \
+  --iam-instance-profile Name=hm2p-frontend-role
+```
+
+Once attached, `boto3` on the instance picks up credentials automatically —
+no environment variables, no `~/.aws/credentials`, no configuration needed.
+
+#### Teardown
+
+```bash
+uv run scripts/setup_frontend_iam.py --teardown
+```
+
+#### How it works
+
+1. EC2 metadata service (`169.254.169.254`) provides temporary credentials
+2. Credentials rotate automatically every few hours
+3. `boto3` checks the metadata service by default (no config needed)
+4. If the instance is terminated, credentials are immediately revoked
+
+#### Cost
+
+`t3.micro` is ~$9.50/month (~$0.013/hr), or free-tier eligible for the
+first year. Sufficient for Streamlit with a few concurrent users.
+
+### 8.2 Option B — IAM User with Access Keys (fallback)
+
+For local development or environments where an instance role isn't available.
+Less secure than Option A — keys are long-lived and must be rotated manually.
+
+| Resource | Name | Purpose |
+| --- | --- | --- |
+| IAM Policy | `hm2p-frontend-readonly` | Same policy as Option A |
+| IAM User | `hm2p-frontend` | Frontend-only identity |
+
+#### Generate access keys
+
+```bash
+aws iam create-access-key --user-name hm2p-frontend
+```
+
+Save the `AccessKeyId` and `SecretAccessKey` — the secret cannot be
+retrieved again.
+
+#### Configure
+
+```bash
+# Environment variables
+export AWS_ACCESS_KEY_ID=<access key>
+export AWS_SECRET_ACCESS_KEY=<secret>
+export AWS_DEFAULT_REGION=ap-southeast-2
+
+# Or a named profile
+aws configure --profile hm2p-frontend
+export AWS_PROFILE=hm2p-frontend
+```
+
+#### Security notes
+
+- **No write access** — cannot upload, delete, or modify S3 objects
+- **No access** to EC2, IAM, Batch, or any other AWS service
+- **Rotate keys regularly**: IAM → Users → hm2p-frontend → Security credentials
+- Prefer Option A (instance role) whenever possible
+
+### Policy document (shared by both options)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::hm2p-rawdata",
+        "arn:aws:s3:::hm2p-rawdata/*",
+        "arn:aws:s3:::hm2p-derivatives",
+        "arn:aws:s3:::hm2p-derivatives/*"
+      ]
+    }
+  ]
+}
+```
+
+> Note: `s3:GetObject` also authorises the `HeadObject` API call — there is
+> no separate `s3:HeadObject` IAM action.
+
+---
+
+## 9. Cost Controls
 
 Always set a billing alarm to avoid unexpected charges:
 
@@ -277,7 +418,7 @@ jobs. Suite2p and DLC both support checkpointing.
 
 ---
 
-## 9. Verify Upload Integrity
+## 10. Verify Upload Integrity
 
 After uploading data to S3, verify integrity with:
 
@@ -301,7 +442,7 @@ Override defaults with `--profile` or `--bucket`:
 
 ---
 
-## 10. Current Status
+## 11. Current Status
 
 | Item | Status |
 | --- | --- |
@@ -310,6 +451,9 @@ Override defaults with `--profile` or `--bucket`:
 | `hm2p-rawdata` lifecycle | STANDARD → IA after 30 days |
 | Data upload (26 sessions, 91.4 GiB, 503 objects) | Complete — verified |
 | `hm2p-agent` IAM user | S3 + EC2 access (no IAM/Batch) |
+| `hm2p-frontend` IAM user | Read-only S3 access (fallback for local dev) |
+| `hm2p-frontend-role` IAM role + instance profile | EC2 instance role for frontend (recommended, no keys) |
+| `hm2p-frontend-readonly` IAM policy | `s3:GetObject` + `s3:ListBucket` on both hm2p buckets |
 | `hm2p-ec2-role` IAM role + instance profile | S3 + CloudWatch Logs (for EC2 instances) |
 | `hm2p-ec2-policy` IAM policy | Scoped to hm2p S3 buckets + `/hm2p/suite2p` log group |
 | `/hm2p/suite2p` CloudWatch log group | Created in ap-southeast-2 |
@@ -318,7 +462,7 @@ Override defaults with `--profile` or `--bucket`:
 
 ---
 
-## 11. Quick Reference
+## 12. Quick Reference
 
 | Task | Command |
 | --- | --- |
