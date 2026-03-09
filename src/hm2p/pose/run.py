@@ -51,17 +51,26 @@ def run_tracker(
         raise ValueError(f"Unknown tracker: {_tracker!r}")
 
 
-def _run_dlc(video_path: Path, model_dir: Path, output_dir: Path) -> Path:
+def _run_dlc(
+    video_path: Path,
+    model_dir: Path,
+    output_dir: Path,
+    superanimal: str | None = "superanimal_topviewmouse",
+) -> Path:
     """Run DeepLabCut inference on a single video.
 
-    Uses ``deeplabcut.analyze_videos()`` with a pre-trained model. The model
-    directory should contain the DLC project ``config.yaml`` and trained
-    snapshot files.
+    By default uses the SuperAnimal-TopViewMouse pretrained model (DLC 3.x),
+    which tracks 27 keypoints including ears, back, and tail — no custom model needed.
+    FasterRCNN detector crops a tight bounding box before pose estimation.
+    Set ``superanimal=None`` to use a custom model from ``model_dir``.
 
     Args:
         video_path: Path to the overhead .mp4 video.
         model_dir: Path to the DLC project directory (contains config.yaml).
+            Ignored when using a SuperAnimal model.
         output_dir: Where to write the DLC output .h5 file.
+        superanimal: Name of the SuperAnimal pretrained model to use.
+            Set to None to use a custom model from model_dir instead.
 
     Returns:
         Path to the output .h5 pose file.
@@ -72,10 +81,6 @@ def _run_dlc(video_path: Path, model_dir: Path, output_dir: Path) -> Path:
     """
     if not video_path.exists():
         raise FileNotFoundError(f"Video file not found: {video_path}")
-
-    config_path = model_dir / "config.yaml"
-    if not config_path.exists():
-        raise FileNotFoundError(f"DLC config.yaml not found in {model_dir}")
 
     try:
         import deeplabcut
@@ -88,13 +93,31 @@ def _run_dlc(video_path: Path, model_dir: Path, output_dir: Path) -> Path:
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    log.info("Running DeepLabCut on %s", video_path.name)
-    deeplabcut.analyze_videos(
-        str(config_path),
-        [str(video_path)],
-        destfolder=str(output_dir),
-        save_as_csv=False,
-    )
+    if superanimal:
+        log.info("Running DLC SuperAnimal (%s) on %s", superanimal, video_path.name)
+        deeplabcut.video_inference_superanimal(
+            [str(video_path)],
+            superanimal_name=superanimal,
+            model_name="hrnet_w32",
+            detector_name="fasterrcnn_resnet50_fpn_v2",
+            videotype=".mp4",
+            dest_folder=str(output_dir),
+            batch_size=64,
+            detector_batch_size=16,
+            plot_trajectories=False,
+            create_labeled_video=False,
+        )
+    else:
+        config_path = model_dir / "config.yaml"
+        if not config_path.exists():
+            raise FileNotFoundError(f"DLC config.yaml not found in {model_dir}")
+        log.info("Running DeepLabCut (custom model) on %s", video_path.name)
+        deeplabcut.analyze_videos(
+            str(config_path),
+            [str(video_path)],
+            destfolder=str(output_dir),
+            save_as_csv=False,
+        )
 
     # DLC writes: <video_stem>DLC_<model>_<shuffle>.h5
     h5_files = sorted(output_dir.glob("*DLC*.h5"))

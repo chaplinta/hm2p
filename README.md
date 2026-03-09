@@ -55,9 +55,16 @@ hm2p-v2/
 ├── PLAN.md            ← full pipeline design (Stages 0–5)
 ├── ARCHITECTURE.md    ← code layout, HDF5 schemas, interface contracts
 ├── CLAUDE.md          ← coding standards, tool versions, rules for AI agents (auto-loaded by Claude Code)
+├── old-pipeline/      ← legacy pipeline code (read-only reference — never modify)
+├── frontend/         ← Streamlit dashboard (43 pages)
+│   ├── app.py
+│   ├── data.py       ← S3 data loading + caching
+│   └── pages/        ← analysis, pipeline QC, system pages
 ├── docs/
 │   ├── data-guide.md  ← raw data formats, file structures, legacy processing
-│   └── aws-setup.md   ← AWS account, IAM, S3 bucket setup
+│   ├── aws-setup.md   ← AWS account, IAM, S3 bucket setup
+│   ├── analysis-plan.md
+│   └── research-landscape.md
 ├── src/hm2p/          ← pipeline source code
 ├── tests/             ← unit tests (≥ 90% coverage required)
 ├── workflow/          ← Snakemake DAG + compute profiles
@@ -94,8 +101,9 @@ Stage 1 — 2P Extraction          Stage 2 — Pose Estimation
               → derivatives/sync/sync.h5
                  │
                  ▼
-            Analysis (future)
-              pynapple · NEMOS · CEBRA
+            Analysis (done — 16 modules)
+              pynapple · NEMOS · CEBRA†
+              † CEBRA requires separate env
 ```
 
 All stages are **pluggable**: swap the calcium extractor or pose tracker by
@@ -109,9 +117,9 @@ changing one field in `experiments.csv` — downstream code is unchanged.
 | --- | --- | --- |
 | Calcium extraction API | **roiextractors** | Unified interface for Suite2p, CaImAn, etc. |
 | Spike inference | **CASCADE** (Rupprecht et al. 2021) | Calibrated spikes/s; pre-trained GCaMP models |
-| Neuropil subtraction | Fixed 0.7×Fneu (default) or **FISSA** | FISSA more accurate in dense tissue |
+| Neuropil subtraction | Fixed 0.7×Fneu (default) or **FISSA** | FISSA more accurate in dense tissue ([manual install](docs/manual-installs.md)) |
 | Kinematics API | **movement** (SWC/UCL) | Unified xarray output; all trackers supported |
-| Behavioural syllables | **keypoint-MoSeq** (primary) / **VAME** | Zero-label; kpMoSeq gold standard; VAME accepts movement xarray natively |
+| Behavioural syllables | **keypoint-MoSeq** / **VAME** | Zero-label; separate envs required ([manual install](docs/manual-installs.md)) |
 | Data standard | **NeuroBlueprint** | BIDS-inspired; DataShuttle support |
 | Intermediate format | **HDF5** | Fast random access; pynapple-native |
 | Analysis interface | **pynapple** | Timestamp-aware slicing across neural + behav |
@@ -236,7 +244,7 @@ S3 bucket setup, and how to launch EC2 Spot instances for each stage.
 
 ### Quick rules
 
-- **Never modify** `/Users/tristan/Neuro/hm2p-analysis/` or Dropbox data
+- **Never modify** `old-pipeline/`, `/Users/tristan/Neuro/hm2p-analysis/`, or Dropbox data
 - All new code goes in `src/hm2p/`; all tests in `tests/`
 - Tests use **synthetic data only** — never read real data files in tests
 - Use `hypothesis` for numerical functions, `pandera` for schema validation
@@ -255,32 +263,38 @@ instructions (local macOS and devcontainer).
 
 ## Status
 
-**Implementation phase** — core pipeline code and tests are written. 283 tests passing, 97% coverage.
+**Implementation phase** — core pipeline code and tests are written. 1038+ tests passing, 92% coverage.
 
 | Component | Status |
 | --- | --- |
 | Project skeleton (pyproject.toml, pre-commit, CI) | Done |
 | HDF5 schema validation | Done |
 | Stage 0 — TDMS ingest (`ingest/daq.py`) | Done |
+| **Stage 1 — Suite2p cloud run (all 26 sessions)** | **Done** |
+| Stage 2 — DLC pose estimation | In progress (13/26 sessions) |
 | Stage 3 — Kinematics (`kinematics/compute.py`) | Done |
-| Stage 4 — Calcium processing (`calcium/`) | Done (CASCADE deferred — needs conda env) |
+| Stage 4 — Calcium processing (`calcium/`) | Done — 26/26 sessions (CASCADE deferred) |
 | Stage 5 — Sync (`sync/align.py`) | Done |
 | Suite2p extractor (`extraction/suite2p.py`) | Done |
 | CaImAn extractor (`extraction/caiman.py`) | Done |
 | S3 data upload (26 sessions) | Done |
+| EC2 cloud run infrastructure | Done (`scripts/launch_suite2p_ec2.py`) |
 | Snakemake DAG | Pending — rules defined, shell commands needed |
-| Docker images for cloud | Pending |
+| Docker images for cloud | Done (gpu, cpu, kpms Dockerfiles) |
+| Frontend dashboard (43 pages) | Done |
+| Analysis framework (16 modules) | Done |
+| keypoint-MoSeq Docker integration | Done |
 | NWB export (neuroconv) | Pending — stub only |
 
 ---
 
 ## References
 
-- **CASCADE**: Rupprecht et al. (2021) *Nature Neuroscience* — calibrated spike inference
-- **FISSA**: Keemink et al. (2018) *Scientific Reports* — neuropil subtraction
-- **keypoint-MoSeq**: Weinreb et al. (2024) *Nature Methods* — gold standard zero-label AR-HMM behaviour segmentation for freely-moving mice
-- **VAME**: Luxem et al. (2022) *Nature Communications* — zero-label VAE syllables; v0.12+ natively accepts movement xarray format
-- **CEBRA**: Schneider et al. (2023) *Nature* — joint neural-behavioural embeddings; HD-conditioned mode ideal for RSC HD cell populations
+- **CASCADE**: Rupprecht et al. (2021) *Nature Neuroscience* — calibrated spike inference ([manual install](docs/manual-installs.md))
+- **FISSA**: Keemink et al. (2018) *Scientific Reports* — neuropil subtraction ([manual install](docs/manual-installs.md))
+- **keypoint-MoSeq**: Weinreb et al. (2024) *Nature Methods* — gold standard zero-label AR-HMM behaviour segmentation ([manual install](docs/manual-installs.md))
+- **VAME**: Luxem et al. (2022) *Nature Communications* — zero-label VAE syllables ([manual install](docs/manual-installs.md))
+- **CEBRA**: Schneider et al. (2023) *Nature* — joint neural-behavioural embeddings ([manual install](docs/manual-installs.md))
 - **NEMOS**: Flatiron Institute — GLM encoding models for neural data
 - **pynapple**: Viejo et al. — unified timeseries interface for systems neuroscience
 - **movement**: Neuroinformatics.dev (SWC/UCL) — unified kinematics from pose tracking

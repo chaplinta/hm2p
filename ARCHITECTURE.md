@@ -133,10 +133,13 @@ hm2p-v2/
 │       │   ├── __init__.py
 │       │   ├── base.py            # Abstract extractor interface (wraps roiextractors)
 │       │   ├── suite2p.py         # Suite2pExtractor + post-hoc soma/dend classification
+│       │   ├── zdrift.py          # Z-drift estimation from serial2p z-stacks
 │       │   └── caiman.py          # CaimanExtractor
 │       ├── pose/
 │       │   ├── __init__.py
 │       │   ├── preprocess.py      # load_meta + undistort/crop utils (videos are pre-processed)
+│       │   ├── quality.py         # Pose quality metrics: PCK, likelihood, jitter
+│       │   ├── retrain.py         # Helpers for DLC active-learning retraining
 │       │   └── run.py             # Dispatch to DLC / SLEAP / LP based on session.tracker
 │       ├── kinematics/
 │       │   ├── __init__.py
@@ -147,10 +150,38 @@ hm2p-v2/
 │       │   ├── neuropil.py        # Neuropil subtraction (fixed coeff + FISSA)
 │       │   ├── dff.py             # dF/F0 computation
 │       │   ├── spikes.py          # CASCADE calibrated spike inference
-│       │   └── events.py          # Voigts & Harnett fallback event detection
+│       │   ├── events.py          # Voigts & Harnett fallback event detection
+│       │   └── run.py             # Stage 4 runner: neuropil → dF/F → CASCADE → ca.h5
+│       ├── analysis/
+│       │   ├── __init__.py
+│       │   ├── activity.py        # Active-cell detection and firing rate stats
+│       │   ├── tuning.py          # HD tuning curves, PD, MVL, Rayleigh
+│       │   ├── significance.py    # Circular shuffle tests for HD significance
+│       │   ├── comparison.py      # Tuning curve correlation, PD shift, split-half
+│       │   ├── decoder.py         # Bayesian population HD decoder
+│       │   ├── stability.py       # Temporal stability, light/dark drift
+│       │   ├── population.py      # Population-level summary statistics
+│       │   ├── ahv.py             # Angular head velocity tuning
+│       │   ├── information.py     # Spatial / directional information (Skaggs)
+│       │   ├── classify.py        # Automated HD cell classification
+│       │   ├── gain.py            # Light/dark gain modulation index
+│       │   ├── anchoring.py       # Visual vs idiothetic HD anchoring
+│       │   ├── speed.py           # Speed modulation analysis
+│       │   ├── run.py             # Stage 6 runner: full analysis pipeline
+│       │   └── save.py            # Write analysis.h5 outputs
+│       ├── maze/
+│       │   ├── __init__.py
+│       │   ├── topology.py        # Rose-maze graph: 7×5 grid, adjacency, dead ends
+│       │   ├── discretize.py      # Continuous x/y → maze cell assignment
+│       │   └── analysis.py        # Occupancy, exploration, turn bias, sequences
+│       ├── anatomy/
+│       │   ├── __init__.py
+│       │   ├── register.py        # brainreg: serial2p → Allen CCFv3 registration
+│       │   └── injection.py       # Injection site extraction from brainreg output
 │       ├── sync/
 │       │   ├── __init__.py
-│       │   └── align.py           # Resample behaviour to imaging timestamps
+│       │   ├── align.py           # Resample behaviour to imaging timestamps
+│       │   └── validate.py        # Post-sync validation: shape, NaN, temporal monotonicity
 │       └── io/
 │           ├── __init__.py
 │           ├── hdf5.py            # Read/write all .h5 files; pandera schema validation
@@ -198,7 +229,14 @@ hm2p-v2/
 │   └── compute.yaml               # Active compute profile
 ├── docker/
 │   ├── gpu.Dockerfile             # Suite2p + DLC + CUDA
-│   └── cpu.Dockerfile             # movement + calcium + sync
+│   ├── cpu.Dockerfile             # movement + calcium + sync
+│   └── kpms.Dockerfile            # keypoint-MoSeq isolated env
+├── frontend/
+│   ├── app.py                     # Streamlit entry point (st.navigation)
+│   ├── data.py                    # S3 data loading, caching, session filters
+│   └── pages/                     # 43+ page modules (one per analysis view)
+├── scripts/
+│   └── run_kpms.py                # keypoint-MoSeq batch runner
 ├── PLAN.md
 ├── ARCHITECTURE.md
 ├── CLAUDE.md
@@ -260,7 +298,7 @@ positions via scale calibration and video ROI crop metadata.
 /frame_times_imaging (T,) float64 — imaging frame timestamps in seconds
 /bad_frames          (T,) bool    — PMT dropout / bad frame mask
 /roi_ids             (R,) int32   — ROI indices (matches Suite2p / CaImAn indexing)
-/roi_type            (R,) str     — "soma", "dend", or "artefact"
+/roi_types           (R,) uint8   — 0=soma, 1=dend, 2=artefact
 /dff                 (R, T) float32 — dF/F0 per ROI per frame
 /spikes              (R, T) float32 — CASCADE spike rate, spikes/s per ROI per frame
 /events              (R, T) float32 — Voigts & Harnett event probability (fallback)
@@ -286,7 +324,7 @@ positions via scale calibration and video ROI crop metadata.
 /dff                 (R, T) float32
 /spikes              (R, T) float32 — CASCADE spike rate resampled to imaging rate
 /events              (R, T) float32
-/roi_type            (R,) str
+/roi_types           (R,) uint8   — 0=soma, 1=dend, 2=artefact
 ```
 
 ---
@@ -329,7 +367,7 @@ seg.get_sampling_frequency()      # → float — imaging Hz
 The `kinematics/` module always calls:
 
 ```python
-ds = movement.io.load_dataset(path, source_software=session.tracker)
+ds = movement.io.load_poses.from_file(file=path, source_software=session.tracker)
 # ds.position      shape: (time, individuals, keypoints, space)
 # ds.confidence    shape: (time, individuals, keypoints)
 ```
@@ -388,8 +426,9 @@ flowchart LR
         TEST --> COV["codecov\nreport"]
     end
 
-    subgraph LINT["lint.yml  (ruff + mypy)"]
+    subgraph LINT["lint.yml  (ruff + mypy + security)"]
         RUF["ruff check\n+ ruff format"] --> MYP["mypy\nstrict"]
+        MYP --> SEC["bandit · checkov\ndetect-secrets\npip-audit · vulture"]
     end
 ```
 
@@ -403,8 +442,27 @@ No CD (deployment) planned — pipeline is run on-demand per session batch.
 | --- | --- | --- |
 | Extraction abstraction | roiextractors | Only mature unified API across Suite2p + CaImAn |
 | Kinematic abstraction | movement | Official SWC tool; supports all major trackers |
-| Behavioural syllables | keypoint-MoSeq (primary), VAME v0.7+ (alt) | Both zero-label; keypoint-MoSeq gold standard for freely-moving mice |
+| Behavioural syllables | keypoint-MoSeq (primary), VAME v0.12+ (alt) | Both zero-label; [manual install](docs/manual-installs.md) — incompatible numpy pins |
 | Intermediate format | HDF5 | Fast random access, self-describing, well-supported in Python |
 | Pipeline orchestration | Snakemake | Supports local + AWS Batch without code changes |
 | Data standard | NeuroBlueprint | Designed for systems neuroscience; tooling support |
 | Package manager | uv | Faster than pip/conda for pure-Python envs; conda for GPU envs |
+
+---
+
+## Code Quality
+
+| Tool | Purpose |
+| --- | --- |
+| ruff | Linting + formatting (replaces black + flake8 + isort) |
+| mypy | Static type checking (strict mode) |
+| pytest + pytest-cov | Unit testing + coverage (≥ 90% hard requirement) |
+| hypothesis | Property-based testing for numerical functions |
+| pandera | Runtime DataFrame / xarray / HDF5 schema validation |
+| pre-commit | Auto-runs ruff, mypy, nbstripout before every commit |
+| bandit | Security linter — flags dangerous code patterns |
+| checkov | Infrastructure-as-code scanner (Dockerfiles, CI YAMLs) |
+| detect-secrets | Pre-commit hook to prevent secrets from entering git |
+| pip-audit | Dependency vulnerability scanner (OSV database) |
+| vulture | Dead code detection — finds unused functions and variables |
+| structlog | Structured JSON logging throughout pipeline stages |

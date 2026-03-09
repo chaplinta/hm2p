@@ -1,0 +1,9 @@
+brainreg Dropbox/Neuro/Margrie/hm2p/brains-sorted/ds_TC_1112355_210722_191018_25_25_ch03_chan_3_green.tif Dropbox/Neuro/Margrie/hm2p/brains-reg -v 25 25 25 --orientation psl --save-original-orientation
+
+brainreg Dropbox/Neuro/Margrie/hm2p/brains-sorted/green Dropbox/Neuro/Margrie/hm2p/brains-reg -v 25 25 25 --orientation psl --save-original-orientation
+
+ls -1 ~/Dropbox/Neuro/Margrie/hm2p/brains-sorted/*green*.tif > brain_list.txt
+
+brainreg brain_list.txt Dropbox/Neuro/Margrie/hm2p/brains-reg -v 25 25 25 --orientation psl --save-original-orientation
+
+brainreg file Dropbox/Neuro/Margrie/hm2p/brains-reg -v 25 25 25 --orientation psl --save-original-orientation

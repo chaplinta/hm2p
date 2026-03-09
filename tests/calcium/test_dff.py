@@ -105,3 +105,44 @@ class TestComputeBaseline:
         F0_long = compute_baseline(F, fps=30.0, window_s=30.0, gaussian_sigma_s=1.0)
         # Shorter window baseline is always ≥ longer (tighter tracking)
         assert np.all(F0_short >= F0_long - 1.0)
+
+    def test_single_roi(self) -> None:
+        """Baseline works for a single ROI."""
+        F = np.full((1, 100), 150.0, dtype=np.float32)
+        F0 = compute_baseline(F, fps=10.0)
+        assert F0.shape == (1, 100)
+
+    def test_very_short_window(self) -> None:
+        """Window shorter than one frame is clamped to 1 frame."""
+        F = np.full((2, 50), 100.0, dtype=np.float32)
+        F0 = compute_baseline(F, fps=1.0, window_s=0.01)
+        assert F0.shape == F.shape
+
+
+# ---------------------------------------------------------------------------
+# compute_dff — edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestComputeDffEdgeCases:
+    def test_zero_baseline_uses_eps(self) -> None:
+        """When F0 is zero, eps is used to avoid division by zero."""
+        F = np.ones((2, 10), dtype=np.float32) * 5.0
+        F0 = np.zeros((2, 10), dtype=np.float32)
+        result = compute_dff(F, F0)
+        assert np.all(np.isfinite(result))
+        assert np.all(result > 0)
+
+    def test_negative_f(self) -> None:
+        """Negative F values produce negative dF/F0."""
+        F = np.full((1, 5), -10.0, dtype=np.float32)
+        F0 = np.full((1, 5), 100.0, dtype=np.float32)
+        result = compute_dff(F, F0)
+        assert np.all(result < 0)
+
+    def test_output_dtype_float32(self) -> None:
+        """Output is always float32."""
+        F = np.ones((3, 20), dtype=np.float64)
+        F0 = np.ones((3, 20), dtype=np.float64) * 100.0
+        result = compute_dff(F.astype(np.float32), F0.astype(np.float32))
+        assert result.dtype == np.float32

@@ -89,7 +89,7 @@ Raw `.raw` files are converted to TIFF via `raw2tif`, then passed to the chosen 
 #### C — Pose Tracking
 
 The pipeline is **tracker-agnostic**. **movement** (neuroinformatics.dev) provides a unified
-`load_dataset(filepath, source_software=...)` call that returns the same `xarray.Dataset`
+`load_poses.from_file(file=filepath, source_software=...)` call that returns the same `xarray.Dataset`
 regardless of which tracker was used, so downstream kinematics code never changes when
 swapping backends.
 
@@ -103,16 +103,47 @@ Currently supported trackers (all tested in `movement`):
 | **Anipose** | `.csv` | Multi-camera 3D triangulation |
 | **NWB** | `.nwb` (ndx-pose) | Standardised neuroscience format |
 
-Current default: **DeepLabCut ResNet-50**, trained on hm2p-maze project.
+Current default: **DeepLabCut 3.0 (PyTorch) — SuperAnimal TopViewMouse + HRNet-W32 + FasterRCNN detector**.
 
 | Property | Detail |
 | --- | --- |
-| Body parts | `ear-left`, `ear-right`, `back-upper`, `back-middle`, `back-tail` |
+| Body parts | `left_ear`, `right_ear`, `mid_back`, `mouse_center`, `tail_base` |
 | Output format | `.h5` per video: `(frame × body_part) → (x, y, likelihood)` |
 | Current volume | ~55 GB (model weights + labeled frames + outputs) |
 
 The `tracker` field in `experiments.csv` records which tracker was used per session.
 Pose outputs (from any tracker) feed into Stage 3 without modification.
+
+#### D — Serial2p Z-Stacks
+
+Per-session z-stacks acquired with the serial2p system for tracking focal plane drift
+during imaging. The `zstack_id` column in `experiments.csv` maps sessions to their
+z-stack. Multiple sessions can share a z-stack (same animal, same day).
+
+| Property | Detail |
+| --- | --- |
+| Format | Multi-page TIFF (`.tif`) + raw (`.raw`) + metadata (`.ini`, `.xml`) |
+| Channels | Green (functional) + sometimes Red (anatomical) |
+| Content | (n_zplanes, Ly, Lx) volume — one plane per z-step |
+| Use | Register imaging frames against z-planes to estimate z-drift over time |
+| S3 location | `sourcedata/zstacks/{zstack_id}/` |
+| Sessions with z-stacks | 16 of 26 (13 unique z-stacks) |
+
+#### E — Serial2p Whole-Brain Volumes
+
+Post-mortem whole-brain serial2p volumes for anatomical localisation of imaging sites
+and injection site verification. Registered to Allen CCFv3 atlas using brainreg.
+
+| Property | Detail |
+| --- | --- |
+| Format | Downsampled TIFF (`.tif`), one file per channel per animal |
+| Channels | Red (chan 2), Green (chan 3, signal), sometimes Blue (chan 4) |
+| Voxel size | 25 × 25 × 25 µm isotropic |
+| Naming | `ds_TC_{animal_id}_{date}_{voxel}_{channel}.tif` |
+| S3 location | `sourcedata/brains-sorted/` (raw), `brains-reg/` (registered) |
+| Animals | 22 brains (20 unique animals) |
+| Registration | brainreg: orientation `psl`, Allen 25 µm atlas |
+| Output | `volumes.csv` (region volumes), segmentation (injection sites) |
 
 ---
 
@@ -133,6 +164,8 @@ hm2p/
 │
 ├── sourcedata/                   # Original unmodified assets
 │   ├── trackers/                 # Tracker models + labeled data (DLC, SLEAP, etc.)
+│   ├── zstacks/                  # Per-session serial2p z-stacks
+│   ├── brains-sorted/            # Whole-brain serial2p volumes (per animal)
 │   └── metadata/                 # animals.csv, experiments.csv
 │
 └── derivatives/
@@ -148,6 +181,13 @@ hm2p/
     ├── calcium/
     │   └── sub-{animal_id}/ses-{date}/
     │       └── ca.h5             # dF/F0, events, SNR per ROI (imaging rate)
+    ├── zdrift/
+    │   └── sub-{animal_id}/ses-{date}/
+    │       └── zdrift.h5         # z-position per frame from z-stack registration
+    ├── brains-reg/               # brainreg output (registered atlas, volumes, segmentation)
+    │   └── {animal_basename}/
+    │       ├── volumes.csv       # brain region volumes (left/right/total mm³)
+    │       └── segmentation/     # injection site labels
     └── sync/
         └── sub-{animal_id}/ses-{date}/
             └── sync.h5           # neural + behavioural aligned to imaging frames
@@ -211,7 +251,7 @@ or `artefact` — no separate Suite2p run required.
 **Common output:** extractor-native files in `derivatives/ca_extraction/.../`
 plus `bad_frames.npy` for bad-frame masking in Stage 4.
 
-**Tools:** Suite2p 0.12+ (default), CaImAn; roiextractors as unified read layer
+**Tools:** Suite2p 1.0+ (default), CaImAn; roiextractors as unified read layer
 **Compute:** GPU strongly recommended for motion correction; local GPU acceptable
 
 ---
@@ -249,8 +289,8 @@ Stage 3 discovers the file automatically via glob (`*.h5`, `*.csv`, `*.slp`).
 `movement` provides a single unified load call regardless of tracker:
 
 ```python
-import movement.io as mio
-ds = mio.load_dataset(pose_file, source_software="DeepLabCut")
+from movement.io import load_poses
+ds = load_poses.from_file(file=pose_file, source_software="DeepLabCut")
 # swap source_software="SLEAP" / "LightningPose" etc. — output is identical
 ```
 
@@ -259,14 +299,14 @@ plus a `confidence` data variable. Downstream code never inspects which tracker 
 
 **Primary kinematic outputs (required for all sessions):**
 
-1. Load pose dataset via `movement.io.load_dataset(source_software=<tracker>)`
+1. Load pose dataset via `load_poses.from_file(file=..., source_software=<tracker>)`
 2. Apply `orientation` rotation (from `experiments.csv`) to all keypoint coordinates —
    a per-session correction for camera placement variation, ensures HD is referenced
    consistently across sessions. Rotation is in degrees; applied as a 2D rotation matrix.
 3. Filter low-confidence detections (confidence < 0.9 → NaN)
 4. Interpolate short gaps (≤ 5 frames) and smooth
 5. Compute via `movement.kinematics`:
-   - **Head direction (HD):** forward vector from `ear-left` → `ear-right`, unwrapped (deg)
+   - **Head direction (HD):** forward vector from `left_ear` → `right_ear`, unwrapped (deg)
    - **Position:** centroid of body keypoints, converted pixel → mm via scale calibration
    - **Speed:** `kinematics.compute_speed()` on position (cm/s)
    - **Angular head velocity (AHV):** `kinematics.compute_velocity()` on HD (deg/s)
@@ -281,6 +321,10 @@ plus a `confidence` data variable. Downstream code never inspects which tracker 
    - Maze polygon (7 × 5 units) defined from `get_maze_poly()` in legacy code
 
 **Higher-level behavioural analyses — Stage 3b (planned, not in core scope yet):**
+
+> **Note:** keypoint-MoSeq, VAME, and DLC2Action are **not** in `pyproject.toml` due to
+> incompatible numpy/scikit-learn pins. They must be installed in separate environments.
+> See [docs/manual-installs.md](docs/manual-installs.md).
 
 The pipeline is designed to support **minimal-labelling behavioural analysis** — discovering
 behavioural structure from pose kinematics without manually labelling thousands of frames.
@@ -303,10 +347,10 @@ v0.7+ natively accepts the `movement` xarray format (VAME issue #111) — zero c
 from Stage 3 outputs:
 
 ```python
-import movement.io as mio
+from movement.io import load_poses
 import vame
 
-ds = mio.load_dataset(pose_file, source_software="DeepLabCut")
+ds = load_poses.from_file(file=pose_file, source_software="DeepLabCut")
 # ds is an xr.Dataset — VAME v0.7+ accepts this natively
 vame.create_project(..., pose_estimation_format="movement")
 ```
@@ -367,7 +411,8 @@ All steps operate on the unified roiextractors API — extractor-agnostic.
 #### 4c — Calibrated Spike Inference via CASCADE
 
 **CASCADE** (Rupprecht et al. 2021, *Nature Neuroscience*) is the primary spike inference
-method. Unlike threshold-based methods it outputs a continuous **spike rate in spikes/s**
+method ([manual install](docs/manual-installs.md) — pins `tensorflow==2.3`, Python 3.8 only).
+Unlike threshold-based methods it outputs a continuous **spike rate in spikes/s**
 (calibrated physical units) using pre-trained deep-learning models matched to the GCaMP
 indicator and imaging frame rate. This replaces the OASIS deconvolution and Voigts & Harnett
 threshold methods as the primary output.
@@ -386,7 +431,7 @@ The Voigts & Harnett threshold method is retained as a **fallback** and for comp
 - `n_spikes`, `spike_rate` (spikes/min, bad frames excluded)
 - `mean_dff_amp`: mean peak dF/F0 during events
 
-**Tools:** roiextractors, CASCADE (`cascade2p`), FISSA, NumPy, SciPy
+**Tools:** roiextractors, CASCADE (`cascade2p`, [manual install](docs/manual-installs.md)), FISSA ([manual install](docs/manual-installs.md)), NumPy, SciPy
 **Compute:** CPU only (CASCADE inference is fast on CPU) — can run locally or in cloud
 **Output:** `derivatives/calcium/sub-{id}/ses-{date}/ca.h5`
 
@@ -450,6 +495,9 @@ model.fit(X=basis.compute_features(hd, speed), y=spks)
 ```
 
 ### 4.3 CEBRA — Population Latent Embeddings
+
+> **Note:** CEBRA is a [manual install](docs/manual-installs.md) — it pins `numpy<2.0`
+> on some platforms, conflicting with other pipeline dependencies.
 
 **CEBRA** (Schneider et al. 2023, *Nature*; v0.6.0, Jan 2026; Apache 2.0) learns a
 low-dimensional embedding of population dF/F that is consistent with a specified behavioural
@@ -574,18 +622,18 @@ Notebooks
 | Data standard | NeuroBlueprint | BIDS-inspired folder spec |
 | Data transfer | DataShuttle | Upload/validate to S3 |
 | DAQ parsing | nptdms | TDMS → timestamps.h5 (Stage 0 only) |
-| 2P extraction | Suite2p 0.12+ (default), CaImAn | Pluggable via `extractor` field |
+| 2P extraction | Suite2p 1.0+ (default), CaImAn | Pluggable via `extractor` field |
 | Extraction API | **roiextractors** (CatalystNeuro) | Unified SegmentationExtractor |
-| Neuropil subtraction | Fixed coefficient (default), **FISSA** (spatial ICA) | FISSA: more accurate in dense tissue |
-| Spike inference | **CASCADE** (Rupprecht et al. 2021) | Calibrated spikes/s; pre-trained GCaMP models |
+| Neuropil subtraction | Fixed coefficient (default), **FISSA** (spatial ICA) | FISSA: more accurate in dense tissue; [manual install](docs/manual-installs.md) |
+| Spike inference | **CASCADE** (Rupprecht et al. 2021) | Calibrated spikes/s; pre-trained GCaMP models; [manual install](docs/manual-installs.md) |
 | Pose estimation | DeepLabCut 3.x (default), SLEAP, LightningPose | Pluggable via `tracker` field |
 | Kinematics | **movement** (neuroinformatics.dev) | Unified xarray.Dataset regardless of tracker |
-| Behavioural syllables | **VAME** v0.7+ (EthoML) | Zero-label unsupervised; accepts movement xarray natively |
-| Behavioural syllables (alt) | **keypoint-MoSeq** (Datta lab) | AR-HMM; zero-label; Nature Methods 2024 |
+| Behavioural syllables | **VAME** v0.12+ (EthoML) | Zero-label unsupervised; accepts movement xarray natively; [manual install](docs/manual-installs.md) |
+| Behavioural syllables (alt) | **keypoint-MoSeq** (Datta lab) | AR-HMM; zero-label; Nature Methods 2024; [manual install](docs/manual-installs.md) |
 | NWB conversion | **neuroconv** (CatalystNeuro) | roiextractors + movement → NWB archive |
 | Analysis interface | **pynapple** (Peyrache lab) | Unified TsdFrame for dF/F + behaviour |
 | Encoding models | **NEMOS** (Flatiron Institute) | GLM, pynapple-native, JAX backend |
-| Population embeddings | **CEBRA** (Schneider et al. 2023) | Contrastive latent spaces w/ behaviour |
+| Population embeddings | **CEBRA** (Schneider et al. 2023) | Contrastive latent spaces w/ behaviour; [manual install](docs/manual-installs.md) |
 | Orchestration | Snakemake 8.x+ | DAG-based, supports local + AWS Batch profiles |
 | Storage | AWS S3 | All persistent data |
 | GPU compute | AWS EC2 g4dn Spot (or local GPU) | Pose tracking + 2P extraction |
@@ -622,16 +670,90 @@ Notebooks
 
 ## 8. Implementation Status
 
-1. ✅ **Project skeleton** — `pyproject.toml`, `src/hm2p/` (all modules stubbed), `tests/`
-   (41 tests passing), `pre-commit`, GitHub Actions CI/lint, Snakemake workflow, Docker,
-   `uv` venv, `metadata/` CSVs. Ruff clean. CASCADE noted as conda-only (not on PyPI).
-2. **Finalise HDF5 schemas** — `timestamps.h5`, `kinematics.h5`, `ca.h5`, `sync.h5` — write
-   pandera schema validation in `io/hdf5.py` before any processing code
-3. **Upload raw data to S3** — migrate Dropbox data following NeuroBlueprint layout using DataShuttle
-4. **Stage 0** — implement TDMS parser → `timestamps.h5`; fully unit-tested with synthetic TDMS
-5. **Stage 3** — implement kinematics module using `movement`; CPU-only, validates end-to-end
-6. **Stage 4** — implement calcium module (roiextractors → neuropil → dF/F0 → CASCADE → ca.h5)
-7. **Stage 5** — implement sync module
-8. **Snakemake DAG** — fill in shell commands and resource specs for all rules
-9. **EC2 Docker images** — build and push GPU image (Suite2p + DLC) and CPU image
-10. **neuroconv export** — write NWB files from ca.h5 + kinematics.h5 for archiving
+### Completed
+
+1. ✅ **Project skeleton** — `pyproject.toml`, `src/hm2p/`, `tests/` (1038+ tests, 92%
+   coverage), pre-commit, GitHub Actions CI/lint, `uv` venv, `metadata/` CSVs.
+2. ✅ **HDF5 schemas** — pandera schema validation in `io/hdf5.py` for all output files.
+3. ✅ **S3 data upload** — 26 sessions (91.4 GiB, 503 objects) uploaded to
+   `s3://hm2p-rawdata/rawdata/` in NeuroBlueprint layout. Verified with
+   `scripts/verify_s3_upload.sh`.
+4. ✅ **Stage 0 — Ingest** — TDMS parser → `timestamps.h5`; fully unit-tested.
+5. ✅ **Stage 1 — Suite2p extraction** — `extraction/suite2p.py` (extractor class +
+   post-hoc soma/dendrite ROI classification), `extraction/run_suite2p.py` (wraps
+   `suite2p.run_s2p()`), `extraction/base.py` (abstract interface). CaImAn extractor
+   also implemented. All tested with synthetic data.
+6. ✅ **Stage 3 — Kinematics** — `kinematics/compute.py` using `movement` library.
+   HD, position, speed, AHV, movement state, light on/off, bad_behav masking.
+7. ✅ **Stage 4 — Calcium processing** — neuropil subtraction (fixed coefficient),
+   dF/F0 baseline, per-ROI stats. CASCADE spike inference deferred (needs conda env).
+8. ✅ **Stage 5 — Sync** — `sync/align.py` resamples behaviour → imaging frame times.
+9. ✅ **Snakemake DAG** — `workflow/Snakefile` + 6 stage rules (`workflow/rules/*.smk`)
+   with resource specs. Three profiles: `local`, `local-gpu`, `aws-batch`.
+10. ✅ **Docker images defined** — `docker/gpu.Dockerfile` (CUDA 12.1 + Suite2p + DLC),
+    `docker/cpu.Dockerfile` (CPU-only stages).
+11. ✅ **AWS S3 infrastructure** — buckets created (`hm2p-rawdata`, `hm2p-derivatives`),
+    versioning enabled, lifecycle policy (Standard → IA after 30 days).
+12. ✅ **Legacy pipeline reference** — copied into `old-pipeline/` (read-only, never modify).
+13. ✅ **EC2 launch script** — `scripts/launch_suite2p_ec2.py` launches a g4dn.xlarge
+    instance via boto3, bootstraps Suite2p, processes all 26 sessions, uploads results
+    to S3, and self-terminates. Supports `--status`, `--terminate`, `--dry-run`.
+
+### In Progress / Recently Completed
+
+14. ✅ **Suite2p cloud run (Stage 1)** — All 26 sessions processed on EC2 g4dn.xlarge
+    (GPU) with custom soma classifier and legacy parameters. Results uploaded to
+    `s3://hm2p-derivatives/ca_extraction/{sub}/{ses}/suite2p/`. Local validation on
+    `sub-1117788/ses-20221018T105617`: 99 ROIs, 25 cells (custom classifier), 14577 frames.
+    Key fixes: Suite2p 1.0 API (`run_s2p(db=..., settings=...)`), `sparsedetect` mode()
+    bug patch, dpkg lock wait for Ubuntu DLAMI, S3 progress tracking.
+15. ✅ **Visualization script** — `scripts/viz_suite2p.py` generates multi-panel figure
+    (mean image + ROIs, cell map, classification histogram, top-N dF/F traces).
+    Example output: `docs/figures/suite2p_example_sub-1117788.png`.
+
+### Cloud Infrastructure
+
+- `scripts/launch_suite2p_ec2.py` — boto3 script to launch g4dn.xlarge, process all
+  sessions, upload results to S3, self-terminate. Supports `--status`/`--progress`/`--terminate`.
+- S3 progress tracking: `--progress` reads `_progress.json` from S3.
+- Custom classifier at `s3://hm2p-derivatives/config/suite2p/classifier_soma.npy`.
+- EC2 key pair (`hm2p-suite2p`) and security group (`hm2p-suite2p-sg`) already created.
+- G/VT On-Demand vCPU quota: 4 (sufficient for g4dn.xlarge).
+- `scripts/aws_batch_setup.sh` — creates Batch compute environments + job queues.
+- `scripts/ecr_push.sh` — builds and pushes GPU/CPU Docker images to ECR.
+- `workflow/profiles/aws-batch/config.yaml` — Snakemake AWS Batch profile.
+
+### In Progress
+
+16. 🔄 **DLC pose estimation (Stage 2)** — IN PROGRESS. 13/26 sessions completed on
+    2x g5.xlarge EC2 On-Demand (parallel shards). DLC 3.0 PyTorch backend with
+    SuperAnimal TopViewMouse + HRNet-W32 + FasterRCNN detector. Videos subsampled
+    to 30 fps before inference.
+
+### Recently Completed
+
+17. ✅ **Stage 4 — Calcium processing (cloud)** — 26/26 sessions processed. 391 total
+    ROIs across 26 sessions. ca.h5 files uploaded to S3. Soma/dendrite/artefact
+    classification via Suite2p stat.npy shape metrics.
+18. ✅ **Frontend / dashboard** — Streamlit app with 43+ pages organized in 5 navigation
+    sections (Overview, Pipeline, Explore, Analysis, System). Loads real data from S3;
+    shows clear message if unavailable. No synthetic data.
+19. ✅ **Analysis framework** — 16 analysis modules: activity, tuning, significance,
+    comparison, decoder, stability, population, ahv, information, classify, gain,
+    anchoring, speed, run, save, plus maze analysis module.
+20. ✅ **keypoint-MoSeq** — Docker container + orchestration script implemented for
+    zero-label behavioural syllable extraction.
+21. ✅ **Security tooling** — bandit, checkov, detect-secrets, pip-audit, vulture
+    integrated in CI + pre-commit hooks.
+
+### Remaining
+
+22. ⬜ **CASCADE spike inference** — requires separate conda env (tensorflow==2.3,
+    Python 3.8 only). See `docs/manual-installs.md`. Can run on CPU after Stage 4
+    dF/F0 is computed.
+23. ⬜ **FISSA neuropil subtraction** — optional, more accurate than fixed coefficient.
+    Requires separate env (scikit-learn<1.2). See `docs/manual-installs.md`.
+24. ⬜ **neuroconv NWB export** — write NWB files from ca.h5 + kinematics.h5 for DANDI
+    archiving. Stub only.
+25. ⬜ **Rotate hm2p-agent S3 credentials** — current access key was exposed in EC2
+    user-data script. Rotate after cloud runs complete.

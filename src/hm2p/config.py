@@ -89,6 +89,30 @@ class PipelineConfig(BaseSettings):
         ),
     )
 
+    # ── Stage 3b — Behavioural syllables (optional) ────────────────────────
+    syllable_backend: Literal["keypoint-moseq", "vame"] = Field(
+        default="keypoint-moseq",
+        description="Backend for zero-label syllable discovery.",
+    )
+    kpms_kappa: float = Field(
+        default=1e6,
+        description="keypoint-MoSeq AR-HMM stickiness parameter (higher = longer syllables).",
+    )
+    kpms_num_pcs: int = Field(
+        default=10,
+        ge=3,
+        description="Number of PCA components for keypoint-MoSeq.",
+    )
+    kpms_num_iters: int = Field(
+        default=50,
+        ge=10,
+        description="Number of AR-HMM fitting iterations.",
+    )
+    kpms_bodyparts: list[str] = Field(
+        default=["left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"],
+        description="Body parts to use for syllable fitting.",
+    )
+
     # ── Stage 5 — Sync ─────────────────────────────────────────────────────
     sync_interp_method: Literal["linear", "nearest"] = Field(
         default="linear",

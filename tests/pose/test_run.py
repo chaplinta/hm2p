@@ -86,19 +86,19 @@ class TestRunDlc:
             )
 
     def test_missing_config_raises(self, tmp_path):
+        """Custom model (superanimal=None) requires config.yaml."""
         video = tmp_path / "video.mp4"
         video.write_bytes(b"\x00")
         model_dir = tmp_path / "model"
         model_dir.mkdir()
         # No config.yaml
 
-        with pytest.raises(FileNotFoundError, match="config.yaml"):
-            run_tracker(
-                session=_session("dlc"),
-                video_path=video,
-                model_dir=model_dir,
-                output_dir=tmp_path / "output",
-            )
+        mock_dlc = MagicMock()
+        with patch.dict("sys.modules", {"deeplabcut": mock_dlc}):
+            from hm2p.pose.run import _run_dlc
+
+            with pytest.raises(FileNotFoundError, match="config.yaml"):
+                _run_dlc(video, model_dir, tmp_path / "output", superanimal=None)
 
     def test_importerror_without_dlc(self, tmp_path):
         video = tmp_path / "video.mp4"
@@ -123,18 +123,17 @@ class TestRunDlc:
         video.write_bytes(b"\x00")
         model_dir = tmp_path / "model"
         model_dir.mkdir()
-        (model_dir / "config.yaml").write_text("dummy")
         output_dir = tmp_path / "output"
 
         mock_dlc = MagicMock()
 
-        def fake_analyze(config, videos, destfolder, save_as_csv):
-            """Simulate DLC writing an output .h5 file."""
-            out = Path(destfolder)
+        def fake_superanimal(videos, **kwargs):
+            """Simulate DLC SuperAnimal writing an output .h5 file."""
+            out = Path(kwargs.get("dest_folder", "."))
             out.mkdir(parents=True, exist_ok=True)
-            (out / "videoDLC_resnet50_modelFeb1shuffle1_100000.h5").write_bytes(b"\x00")
+            (out / "videoDLC_superanimal_topviewmouse.h5").write_bytes(b"\x00")
 
-        mock_dlc.analyze_videos = fake_analyze
+        mock_dlc.video_inference_superanimal = fake_superanimal
 
         with patch.dict("sys.modules", {"deeplabcut": mock_dlc}):
             result = run_tracker(

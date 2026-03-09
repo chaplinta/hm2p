@@ -5,8 +5,8 @@ per-session camera rotation correction, filters low-confidence detections,
 computes HD, position, speed, AHV, movement state, light epoch alignment,
 and maze-coordinate positions. Writes kinematics.h5.
 
-All body keypoints: ear-left, ear-right, back-upper, back-middle, back-tail.
-HD = forward vector from ear-left → ear-right, unwrapped (degrees).
+SuperAnimal keypoints used: left_ear, right_ear, mid_back, mouse_center, tail_base.
+HD = forward vector from left_ear → right_ear, unwrapped (degrees).
 """
 
 from __future__ import annotations
@@ -63,8 +63,12 @@ _TRACKER_MAP: dict[str, str] = {
     "lp": "LightningPose",
 }
 
+# SuperAnimal TopViewMouse keypoint names
+_EAR_LEFT: str = "left_ear"
+_EAR_RIGHT: str = "right_ear"
+
 # Keypoints used for body centroid position
-_BODY_KEYPOINTS: tuple[str, ...] = ("back-upper", "back-middle", "back-tail")
+_BODY_KEYPOINTS: tuple[str, ...] = ("mid_back", "mouse_center", "tail_base")
 
 
 # ---------------------------------------------------------------------------
@@ -220,12 +224,12 @@ def load_pose_dataset(pose_path: Path, tracker: str) -> xr.Dataset:
         xarray.Dataset with dimensions (time, individuals, keypoints, space)
         and a 'confidence' DataArray.
     """
-    from movement.io import load_dataset
+    from movement.io import load_poses
 
     if tracker not in _TRACKER_MAP:
         raise ValueError(f"Unknown tracker '{tracker}'. Known trackers: {list(_TRACKER_MAP)}")
     source_software = _TRACKER_MAP[tracker]
-    return load_dataset(file=pose_path, source_software=source_software)
+    return load_poses.from_file(file=pose_path, source_software=source_software)
 
 
 def apply_orientation_rotation(ds: xr.Dataset, angle_deg: float) -> xr.Dataset:
@@ -302,7 +306,7 @@ def interpolate_gaps(ds: xr.Dataset, max_gap_frames: int = 5) -> xr.Dataset:
 
 
 def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
-    """Compute unwrapped head direction from ear-left → ear-right forward vector.
+    """Compute unwrapped head direction from left_ear → right_ear forward vector.
 
     Args:
         ds: movement Dataset (filtered + interpolated).
@@ -311,8 +315,8 @@ def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
         (N,) float32 — HD in degrees, unwrapped, referenced to camera frame.
     """
     pos = ds.position.isel(individuals=0)  # (time, space, keypoints)
-    ear_left = pos.sel(keypoints="ear-left")
-    ear_right = pos.sel(keypoints="ear-right")
+    ear_left = pos.sel(keypoints=_EAR_LEFT)
+    ear_right = pos.sel(keypoints=_EAR_RIGHT)
 
     return _compute_hd_deg(
         ear_left_x=ear_left.sel(space="x").values,
@@ -328,7 +332,7 @@ def compute_position_mm(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Compute body centroid position in mm.
 
-    Centroid is the mean of back-upper, back-middle, back-tail keypoints.
+    Centroid is the mean of mid_back, mouse_center, tail_base keypoints.
 
     Args:
         ds: movement Dataset.

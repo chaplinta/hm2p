@@ -4,7 +4,8 @@
 
 **NEVER modify or delete files in these directories:**
 
-- `/Users/tristan/Neuro/hm2p-analysis` — legacy code (read-only reference only)
+- `old-pipeline/` — legacy pipeline code copied into this repo (read-only reference only)
+- `/Users/tristan/Neuro/hm2p-analysis` — legacy code on local machine (read-only reference only)
 - `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/` — all data (read-only)
 
 You **may copy files from these directories into `/Users/tristan/Neuro/hm2p-v2`** (e.g. to
@@ -16,6 +17,22 @@ All new code goes in `/Users/tristan/Neuro/hm2p-v2`, connected to `github.com/ch
 **Git workflow:** `main` is protected — never push directly. Always create a feature
 branch (`feat/`, `fix/`, `docs/`, etc.), commit there, and open a PR. See
 [docs/contributing.md](docs/contributing.md) for details.
+
+**No synthetic data:** NEVER generate, use, or include synthetic/fake data anywhere — not in
+frontend pages, not in scripts, not in demos. Frontend pages must load real data from S3
+and show a clear message if no data is available yet. The ONLY exception is unit tests
+in `tests/`, which must use small synthetic arrays (never real data files).
+
+**Citation policy:** Any analysis method or algorithm taken from a paper **must** be cited
+in three places:
+
+1. **Code** — module/function docstring with: first author, year, title, journal, DOI,
+   and GitHub URL if available.
+2. **Docs** — relevant markdown files under `docs/`.
+3. **Frontend** — a "Methods & References" expander on any page that uses the method.
+
+Citation format: `Author et al. YEAR. "Title." Journal. doi:XX.XXXX/XXXXX`
+Plus GitHub/code URL if the method has a public implementation.
 
 ---
 
@@ -32,8 +49,8 @@ the new code must be:
 - **Data-standard compliant** — NeuroBlueprint folder layout throughout
 - **Modern** — always use the latest stable versions of all libraries (see Versions below)
 
-Do not copy-paste logic from the old pipeline. Read it to understand the computation,
-then reimplement cleanly with tests.
+Do not copy-paste logic from the old pipeline. Read it (in `old-pipeline/` or the original
+location) to understand the computation, then reimplement cleanly with tests.
 
 ---
 
@@ -86,7 +103,7 @@ Do not pin to old versions without a documented compatibility reason.
 **Primary science goal:** Compare HD tuning, population HD decoding, and visual cue dependence between Penk+ and CamKII+ RSP neurons. Test whether each population anchors HD to visual vs path-integration cues.
 **Neural recording:** two-photon GCaMP calcium imaging (~30 Hz, single or dual plane).
 **Behaviour:** overhead camera (~100 fps, Basler acA1300-200um), DAQ-synchronised to imaging.
-**Body parts tracked:** `ear-left`, `ear-right`, `back-upper`, `back-middle`, `back-tail`.
+**Body parts tracked (SuperAnimal TopViewMouse names):** `left_ear`, `right_ear`, `mid_back`, `mouse_center`, `tail_base`.
 **Session ID format:** `YYYYMMDD_HH_MM_SS_<animal_id>` (e.g. `20220804_13_52_02_1117646`).
 **NeuroBlueprint session name:** `ses-{YYYYMMDD}T{HHMMSS}` (e.g. `ses-20220804T135202`) — full timestamp required as multiple sessions per day exist.
 **Ground-truth registry:** `metadata/animals.csv`, `metadata/experiments.csv`.

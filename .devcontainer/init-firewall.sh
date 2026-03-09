@@ -56,6 +56,27 @@ while read -r cidr; do
     ipset add allowed-domains "$cidr"
 done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | aggregate -q)
 
+# AWS IP ranges — add official CIDRs for S3 and STS in ap-southeast-2
+echo "Fetching AWS IP ranges for S3/STS (ap-southeast-2)..."
+aws_ranges=$(curl -s https://ip-ranges.amazonaws.com/ip-ranges.json)
+if [ -z "$aws_ranges" ]; then
+    echo "ERROR: Failed to fetch AWS IP ranges"
+    exit 1
+fi
+while read -r cidr; do
+    if [[ ! "$cidr" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$ ]]; then
+        echo "ERROR: Invalid CIDR from AWS IP ranges: $cidr"
+        exit 1
+    fi
+    echo "Adding AWS range $cidr"
+    ipset add allowed-domains "$cidr" 2>/dev/null || true
+done < <(echo "$aws_ranges" | jq -r '
+    .prefixes[]
+    | select(.region == "ap-southeast-2")
+    | select(.service == "S3" or .service == "AMAZON")
+    | .ip_prefix
+' | aggregate -q)
+
 # Resolve and whitelist allowed domains
 for domain in \
     "registry.npmjs.org" \
@@ -68,11 +89,7 @@ for domain in \
     "update.code.visualstudio.com" \
     "pypi.org" \
     "files.pythonhosted.org" \
-    "astral.sh" \
-    "s3.ap-southeast-2.amazonaws.com" \
-    "s3.amazonaws.com" \
-    "sts.amazonaws.com" \
-    "sts.ap-southeast-2.amazonaws.com"; do
+    "astral.sh"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
@@ -132,6 +149,12 @@ if ! curl --connect-timeout 5 https://pypi.org/simple/ >/dev/null 2>&1; then
     echo "WARNING: pypi.org not reachable (uv installs may fail)"
 else
     echo "OK: pypi.org is reachable"
+fi
+
+if ! curl --connect-timeout 5 https://s3.ap-southeast-2.amazonaws.com/ >/dev/null 2>&1; then
+    echo "WARNING: S3 ap-southeast-2 not reachable (AWS operations may fail)"
+else
+    echo "OK: S3 ap-southeast-2 is reachable"
 fi
 
 echo "Firewall ready."

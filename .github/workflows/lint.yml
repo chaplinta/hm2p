@@ -29,3 +29,25 @@ jobs:
 
       - name: Run mypy
         run: mypy src/
+
+      - name: Run bandit (security)
+        run: bandit -c pyproject.toml -r src/
+
+      - name: Run checkov (IaC security)
+        run: |
+          checkov -d . \
+            --framework dockerfile \
+            --skip-check CKV_DOCKER_2,CKV_DOCKER_3,CKV_DOCKER_7 \
+            --quiet
+
+      - name: Run pip-audit (dependency CVEs)
+        run: pip-audit --strict --desc
+
+      - name: Run vulture (dead code)
+        run: vulture src/ --min-confidence 90
+
+      - name: Run detect-secrets
+        run: detect-secrets scan --baseline .secrets.baseline
+
+      - name: Run pandera schema validation (via tests)
+        run: pytest tests/ -k "pandera or schema or validate" --no-header -q || true

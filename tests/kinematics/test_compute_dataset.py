@@ -21,7 +21,7 @@ from hm2p.kinematics.compute import (
     run,
 )
 
-KEYPOINTS = ["ear-left", "ear-right", "back-upper", "back-middle", "back-tail"]
+KEYPOINTS = ["left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"]
 
 
 # ---------------------------------------------------------------------------
@@ -68,22 +68,32 @@ def _make_ds(
 # ---------------------------------------------------------------------------
 
 
-def _install_mock_movement() -> tuple[MagicMock, MagicMock, MagicMock]:
-    """Install mock movement modules into sys.modules so deferred imports work."""
+def _install_mock_movement() -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
+    """Install mock movement modules into sys.modules so deferred imports work.
+
+    Returns (mock_movement, mock_io, mock_load_poses, mock_filtering).
+    The actual code does ``from movement.io import load_poses`` then
+    ``load_poses.from_file(file=..., source_software=...)``.
+    """
     mock_movement = MagicMock()
     mock_io = MagicMock()
+    mock_load_poses = MagicMock()
     mock_filtering = MagicMock()
     mock_movement.io = mock_io
+    mock_movement.io.load_poses = mock_load_poses
     mock_movement.filtering = mock_filtering
     sys.modules["movement"] = mock_movement
     sys.modules["movement.io"] = mock_io
+    sys.modules["movement.io.load_poses"] = mock_load_poses
     sys.modules["movement.filtering"] = mock_filtering
-    return mock_movement, mock_io, mock_filtering
+    return mock_movement, mock_io, mock_load_poses, mock_filtering
 
 
 def _remove_mock_movement() -> None:
     """Remove mock movement modules from sys.modules."""
-    for key in ["movement", "movement.io", "movement.filtering"]:
+    for key in [
+        "movement", "movement.io", "movement.io.load_poses", "movement.filtering",
+    ]:
         sys.modules.pop(key, None)
 
 
@@ -94,10 +104,9 @@ def _remove_mock_movement() -> None:
 
 class TestLoadPoseDataset:
     def test_unknown_tracker_raises(self, tmp_path: Path) -> None:
-        # Need movement mock for the import but it'll fail before loading
         from hm2p.kinematics.compute import load_pose_dataset
 
-        _, mock_io, _ = _install_mock_movement()
+        _, _, mock_lp, _ = _install_mock_movement()
         try:
             with pytest.raises(ValueError, match="Unknown tracker"):
                 load_pose_dataset(tmp_path / "fake.h5", "nonexistent")
@@ -108,11 +117,11 @@ class TestLoadPoseDataset:
         from hm2p.kinematics.compute import load_pose_dataset
 
         mock_ds = _make_ds(10)
-        _, mock_io, _ = _install_mock_movement()
+        _, _, mock_lp, _ = _install_mock_movement()
         try:
-            mock_io.load_dataset.return_value = mock_ds
+            mock_lp.from_file.return_value = mock_ds
             result = load_pose_dataset(tmp_path / "pose.h5", "dlc")
-            mock_io.load_dataset.assert_called_once_with(
+            mock_lp.from_file.assert_called_once_with(
                 file=tmp_path / "pose.h5", source_software="DeepLabCut"
             )
             assert result is mock_ds
@@ -123,11 +132,11 @@ class TestLoadPoseDataset:
         from hm2p.kinematics.compute import load_pose_dataset
 
         mock_ds = _make_ds(10)
-        _, mock_io, _ = _install_mock_movement()
+        _, _, mock_lp, _ = _install_mock_movement()
         try:
-            mock_io.load_dataset.return_value = mock_ds
+            mock_lp.from_file.return_value = mock_ds
             load_pose_dataset(tmp_path / "pose.h5", "sleap")
-            mock_io.load_dataset.assert_called_once_with(
+            mock_lp.from_file.assert_called_once_with(
                 file=tmp_path / "pose.h5", source_software="SLEAP"
             )
         finally:
@@ -137,11 +146,11 @@ class TestLoadPoseDataset:
         from hm2p.kinematics.compute import load_pose_dataset
 
         mock_ds = _make_ds(10)
-        _, mock_io, _ = _install_mock_movement()
+        _, _, mock_lp, _ = _install_mock_movement()
         try:
-            mock_io.load_dataset.return_value = mock_ds
+            mock_lp.from_file.return_value = mock_ds
             load_pose_dataset(tmp_path / "pose.csv", "lp")
-            mock_io.load_dataset.assert_called_once_with(
+            mock_lp.from_file.assert_called_once_with(
                 file=tmp_path / "pose.csv", source_software="LightningPose"
             )
         finally:
@@ -158,7 +167,7 @@ class TestFilterLowConfidence:
         from hm2p.kinematics.compute import filter_low_confidence
 
         ds = _make_ds(10)
-        _, _, mock_filtering = _install_mock_movement()
+        _, _, _, mock_filtering = _install_mock_movement()
         try:
             mock_filtering.filter_by_confidence.return_value = ds.position
             result = filter_low_confidence(ds, threshold=0.9)
@@ -171,7 +180,7 @@ class TestFilterLowConfidence:
         from hm2p.kinematics.compute import filter_low_confidence
 
         ds = _make_ds(10)
-        _, _, mock_filtering = _install_mock_movement()
+        _, _, _, mock_filtering = _install_mock_movement()
         try:
             mock_filtering.filter_by_confidence.return_value = ds.position
             filter_low_confidence(ds, threshold=0.5)
@@ -191,7 +200,7 @@ class TestInterpolateGaps:
         from hm2p.kinematics.compute import interpolate_gaps
 
         ds = _make_ds(10)
-        _, _, mock_filtering = _install_mock_movement()
+        _, _, _, mock_filtering = _install_mock_movement()
         try:
             mock_filtering.interpolate_over_time.return_value = ds.position
             result = interpolate_gaps(ds, max_gap_frames=5)
@@ -299,23 +308,23 @@ class TestKinematicsRun:
         kp_idx = {k: i for i, k in enumerate(KEYPOINTS)}
 
         t = np.linspace(0, 4 * np.pi, n_frames)
-        pos_data[:, 0, kp_idx["ear-left"], 0] = 400 + 10 * np.cos(t)
-        pos_data[:, 1, kp_idx["ear-left"], 0] = 300 + 10 * np.sin(t)
-        pos_data[:, 0, kp_idx["ear-right"], 0] = 400 - 10 * np.cos(t)
-        pos_data[:, 1, kp_idx["ear-right"], 0] = 300 - 10 * np.sin(t)
-        for kp in ["back-upper", "back-middle", "back-tail"]:
+        pos_data[:, 0, kp_idx["left_ear"], 0] = 400 + 10 * np.cos(t)
+        pos_data[:, 1, kp_idx["left_ear"], 0] = 300 + 10 * np.sin(t)
+        pos_data[:, 0, kp_idx["right_ear"], 0] = 400 - 10 * np.cos(t)
+        pos_data[:, 1, kp_idx["right_ear"], 0] = 300 - 10 * np.sin(t)
+        for kp in ["mid_back", "mouse_center", "tail_base"]:
             pos_data[:, 0, kp_idx[kp], 0] = np.linspace(200, 600, n_frames)
             pos_data[:, 1, kp_idx[kp], 0] = np.linspace(100, 400, n_frames)
 
         conf_data = np.ones((n_frames, len(KEYPOINTS), 1), dtype=np.float64)
         return _make_ds(n_frames, pos_data, conf_data)
 
-    def _setup_mocks(self, pose_ds: xr.Dataset) -> tuple[MagicMock, MagicMock, MagicMock]:
-        _, mock_io, mock_filtering = _install_mock_movement()
-        mock_io.load_dataset.return_value = pose_ds
+    def _setup_mocks(self, pose_ds: xr.Dataset) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
+        _, mock_io, mock_lp, mock_filtering = _install_mock_movement()
+        mock_lp.from_file.return_value = pose_ds
         mock_filtering.filter_by_confidence.return_value = pose_ds.position
         mock_filtering.interpolate_over_time.return_value = pose_ds.position
-        return _, mock_io, mock_filtering
+        return _, mock_io, mock_lp, mock_filtering
 
     def test_run_creates_output(self, tmp_path: Path) -> None:
         ts_h5 = tmp_path / "timestamps.h5"

@@ -25,7 +25,7 @@ from hm2p.kinematics.compute import (
 # Dataset builder
 # ---------------------------------------------------------------------------
 
-KEYPOINTS = ["ear-left", "ear-right", "back-upper", "back-middle", "back-tail"]
+KEYPOINTS = ["left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"]
 
 
 def _make_pose_dataset(
@@ -323,12 +323,12 @@ class TestComputeHeadDirection:
         # atan2(5-5, 0-1) = atan2(0, -1) = π  → 180+180 = 360
         pos_data = np.zeros((n, 2, len(KEYPOINTS), 1), dtype=np.float64)
         kp_idx = {k: i for i, k in enumerate(KEYPOINTS)}
-        pos_data[:, 0, kp_idx["ear-left"], 0] = 5.0  # x
-        pos_data[:, 1, kp_idx["ear-left"], 0] = 0.0  # y
-        pos_data[:, 0, kp_idx["ear-right"], 0] = 5.0  # x
-        pos_data[:, 1, kp_idx["ear-right"], 0] = 1.0  # y
+        pos_data[:, 0, kp_idx["left_ear"], 0] = 5.0  # x
+        pos_data[:, 1, kp_idx["left_ear"], 0] = 0.0  # y
+        pos_data[:, 0, kp_idx["right_ear"], 0] = 5.0  # x
+        pos_data[:, 1, kp_idx["right_ear"], 0] = 1.0  # y
         # Fill back keypoints with something reasonable
-        for kp in ["back-upper", "back-middle", "back-tail"]:
+        for kp in ["mid_back", "mouse_center", "tail_base"]:
             pos_data[:, 0, kp_idx[kp], 0] = 5.0
             pos_data[:, 1, kp_idx[kp], 0] = 3.0
         ds = _make_pose_dataset(n_frames=n, pos_data=pos_data)
@@ -376,9 +376,9 @@ class TestComputePositionMm:
         pos_data = np.zeros((n, 2, len(KEYPOINTS), 1), dtype=np.float64)
         kp_idx = {k: i for i, k in enumerate(KEYPOINTS)}
         # Set back keypoints to known x values: 2, 4, 6 → mean = 4
-        pos_data[:, 0, kp_idx["back-upper"], 0] = 2.0
-        pos_data[:, 0, kp_idx["back-middle"], 0] = 4.0
-        pos_data[:, 0, kp_idx["back-tail"], 0] = 6.0
+        pos_data[:, 0, kp_idx["mid_back"], 0] = 2.0
+        pos_data[:, 0, kp_idx["mouse_center"], 0] = 4.0
+        pos_data[:, 0, kp_idx["tail_base"], 0] = 6.0
         pos_data[:, 1, :, 0] = 1.0
         # Ear keypoints are irrelevant for position
         ds = _make_pose_dataset(n_frames=n, pos_data=pos_data)

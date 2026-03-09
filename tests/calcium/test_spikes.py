@@ -76,6 +76,32 @@ def test_predict_spike_rates_raises_importerror_without_cascade() -> None:
         )
 
 
+def test_mean_spike_rate_all_bad_nan() -> None:
+    """All frames bad -> output is NaN for all ROIs."""
+    spikes = np.ones((3, 50), dtype=np.float32)
+    bad_frames = np.ones(50, dtype=bool)
+    result = compute_mean_spike_rate(spikes, fps=30.0, bad_frames=bad_frames)
+    assert result.shape == (3,)
+    assert np.all(np.isnan(result))
+
+
+def test_mean_spike_rate_dtype() -> None:
+    """Output dtype is float32."""
+    spikes = np.ones((2, 100), dtype=np.float32)
+    result = compute_mean_spike_rate(spikes, fps=30.0)
+    assert result.dtype == np.float32
+
+
+def test_mean_spike_rate_varying_rates() -> None:
+    """Different ROIs should have different mean rates."""
+    spikes = np.zeros((2, 100), dtype=np.float32)
+    spikes[0, :] = 1.0  # 1 spike/s -> 60/min
+    spikes[1, :] = 2.0  # 2 spikes/s -> 120/min
+    result = compute_mean_spike_rate(spikes, fps=10.0)
+    np.testing.assert_allclose(result[0], 60.0, rtol=1e-5)
+    np.testing.assert_allclose(result[1], 120.0, rtol=1e-5)
+
+
 def test_predict_spike_rates_with_mock_cascade() -> None:
     """predict_spike_rates returns correct shape when cascade2p is available (mocked)."""
     n_rois, n_frames = 5, 200
