@@ -84,8 +84,8 @@ try:
         st.info("No EC2 instances found with Name tag starting with 'hm2p-'.")
 
 except Exception as e:
-    st.error(f"Could not connect to AWS EC2: {e}")
     log.exception("EC2 describe_instances failed")
+    st.error("Could not connect to AWS EC2. Check server logs for details.")
 
 
 # ── Section 2: S3 Progress ───────────────────────────────────────────────────
@@ -130,7 +130,8 @@ try:
     else:
         st.info("No Suite2p outputs found yet.")
 except Exception as e:
-    st.error(f"Could not check Suite2p progress: {e}")
+    log.exception("Could not check Suite2p progress")
+    st.error("Could not check Suite2p progress. Check server logs for details.")
 
 # DLC sub-section
 st.subheader("DLC (pose)")
@@ -148,7 +149,8 @@ try:
     else:
         st.info("No DLC outputs found yet.")
 except Exception as e:
-    st.error(f"Could not check DLC progress: {e}")
+    log.exception("Could not check DLC progress")
+    st.error("Could not check DLC progress. Check server logs for details.")
 
 
 # ── Section 3: Job Logs ──────────────────────────────────────────────────────
@@ -177,7 +179,8 @@ try:
     else:
         st.info(f"No log file found at s3://{DERIVATIVES_BUCKET}/{log_key}")
 except Exception as e:
-    st.error(f"Could not fetch log: {e}")
+    log.exception("Could not fetch log")
+    st.error("Could not fetch log. Check server logs for details.")
 
 # Check _progress.json for the selected stage
 stage_prefix = log_key.split("/")[0]  # "ca_extraction" or "pose"

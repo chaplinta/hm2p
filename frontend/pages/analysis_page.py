@@ -8,11 +8,14 @@ whether conclusions hold across calcium measures.
 from __future__ import annotations
 
 import io
+import logging
 import sys
 from pathlib import Path
 
 import numpy as np
 import streamlit as st
+
+log = logging.getLogger("hm2p.frontend.analysis")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
@@ -97,13 +100,14 @@ st.sidebar.subheader("Place Tuning")
 place_bin = st.sidebar.slider("Place bin size (cm)", 1.0, 10.0, 2.5, 0.5)
 place_sigma = st.sidebar.slider("Place smoothing (cm)", 0.0, 10.0, 3.0, 0.5)
 
-n_shuffles = st.sidebar.number_input("Bootstrap shuffles", 100, 10000, 500, 100)
+n_shuffles = st.sidebar.number_input("Bootstrap shuffles", 100, 2000, 500, 100)
 
 # Load data
 try:
     ca = _download_h5(DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5")
 except Exception as e:
-    st.error(f"Failed to load ca.h5: {e}")
+    log.exception("Failed to load ca.h5")
+    st.error("Failed to load ca.h5. Check server logs for details.")
     st.stop()
 
 dff = ca.get("dff")

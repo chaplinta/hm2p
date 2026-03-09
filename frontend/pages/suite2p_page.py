@@ -90,7 +90,7 @@ with st.expander("Suite2p S3 Completion Summary", expanded=False):
             )
     except Exception as e:
         log.exception("Error fetching Suite2p summary")
-        st.warning(f"Could not query S3: {e}")
+        st.warning("Could not query S3. Check server logs for details.")
 
 st.markdown("---")
 
@@ -713,7 +713,7 @@ with tab_tiff:
                     plt.close()
                 except Exception as e:
                     log.exception("Error loading frame from data.bin")
-                    st.error(f"Error loading frame: {e}")
+                    st.error("Error loading frame. Check server logs for details.")
         else:
             st.warning("Could not determine frame dimensions from ops.npy")
     else:

@@ -501,6 +501,10 @@ def download_s3_numpy(bucket: str, key: str):
     data = download_s3_bytes(bucket, key)
     if data is None:
         return None
+    # allow_pickle=True is required for Suite2p stat.npy and ops.npy which
+    # contain Python objects (lists of dicts).  Security mitigation: the S3
+    # bucket has write access restricted to the hm2p-ec2-role IAM role, so
+    # only trusted pipeline outputs can be stored there.
     return np.load(io.BytesIO(data), allow_pickle=True)
 
 

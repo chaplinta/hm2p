@@ -61,7 +61,8 @@ with tab_raw:
 
         st.caption(f"Bucket: `{RAWDATA_BUCKET}` ({REGION})")
     except Exception as e:
-        st.warning(f"Could not scan raw data bucket: {e}")
+        log.exception("Could not scan raw data bucket")
+        st.warning("Could not scan raw data bucket. Check server logs for details.")
 
 with tab_deriv:
     try:
@@ -90,7 +91,8 @@ with tab_deriv:
 
         st.caption(f"Bucket: `{DERIVATIVES_BUCKET}` ({REGION})")
     except Exception as e:
-        st.warning(f"Could not scan derivatives bucket: {e}")
+        log.exception("Could not scan derivatives bucket")
+        st.warning("Could not scan derivatives bucket. Check server logs for details.")
 
 
 # ── EC2 Compute Costs ───────────────────────────────────────────────────────

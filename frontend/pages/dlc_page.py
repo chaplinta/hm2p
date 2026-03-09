@@ -90,7 +90,7 @@ try:
     import boto3
     ec2 = boto3.client("ec2", region_name=REGION)
     resp = ec2.describe_instances(
-        InstanceIds=["i-062e80a40b2007d20"],
+        Filters=[{"Name": "tag:Project", "Values": ["hm2p-dlc"]}],
     )
     for res in resp["Reservations"]:
         for inst in res["Instances"]:
@@ -102,12 +102,9 @@ try:
             color = "green" if state == "running" else "red"
             st.markdown(f":{color}[**{state}**] | `{itype}` | IP: `{ip}` | Launched: {launch[:19]}")
 
-            if state == "running":
-                st.caption(
-                    f"SSH: `ssh -i ~/.ssh/hm2p-suite2p.pem ubuntu@{ip}`"
-                )
 except Exception as e:
-    st.warning(f"Could not check EC2 instance: {e}")
+    log.exception("Could not check EC2 instance")
+    st.warning("Could not check EC2 instance. Check server logs for details.")
 
 st.markdown("---")
 
@@ -277,5 +274,5 @@ else:
                     st.plotly_chart(fig_lik, use_container_width=True)
 
         except Exception as e:
-            st.error(f"Could not load DLC data: {e}")
+            st.error("Could not load DLC data. Check server logs for details.")
             log.exception("Error loading DLC h5")

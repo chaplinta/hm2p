@@ -132,7 +132,7 @@ try:
             col.progress(n / total_sessions)
 except Exception as e:
     log.exception("Error counting S3 sessions")
-    st.warning(f"Could not query S3: {e}")
+    st.warning("Could not query S3. Check server logs for details.")
 
 st.markdown("---")
 

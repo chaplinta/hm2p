@@ -362,7 +362,8 @@ if avail.get("pose"):
                         )
                         st.plotly_chart(fig, use_container_width=True)
                 except Exception as e:
-                    st.error(f"Could not load pose data: {e}")
+                    log.exception("Could not load pose data")
+                    st.error("Could not load pose data. Check server logs for details.")
 
 # --- Raw Files Tab ---
 with tabs[tab_idx]:

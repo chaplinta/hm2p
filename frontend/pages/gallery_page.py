@@ -7,6 +7,7 @@ animal, or ROI type in the sidebar.
 
 from __future__ import annotations
 
+import html
 import logging
 import sys
 from pathlib import Path
@@ -265,9 +266,12 @@ with tab_gallery:
                 # Compact info line
                 type_emoji = {"soma": "S", "dend": "D", "artefact": "X"}.get(roi_row["roi_type"], "?")
                 ar_str = f"AR:{roi_row['aspect_ratio']:.1f}" if not np.isnan(roi_row["aspect_ratio"]) else ""
+                _exp_id = html.escape(ses['exp_id'][:8])
+                _celltype = html.escape(str(ses['celltype']))
+                _type_emoji = html.escape(type_emoji)
                 st.markdown(
                     f"<div style='font-size:10px; line-height:1.2'>"
-                    f"<b>{ses['exp_id'][:8]}</b> | {ses['celltype']} | [{type_emoji}] "
+                    f"<b>{_exp_id}</b> | {_celltype} | [{_type_emoji}] "
                     f"SNR:{roi_row['snr']:.1f} {ar_str}"
                     f"</div>",
                     unsafe_allow_html=True,
