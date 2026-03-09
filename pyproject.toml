@@ -107,7 +107,6 @@ dev = [
     "ruff>=0.5",
     "mypy>=1.11",
     "bandit[toml]>=1.8",
-    "checkov>=3.2",
     "detect-secrets>=1.5",
     "pip-audit>=2.7",
     "vulture>=2.14",
