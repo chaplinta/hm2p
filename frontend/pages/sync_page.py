@@ -257,7 +257,7 @@ with tab_quality:
         # Get Suite2p frame count if available
         n_tiff_frames = None
         s2p_ops_key = f"ca_extraction/{sub}/{ses}/suite2p/plane0/ops.npy"
-        ops = download_s3_numpy(DERIVATIVES_BUCKET, s2p_ops_key)
+        ops = download_s3_numpy(DERIVATIVES_BUCKET, s2p_ops_key, allow_pickle=True)
         if ops is not None:
             ops = ops.item() if hasattr(ops, "item") else ops
             n_tiff_frames = ops.get("nframes")
@@ -325,7 +325,7 @@ with tab_batch:
             # Get Suite2p frame count
             n_tiff = None
             ops_key = f"ca_extraction/{s}/{ss}/suite2p/plane0/ops.npy"
-            ops_data = download_s3_numpy(DERIVATIVES_BUCKET, ops_key)
+            ops_data = download_s3_numpy(DERIVATIVES_BUCKET, ops_key, allow_pickle=True)
             if ops_data is not None:
                 ops_dict = ops_data.item() if hasattr(ops_data, "item") else ops_data
                 n_tiff = ops_dict.get("nframes")

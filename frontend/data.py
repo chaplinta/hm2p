@@ -494,18 +494,23 @@ def get_s3_prefix_sizes(bucket: str, prefixes: list[str]) -> dict[str, dict]:
 
 
 @st.cache_data(ttl=1800)
-def download_s3_numpy(bucket: str, key: str):
-    """Download and load a .npy file from S3. Cached for 30 minutes."""
+def download_s3_numpy(bucket: str, key: str, *, allow_pickle: bool = False):
+    """Download and load a .npy file from S3. Cached for 30 minutes.
+
+    Parameters
+    ----------
+    allow_pickle : bool
+        Only set True for Suite2p stat.npy / ops.npy which contain Python
+        objects (lists of dicts).  All other .npy files (iscell, F, Fneu,
+        spks) are plain numeric arrays and MUST use the default (False)
+        to prevent arbitrary-code-execution via crafted .npy files.
+    """
     import numpy as np
 
     data = download_s3_bytes(bucket, key)
     if data is None:
         return None
-    # allow_pickle=True is required for Suite2p stat.npy and ops.npy which
-    # contain Python objects (lists of dicts).  Security mitigation: the S3
-    # bucket has write access restricted to the hm2p-ec2-role IAM role, so
-    # only trusted pipeline outputs can be stored there.
-    return np.load(io.BytesIO(data), allow_pickle=True)
+    return np.load(io.BytesIO(data), allow_pickle=allow_pickle)
 
 
 # ── Suite2p spatial data loader ───────────────────────────────────────────
@@ -544,8 +549,8 @@ def _fetch_all_suite2p_spatial() -> dict[str, dict]:
         sub, ses = parse_session_id(exp_id)
 
         s2p_prefix = f"ca_extraction/{sub}/{ses}/suite2p/plane0/"
-        stat = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "stat.npy")
-        ops = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "ops.npy")
+        stat = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "stat.npy", allow_pickle=True)
+        ops = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "ops.npy", allow_pickle=True)
         iscell = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "iscell.npy")
 
         # Extract mean image from ops

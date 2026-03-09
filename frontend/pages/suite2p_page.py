@@ -48,7 +48,7 @@ def get_suite2p_session_summary() -> list[dict]:
                     import io as _io
 
                     obj = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key=prefix + "iscell.npy")
-                    iscell_data = np.load(_io.BytesIO(obj["Body"].read()), allow_pickle=True)
+                    iscell_data = np.load(_io.BytesIO(obj["Body"].read()), allow_pickle=False)
                     info["n_rois"] = len(iscell_data)
                     info["n_cells"] = int(iscell_data[:, 0].sum())
                 except Exception:
@@ -121,8 +121,8 @@ st.caption(
 
 # Load key arrays
 with st.spinner("Loading Suite2p data from S3..."):
-    ops = download_s3_numpy(DERIVATIVES_BUCKET, s3_prefix + "ops.npy")
-    stat = download_s3_numpy(DERIVATIVES_BUCKET, s3_prefix + "stat.npy")
+    ops = download_s3_numpy(DERIVATIVES_BUCKET, s3_prefix + "ops.npy", allow_pickle=True)
+    stat = download_s3_numpy(DERIVATIVES_BUCKET, s3_prefix + "stat.npy", allow_pickle=True)
     iscell = download_s3_numpy(DERIVATIVES_BUCKET, s3_prefix + "iscell.npy")
     f_traces = download_s3_numpy(DERIVATIVES_BUCKET, s3_prefix + "F.npy")
     f_neu = download_s3_numpy(DERIVATIVES_BUCKET, s3_prefix + "Fneu.npy")
