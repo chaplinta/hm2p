@@ -42,6 +42,9 @@ dmypy.json
 
 # Data directories — never commit raw or derivative data
 data/
+z-stacks/
+brains-sorted/
+brains-reg/
 *.h5
 *.hdf5
 *.tif

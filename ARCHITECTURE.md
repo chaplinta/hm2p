@@ -133,6 +133,7 @@ hm2p-v2/
 │       │   ├── __init__.py
 │       │   ├── base.py            # Abstract extractor interface (wraps roiextractors)
 │       │   ├── suite2p.py         # Suite2pExtractor + post-hoc soma/dend classification
+│       │   ├── zdrift.py          # Z-drift estimation from serial2p z-stacks
 │       │   └── caiman.py          # CaimanExtractor
 │       ├── pose/
 │       │   ├── __init__.py
@@ -173,6 +174,10 @@ hm2p-v2/
 │       │   ├── topology.py        # Rose-maze graph: 7×5 grid, adjacency, dead ends
 │       │   ├── discretize.py      # Continuous x/y → maze cell assignment
 │       │   └── analysis.py        # Occupancy, exploration, turn bias, sequences
+│       ├── anatomy/
+│       │   ├── __init__.py
+│       │   ├── register.py        # brainreg: serial2p → Allen CCFv3 registration
+│       │   └── injection.py       # Injection site extraction from brainreg output
 │       ├── sync/
 │       │   ├── __init__.py
 │       │   ├── align.py           # Resample behaviour to imaging timestamps
