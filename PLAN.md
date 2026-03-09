@@ -114,6 +114,37 @@ Current default: **DeepLabCut 3.0 (PyTorch) — SuperAnimal TopViewMouse + HRNet
 The `tracker` field in `experiments.csv` records which tracker was used per session.
 Pose outputs (from any tracker) feed into Stage 3 without modification.
 
+#### D — Serial2p Z-Stacks
+
+Per-session z-stacks acquired with the serial2p system for tracking focal plane drift
+during imaging. The `zstack_id` column in `experiments.csv` maps sessions to their
+z-stack. Multiple sessions can share a z-stack (same animal, same day).
+
+| Property | Detail |
+| --- | --- |
+| Format | Multi-page TIFF (`.tif`) + raw (`.raw`) + metadata (`.ini`, `.xml`) |
+| Channels | Green (functional) + sometimes Red (anatomical) |
+| Content | (n_zplanes, Ly, Lx) volume — one plane per z-step |
+| Use | Register imaging frames against z-planes to estimate z-drift over time |
+| S3 location | `sourcedata/zstacks/{zstack_id}/` |
+| Sessions with z-stacks | 16 of 26 (13 unique z-stacks) |
+
+#### E — Serial2p Whole-Brain Volumes
+
+Post-mortem whole-brain serial2p volumes for anatomical localisation of imaging sites
+and injection site verification. Registered to Allen CCFv3 atlas using brainreg.
+
+| Property | Detail |
+| --- | --- |
+| Format | Downsampled TIFF (`.tif`), one file per channel per animal |
+| Channels | Red (chan 2), Green (chan 3, signal), sometimes Blue (chan 4) |
+| Voxel size | 25 × 25 × 25 µm isotropic |
+| Naming | `ds_TC_{animal_id}_{date}_{voxel}_{channel}.tif` |
+| S3 location | `sourcedata/brains-sorted/` (raw), `brains-reg/` (registered) |
+| Animals | 22 brains (20 unique animals) |
+| Registration | brainreg: orientation `psl`, Allen 25 µm atlas |
+| Output | `volumes.csv` (region volumes), segmentation (injection sites) |
+
 ---
 
 ## 2. Data Organisation Standard
@@ -133,6 +164,8 @@ hm2p/
 │
 ├── sourcedata/                   # Original unmodified assets
 │   ├── trackers/                 # Tracker models + labeled data (DLC, SLEAP, etc.)
+│   ├── zstacks/                  # Per-session serial2p z-stacks
+│   ├── brains-sorted/            # Whole-brain serial2p volumes (per animal)
 │   └── metadata/                 # animals.csv, experiments.csv
 │
 └── derivatives/
@@ -148,6 +181,13 @@ hm2p/
     ├── calcium/
     │   └── sub-{animal_id}/ses-{date}/
     │       └── ca.h5             # dF/F0, events, SNR per ROI (imaging rate)
+    ├── zdrift/
+    │   └── sub-{animal_id}/ses-{date}/
+    │       └── zdrift.h5         # z-position per frame from z-stack registration
+    ├── brains-reg/               # brainreg output (registered atlas, volumes, segmentation)
+    │   └── {animal_basename}/
+    │       ├── volumes.csv       # brain region volumes (left/right/total mm³)
+    │       └── segmentation/     # injection site labels
     └── sync/
         └── sub-{animal_id}/ses-{date}/
             └── sync.h5           # neural + behavioural aligned to imaging frames
