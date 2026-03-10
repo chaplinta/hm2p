@@ -9,7 +9,7 @@ Cloud-based analysis pipeline for freely-moving mouse experiments combining
 
 Mice explore a rose-maze (or open field / linear track) while we record:
 
-- **2P calcium imaging** (~30 Hz, GCaMP) of **retrosplenial cortex (RSP)** and nearby cortex — a region with prominent head-direction cells
+- **2P calcium imaging** (~9.6 Hz, GCaMP) of **retrosplenial cortex (RSP)** and nearby cortex — a region with prominent head-direction cells
 - **Overhead video** (~100 fps) of the mouse, synchronised to imaging via DAQ
 - **Periodic light stimulus** — 1 min on / 1 min off visual landmark manipulation throughout each session
 

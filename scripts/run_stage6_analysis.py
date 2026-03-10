@@ -191,7 +191,10 @@ def main():
     # Load experiment list
     import csv
     with open(METADATA_DIR / "experiments.csv") as f:
-        experiments = list(csv.DictReader(f))
+        experiments = [
+            e for e in csv.DictReader(f)
+            if str(e.get("exclude", "0")).strip() != "1"
+        ]
 
     if args.session:
         experiments = [e for e in experiments if e["exp_id"] == args.session]
@@ -238,7 +241,7 @@ def main():
                 skipped.append(exp_id)
                 continue
 
-            ok = download_h5(s3, DERIVATIVES_BUCKET, f"movement/{sub}/{ses}/kinematics.h5", kin_path)
+            ok = download_h5(s3, DERIVATIVES_BUCKET, f"kinematics/{sub}/{ses}/kinematics.h5", kin_path)
             if not ok:
                 log.warning("  SKIP: no kinematics.h5 (Stage 3 not done)")
                 skipped.append(exp_id)

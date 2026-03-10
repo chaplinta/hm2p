@@ -53,11 +53,11 @@ Ground-truth session registry lives in two flat CSV files:
 | Acquisition system | SciScan (resonant scanner) |
 | Raw format | `.raw` (SciScan proprietary) → converted to `.tif` stacks |
 | Resolution | 512 × 512 px (typical) |
-| Frame rate | ~30 Hz |
+| Frame rate | ~9.6 Hz (varies per session; see `frames.p.sec` in `.meta.txt`) |
 | Channels | Green (GCaMP functional) + Red (anatomical reference) |
 | Planes | **Single plane** — soma and dendrite ROIs co-exist within the same imaging plane and are distinguished post-hoc by shape |
 | Sidecar metadata | `.meta.txt` per session — DAQ settings, frame counts, timing |
-| Current volume | ~280 GB extraction outputs across 29 sessions |
+| Current volume | ~280 GB extraction outputs across 26 sessions |
 
 The pipeline is **extractor-agnostic**. **roiextractors** (CatalystNeuro) provides a unified
 `SegmentationExtractor` API across multiple ROI extraction backends, so all downstream
@@ -84,7 +84,7 @@ Raw `.raw` files are converted to TIFF via `raw2tif`, then passed to the chosen 
 | Content | Overhead view of mouse in maze (rose-maze / open field / linear track) |
 | Calibration | Lens-specific `.npz` files (4 mm and 6 mm lenses) |
 | Per-session metadata | `meta/meta.txt` — crop region, scale (mm/pixel), maze ROI corners |
-| Current volume | ~900 MB raw video across 30 sessions |
+| Current volume | ~900 MB raw video across 26 sessions |
 
 #### C — Pose Tracking
 
@@ -442,7 +442,7 @@ The Voigts & Harnett threshold method is retained as a **fallback** and for comp
 **Input:** `kinematics.h5` + `ca.h5` + `.meta.txt` (imaging frame timestamps)
 
 1. Extract precise 2P frame timestamps from DAQ `.meta.txt`
-2. Resample behavioural kinematics from camera rate (~100 Hz) to imaging rate (~30 Hz)
+2. Resample behavioural kinematics from camera rate (~100 Hz) to imaging rate (~9.6 Hz)
    via linear interpolation at each imaging frame timestamp
 3. Merge into single synchronised DataFrame indexed by frame number
 
@@ -566,9 +566,9 @@ substituted automatically when running in cloud mode.
 
 ---
 
-## 5. Cloud Architecture
+## 6. Cloud Architecture
 
-### 5.1 Recommended Provider: AWS
+### 6.1 Recommended Provider: AWS
 
 - Widest GPU instance selection (A10G, V100, A100 via g4dn/p3/p4)
 - Native Snakemake support via AWS Batch
@@ -581,7 +581,7 @@ substituted automatically when running in cloud mode.
 **Alternative: Institutional HPC** (e.g. UCL Myriad/Kathleen with SLURM) — best
 cost-efficiency if available; use S3 for storage regardless.
 
-### 5.2 AWS Layout
+### 6.2 AWS Layout
 
 ```text
 S3 Buckets
@@ -601,7 +601,7 @@ Notebooks
   EC2 + JupyterLab          ← interactive analysis
 ```
 
-### 5.3 Rough Cost Estimates
+### 6.3 Rough Cost Estimates
 
 | Resource | Estimate |
 | --- | --- |
@@ -613,9 +613,9 @@ Notebooks
 
 ---
 
-## 6. Technology Stack
+## 7. Technology Stack
 
-### 6.1 Core Pipeline
+### 7.1 Core Pipeline
 
 | Layer | Tool | Notes |
 | --- | --- | --- |
@@ -642,7 +642,7 @@ Notebooks
 | Packaging | uv + conda (GPU envs) | Reproducible environments |
 | Containers | Docker | Reproducible compute |
 
-### 6.2 Code Quality & Best Practice Tooling
+### 7.2 Code Quality & Best Practice Tooling
 
 | Tool | Role |
 | --- | --- |
@@ -658,7 +658,7 @@ Notebooks
 
 ---
 
-## 7. What Is Reused Unchanged
+## 8. What Is Reused Unchanged
 
 - Trained DeepLabCut model — copied to `sourcedata/trackers/dlc/`
 - Suite2p classifiers (`classifier_soma.npy`, `classifier_dend.npy`) — used for post-hoc ROI labelling
@@ -668,7 +668,7 @@ Notebooks
 
 ---
 
-## 8. Implementation Status
+## 9. Implementation Status
 
 ### Completed
 

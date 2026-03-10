@@ -46,7 +46,7 @@ cause the mouse to get stuck against maze walls, creating artefactual immobility
 These periods are manually identified per session and logged in `experiments.csv` as
 `bad_behav_times` (mm:ss-mm:ss format, semicolon-separated).
 
-**Sessions:** 29–30 sessions across ~7 animals. Multiple sessions per animal; up to two
+**Sessions:** 26 sessions across 7 animals. Multiple sessions per animal; up to two
 sessions per day. ~550 GB total data on Dropbox.
 
 **Session ID format:**
@@ -672,8 +672,8 @@ Columns:
 | `exclude` | int | 1 = excluded from analysis |
 | `Notes` | str | Free-text notes |
 
-**New columns to add:** `extractor` (default `"suite2p"`) and `tracker` (default `"dlc"`)
-for pluggable backend selection. To be added when the project skeleton is set up.
+**Backend columns:** `extractor` (default `"suite2p"`) and `tracker` (default `"dlc"`)
+are present for pluggable backend selection.
 
 **Bad 2P frames:** stored as frame-number ranges (`16840-18000`). `-1` or `end` means
 until the last frame. Used to mask out PMT dropout artefacts that Suite2p did not catch.

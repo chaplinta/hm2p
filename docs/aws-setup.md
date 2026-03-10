@@ -698,7 +698,7 @@ OAuth consent screen):
 - Add your email as a test user during development
 - No scopes need to be added beyond the defaults (email, profile, openid)
 
-### 16.2 Set environment variables on EC2
+### 17.2 Set environment variables on EC2
 
 ```bash
 export GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
@@ -709,7 +709,7 @@ export STREAMLIT_REDIRECT_URI="http://<EC2-PUBLIC-IP>:8501"
 To persist across reboots, add these to `/etc/environment` or a systemd
 service file.
 
-### 16.3 Environment variables reference
+### 17.3 Environment variables reference
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
@@ -717,7 +717,7 @@ service file.
 | `GOOGLE_CLIENT_SECRET` | No | (empty) | Google OAuth client secret |
 | `STREAMLIT_REDIRECT_URI` | No | `http://localhost:8501` | OAuth callback URL |
 
-### 16.4 Behaviour
+### 17.4 Behaviour
 
 - **Both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` set**: authentication
   is enforced. Only email addresses in the allowed list (currently
@@ -728,7 +728,7 @@ service file.
 - The allowed email list is defined in `frontend/app.py` (`_ALLOWED_EMAILS`).
   To add more users, append their Gmail address to that list.
 
-### 16.5 Security notes
+### 17.5 Security notes
 
 - OAuth credentials are read from environment variables — **never hardcode
   them** in source code or commit them to git.

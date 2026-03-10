@@ -236,5 +236,5 @@ This is the algorithm reimplemented in `src/hm2p/calcium/events.py`:
 | Deconvolution | Suite2p | spks.npy (normalized) | spks.npy (enabled) | Zong 2022 uses deconvolved for spatial tuning |
 | SNR | Custom | mean(amp)/std(non-event) | Same | Zong 2022 uses different definition |
 | HD computation | Zong 2022 / V&H | Ear vector | Ear vector | Verify 90-deg convention |
-| Spatial tuning | Zong 2022 | Skaggs SI, MVL, shuffled | Not yet implemented | Follow Zong 2022 methods |
-| Speed filter | Zong 2022 | Exclude < threshold | Not yet implemented | 2.5 cm/s threshold |
+| Spatial tuning | Zong 2022 | Skaggs SI, MVL, shuffled | `analysis/tuning.py`, `analysis/information.py` | Follows Zong 2022 methods |
+| Speed filter | Zong 2022 | Exclude < threshold | `analysis/speed.py` | 2.5 cm/s threshold |
