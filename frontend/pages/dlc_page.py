@@ -22,6 +22,7 @@ from frontend.data import (
     list_s3_session_files,
     load_experiments,
     parse_session_id,
+    sanitize_error,
 )
 
 log = logging.getLogger("hm2p.frontend.dlc")
@@ -78,7 +79,7 @@ if dlc_progress:
         st.error(f"{len(failed_sessions)} failed sessions")
         for s in failed_sessions:
             err = failed_errors.get(s, "No error message")
-            st.text(f"  {s}: {err}")
+            st.text(f"  {s}: {sanitize_error(err)}")
 else:
     st.info("No progress data available. DLC may not have started yet.")
 

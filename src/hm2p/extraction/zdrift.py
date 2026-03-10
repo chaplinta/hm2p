@@ -258,6 +258,131 @@ def compute_zdrift(
     }
 
 
+def compute_zdrift_from_meanimg(
+    ops_path: Path,
+    zstack_path: Path,
+) -> dict:
+    """Compute z-position from a Suite2p mean image and a z-stack.
+
+    Instead of registering every frame (which requires data.bin), this
+    correlates the session mean image against each z-plane to find the
+    single best-matching z-position.  This gives anatomical localisation
+    (which z-plane the FOV sits at) without temporal drift information.
+
+    Parameters
+    ----------
+    ops_path : Path
+        Path to Suite2p ``ops.npy`` file (must contain ``meanImg``).
+    zstack_path : Path
+        Path to z-stack TIFF file.
+
+    Returns
+    -------
+    dict
+        ``zpos_mean`` : int — best-matching z-plane index.
+        ``zcorr_mean`` : np.ndarray (n_zplanes,) float64 — correlation
+        of the mean image with each z-plane.
+        ``max_corr`` : float — peak correlation value.
+        ``n_zplanes`` : int — number of planes in the z-stack.
+        ``zstack_path`` : str — path to the z-stack file used.
+
+    Raises
+    ------
+    FileNotFoundError
+        If *ops_path* or *zstack_path* does not exist.
+    ValueError
+        If ``ops.npy`` does not contain ``meanImg``.
+    """
+    ops_path = Path(ops_path)
+    zstack_path = Path(zstack_path)
+
+    if not ops_path.exists():
+        raise FileNotFoundError(f"ops.npy not found: {ops_path}")
+
+    ops = np.load(ops_path, allow_pickle=True).item()
+    if "meanImg" not in ops:
+        raise ValueError("ops.npy does not contain 'meanImg'")
+
+    mean_img = ops["meanImg"].astype(np.float64)
+    zstack = load_zstack(zstack_path)
+    n_zplanes = zstack.shape[0]
+
+    # Crop to matching dimensions (z-stack planes may be larger/smaller)
+    ly = min(mean_img.shape[0], zstack.shape[1])
+    lx = min(mean_img.shape[1], zstack.shape[2])
+    mean_crop = mean_img[:ly, :lx]
+    zstack_crop = zstack[:, :ly, :lx]
+
+    # Correlate mean image against each z-plane
+    zcorr = np.zeros(n_zplanes, dtype=np.float64)
+    for z in range(n_zplanes):
+        zcorr[z] = _phase_correlate_2d(mean_crop, zstack_crop[z])
+
+    zpos_mean = int(np.argmax(zcorr))
+    max_corr = float(zcorr[zpos_mean])
+
+    return {
+        "zpos_mean": zpos_mean,
+        "zcorr_mean": zcorr,
+        "max_corr": max_corr,
+        "n_zplanes": n_zplanes,
+        "zstack_path": str(zstack_path),
+    }
+
+
+def save_zdrift_meanimg(zdrift: dict, output_path: Path) -> None:
+    """Save mean-image z-drift results to HDF5.
+
+    Parameters
+    ----------
+    zdrift : dict
+        Output of :func:`compute_zdrift_from_meanimg`.
+    output_path : Path
+        Destination HDF5 file path.
+    """
+    arrays = {
+        "zcorr_mean": zdrift["zcorr_mean"],
+    }
+    attrs = {
+        "zpos_mean": zdrift["zpos_mean"],
+        "max_corr": zdrift["max_corr"],
+        "n_zplanes": zdrift["n_zplanes"],
+        "zstack_path": zdrift["zstack_path"],
+    }
+    write_h5(Path(output_path), arrays, attrs)
+
+
+def load_zdrift_meanimg(path: Path) -> dict:
+    """Load mean-image z-drift results from HDF5.
+
+    Parameters
+    ----------
+    path : Path
+        Path to the HDF5 file written by :func:`save_zdrift_meanimg`.
+
+    Returns
+    -------
+    dict
+        Same structure as :func:`compute_zdrift_from_meanimg` output.
+
+    Raises
+    ------
+    FileNotFoundError
+        If *path* does not exist.
+    """
+    from hm2p.io.hdf5 import read_attrs
+
+    arrays = read_h5(Path(path), keys=["zcorr_mean"])
+    attrs = read_attrs(Path(path))
+    return {
+        "zpos_mean": int(attrs["zpos_mean"]),
+        "zcorr_mean": arrays["zcorr_mean"],
+        "max_corr": float(attrs["max_corr"]),
+        "n_zplanes": int(attrs["n_zplanes"]),
+        "zstack_path": str(attrs["zstack_path"]),
+    }
+
+
 def save_zdrift(zdrift: dict, output_path: Path) -> None:
     """Save z-drift results to HDF5.
 

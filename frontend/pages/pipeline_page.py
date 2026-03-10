@@ -15,6 +15,7 @@ from frontend.data import (
     get_s3_client,
     load_experiments,
     parse_session_id,
+    sanitize_error,
 )
 
 log = logging.getLogger("hm2p.frontend")
@@ -176,7 +177,7 @@ for prefix, label in STAGE_PREFIXES.items():
             with st.expander(f"Failed sessions ({failed})"):
                 for sess in progress.get("failed_sessions", []):
                     err = errors.get(sess, "")
-                    st.text(f"  {sess}: {err}" if err else f"  {sess}")
+                    st.text(f"  {sess}: {sanitize_error(err)}" if err else f"  {sess}")
     else:
         st.text(f"{label}: no progress data")
 

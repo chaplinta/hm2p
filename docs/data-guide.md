@@ -80,6 +80,23 @@ All paths below are under `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Mar
 | `hm2p-analysis/metadata/` | Legacy `animals.csv`, `experiments.csv` (canonical copies now in repo `metadata/`) |
 | `hm2p-analysis/cam-calibrations/` | Lens-specific camera calibration `.npz` files |
 
+### Devcontainer Bind Mounts
+
+The following Dropbox directories are mounted **read-only** into the devcontainer.
+**NEVER modify or delete any files in these mounts.** They are the canonical copies of
+the data and there is no local equivalent.
+
+| Host path | Container mount | Contents |
+| --- | --- | --- |
+| `.../hm2p/patching` | `/data/patching` | Patch-clamp ephys (WaveSurfer H5) + morphology (SWC) |
+| `.../hm2p/z-stacks` | `/data/z-stacks` | Per-animal z-stack TIFF volumes |
+| `.../hm2p/brains-sorted` | `/data/brains-sorted` | Serial-2P whole-brain volumes (sorted by animal) |
+| `.../hm2p/brains-reg` | `/data/brains-reg` | brainreg registered brain volumes + segmentation |
+| `.../hm2p/video-meta-backup` | `/data/video-meta-backup` | Backup of per-session video crop/scale/ROI metadata |
+
+All mounts are configured in `.devcontainer/devcontainer.json`. A container rebuild is
+required after adding new mounts.
+
 ### S3 Upload Plan
 
 Upload ~**113 GB** to `s3://hm2p-rawdata/` (once AWS credentials are working):

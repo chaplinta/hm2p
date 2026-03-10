@@ -6,8 +6,11 @@ Run from repo root:
 
 from __future__ import annotations
 
+import json
 import logging
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 # Ensure the repo root is on sys.path so `frontend.*` imports work
@@ -27,6 +30,79 @@ import streamlit as st
 
 st.set_page_config(page_title="hm2p Dashboard", layout="wide")
 log.info("Page loaded: rendering app")
+
+# ---------------------------------------------------------------------------
+# Google OAuth authentication
+# ---------------------------------------------------------------------------
+# Auth is enabled when GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET env vars are
+# set. When absent, auth is skipped entirely (local development mode).
+# Only the email addresses listed in _ALLOWED_EMAILS may access the app.
+# ---------------------------------------------------------------------------
+_ALLOWED_EMAILS = ["tristan.chaplin@gmail.com"]
+
+_google_client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+_google_client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+_auth_enabled = bool(_google_client_id and _google_client_secret)
+
+if _auth_enabled:
+    from streamlit_google_auth import Authenticate
+
+    _redirect_uri = os.environ.get("STREAMLIT_REDIRECT_URI", "http://localhost:8501")
+
+    # streamlit-google-auth requires a Google credentials JSON file.
+    # We build one dynamically from environment variables so that secrets
+    # are never committed to the repository.
+    @st.cache_resource
+    def _get_credentials_path() -> str:
+        """Write a temporary Google OAuth client-secret JSON and return its path."""
+        creds = {
+            "web": {
+                "client_id": _google_client_id,
+                "client_secret": _google_client_secret,
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [_redirect_uri],
+            }
+        }
+        tmp = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, prefix="hm2p_oauth_"
+        )
+        json.dump(creds, tmp)
+        tmp.close()
+        return tmp.name
+
+    _creds_path = _get_credentials_path()
+    _auth = Authenticate(
+        secret_credentials_path=_creds_path,
+        redirect_uri=_redirect_uri,
+        cookie_name="hm2p_auth",
+        cookie_key=os.environ.get("STREAMLIT_COOKIE_KEY", os.urandom(32).hex()),
+        cookie_expiry_days=30,
+    )
+
+    _auth.check_authentification()
+
+    if not st.session_state.get("connected", False):
+        st.title("hm2p Dashboard")
+        st.info("Please sign in with your Google account to continue.")
+        _auth.login()
+        st.stop()
+
+    # Verify the authenticated email is in the allowed list
+    _user_email = st.session_state.get("user_info", {}).get("email", "")
+    if _user_email not in _ALLOWED_EMAILS:
+        log.warning("Unauthorised login attempt: %s", _user_email)
+        st.error(f"Access denied. The account **{_user_email}** is not authorised.")
+        _auth.logout()
+        st.stop()
+
+    # Show logout button in sidebar
+    with st.sidebar:
+        _user_name = st.session_state.get("user_info", {}).get("name", _user_email)
+        st.caption(f"Signed in as **{_user_name}**")
+        _auth.logout()
+else:
+    log.info("Auth disabled — GOOGLE_CLIENT_ID not set (local dev mode)")
 
 # --- Multipage navigation using Streamlit's native system ---
 _app_dir = Path(__file__).resolve().parent

@@ -13,9 +13,12 @@ from hm2p.extraction.zdrift import (
     _phase_correlate_2d,
     _register_to_zstack_fallback,
     compute_zdrift,
+    compute_zdrift_from_meanimg,
     load_zdrift,
+    load_zdrift_meanimg,
     load_zstack,
     save_zdrift,
+    save_zdrift_meanimg,
 )
 
 
@@ -273,3 +276,179 @@ class TestSmoothReducesNoise:
         rough_high = roughness(r_high["zpos_smooth"])
         # Higher sigma should give smoother (less rough) trace
         assert rough_high <= rough_low
+
+
+# ---------------------------------------------------------------------------
+# Helpers for mean-image tests
+# ---------------------------------------------------------------------------
+
+
+def _make_ops_npy(
+    path: Path,
+    ly: int = 32,
+    lx: int = 32,
+    seed: int = 42,
+) -> Path:
+    """Create a minimal ops.npy with a meanImg and return the path."""
+    rng = np.random.default_rng(seed)
+    ops = {
+        "nframes": 100,
+        "Ly": ly,
+        "Lx": lx,
+        "meanImg": rng.random((ly, lx)).astype(np.float32),
+    }
+    np.save(path, ops)
+    return path
+
+
+# ---------------------------------------------------------------------------
+# test_compute_zdrift_from_meanimg
+# ---------------------------------------------------------------------------
+
+
+class TestComputeZdriftFromMeanimg:
+    """Tests for compute_zdrift_from_meanimg."""
+
+    def test_output_keys_and_shapes(self, tmp_path: Path) -> None:
+        n_zplanes = 5
+        ly, lx = 16, 16
+        ops_path = _make_ops_npy(tmp_path / "ops.npy", ly=ly, lx=lx)
+        zstack_path = _make_zstack_tiff(
+            tmp_path / "zstack.tif", n_zplanes=n_zplanes, ly=ly, lx=lx
+        )
+        result = compute_zdrift_from_meanimg(ops_path, zstack_path)
+
+        assert "zpos_mean" in result
+        assert "zcorr_mean" in result
+        assert "max_corr" in result
+        assert "n_zplanes" in result
+        assert "zstack_path" in result
+
+        assert isinstance(result["zpos_mean"], int)
+        assert 0 <= result["zpos_mean"] < n_zplanes
+        assert result["zcorr_mean"].shape == (n_zplanes,)
+        assert result["zcorr_mean"].dtype == np.float64
+        assert isinstance(result["max_corr"], float)
+        assert result["n_zplanes"] == n_zplanes
+        assert result["zstack_path"] == str(zstack_path)
+
+    def test_best_match_correct_plane(self, tmp_path: Path) -> None:
+        """meanImg copied from z-plane 3 should match plane 3."""
+        ly, lx = 16, 16
+        n_zplanes = 6
+        rng = np.random.default_rng(10)
+        zstack = rng.random((n_zplanes, ly, lx)).astype(np.float32)
+        tifffile.imwrite(str(tmp_path / "zstack.tif"), zstack)
+
+        # Make ops with meanImg = z-plane 3
+        ops = {"nframes": 50, "Ly": ly, "Lx": lx, "meanImg": zstack[3].copy()}
+        np.save(tmp_path / "ops.npy", ops)
+
+        result = compute_zdrift_from_meanimg(
+            tmp_path / "ops.npy", tmp_path / "zstack.tif"
+        )
+        assert result["zpos_mean"] == 3
+        assert result["max_corr"] > 0.9
+
+    def test_mismatched_dimensions_cropped(self, tmp_path: Path) -> None:
+        """Handles z-stack and meanImg with different dimensions."""
+        # meanImg is 20x20, z-stack is 16x16 — should crop to min
+        ops = {
+            "nframes": 10,
+            "Ly": 20,
+            "Lx": 20,
+            "meanImg": np.random.default_rng(1).random((20, 20)).astype(np.float32),
+        }
+        np.save(tmp_path / "ops.npy", ops)
+        _make_zstack_tiff(tmp_path / "zstack.tif", n_zplanes=4, ly=16, lx=16)
+
+        result = compute_zdrift_from_meanimg(
+            tmp_path / "ops.npy", tmp_path / "zstack.tif"
+        )
+        assert result["zcorr_mean"].shape == (4,)
+        assert 0 <= result["zpos_mean"] < 4
+
+    def test_missing_ops(self, tmp_path: Path) -> None:
+        zstack_path = _make_zstack_tiff(tmp_path / "zstack.tif")
+        with pytest.raises(FileNotFoundError, match="ops.npy not found"):
+            compute_zdrift_from_meanimg(tmp_path / "nope.npy", zstack_path)
+
+    def test_missing_zstack(self, tmp_path: Path) -> None:
+        ops_path = _make_ops_npy(tmp_path / "ops.npy")
+        with pytest.raises(FileNotFoundError, match="Z-stack TIFF not found"):
+            compute_zdrift_from_meanimg(ops_path, tmp_path / "nope.tif")
+
+    def test_no_meanimg_in_ops(self, tmp_path: Path) -> None:
+        """ops.npy without meanImg should raise ValueError."""
+        ops = {"nframes": 10, "Ly": 16, "Lx": 16}
+        np.save(tmp_path / "ops.npy", ops)
+        zstack_path = _make_zstack_tiff(tmp_path / "zstack.tif")
+        with pytest.raises(ValueError, match="does not contain 'meanImg'"):
+            compute_zdrift_from_meanimg(tmp_path / "ops.npy", zstack_path)
+
+    def test_max_corr_equals_peak(self, tmp_path: Path) -> None:
+        """max_corr should equal the peak of zcorr_mean."""
+        ops_path = _make_ops_npy(tmp_path / "ops.npy", ly=16, lx=16)
+        zstack_path = _make_zstack_tiff(
+            tmp_path / "zstack.tif", n_zplanes=4, ly=16, lx=16
+        )
+        result = compute_zdrift_from_meanimg(ops_path, zstack_path)
+        assert result["max_corr"] == pytest.approx(
+            result["zcorr_mean"].max(), abs=1e-10
+        )
+
+
+# ---------------------------------------------------------------------------
+# test_save_load_zdrift_meanimg roundtrip
+# ---------------------------------------------------------------------------
+
+
+class TestSaveLoadZdriftMeanimg:
+    """Tests for save_zdrift_meanimg / load_zdrift_meanimg roundtrip."""
+
+    def test_roundtrip(self, tmp_path: Path) -> None:
+        rng = np.random.default_rng(55)
+        n_zplanes = 6
+        zdrift = {
+            "zpos_mean": 3,
+            "zcorr_mean": rng.random(n_zplanes).astype(np.float64),
+            "max_corr": 0.87,
+            "n_zplanes": n_zplanes,
+            "zstack_path": "/data/zstack.tif",
+        }
+        h5_path = tmp_path / "zdrift_meanimg.h5"
+        save_zdrift_meanimg(zdrift, h5_path)
+        assert h5_path.exists()
+
+        loaded = load_zdrift_meanimg(h5_path)
+        assert loaded["zpos_mean"] == 3
+        np.testing.assert_allclose(
+            loaded["zcorr_mean"], zdrift["zcorr_mean"], atol=1e-10
+        )
+        assert loaded["max_corr"] == pytest.approx(0.87, abs=1e-6)
+        assert loaded["n_zplanes"] == n_zplanes
+        assert loaded["zstack_path"] == "/data/zstack.tif"
+
+    def test_load_missing_file(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            load_zdrift_meanimg(tmp_path / "nope.h5")
+
+    def test_end_to_end_compute_save_load(self, tmp_path: Path) -> None:
+        """Full pipeline: compute → save → load."""
+        ly, lx = 16, 16
+        ops_path = _make_ops_npy(tmp_path / "ops.npy", ly=ly, lx=lx)
+        zstack_path = _make_zstack_tiff(
+            tmp_path / "zstack.tif", n_zplanes=5, ly=ly, lx=lx
+        )
+        result = compute_zdrift_from_meanimg(ops_path, zstack_path)
+
+        h5_path = tmp_path / "zdrift_meanimg.h5"
+        save_zdrift_meanimg(result, h5_path)
+        loaded = load_zdrift_meanimg(h5_path)
+
+        assert loaded["zpos_mean"] == result["zpos_mean"]
+        np.testing.assert_allclose(
+            loaded["zcorr_mean"], result["zcorr_mean"], atol=1e-10
+        )
+        assert loaded["max_corr"] == pytest.approx(result["max_corr"], abs=1e-10)
+        assert loaded["n_zplanes"] == result["n_zplanes"]

@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Run z-drift estimation for all sessions with z-stacks.
 
-Downloads Suite2p plane0/ (ops.npy + data.bin) and the corresponding z-stack
-TIFF from S3, runs compute_zdrift(), and uploads zdrift.h5 to S3 derivatives.
+Downloads Suite2p ops.npy and the corresponding z-stack TIFF from S3, registers
+the session mean image against the z-stack to find the best-matching z-plane,
+and uploads zdrift_meanimg.h5 to S3 derivatives.
+
+This uses the mean-image approach (compute_zdrift_from_meanimg) which only needs
+ops.npy (already on S3), NOT data.bin (which was never uploaded due to size).
 
 Usage:
     python scripts/run_zdrift.py              # all sessions with z-stacks
     python scripts/run_zdrift.py --session 0  # first matching session only
     python scripts/run_zdrift.py --dry-run    # show what would be done
-    python scripts/run_zdrift.py --force      # re-run even if zdrift.h5 exists
+    python scripts/run_zdrift.py --force      # re-run even if zdrift_meanimg.h5 exists
 """
 
 from __future__ import annotations
@@ -92,8 +96,8 @@ def find_zstack_tif(s3, zstack_id: str) -> str | None:
 
 
 def zdrift_exists(s3, sub: str, ses: str) -> bool:
-    """Check if zdrift.h5 already exists on S3."""
-    key = f"ca_extraction/{sub}/{ses}/zdrift.h5"
+    """Check if zdrift_meanimg.h5 already exists on S3."""
+    key = f"ca_extraction/{sub}/{ses}/zdrift_meanimg.h5"
     try:
         s3.head_object(Bucket=DERIVATIVES_BUCKET, Key=key)
         return True
@@ -104,8 +108,8 @@ def zdrift_exists(s3, sub: str, ses: str) -> bool:
 def run_zdrift_session(
     s3, session: dict, work_dir: Path, force: bool = False
 ) -> bool:
-    """Run z-drift for one session. Returns True on success."""
-    from hm2p.extraction.zdrift import compute_zdrift, save_zdrift
+    """Run z-drift (mean-image) for one session. Returns True on success."""
+    from hm2p.extraction.zdrift import compute_zdrift_from_meanimg, save_zdrift_meanimg
 
     sub, ses = session["sub"], session["ses"]
     zstack_id = session["zstack_id"]
@@ -113,24 +117,20 @@ def run_zdrift_session(
     print(f"Session: {sub}/{ses} (zstack: {zstack_id})")
 
     if not force and zdrift_exists(s3, sub, ses):
-        print("  SKIP: zdrift.h5 already exists on S3")
+        print("  SKIP: zdrift_meanimg.h5 already exists on S3")
         return True
 
-    # Download Suite2p plane0
+    # Download ops.npy only (no data.bin needed for mean-image approach)
     s2p_prefix = f"ca_extraction/{sub}/{ses}/suite2p/plane0/"
-    s2p_dir = work_dir / "s2p" / "plane0"
-    s2p_dir.mkdir(parents=True, exist_ok=True)
+    ops_local = work_dir / "ops.npy"
 
-    print("  Downloading Suite2p plane0...")
-    # Only need ops.npy and data.bin
-    for fname in ["ops.npy", "data.bin"]:
-        key = f"{s2p_prefix}{fname}"
-        local = s2p_dir / fname
-        try:
-            s3.download_file(DERIVATIVES_BUCKET, key, str(local))
-        except Exception as e:
-            print(f"  ERROR: Failed to download {fname}: {e}")
-            return False
+    print("  Downloading ops.npy...")
+    key = f"{s2p_prefix}ops.npy"
+    try:
+        s3.download_file(DERIVATIVES_BUCKET, key, str(ops_local))
+    except Exception as e:
+        print(f"  ERROR: Failed to download ops.npy: {e}")
+        return False
 
     # Download z-stack TIFF
     zstack_key = find_zstack_tif(s3, zstack_id)
@@ -142,26 +142,24 @@ def run_zdrift_session(
     print(f"  Downloading z-stack: {zstack_key}")
     s3.download_file(RAWDATA_BUCKET, zstack_key, str(zstack_local))
 
-    # Run z-drift
-    print("  Computing z-drift...")
+    # Run z-drift from mean image
+    print("  Computing z-position from mean image...")
     try:
-        result = compute_zdrift(s2p_dir, zstack_local, batch_size=200)
+        result = compute_zdrift_from_meanimg(ops_local, zstack_local)
     except Exception as e:
-        print(f"  ERROR: compute_zdrift failed: {e}")
+        print(f"  ERROR: compute_zdrift_from_meanimg failed: {e}")
         return False
 
-    n_frames = len(result["zpos"])
-    z_range = result["zpos"].max() - result["zpos"].min()
     print(
-        f"  Done: {n_frames} frames, {result['n_zplanes']} z-planes, "
-        f"z-range={z_range} planes"
+        f"  Done: z-plane={result['zpos_mean']}/{result['n_zplanes']}, "
+        f"max_corr={result['max_corr']:.4f}"
     )
 
     # Save and upload
-    out_path = work_dir / "zdrift.h5"
-    save_zdrift(result, out_path)
+    out_path = work_dir / "zdrift_meanimg.h5"
+    save_zdrift_meanimg(result, out_path)
 
-    s3_key = f"ca_extraction/{sub}/{ses}/zdrift.h5"
+    s3_key = f"ca_extraction/{sub}/{ses}/zdrift_meanimg.h5"
     print(f"  Uploading to s3://{DERIVATIVES_BUCKET}/{s3_key}")
     s3.upload_file(str(out_path), DERIVATIVES_BUCKET, s3_key)
 

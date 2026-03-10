@@ -46,7 +46,12 @@
   "mounts": [
     "source=hm2p-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
     "source=hm2p-claude-config-${devcontainerId},target=/home/node/.claude,type=volume",
-    "source=${localEnv:HOME}/.aws,target=/home/node/.aws,type=bind,readonly=true"
+    "source=${localEnv:HOME}/.aws,target=/home/node/.aws,type=bind,readonly=true",
+    "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/patching,target=/data/patching,type=bind,readonly=true",
+    "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/z-stacks,target=/data/z-stacks,type=bind,readonly=true",
+    "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/brains-sorted,target=/data/brains-sorted,type=bind,readonly=true",
+    "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/brains-reg,target=/data/brains-reg,type=bind,readonly=true",
+    "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/video-meta-backup,target=/data/video-meta-backup,type=bind,readonly=true"
   ],
   "containerEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096",
@@ -58,6 +63,6 @@
   },
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
   "workspaceFolder": "/workspace",
-  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh && ([ -f /workspace/pyproject.toml ] && cd /workspace && uv sync --extra dev || true)",
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh && ([ -f /workspace/pyproject.toml ] && cd /workspace && uv sync --extra dev && uv pip install plotly streamlit-google-auth tifffile || true) && nohup /workspace/.venv/bin/python -m streamlit run /workspace/frontend/app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true > /tmp/streamlit.log 2>&1 &",
   "waitFor": "postStartCommand"
 }

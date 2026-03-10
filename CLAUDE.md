@@ -7,6 +7,11 @@
 - `old-pipeline/` — legacy pipeline code copied into this repo (read-only reference only)
 - `/Users/tristan/Neuro/hm2p-analysis` — legacy code on local machine (read-only reference only)
 - `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/` — all data (read-only)
+- `/data/patching/` — patching ephys + morphology data (read-only bind mount)
+- `/data/z-stacks/` — per-animal z-stack TIFF volumes (read-only bind mount)
+- `/data/brains-sorted/` — serial-2P brain volumes (read-only bind mount)
+- `/data/brains-reg/` — brainreg registered volumes (read-only bind mount)
+- `/data/video-meta-backup/` — video metadata backups (read-only bind mount)
 
 You **may copy files from these directories into `/Users/tristan/Neuro/hm2p-v2`** (e.g. to
 bring in metadata CSVs, calibration files, or model weights). Do not delete or modify
