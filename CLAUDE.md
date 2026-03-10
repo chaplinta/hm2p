@@ -7,6 +7,11 @@
 - `old-pipeline/` — legacy pipeline code copied into this repo (read-only reference only)
 - `/Users/tristan/Neuro/hm2p-analysis` — legacy code on local machine (read-only reference only)
 - `/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/` — all data (read-only)
+- `/data/patching/` — patching ephys + morphology data (read-only bind mount)
+- `/data/z-stacks/` — per-animal z-stack TIFF volumes (read-only bind mount)
+- `/data/brains-sorted/` — serial-2P brain volumes (read-only bind mount)
+- `/data/brains-reg/` — brainreg registered volumes (read-only bind mount)
+- `/data/video-meta-backup/` — video metadata backups (read-only bind mount)
 
 You **may copy files from these directories into `/Users/tristan/Neuro/hm2p-v2`** (e.g. to
 bring in metadata CSVs, calibration files, or model weights). Do not delete or modify
@@ -101,7 +106,7 @@ Do not pin to old versions without a documented compatibility reason.
 **Behavioural artefact:** Mice can get stuck on HM2P fibre/wires → artefactual immobility. Logged in `experiments.csv` as `bad_behav_times`; stored as `bad_behav` bool in HDF5. Must exclude these frames.
 **serial2p:** Whole-brain z-stack per animal for anatomical localisation. Not part of this pipeline (used manually).
 **Primary science goal:** Compare HD tuning, population HD decoding, and visual cue dependence between Penk+ and CamKII+ RSP neurons. Test whether each population anchors HD to visual vs path-integration cues.
-**Neural recording:** two-photon GCaMP calcium imaging (~30 Hz, single or dual plane).
+**Neural recording:** two-photon GCaMP calcium imaging (~9.6 Hz, single plane).
 **Behaviour:** overhead camera (~100 fps, Basler acA1300-200um), DAQ-synchronised to imaging.
 **Body parts tracked (SuperAnimal TopViewMouse names):** `left_ear`, `right_ear`, `mid_back`, `mouse_center`, `tail_base`.
 **Session ID format:** `YYYYMMDD_HH_MM_SS_<animal_id>` (e.g. `20220804_13_52_02_1117646`).

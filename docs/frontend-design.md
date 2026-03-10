@@ -146,28 +146,17 @@ Options:
 
 For a single-user research project, local or a small EC2 instance is simplest.
 
-### Page Structure (draft)
+### Page Structure
 
-```
-/ (Home)
-├── Session Table (R3) — filterable list of all sessions
-│   └── /session/{sub}/{ses} — single session detail page
-│       ├── Raw Data tab (R2) — TIFF summary, video player, TDMS
-│       ├── Suite2p tab (R4) — ROIs, traces, classification
-│       ├── Pose tab (R4) — keypoints, trajectories, likelihood
-│       ├── Kinematics tab (R4) — HD, position, speed, AHV
-│       ├── Calcium tab (R4) — dF/F, spikes, SNR
-│       └── Sync tab (R4) — aligned data, tuning curves
-├── Animals — grouped view by animal/celltype
-├── Pipeline — job monitoring dashboard (R1)
-│   ├── Active jobs (EC2 instances, progress)
-│   ├── Stage completion matrix (sessions x stages)
-│   └── Logs viewer
-└── Analysis (R5, future)
-    ├── HD Tuning
-    ├── Population Decoding
-    └── Penk+ vs nonPenk comparison
-```
+The frontend has 43+ pages organised in 5 navigation sections. See `frontend/pages/`
+for the full list. Key sections:
+
+- **Overview**: Home, Summary, Sessions, Animals, Pipeline, Batch
+- **Pipeline**: Suite2p, Calcium, DLC Pose, Tracking QC, Sync, Z-Drift, Anatomy
+- **Explore**: Explorer, Timeline, ROI Gallery, Events, Correlations, Trace Compare
+- **Analysis**: HD Tuning, Decoder, Population, Light/Dark, Stability, Drift, Gain,
+  Anchoring, Speed, AHV, Info Theory, Classify, Signal Quality, QC Report, Maze, etc.
+- **System**: AWS, Costs, Changelog
 
 ---
 

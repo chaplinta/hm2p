@@ -123,7 +123,8 @@ for i in range(n_rois):
         active_fracs.append(0.0)
 
     if "noise_probs" in data:
-        noise_scores.append(float(data["noise_probs"][i]))
+        val = data["noise_probs"][i]
+        noise_scores.append(float(np.asarray(val).item()))
 
 snrs = np.array(snrs)
 skewnesses = np.array(skewnesses)

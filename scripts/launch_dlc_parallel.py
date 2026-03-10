@@ -112,28 +112,14 @@ def build_user_data(
     if use_instance_profile:
         creds_block = textwrap.dedent(f"""\
             mkdir -p /root/.aws
-            cat > /root/.aws/config << 'CONF'
-            [default]
-            region = {REGION}
-            output = json
-            CONF
-            sed -i 's/^            //' /root/.aws/config
+            printf '[default]\\nregion = {REGION}\\noutput = json\\n' > /root/.aws/config
         """)
     else:
         key_id, secret, region = get_s3_credentials()
         creds_block = textwrap.dedent(f"""\
             mkdir -p /root/.aws
-            cat > /root/.aws/credentials << 'CREDS'
-            [default]
-            aws_access_key_id = {key_id}
-            aws_secret_access_key = {secret}
-            CREDS
-            cat > /root/.aws/config << 'CONF'
-            [default]
-            region = {region}
-            output = json
-            CONF
-            sed -i 's/^            //' /root/.aws/credentials /root/.aws/config
+            printf '[default]\\naws_access_key_id = {key_id}\\naws_secret_access_key = {secret}\\n' > /root/.aws/credentials
+            printf '[default]\\nregion = {region}\\noutput = json\\n' > /root/.aws/config
         """)
 
     script = textwrap.dedent(f"""\

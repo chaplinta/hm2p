@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+import sys
+import types
 from unittest.mock import patch
 
 import numpy as np
@@ -14,6 +16,8 @@ from hm2p.anatomy.injection import (
     _radius_from_volume,
     extract_injection_sites,
     get_injection_coords_for_animal,
+    get_rsp_volume,
+    load_brainreg_volumes,
     mirror_to_right_hemisphere,
     update_animals_csv,
 )
@@ -290,3 +294,179 @@ def test_update_animals_csv_missing_file(tmp_path: Path) -> None:
         update_animals_csv(
             tmp_path / "nonexistent.csv", tmp_path / "brains"
         )
+
+
+# ── load_brainreg_volumes ────────────────────────────────────────
+
+
+def test_load_brainreg_volumes_normal(tmp_path: Path) -> None:
+    """Loads a well-formed volumes.csv and returns a DataFrame."""
+    df = pd.DataFrame(
+        {
+            "structure_name": ["Retrosplenial area dorsal", "Primary motor"],
+            "left_volume_mm3": [1.2, 0.8],
+            "right_volume_mm3": [1.1, 0.9],
+            "total_volume_mm3": [2.3, 1.7],
+        }
+    )
+    df.to_csv(tmp_path / "volumes.csv", index=False)
+
+    result = load_brainreg_volumes(tmp_path)
+    assert result is not None
+    assert len(result) == 2
+    assert list(result.columns) == [
+        "structure_name",
+        "left_volume_mm3",
+        "right_volume_mm3",
+        "total_volume_mm3",
+    ]
+
+
+def test_load_brainreg_volumes_missing_file(tmp_path: Path) -> None:
+    """Returns None when volumes.csv does not exist."""
+    result = load_brainreg_volumes(tmp_path)
+    assert result is None
+
+
+def test_load_brainreg_volumes_empty_csv(tmp_path: Path) -> None:
+    """Returns None when volumes.csv has headers but no data rows."""
+    df = pd.DataFrame(
+        columns=[
+            "structure_name",
+            "left_volume_mm3",
+            "right_volume_mm3",
+            "total_volume_mm3",
+        ]
+    )
+    df.to_csv(tmp_path / "volumes.csv", index=False)
+
+    result = load_brainreg_volumes(tmp_path)
+    assert result is None
+
+
+# ── get_rsp_volume ───────────────────────────────────────────────
+
+
+def test_get_rsp_volume_matching_regions() -> None:
+    """Sums volumes for rows containing 'Retrosplenial' or 'RSP'."""
+    df = pd.DataFrame(
+        {
+            "structure_name": [
+                "Retrosplenial area dorsal",
+                "Retrosplenial area ventral",
+                "Primary motor",
+            ],
+            "left_volume_mm3": [1.0, 0.5, 2.0],
+            "right_volume_mm3": [1.1, 0.6, 1.9],
+            "total_volume_mm3": [2.1, 1.1, 3.9],
+        }
+    )
+    result = get_rsp_volume(df)
+    assert result["rsp_total_mm3"] == pytest.approx(3.2)
+    assert result["rsp_left_mm3"] == pytest.approx(1.5)
+    assert result["rsp_right_mm3"] == pytest.approx(1.7)
+    assert len(result["rsp_regions"]) == 2
+
+
+def test_get_rsp_volume_no_matching_regions() -> None:
+    """Returns zeros when no RSP regions are found."""
+    df = pd.DataFrame(
+        {
+            "structure_name": ["Primary motor", "Visual area"],
+            "left_volume_mm3": [2.0, 1.0],
+            "right_volume_mm3": [1.9, 1.1],
+            "total_volume_mm3": [3.9, 2.1],
+        }
+    )
+    result = get_rsp_volume(df)
+    assert result["rsp_total_mm3"] == pytest.approx(0.0)
+    assert result["rsp_left_mm3"] == pytest.approx(0.0)
+    assert result["rsp_right_mm3"] == pytest.approx(0.0)
+    assert result["rsp_regions"] == []
+
+
+def test_get_rsp_volume_case_insensitive() -> None:
+    """Matches RSP region names case-insensitively."""
+    df = pd.DataFrame(
+        {
+            "structure_name": ["RETROSPLENIAL area dorsal", "rsp ventral part"],
+            "left_volume_mm3": [1.0, 0.5],
+            "right_volume_mm3": [1.1, 0.6],
+            "total_volume_mm3": [2.1, 1.1],
+        }
+    )
+    result = get_rsp_volume(df)
+    assert len(result["rsp_regions"]) == 2
+    assert result["rsp_total_mm3"] == pytest.approx(3.2)
+
+
+# ── extract_injection_sites (TIFF mode) ─────────────────────────
+
+
+def test_extract_injection_sites_tiff_mode(tmp_path: Path) -> None:
+    """TIFF mode computes centroid and volume from non-zero voxels."""
+    brainreg_dir = tmp_path / "animal_tiff"
+    seg_dir = brainreg_dir / "segmentation" / "atlas_space" / "regions"
+    seg_dir.mkdir(parents=True)
+
+    # Create the expected TIFF file path (content loaded via mock).
+    tiff_path = seg_dir / "region_0.tiff"
+    tiff_path.touch()
+
+    # Synthetic 3D array: 2 non-zero voxels at (10, 20, 30) and (12, 22, 32).
+    data = np.zeros((50, 50, 50), dtype=np.uint8)
+    data[10, 20, 30] = 1
+    data[12, 22, 32] = 1
+
+    fake_tifffile = types.ModuleType("tifffile")
+    fake_tifffile.imread = lambda path: data  # type: ignore[attr-defined]
+
+    with patch.dict("sys.modules", {"tifffile": fake_tifffile}):
+        sites = extract_injection_sites(brainreg_dir, use_csv=False)
+
+    assert len(sites) == 1
+    site = sites[0]
+    assert site["region"] == "region_0"
+
+    # Centroid: mean of (10,12)=11, mean of (20,22)=21, mean of (30,32)=31
+    # In mm: 11*25/1000=0.275, 21*25/1000=0.525, 31*25/1000=0.775
+    assert site["center_ap_mm"] == pytest.approx(0.275)
+    assert site["center_dv_mm"] == pytest.approx(0.525)
+    # 0.775 < 5.7 midline → no mirror
+    assert site["center_ml_mm"] == pytest.approx(0.775)
+
+    # Volume: 2 voxels * (0.025 mm)^3 = 2 * 1.5625e-5
+    expected_vol = 2.0 * (25.0 / 1000.0) ** 3
+    assert site["volume_mm3"] == pytest.approx(expected_vol)
+    assert site["radius_mm"] > 0.0
+
+
+def test_extract_injection_sites_tiff_missing(tmp_path: Path) -> None:
+    """Returns empty list when region_0.tiff does not exist."""
+    brainreg_dir = tmp_path / "animal_no_tiff"
+    seg_dir = brainreg_dir / "segmentation" / "atlas_space" / "regions"
+    seg_dir.mkdir(parents=True)
+    # No TIFF file created.
+
+    sites = extract_injection_sites(brainreg_dir, use_csv=False)
+    assert sites == []
+
+
+def test_extract_injection_sites_tiff_all_zeros(tmp_path: Path) -> None:
+    """Returns empty list when TIFF contains only zeros."""
+    brainreg_dir = tmp_path / "animal_zeros"
+    seg_dir = brainreg_dir / "segmentation" / "atlas_space" / "regions"
+    seg_dir.mkdir(parents=True)
+
+    tiff_path = seg_dir / "region_0.tiff"
+    tiff_path.touch()
+
+    data = np.zeros((20, 20, 20), dtype=np.uint8)
+
+    fake_tifffile = types.ModuleType("tifffile")
+    fake_tifffile.imread = lambda path: data  # type: ignore[attr-defined]
+
+    with patch.dict("sys.modules", {"tifffile": fake_tifffile}):
+        sites = extract_injection_sites(brainreg_dir, use_csv=False)
+
+    assert sites == []

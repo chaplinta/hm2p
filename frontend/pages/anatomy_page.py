@@ -201,12 +201,15 @@ has_inj_data = all(col in animals_df.columns for col in inj_cols)
 
 if has_inj_data:
     inj_df = animals_df[["animal_id", "celltype"] + inj_cols].copy()
+    for col in inj_cols:
+        inj_df[col] = pd.to_numeric(inj_df[col], errors="coerce")
     inj_df = inj_df.dropna(subset=inj_cols, how="all")
 
     if len(inj_df) > 0:
         st.dataframe(
             inj_df.style.format(
-                {col: "{:.3f}" for col in inj_cols if col in inj_df.columns}
+                {col: "{:.3f}" for col in inj_cols if col in inj_df.columns},
+                na_rep="—",
             ),
             use_container_width=True,
         )

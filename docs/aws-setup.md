@@ -260,7 +260,356 @@ Ensure the Batch job execution role has `ecr:GetAuthorizationToken` and
 
 ---
 
-## 8. Cost Controls
+## 8. Running Scripts from macOS
+
+Several setup scripts must be run from **macOS** (not the devcontainer) because
+the container firewall blocks AWS IAM/EC2 API calls.
+
+**Important:** By default, `uv run` uses `.venv/` in the project directory — the
+same venv the devcontainer uses. Running `uv run` on macOS will rebuild `.venv`
+for macOS Python, breaking the container's venv.
+
+**Fix:** Set `UV_PROJECT_ENVIRONMENT` on your Mac to use a separate venv:
+
+```bash
+# Add to ~/.zshrc (one-time)
+export UV_PROJECT_ENVIRONMENT="$HOME/.venv-hm2p"
+source ~/.zshrc
+
+# One-time setup
+cd ~/Neuro/hm2p-v2
+uv sync --extra dev
+```
+
+From then on, `uv run` on Mac uses `~/.venv-hm2p` and never touches `.venv/` in
+the project. The devcontainer ignores this env var (it's not set there).
+
+---
+
+## 9. Frontend Read-Only Access
+
+The Streamlit frontend only needs read access to S3. Two approaches are
+available — an **EC2 instance role** (recommended, no keys) or an
+**IAM user with access keys** (fallback for local dev).
+
+### 8.1 Option A — EC2 Instance Role (recommended)
+
+When hosting the frontend on EC2, attach an IAM role directly. The instance
+gets temporary credentials automatically via the metadata service — no keys
+to manage, rotate, or leak.
+
+#### Resources created
+
+| Resource | Name | Purpose |
+| --- | --- | --- |
+| IAM Policy | `hm2p-frontend-readonly` | `s3:GetObject` + `s3:ListBucket` on both hm2p buckets |
+| IAM Role | `hm2p-frontend-role` | EC2 trusted entity, readonly policy attached |
+| Instance Profile | `hm2p-frontend-role` | Attaches the role to an EC2 instance |
+
+#### Setup
+
+Run from your **local machine** (not the devcontainer — IAM is blocked there):
+
+```bash
+# Automated setup
+uv run scripts/setup_frontend_iam.py
+
+# Or dry-run to see the AWS CLI commands first
+uv run scripts/setup_frontend_iam.py --dry-run
+```
+
+The script creates the role, instance profile, and attaches the policy.
+
+#### Attach to an EC2 instance
+
+```bash
+# New instance — include at launch time
+aws ec2 run-instances \
+  --image-id ami-0c5204531f799e0c6 \
+  --instance-type t3.micro \
+  --key-name hm2p-suite2p \
+  --security-group-ids sg-020161fb424325e6b \
+  --iam-instance-profile Name=hm2p-frontend-role \
+  --region ap-southeast-2 \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=hm2p-frontend}]'
+
+# Existing instance — attach the profile
+aws ec2 associate-iam-instance-profile \
+  --instance-id i-xxxxxxxxxxxx \
+  --iam-instance-profile Name=hm2p-frontend-role
+```
+
+Once attached, `boto3` on the instance picks up credentials automatically —
+no environment variables, no `~/.aws/credentials`, no configuration needed.
+
+#### Teardown
+
+```bash
+uv run scripts/setup_frontend_iam.py --teardown
+```
+
+#### How it works
+
+1. EC2 metadata service (`169.254.169.254`) provides temporary credentials
+2. Credentials rotate automatically every few hours
+3. `boto3` checks the metadata service by default (no config needed)
+4. If the instance is terminated, credentials are immediately revoked
+
+#### Cost
+
+`t3.micro` is ~$9.50/month (~$0.013/hr), or free-tier eligible for the
+first year. Sufficient for Streamlit with a few concurrent users.
+
+### 8.2 Option B — IAM User with Access Keys (fallback)
+
+For local development or environments where an instance role isn't available.
+Less secure than Option A — keys are long-lived and must be rotated manually.
+
+| Resource | Name | Purpose |
+| --- | --- | --- |
+| IAM Policy | `hm2p-frontend-readonly` | Same policy as Option A |
+| IAM User | `hm2p-frontend` | Frontend-only identity |
+
+#### Generate access keys
+
+```bash
+aws iam create-access-key --user-name hm2p-frontend
+```
+
+Save the `AccessKeyId` and `SecretAccessKey` — the secret cannot be
+retrieved again.
+
+#### Configure
+
+```bash
+# Environment variables
+export AWS_ACCESS_KEY_ID=<access key>
+export AWS_SECRET_ACCESS_KEY=<secret>
+export AWS_DEFAULT_REGION=ap-southeast-2
+
+# Or a named profile
+aws configure --profile hm2p-frontend
+export AWS_PROFILE=hm2p-frontend
+```
+
+#### Security notes
+
+- **No write access** — cannot upload, delete, or modify S3 objects
+- **No access** to EC2, IAM, Batch, or any other AWS service
+- **Rotate keys regularly**: IAM → Users → hm2p-frontend → Security credentials
+- Prefer Option A (instance role) whenever possible
+
+### Policy document (shared by both options)
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::hm2p-rawdata",
+        "arn:aws:s3:::hm2p-rawdata/*",
+        "arn:aws:s3:::hm2p-derivatives",
+        "arn:aws:s3:::hm2p-derivatives/*"
+      ]
+    }
+  ]
+}
+```
+
+> Note: `s3:GetObject` also authorises the `HeadObject` API call — there is
+> no separate `s3:HeadObject` IAM action.
+
+---
+
+## 10. SSM Session Manager
+
+AWS Systems Manager (SSM) Session Manager lets you connect to EC2 instances
+from the AWS Console or CLI — no SSH keys, no open ports, no bastion hosts.
+
+### Why SSM over SSH
+
+| | SSH | SSM |
+| --- | --- | --- |
+| Open port 22 | Required | Not needed |
+| Key pair management | `.pem` files | None |
+| Audit logging | Manual | Built-in (CloudTrail) |
+| Works from Console | No | Yes (browser shell) |
+| IAM-based access | No | Yes |
+
+### Prerequisites
+
+1. The EC2 instance must have an IAM role with `AmazonSSMManagedInstanceCore`
+2. The SSM agent must be running (pre-installed on Amazon Linux 2, Ubuntu 20.04+,
+   and all Deep Learning AMIs)
+
+### Setup
+
+Run from your **local machine** (not the devcontainer — IAM is blocked there):
+
+```bash
+# Attach SSM policy to the existing hm2p-ec2-role
+uv run scripts/setup_ssm.py
+
+# Or dry-run to see the AWS CLI commands first
+uv run scripts/setup_ssm.py --dry-run
+```
+
+### Connecting
+
+```bash
+# CLI (requires the Session Manager plugin for AWS CLI)
+aws ssm start-session --target i-xxxxxxxxxxxx --region ap-southeast-2
+
+# Or use the AWS Console: EC2 → Instances → select instance → Connect → Session Manager
+```
+
+Install the Session Manager plugin:
+
+```bash
+# macOS
+brew install --cask session-manager-plugin
+```
+
+### Teardown
+
+```bash
+uv run scripts/setup_ssm.py --teardown
+```
+
+---
+
+## 11. Auto-Shutdown (EventBridge + Lambda)
+
+Automatically stop and start EC2 instances on a daily schedule to avoid
+overnight charges. Targets instances tagged with `Project=hm2p-dlc`,
+`Project=hm2p`, or `Name=hm2p-frontend`.
+
+### What it creates
+
+| Resource | Name | Purpose |
+| --- | --- | --- |
+| IAM Role | `hm2p-lambda-scheduler` | Lambda execution role (EC2 + CloudWatch Logs) |
+| IAM Policy | `hm2p-lambda-scheduler-policy` | ec2:Stop/Start/Describe + logs permissions |
+| Lambda | `hm2p-stop-instances` | Stops matching running instances |
+| Lambda | `hm2p-start-instances` | Starts matching stopped instances |
+| EventBridge Rule | `hm2p-nightly-stop` | Triggers stop Lambda on schedule |
+| EventBridge Rule | `hm2p-morning-start` | Triggers start Lambda on schedule |
+
+### Default schedule
+
+- **Stop**: 22:00 AWST (14:00 UTC) — end of work day
+- **Start**: 08:00 AWST (00:00 UTC) — start of work day
+
+### Setup
+
+Run from your **local machine** (not the devcontainer — IAM is blocked there):
+
+```bash
+# Create everything with default hours
+uv run scripts/setup_auto_shutdown.py
+
+# Dry-run to see what would be created
+uv run scripts/setup_auto_shutdown.py --dry-run
+
+# Custom hours (AWST)
+uv run scripts/setup_auto_shutdown.py --stop-hour 23 --start-hour 9
+```
+
+### Teardown
+
+```bash
+uv run scripts/setup_auto_shutdown.py --teardown
+```
+
+### How it works
+
+1. EventBridge fires a cron rule at the scheduled time
+2. The rule invokes a Lambda function
+3. Lambda queries EC2 for instances matching the target tags
+4. Lambda stops (or starts) the matching instances
+5. Execution logs go to CloudWatch Logs
+
+If you don't want an instance managed by the scheduler, remove or change its
+`Project` / `Name` tag.
+
+---
+
+## 12. Security Group Lockdown
+
+Restrict the `hm2p-suite2p-sg` security group so that only a specific IP can
+reach the frontend (port 8501) and SSH (port 22). Also removes any existing
+wide-open (`0.0.0.0/0` or `::/0`) rules on port 8501.
+
+Run from **macOS** (not the devcontainer -- the container firewall blocks AWS
+API calls):
+
+```bash
+# Apply lockdown (default IP: 2001:4860:7:801::e1)
+uv run scripts/setup_sg_lockdown.py
+
+# Use a different IP
+uv run scripts/setup_sg_lockdown.py --ip 2001:db8::1
+
+# Use a different security group
+uv run scripts/setup_sg_lockdown.py --sg-id sg-0123456789abcdef0
+
+# Dry-run -- show what would change without doing anything
+uv run scripts/setup_sg_lockdown.py --dry-run
+
+# Remove the rules added by this script
+uv run scripts/setup_sg_lockdown.py --teardown
+```
+
+### What it does
+
+1. Describes the security group to find existing rules
+2. Revokes any wide-open inbound rules on port 8501
+3. Adds TCP port 22 (SSH) and 8501 (Streamlit) from the specified IPv6 /128
+4. Skips rules that already exist (idempotent)
+
+---
+
+## 13. S3 Access Logging
+
+Enable server access logging on `hm2p-rawdata` and `hm2p-derivatives`. Logs
+go to a dedicated `hm2p-access-logs` bucket with a 90-day expiration lifecycle.
+
+Run from **macOS**:
+
+```bash
+# Enable logging
+uv run scripts/setup_s3_logging.py
+
+# Dry-run
+uv run scripts/setup_s3_logging.py --dry-run
+
+# Disable logging (keep the logging bucket)
+uv run scripts/setup_s3_logging.py --teardown
+
+# Disable logging and delete the logging bucket
+uv run scripts/setup_s3_logging.py --teardown --delete-logging-bucket
+```
+
+### What it creates
+
+| Resource | Name | Purpose |
+| --- | --- | --- |
+| S3 Bucket | `hm2p-access-logs` | Stores access logs |
+| Lifecycle Rule | `expire-logs-90-days` | Deletes log objects after 90 days |
+| Logging Config | on `hm2p-rawdata` | Writes logs to `rawdata-logs/` prefix |
+| Logging Config | on `hm2p-derivatives` | Writes logs to `derivatives-logs/` prefix |
+
+The logging bucket has all public access blocked.
+
+---
+
+## 14. Cost Controls
 
 Always set a billing alarm to avoid unexpected charges:
 
@@ -277,7 +626,7 @@ jobs. Suite2p and DLC both support checkpointing.
 
 ---
 
-## 9. Verify Upload Integrity
+## 15. Verify Upload Integrity
 
 After uploading data to S3, verify integrity with:
 
@@ -301,7 +650,7 @@ Override defaults with `--profile` or `--bucket`:
 
 ---
 
-## 10. Current Status
+## 16. Current Status
 
 | Item | Status |
 | --- | --- |
@@ -310,15 +659,87 @@ Override defaults with `--profile` or `--bucket`:
 | `hm2p-rawdata` lifecycle | STANDARD → IA after 30 days |
 | Data upload (26 sessions, 91.4 GiB, 503 objects) | Complete — verified |
 | `hm2p-agent` IAM user | S3 + EC2 access (no IAM/Batch) |
+| `hm2p-frontend` IAM user | Read-only S3 access (fallback for local dev) |
+| `hm2p-frontend-role` IAM role + instance profile | EC2 instance role for frontend (recommended, no keys) |
+| `hm2p-frontend-readonly` IAM policy | `s3:GetObject` + `s3:ListBucket` on both hm2p buckets |
 | `hm2p-ec2-role` IAM role + instance profile | S3 + CloudWatch Logs (for EC2 instances) |
 | `hm2p-ec2-policy` IAM policy | Scoped to hm2p S3 buckets + `/hm2p/suite2p` log group |
 | `/hm2p/suite2p` CloudWatch log group | Created in ap-southeast-2 |
 | Suite2p cloud run (26 sessions) | Complete — all outputs in `s3://hm2p-derivatives/ca_extraction/` |
+| SSM Session Manager on `hm2p-ec2-role` | Ready — run `setup_ssm.py` to attach policy |
+| Auto-shutdown (EventBridge + Lambda) | Ready — run `setup_auto_shutdown.py` to create |
+| Security group lockdown (`hm2p-suite2p-sg`) | Ready -- run `setup_sg_lockdown.py` from macOS |
+| S3 access logging (`hm2p-access-logs`) | Ready -- run `setup_s3_logging.py` from macOS |
 | AWS Batch (compute envs + job queues) | Not yet created (needs admin) |
 
 ---
 
-## 11. Quick Reference
+## 17. Google OAuth Authentication (Frontend)
+
+The Streamlit frontend supports Google OAuth login to restrict access to
+authorised users only. Authentication is **optional** — when the required
+environment variables are absent, it is skipped entirely (local dev mode).
+
+### 17.1 Create OAuth credentials (one-time)
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a project (or use an existing one)
+3. Navigate to **APIs & Services > Credentials**
+4. Click **Create Credentials > OAuth 2.0 Client ID**
+5. Application type: **Web application**
+6. Name: e.g. `hm2p-dashboard`
+7. Authorised redirect URIs: add the URL where the frontend is hosted, e.g.
+   `http://<EC2-IP>:8501` or `http://localhost:8501` for local testing
+8. Click **Create** and note the **Client ID** and **Client Secret**
+
+You must also configure the **OAuth consent screen** (APIs & Services >
+OAuth consent screen):
+- User type: **External** (or Internal if using Google Workspace)
+- Add your email as a test user during development
+- No scopes need to be added beyond the defaults (email, profile, openid)
+
+### 17.2 Set environment variables on EC2
+
+```bash
+export GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+export GOOGLE_CLIENT_SECRET="your-client-secret"
+export STREAMLIT_REDIRECT_URI="http://<EC2-PUBLIC-IP>:8501"
+```
+
+To persist across reboots, add these to `/etc/environment` or a systemd
+service file.
+
+### 17.3 Environment variables reference
+
+| Variable | Required | Default | Purpose |
+| --- | --- | --- | --- |
+| `GOOGLE_CLIENT_ID` | No | (empty) | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | No | (empty) | Google OAuth client secret |
+| `STREAMLIT_REDIRECT_URI` | No | `http://localhost:8501` | OAuth callback URL |
+
+### 17.4 Behaviour
+
+- **Both `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` set**: authentication
+  is enforced. Only email addresses in the allowed list (currently
+  `tristan.chaplin@gmail.com`) can access the dashboard.
+- **Either variable missing or empty**: authentication is skipped entirely.
+  The dashboard loads without any login gate. This is the default for local
+  development.
+- The allowed email list is defined in `frontend/app.py` (`_ALLOWED_EMAILS`).
+  To add more users, append their Gmail address to that list.
+
+### 17.5 Security notes
+
+- OAuth credentials are read from environment variables — **never hardcode
+  them** in source code or commit them to git.
+- The temporary credentials JSON is written to `/tmp` at runtime and cached
+  for the lifetime of the Streamlit process.
+- A login cookie (`hm2p_auth`) is stored in the browser for 30 days to avoid
+  re-authentication on every page load.
+
+---
+
+## 18. Quick Reference
 
 | Task | Command |
 | --- | --- |

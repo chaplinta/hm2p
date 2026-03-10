@@ -480,6 +480,15 @@ def run(
 
     # --- Pose processing ---
     ds = load_pose_dataset(pose_path, tracker)
+
+    # DLC may have been run on subsampled video (e.g., 100fps → 30fps).
+    # Subsample frame_times to match pose data length.
+    n_pose = ds.sizes["time"]
+    n_cam = len(frame_times)
+    if n_cam != n_pose and n_cam > n_pose:
+        ratio = n_cam / n_pose
+        indices = np.round(np.linspace(0, n_cam - 1, n_pose)).astype(int)
+        frame_times = frame_times[indices]
     ds = apply_orientation_rotation(ds, orientation_deg)
     ds = filter_low_confidence(ds, threshold=confidence_threshold)
     ds = interpolate_gaps(ds, max_gap_frames=gap_fill_frames)

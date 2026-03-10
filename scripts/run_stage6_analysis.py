@@ -71,23 +71,28 @@ def load_h5(path: Path) -> dict:
 
 
 def run_analysis_all_signals(
-    ca: dict,
-    kin: dict,
-    ts: dict,
+    sync: dict,
     params: AnalysisParams,
 ) -> tuple[dict, int, int, float, list[str]]:
-    """Run analysis for all available signal types.
+    """Run analysis for all available signal types using sync.h5 data.
+
+    Parameters
+    ----------
+    sync : dict
+        Data loaded from sync.h5 (already aligned to imaging rate).
+    params : AnalysisParams
+        Analysis parameters.
 
     Returns:
         (results_by_signal, n_rois, n_frames, fps, signal_types_available)
     """
-    from hm2p.sync.align import resample_to_imaging_rate
-
-    dff = ca["dff"]
+    dff = sync["dff"]
     n_rois, n_frames_ca = dff.shape
-    fps = float(ca.get("fps_imaging", 9.8))
-    deconv = ca.get("spks")
-    event_masks = ca.get("event_masks")
+    fps = float(sync.get("fps_imaging", 9.8))
+    deconv = sync.get("spks")
+    event_masks = sync.get("event_masks")
+    if event_masks is not None:
+        event_masks = event_masks.astype(bool)
 
     # Determine available signal types
     signal_types_available = ["dff"]
@@ -96,24 +101,13 @@ def run_analysis_all_signals(
     if event_masks is not None:
         signal_types_available.append("events")
 
-    # Resample kinematics to imaging rate
-    cam_times = ts["frame_times_camera"]
-    img_times = ts["frame_times_imaging"]
-
-    # Fix off-by-one
-    if len(img_times) == n_frames_ca + 1:
-        img_times = img_times[:n_frames_ca]
-
-    hd_deg = resample_to_imaging_rate(kin["hd_deg"], cam_times, img_times)
-    x_mm = resample_to_imaging_rate(kin["x_mm"], cam_times, img_times)
-    y_mm = resample_to_imaging_rate(kin["y_mm"], cam_times, img_times)
-    speed = resample_to_imaging_rate(kin["speed_cm_s"], cam_times, img_times)
-    light_on = resample_to_imaging_rate(
-        kin["light_on"].astype(np.float64), cam_times, img_times,
-    ) > 0.5
-    bad_behav = resample_to_imaging_rate(
-        kin["bad_behav"].astype(np.float64), cam_times, img_times,
-    ) > 0.5
+    # All kinematics are already resampled to imaging rate in sync.h5
+    hd_deg = sync["hd_deg"]
+    x_mm = sync["x_mm"]
+    y_mm = sync["y_mm"]
+    speed = sync["speed_cm_s"]
+    light_on = sync["light_on"].astype(bool)
+    bad_behav = sync["bad_behav"].astype(bool)
     active_mask = ~bad_behav
 
     x_cm = x_mm / 10.0
@@ -191,7 +185,10 @@ def main():
     # Load experiment list
     import csv
     with open(METADATA_DIR / "experiments.csv") as f:
-        experiments = list(csv.DictReader(f))
+        experiments = [
+            e for e in csv.DictReader(f)
+            if str(e.get("exclude", "0")).strip() != "1"
+        ]
 
     if args.session:
         experiments = [e for e in experiments if e["exp_id"] == args.session]
@@ -227,36 +224,20 @@ def main():
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
 
-            # Download required files
-            ca_path = tmp / "ca.h5"
-            kin_path = tmp / "kinematics.h5"
-            ts_path = tmp / "timestamps.h5"
+            # Download sync.h5 (contains aligned neural + behavioural data)
+            sync_path = tmp / "sync.h5"
 
-            ok = download_h5(s3, DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5", ca_path)
+            ok = download_h5(s3, DERIVATIVES_BUCKET, f"sync/{sub}/{ses}/sync.h5", sync_path)
             if not ok:
-                log.warning("  SKIP: no ca.h5")
-                skipped.append(exp_id)
-                continue
-
-            ok = download_h5(s3, DERIVATIVES_BUCKET, f"movement/{sub}/{ses}/kinematics.h5", kin_path)
-            if not ok:
-                log.warning("  SKIP: no kinematics.h5 (Stage 3 not done)")
-                skipped.append(exp_id)
-                continue
-
-            ok = download_h5(s3, DERIVATIVES_BUCKET, f"movement/{sub}/{ses}/timestamps.h5", ts_path)
-            if not ok:
-                log.warning("  SKIP: no timestamps.h5")
+                log.warning("  SKIP: no sync.h5 (Stage 5 not done)")
                 skipped.append(exp_id)
                 continue
 
             try:
-                ca = load_h5(ca_path)
-                kin = load_h5(kin_path)
-                ts = load_h5(ts_path)
+                sync = load_h5(sync_path)
 
                 results_by_signal, n_rois, n_frames, fps, avail = run_analysis_all_signals(
-                    ca, kin, ts, params,
+                    sync, params,
                 )
 
                 if args.dry_run:

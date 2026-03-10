@@ -94,6 +94,13 @@ def rate_map_correlation(
     """
     a = map_a.ravel()
     b = map_b.ravel()
+
+    # Handle mismatched sizes (different spatial bin counts between halves)
+    if len(a) != len(b):
+        n = min(len(a), len(b))
+        a = a[:n]
+        b = b[:n]
+
     valid = ~np.isnan(a) & ~np.isnan(b)
 
     if valid.sum() < 3:

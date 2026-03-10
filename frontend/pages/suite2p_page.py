@@ -8,9 +8,12 @@ import logging
 import numpy as np
 import streamlit as st
 
+import boto3
+
 from frontend.data import (
     DERIVATIVES_BUCKET,
     RAWDATA_BUCKET,
+    REGION,
     download_s3_bytes,
     download_s3_numpy,
     list_s3_session_files,
@@ -32,7 +35,7 @@ def get_suite2p_session_summary() -> list[dict]:
     """Check each session for Suite2p output on S3 and count ROIs."""
     import json
 
-    s3 = __import__("boto3").client("s3", region_name="ap-southeast-2")
+    s3 = boto3.client("s3", region_name=REGION)
     results = []
     for exp in experiments:
         exp_id = exp["exp_id"]
@@ -693,7 +696,7 @@ with tab_tiff:
 
             with st.spinner(f"Loading frame {frame_idx}..."):
                 try:
-                    s3 = __import__("boto3").client("s3", region_name="ap-southeast-2")
+                    s3 = boto3.client("s3", region_name=REGION)
                     obj = s3.get_object(
                         Bucket=DERIVATIVES_BUCKET,
                         Key=bin_key,

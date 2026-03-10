@@ -170,17 +170,17 @@ Using **SuperAnimal TopViewMouse** from DeepLabCut 3.0rc13 with the **HRNet-W32*
 backbone. This is a foundation model pre-trained on a large corpus of top-view mouse
 data, so it generalises to our overhead camera setup without fine-tuning.
 
-### Detector removed for cropped videos
+### FasterRCNN detector (mandatory)
 
-The default DLC 3.0 pipeline uses a FasterRCNN detector stage to crop animals before
-pose inference. For our data (single mouse, already cropped to arena), the detector is
-unnecessary and too slow: only ~7 it/s even with `batch_size=8`. We run **pose-only
-inference** (no detection stage), which is substantially faster.
+DLC 3.0 PyTorch backend **requires** a FasterRCNN detector stage. The detector crops
+the animal before pose inference. It is the inference bottleneck at ~5 it/s on T4
+regardless of batch size. To mitigate this, videos are subsampled from ~100 fps to
+30 fps before DLC inference.
 
 ### Inference settings
 
-- `batch_size=64` for pose inference
-- GPU: NVIDIA T4 on EC2 g4dn.xlarge (ap-southeast-2)
+- `batch_size=64` for pose inference, `det_batch_size=24` for detector
+- GPU: NVIDIA T4 (g4dn.xlarge) or A10G (g5.xlarge) on EC2 (ap-southeast-2)
 - No fine-tuning or transfer learning -- using the foundation model weights directly
 
 ### Keypoints
@@ -190,11 +190,11 @@ The SuperAnimal TopViewMouse model outputs **27 keypoints**. For downstream kine
 
 | SuperAnimal keypoint | Pipeline variable |
 |---|---|
-| `left_ear` | ear-left |
-| `right_ear` | ear-right |
-| `mid_back` | back-upper |
-| `mouse_center` | back-middle |
-| `tail_base` | back-tail |
+| `left_ear` | left_ear |
+| `right_ear` | right_ear |
+| `mid_back` | mid_back |
+| `mouse_center` | mouse_center |
+| `tail_base` | tail_base |
 
 The remaining 22 keypoints are retained in the pose output files but not used for
 head direction or position computation.

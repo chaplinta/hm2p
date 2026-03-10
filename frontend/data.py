@@ -15,6 +15,7 @@ import csv
 import io
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +28,28 @@ REGION = "ap-southeast-2"
 RAWDATA_BUCKET = "hm2p-rawdata"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
 METADATA_DIR = Path(__file__).resolve().parent.parent / "metadata"
+
+
+def sanitize_error(msg: str, max_length: int = 200) -> str:
+    """Sanitize error message for UI display. Strip paths, tracebacks, and truncate."""
+    if not msg:
+        return "Unknown error"
+    # Remove common path patterns
+    msg = re.sub(r"(/[a-zA-Z0-9_./-]+)+", "<path>", msg)
+    # Remove traceback blocks
+    msg = re.sub(
+        r"Traceback \(most recent call last\):.*?(?=\n\S|\Z)",
+        "",
+        msg,
+        flags=re.DOTALL,
+    )
+    # Strip AWS account IDs (12-digit numbers)
+    msg = re.sub(r"\b\d{12}\b", "<account>", msg)
+    # Truncate
+    msg = msg.strip()
+    if len(msg) > max_length:
+        msg = msg[:max_length] + "..."
+    return msg or "Unknown error"
 
 STAGE_PREFIXES = {
     "ca_extraction": "Stage 1 — Suite2p",

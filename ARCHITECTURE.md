@@ -182,6 +182,18 @@ hm2p-v2/
 │       │   ├── __init__.py
 │       │   ├── align.py           # Resample behaviour to imaging timestamps
 │       │   └── validate.py        # Post-sync validation: shape, NaN, temporal monotonicity
+│       ├── patching/
+│       │   ├── __init__.py
+│       │   ├── config.py           # Patching pipeline configuration
+│       │   ├── io.py               # WaveSurfer H5 + SWC file I/O
+│       │   ├── ephys.py            # Electrophysiology signal processing
+│       │   ├── protocols.py        # Stimulus protocol parsing & response extraction
+│       │   ├── spike_features.py   # AP waveform feature extraction
+│       │   ├── morphology.py       # SWC morphology loading & analysis
+│       │   ├── metrics.py          # Intrinsic excitability & passive properties
+│       │   ├── statistics.py       # Statistical comparisons (Penk vs non-Penk)
+│       │   ├── pca.py              # PCA on electrophysiological features
+│       │   └── run.py              # Batch runner for patching analysis
 │       └── io/
 │           ├── __init__.py
 │           ├── hdf5.py            # Read/write all .h5 files; pandera schema validation
@@ -208,6 +220,17 @@ hm2p-v2/
 │   │   └── test_events.py
 │   ├── sync/
 │   │   └── test_align.py
+│   ├── patching/
+│   │   ├── test_config.py
+│   │   ├── test_io.py
+│   │   ├── test_ephys.py
+│   │   ├── test_protocols.py
+│   │   ├── test_spike_features.py
+│   │   ├── test_morphology.py
+│   │   ├── test_metrics.py
+│   │   ├── test_statistics.py
+│   │   ├── test_pca.py
+│   │   └── test_run.py
 │   └── io/
 │       ├── test_hdf5.py
 │       └── test_nwb.py

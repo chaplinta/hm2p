@@ -17,6 +17,7 @@ from frontend.data import (
     get_s3_client,
     load_experiments,
     parse_session_id,
+    sanitize_error,
 )
 
 log = logging.getLogger("hm2p.frontend")
@@ -222,9 +223,9 @@ if dlc_progress:
             if isinstance(entry, dict):
                 session = entry.get("session", "unknown")
                 error = entry.get("error", "no error message")
-                st.error(f"**{session}** -- {error}")
+                st.error(f"**{session}** -- {sanitize_error(error)}")
             else:
-                st.error(str(entry))
+                st.error(sanitize_error(str(entry)))
     elif dlc_progress.get("failed", 0) > 0:
         st.warning(
             "Failed sessions exist but no detailed error messages are available "
