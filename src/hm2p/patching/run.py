@@ -431,12 +431,23 @@ def run_statistics(metrics_df: pd.DataFrame, config: PatchConfig) -> None:
 
     config.analysis_dir.mkdir(parents=True, exist_ok=True)
 
-    summary = stats_mod.compute_summary_stats(metrics_df)
+    # Auto-detect numeric metric columns (exclude metadata columns)
+    meta_cols = {
+        "cell_index", "animal_id", "slice_id", "cell_slice_id",
+        "hemisphere", "cell_type", "area", "layer", "ephys_id",
+        "has_morph", "good_morph",
+    }
+    metric_cols = [
+        c for c in metrics_df.columns
+        if c not in meta_cols and metrics_df[c].dtype.kind in ("f", "i")
+    ]
+
+    summary = stats_mod.compute_summary_stats(metrics_df, metric_cols)
     summary_path = config.analysis_dir / "summary_stats.csv"
     summary.to_csv(summary_path, index=False)
     logger.info("Saved summary stats to %s", summary_path)
 
-    mw = stats_mod.compute_mannwhitney(metrics_df)
+    mw = stats_mod.mann_whitney_comparison(metrics_df, metric_cols)
     mw_path = config.analysis_dir / "mannwhitney.csv"
     mw.to_csv(mw_path, index=False)
     logger.info("Saved Mann-Whitney results to %s", mw_path)
@@ -466,11 +477,20 @@ def run_pca_analysis(metrics_df: pd.DataFrame, config: PatchConfig) -> None:
     pca_dir = config.analysis_dir / "pca"
     pca_dir.mkdir(parents=True, exist_ok=True)
 
-    for subset in ("ephys", "morph", "all"):
+    # Define metric column subsets
+    ephys_cols = [c for c in metrics_df.columns if c.startswith("ephys_")]
+    morph_cols = [c for c in metrics_df.columns if c.startswith("morph_")]
+    all_cols = ephys_cols + morph_cols
+    subsets = {"ephys": ephys_cols, "morph": morph_cols, "all": all_cols}
+
+    for subset_name, cols in subsets.items():
+        if not cols:
+            logger.info("No %s columns for PCA — skipping", subset_name)
+            continue
         try:
-            result = pca_mod.run_pca(metrics_df, subset=subset)
-            output_path = pca_dir / f"pca_{subset}.csv"
-            result.to_csv(output_path, index=False)
-            logger.info("Saved PCA (%s) to %s", subset, output_path)
+            result = pca_mod.run_pca(metrics_df, metric_cols=cols)
+            output_path = pca_dir / f"pca_{subset_name}.csv"
+            result.scores.to_csv(output_path, index=False)
+            logger.info("Saved PCA (%s) to %s", subset_name, output_path)
         except Exception:
-            logger.exception("PCA failed for subset '%s'", subset)
+            logger.exception("PCA failed for subset '%s'", subset_name)
