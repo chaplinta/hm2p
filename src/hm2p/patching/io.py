@@ -50,9 +50,13 @@ def _crawl_h5_group(group: h5py.Group) -> dict[str, Any]:
                 data = data.decode("utf-8", errors="replace")
             elif isinstance(data, np.ndarray) and data.dtype.kind == "S":
                 data = data.astype(str)
-            # Unbox scalar arrays
+            # Unbox scalar arrays (including (1,) and (1,1) shaped arrays)
             if isinstance(data, np.ndarray) and data.ndim == 0:
                 data = data.item()
+            elif isinstance(data, np.ndarray) and data.size == 1:
+                data = data.flat[0]
+                if isinstance(data, (np.integer, np.floating)):
+                    data = data.item()
             result[key] = data
     return result
 
@@ -165,6 +169,11 @@ def load_wavesurfer(path: Path) -> dict[str, Any]:
     if scaling_coefficients.ndim == 1:
         scaling_coefficients = scaling_coefficients[:, np.newaxis]
 
+    # Ensure scaling_coefficients is (n_coeff, n_channels) for _apply_scaling.
+    # WaveSurfer stores it as (n_channels, n_coeff) — transpose if needed.
+    if scaling_coefficients.shape[0] == len(channel_scales) and scaling_coefficients.shape[1] != len(channel_scales):
+        scaling_coefficients = scaling_coefficients.T
+
     # --- Scale sweep analog data ---
     for key in list(data.keys()):
         if key.startswith("sweep_") or key.startswith("trial_"):
@@ -173,9 +182,30 @@ def load_wavesurfer(path: Path) -> dict[str, Any]:
                 raw = np.asarray(sweep["analogScans"])
                 if raw.ndim == 1:
                     raw = raw[:, np.newaxis]
+                # WaveSurfer stores analogScans as (n_channels, n_scans).
+                # _apply_scaling expects (n_scans, n_channels).
+                if raw.ndim == 2 and raw.shape[0] == len(channel_scales) and raw.shape[1] > raw.shape[0]:
+                    raw = raw.T
                 sweep["analogScans"] = _apply_scaling(
                     raw, channel_scales, scaling_coefficients
                 )
+
+    # Build a concatenated "traces" array (channel 0 from all sweeps).
+    # Protocol extractors expect ws_data["traces"] as a 1-D float64 array
+    # of all sweeps concatenated in order.
+    sweep_keys = sorted(k for k in data if k.startswith("sweep_") or k.startswith("trial_"))
+    if sweep_keys:
+        trace_parts = []
+        for sk in sweep_keys:
+            s = data[sk]
+            if isinstance(s, dict) and "analogScans" in s:
+                arr = s["analogScans"]
+                if arr.ndim == 2:
+                    trace_parts.append(arr[:, 0])  # first channel (voltage)
+                else:
+                    trace_parts.append(arr)
+        if trace_parts:
+            data["traces"] = np.concatenate(trace_parts)
 
     return data
 

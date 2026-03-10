@@ -1,0 +1,17 @@
+# Patching pipeline configuration
+#
+# The ephys data is organised by date under ephys_root_dir:
+#   ephys_root_dir/<date_slice>/SW000N/
+# The mapping from animal_id -> date_slice is in animals.csv.
+#
+# The run script handles this by processing each animal group with
+# ephys_dir set to ephys_root_dir/<date_slice>/.
+#
+# morph_dir is set to a placeholder — morphology processing is skipped
+# when SWC files are not available (the code handles missing dirs gracefully).
+
+metadata_dir: /data/patching/patching/metadata
+ephys_root_dir: /data/patching/patching/ephys
+morph_dir: /data/patching/patching/morphology  # placeholder — no SWC files in mount
+processed_dir: /workspace/results/patching/processed
+analysis_dir: /workspace/results/patching/analysis
