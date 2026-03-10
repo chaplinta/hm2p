@@ -79,9 +79,6 @@ upload.log
 *.swp
 *.swo
 
-# Legacy reference code (read-only, not part of this project)
-old-penk-patching/
-
 # Working notes (local only)
 NOTEPAD.md
 
