@@ -76,6 +76,9 @@ def condition_event_rate(
         Event onset rate in events per second.  Returns 0.0 if no
         condition frames exist.
     """
+    event_mask = np.asarray(event_mask, dtype=bool)
+    condition_mask = np.asarray(condition_mask, dtype=bool)
+
     n_condition = condition_mask.sum()
     if n_condition == 0:
         return 0.0
