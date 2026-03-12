@@ -24,6 +24,7 @@ from frontend.data import (
     load_all_ca_data,
     load_all_suite2p_spatial,
 )
+from hm2p.constants import COLOR_SOMA, COLOR_DEND
 
 log = logging.getLogger("hm2p.frontend.gallery")
 
@@ -252,7 +253,7 @@ with tab_gallery:
                     fig_img, ax = plt.subplots(figsize=(1.5, 1.5), dpi=80)
                     ax.imshow(crop, cmap="gray", vmin=vmin, vmax=vmax, aspect="equal")
                     # Overlay ROI pixels
-                    color = {"soma": "cyan", "dend": "orange", "artefact": "red"}.get(
+                    color = {"soma": COLOR_SOMA, "dend": COLOR_DEND, "artefact": "red"}.get(
                         roi_row["roi_type"], "white"
                     )
                     y_local = ypix - y0
@@ -358,7 +359,7 @@ with tab_classifier:
             fig_map, ax = plt.subplots(figsize=(8, 8), dpi=100)
             ax.imshow(mean_img, cmap="gray", vmin=vmin, vmax=vmax)
 
-            colors = {"soma": "cyan", "dend": "orange", "artefact": "red"}
+            colors = {"soma": COLOR_SOMA, "dend": COLOR_DEND, "artefact": "red"}
             type_names = {0: "soma", 1: "dend", 2: "artefact"}
             plotted_types = set()
 

@@ -20,6 +20,7 @@ from frontend.data import (
     load_experiments,
     parse_session_id,
 )
+from hm2p.constants import CELLTYPE_HEX
 
 log = logging.getLogger("hm2p.frontend.light_compare")
 
@@ -171,7 +172,7 @@ with tab_dist:
     fig = px.histogram(
         df_filtered, x="lmi_dff", color="celltype", nbins=50,
         barmode="overlay", opacity=0.7,
-        color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+        color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
         title="Light Modulation Index (dF/F) — All ROIs",
         labels={"lmi_dff": "LMI (dF/F)"},
     )
@@ -184,7 +185,7 @@ with tab_dist:
             df_filtered.dropna(subset=["lmi_events"]),
             x="lmi_events", color="celltype", nbins=50,
             barmode="overlay", opacity=0.7,
-            color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+            color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
             title="Light Modulation Index (Event Rate) — All ROIs",
             labels={"lmi_events": "LMI (events)"},
         )
@@ -199,7 +200,7 @@ with tab_celltype:
     col1, col2 = st.columns(2)
     with col1:
         fig = go.Figure()
-        for ct, color in [("penk", "green"), ("nonpenk", "blue")]:
+        for ct, color in CELLTYPE_HEX.items():
             ct_data = df_filtered[df_filtered["celltype"] == ct]
             if len(ct_data) > 0:
                 fig.add_trace(go.Box(
@@ -215,7 +216,7 @@ with tab_celltype:
     with col2:
         if "lmi_events" in df_filtered.columns:
             fig = go.Figure()
-            for ct, color in [("penk", "green"), ("nonpenk", "blue")]:
+            for ct, color in CELLTYPE_HEX.items():
                 ct_data = df_filtered[df_filtered["celltype"] == ct].dropna(subset=["lmi_events"])
                 if len(ct_data) > 0:
                     fig.add_trace(go.Box(
@@ -231,7 +232,7 @@ with tab_celltype:
     # Scatter: light vs dark
     fig = px.scatter(
         df_filtered, x="light_mean", y="dark_mean", color="celltype",
-        color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+        color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
         opacity=0.4,
         title="Mean dF/F: Light vs Dark (per ROI)",
         labels={"light_mean": "Light ON mean dF/F", "dark_mean": "Light OFF mean dF/F"},
@@ -259,7 +260,7 @@ with tab_sessions:
     fig = px.bar(
         session_stats.sort_values("celltype"),
         x="exp_id", y="median_lmi", color="celltype",
-        color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+        color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
         title="Median LMI per Session",
         hover_data=["n_rois", "pct_dark_prefer"],
     )

@@ -23,6 +23,7 @@ from frontend.data import (
     load_experiments,
     parse_session_id,
 )
+from hm2p.constants import CELLTYPE_HEX
 
 log = logging.getLogger("hm2p.frontend.population")
 
@@ -152,7 +153,7 @@ with tab_dist:
         fig = px.histogram(
             df, x="snr", color="celltype", nbins=40,
             barmode="overlay", opacity=0.7,
-            color_discrete_map={"penk": "green", "nonpenk": "blue"},
+            color_discrete_map=CELLTYPE_HEX,
             title="SNR Distribution by Cell Type",
         )
         fig.update_layout(height=350)
@@ -162,7 +163,7 @@ with tab_dist:
         fig = px.histogram(
             df, x="event_rate", color="celltype", nbins=40,
             barmode="overlay", opacity=0.7,
-            color_discrete_map={"penk": "green", "nonpenk": "blue"},
+            color_discrete_map=CELLTYPE_HEX,
             title="Event Rate (events/min)",
         )
         fig.update_layout(height=350)
@@ -174,7 +175,7 @@ with tab_dist:
         fig = px.histogram(
             df, x="max_dff", color="celltype", nbins=40,
             barmode="overlay", opacity=0.7,
-            color_discrete_map={"penk": "green", "nonpenk": "blue"},
+            color_discrete_map=CELLTYPE_HEX,
             title="Max dF/F Distribution",
         )
         fig.update_layout(height=350)
@@ -184,7 +185,7 @@ with tab_dist:
         fig = px.histogram(
             df, x="skewness", color="celltype", nbins=40,
             barmode="overlay", opacity=0.7,
-            color_discrete_map={"penk": "green", "nonpenk": "blue"},
+            color_discrete_map=CELLTYPE_HEX,
             title="Trace Skewness (higher = burstier)",
         )
         fig.update_layout(height=350)
@@ -198,7 +199,7 @@ with tab_quality:
     fig = px.scatter(
         df, x="snr", y="skewness", color="celltype",
         hover_data=["exp_id", "roi_idx"],
-        color_discrete_map={"penk": "green", "nonpenk": "blue"},
+        color_discrete_map=CELLTYPE_HEX,
         title="SNR vs Skewness (good cells = high SNR + high skew)",
         opacity=0.5,
     )
@@ -209,7 +210,7 @@ with tab_quality:
     st.subheader("SNR by Session")
     fig = px.box(
         df, x="exp_id", y="snr", color="celltype",
-        color_discrete_map={"penk": "green", "nonpenk": "blue"},
+        color_discrete_map=CELLTYPE_HEX,
     )
     fig.update_layout(
         height=400,
@@ -239,7 +240,7 @@ with tab_events:
 
     with col1:
         fig = go.Figure()
-        for ct, color in [("penk", "green"), ("nonpenk", "blue")]:
+        for ct, color in CELLTYPE_HEX.items():
             ct_data = df[df["celltype"] == ct]
             fig.add_trace(go.Box(
                 y=ct_data["event_rate"],
@@ -256,7 +257,7 @@ with tab_events:
 
     with col2:
         fig = go.Figure()
-        for ct, color in [("penk", "green"), ("nonpenk", "blue")]:
+        for ct, color in CELLTYPE_HEX.items():
             ct_data = df[df["celltype"] == ct]
             fig.add_trace(go.Box(
                 y=ct_data["active_frac"],
@@ -275,7 +276,7 @@ with tab_events:
     fig = px.scatter(
         df, x="snr", y="event_rate", color="celltype",
         hover_data=["exp_id", "roi_idx"],
-        color_discrete_map={"penk": "green", "nonpenk": "blue"},
+        color_discrete_map=CELLTYPE_HEX,
         title="Event Rate vs SNR",
         opacity=0.5,
     )

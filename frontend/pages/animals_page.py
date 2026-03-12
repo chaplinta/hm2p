@@ -20,6 +20,7 @@ from frontend.data import (
     load_experiments,
     parse_session_id,
 )
+from hm2p.constants import CELLTYPE_HEX
 
 log = logging.getLogger("hm2p.frontend.animals")
 
@@ -146,7 +147,7 @@ with tab_rois:
         x="animal_id",
         y="total_rois",
         color="celltype",
-        color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+        color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
         title="Total ROIs per Animal",
         hover_data=["n_sessions", "mean_session_snr"],
     )
@@ -159,7 +160,7 @@ with tab_rois:
         x="animal_id",
         y=df["total_rois"] / df["n_sessions"].replace(0, 1),
         color="celltype",
-        color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+        color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
         title="Mean ROIs per Session",
     )
     fig2.update_layout(height=350, yaxis_title="ROIs / session")
@@ -173,7 +174,7 @@ with tab_quality:
             x="animal_id",
             y="mean_session_snr",
             color="celltype",
-            color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+            color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
             title="Mean Session SNR per Animal",
         )
         fig.add_hline(y=3, line_dash="dash", line_color="red", opacity=0.5)
@@ -186,7 +187,7 @@ with tab_quality:
             x="animal_id",
             y="mean_event_rate",
             color="celltype",
-            color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+            color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
             title="Mean Event Rate per Animal",
         )
         fig.update_layout(height=350)

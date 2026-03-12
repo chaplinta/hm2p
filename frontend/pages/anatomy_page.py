@@ -9,11 +9,16 @@ from __future__ import annotations
 
 import io
 import logging
+import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
+from hm2p.constants import HEX_PENK, HEX_NONPENK, COLOR_PENK, COLOR_NONPENK
 
 log = logging.getLogger(__name__)
 
@@ -214,109 +219,77 @@ if has_inj_data:
             use_container_width=True,
         )
 
-        # ── Interactive 3D Injection Site Visualization ──────────────────
-        st.subheader("3D Injection Site Map")
+        # ── Brainrender Atlas View ────────────────────────────────────────
+        st.subheader("Brainrender Atlas View")
         st.caption(
-            "Interactive 3D view of injection sites in Allen CCFv3 atlas space. "
-            "Blue = Penk+, Red = CamKII+. Drag to rotate, scroll to zoom."
+            "Publication-quality static renders of injection sites on the "
+            "Allen CCFv3 atlas using brainrender. Shows RSP region "
+            "(green) with injection sites (blue = Penk+, red = CamKII+)."
         )
 
-        fig_3d = go.Figure()
+        _BR_OUTPUT_DIR = "/tmp/brainrender"
 
-        # Add a transparent brain outline (simplified ellipsoid)
-        # Allen mouse brain approximate dimensions: AP ~13.2mm, DV ~8mm, ML ~11.4mm
-        u = np.linspace(0, 2 * np.pi, 40)
-        v = np.linspace(0, np.pi, 20)
-        # Brain centroid approximately at AP=6.6, DV=4, ML=5.7
-        brain_ap = 6.6 + 6.0 * np.outer(np.cos(u), np.sin(v))
-        brain_dv = 4.0 + 3.5 * np.outer(np.sin(u), np.sin(v))
-        brain_ml = 5.7 + 5.0 * np.outer(np.ones_like(u), np.cos(v))
+        @st.cache_data(show_spinner="Rendering brainrender views...")
+        def _render_brainrender(inj_json: str) -> list[str] | None:
+            """Render injection sites with brainrender (cached)."""
+            try:
+                from hm2p.anatomy.render import render_injection_sites
+            except ImportError:
+                return None
+            _inj_df = pd.read_json(inj_json, orient="records")
+            return render_injection_sites(_inj_df, _BR_OUTPUT_DIR)
 
-        fig_3d.add_trace(go.Surface(
-            x=brain_ap, y=brain_ml, z=brain_dv,
-            opacity=0.08,
-            colorscale=[[0, "lightgray"], [1, "lightgray"]],
-            showscale=False,
-            name="Brain outline",
-            hoverinfo="skip",
-        ))
+        try:
+            from hm2p.anatomy.render import render_injection_sites as _check_br  # noqa: F401
+            _br_available = True
+        except ImportError:
+            _br_available = False
 
-        # Add RSP region (approximate location)
-        # RSP: AP ~5-8mm, DV ~0.5-2mm, ML ~4-7mm (bilateral)
-        rsp_u = np.linspace(0, 2 * np.pi, 20)
-        rsp_v = np.linspace(0, np.pi, 10)
-        rsp_ap = 6.5 + 1.5 * np.outer(np.cos(rsp_u), np.sin(rsp_v))
-        rsp_dv = 1.0 + 0.5 * np.outer(np.sin(rsp_u), np.sin(rsp_v))
-        rsp_ml = 5.7 + 0.8 * np.outer(np.ones_like(rsp_u), np.cos(rsp_v))
+        if not _br_available:
+            st.info(
+                "brainrender is not installed in this environment. "
+                "Install with `pip install brainrender` to enable "
+                "atlas-based 3D rendering of injection sites."
+            )
+        else:
+            import os as _os
 
-        fig_3d.add_trace(go.Surface(
-            x=rsp_ap, y=rsp_ml, z=rsp_dv,
-            opacity=0.15,
-            colorscale=[[0, "green"], [1, "green"]],
-            showscale=False,
-            name="RSP (approx)",
-            hoverinfo="skip",
-        ))
+            _cached_files = []
+            _expected = [
+                _os.path.join(_BR_OUTPUT_DIR, f"injection_{v}.png")
+                for v in ("dorsal", "sagittal", "coronal")
+            ]
+            if all(_os.path.exists(f) for f in _expected):
+                _cached_files = _expected
 
-        # Add injection sites as 3D markers
-        for celltype, color, symbol in [("penk", "blue", "circle"), ("nonpenk", "red", "square")]:
-            ct_data = inj_df[inj_df["celltype"] == celltype]
-            if len(ct_data) == 0:
-                continue
+            if _cached_files:
+                col_d, col_s, col_c = st.columns(3)
+                col_d.image(_cached_files[0], caption="Dorsal (top-down)")
+                col_s.image(_cached_files[1], caption="Sagittal (side)")
+                col_c.image(_cached_files[2], caption="Coronal (front)")
 
-            ap = pd.to_numeric(ct_data["inj_ap"], errors="coerce")
-            ml = pd.to_numeric(ct_data["inj_ml"], errors="coerce")
-            dv = pd.to_numeric(ct_data["inj_dv"], errors="coerce")
-            labels = ct_data["animal_id"].astype(str)
-
-            ct_label = "Penk+" if celltype == "penk" else "CamKII+"
-
-            fig_3d.add_trace(go.Scatter3d(
-                x=ap, y=ml, z=dv,
-                mode="markers+text",
-                marker=dict(
-                    size=8,
-                    color=color,
-                    opacity=0.9,
-                    symbol=symbol,
-                ),
-                text=labels,
-                textposition="top center",
-                textfont=dict(size=9),
-                name=ct_label,
-                hovertemplate=(
-                    "<b>%{text}</b><br>"
-                    "AP: %{x:.3f} mm<br>"
-                    "ML: %{y:.3f} mm<br>"
-                    "DV: %{z:.3f} mm<br>"
-                    f"Type: {ct_label}<extra></extra>"
-                ),
-            ))
-
-        # Add midline plane
-        midline_ap = np.array([0, 13.2, 13.2, 0])
-        midline_dv = np.array([0, 0, 8, 8])
-        midline_ml = np.array([5.7, 5.7, 5.7, 5.7])
-
-        fig_3d.update_layout(
-            scene=dict(
-                xaxis_title="AP (mm)",
-                yaxis_title="ML (mm)",
-                zaxis_title="DV (mm)",
-                zaxis=dict(autorange="reversed"),  # DV: 0=dorsal at top
-                aspectmode="data",
-                camera=dict(
-                    eye=dict(x=1.5, y=1.5, z=0.8),
-                    up=dict(x=0, y=0, z=-1),
-                ),
-            ),
-            width=800,
-            height=600,
-            margin=dict(l=0, r=0, t=30, b=0),
-            legend=dict(x=0.02, y=0.98),
-        )
-
-        st.plotly_chart(fig_3d, use_container_width=True)
+            if st.button("Generate brainrender images", type="primary"):
+                inj_json = inj_df[
+                    ["animal_id", "celltype", "inj_ap", "inj_ml", "inj_dv"]
+                ].to_json(orient="records")
+                result = _render_brainrender(inj_json)
+                if result is None:
+                    st.error(
+                        "Rendering failed — brainrender or VTK may not "
+                        "support headless rendering in this environment. "
+                        "Check logs for details."
+                    )
+                else:
+                    st.success(f"Rendered {len(result)} views.")
+                    col_d, col_s, col_c = st.columns(3)
+                    for fpath in result:
+                        fname = _os.path.basename(fpath)
+                        if "dorsal" in fname:
+                            col_d.image(fpath, caption="Dorsal (top-down)")
+                        elif "sagittal" in fname:
+                            col_s.image(fpath, caption="Sagittal (side)")
+                        elif "coronal" in fname:
+                            col_c.image(fpath, caption="Coronal (front)")
 
         # ── 2D projections ───────────────────────────────────────────────
         with st.expander("2D projection views"):
@@ -324,7 +297,7 @@ if has_inj_data:
 
             fig, axes = plt.subplots(1, 3, figsize=(15, 4))
 
-            for celltype, color, marker in [("penk", "blue", "o"), ("nonpenk", "red", "s")]:
+            for celltype, color, marker in [("penk", COLOR_PENK, "o"), ("nonpenk", COLOR_NONPENK, "s")]:
                 ct_data = inj_df[inj_df["celltype"] == celltype]
                 if len(ct_data) == 0:
                     continue
@@ -409,10 +382,10 @@ with st.expander("Methods & References"):
     plugin) with Otsu thresholding on the signal channel. Centroid, volume,
     and brain region overlap are computed automatically.
 
-    **3D visualization** uses Plotly for interactive rendering. Brain outline
-    and RSP region are approximate ellipsoids for spatial reference. Exact
-    atlas meshes can be rendered with brainrender (VTK-based, not available
-    in Streamlit).
+    **Brainrender atlas view** uses brainrender for publication-quality
+    static renders with exact Allen CCFv3 atlas meshes and RSP region
+    highlighting. Renders are generated offscreen (VTK) and displayed as
+    PNG images.
 
     **Coordinate system** (BrainGlobe Allen 25 um atlas):
     - X: anterior-posterior

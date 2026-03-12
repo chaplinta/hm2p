@@ -20,6 +20,7 @@ from frontend.data import (
     load_experiments,
     parse_session_id,
 )
+from hm2p.constants import CELLTYPE_HEX
 
 log = logging.getLogger("hm2p.frontend.batch")
 
@@ -189,7 +190,7 @@ with tab_rois:
         x="exp_id",
         y="n_rois",
         color="celltype",
-        color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+        color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
         title="ROIs per Session",
         hover_data=["n_good_rois", "median_snr"],
     )
@@ -226,7 +227,7 @@ with tab_quality:
             x="exp_id",
             y="median_snr",
             color="celltype",
-            color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+            color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
             title="Median SNR by Session",
         )
         fig.add_hline(y=3, line_dash="dash", line_color="red", opacity=0.5)
@@ -239,7 +240,7 @@ with tab_quality:
             x="exp_id",
             y="median_event_rate",
             color="celltype",
-            color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+            color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
             title="Median Event Rate (events/min)",
         )
         fig.update_layout(height=350, xaxis=dict(tickangle=45))
@@ -253,7 +254,7 @@ with tab_quality:
         color="celltype",
         size="n_rois",
         hover_data=["exp_id"],
-        color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+        color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
         title="SNR vs Event Rate (per session)",
     )
     fig.update_layout(height=350)
@@ -265,7 +266,7 @@ with tab_duration:
         x="exp_id",
         y="duration_s",
         color="celltype",
-        color_discrete_map={"penk": "green", "nonpenk": "blue", "?": "gray"},
+        color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
         title="Session Duration (seconds)",
     )
     fig.update_layout(height=350, xaxis=dict(tickangle=45))

@@ -24,6 +24,7 @@ from frontend.data import (
     load_experiments,
     parse_session_id,
 )
+from hm2p.constants import CELLTYPE_HEX, HEX_PENK, HEX_NONPENK
 
 log = logging.getLogger("hm2p.frontend.compare")
 
@@ -154,7 +155,7 @@ with tab_rois:
         fig.add_trace(go.Bar(
             x=[s["exp_id"][:15] for s in session_data],
             y=[s["n_rois"] for s in session_data],
-            marker_color=["green" if s["celltype"] == "penk" else "blue" for s in session_data],
+            marker_color=[HEX_PENK if s["celltype"] == "penk" else HEX_NONPENK for s in session_data],
             text=[s["celltype"] for s in session_data],
         ))
         fig.update_layout(
@@ -172,7 +173,7 @@ with tab_rois:
         fig = go.Figure(data=[go.Pie(
             labels=["Penk+", "Non-Penk CamKII+"],
             values=[penk_rois, nonpenk_rois],
-            marker_colors=["green", "blue"],
+            marker_colors=[HEX_PENK, HEX_NONPENK],
         )])
         fig.update_layout(title="Total ROIs by Cell Type", height=400)
         st.plotly_chart(fig, use_container_width=True)
@@ -185,7 +186,7 @@ with tab_rois:
             y=s["per_roi_mean"],
             name=f"{s['exp_id'][:10]}",
             boxmean=True,
-            marker_color="green" if s["celltype"] == "penk" else "blue",
+            marker_color=HEX_PENK if s["celltype"] == "penk" else HEX_NONPENK,
         ))
     fig.update_layout(
         title="Mean dF/F per ROI (each box = one session)",
@@ -213,7 +214,7 @@ with tab_activity:
                     y=s["per_roi_event_rate"],
                     name=f"{s['exp_id'][:10]}",
                     boxmean=True,
-                    marker_color="green" if s["celltype"] == "penk" else "blue",
+                    marker_color=HEX_PENK if s["celltype"] == "penk" else HEX_NONPENK,
                 ))
             fig.update_layout(
                 title="Event Rate per ROI (events/min)",
@@ -230,7 +231,7 @@ with tab_activity:
                     y=s["per_roi_active_frac"],
                     name=f"{s['exp_id'][:10]}",
                     boxmean=True,
-                    marker_color="green" if s["celltype"] == "penk" else "blue",
+                    marker_color=HEX_PENK if s["celltype"] == "penk" else HEX_NONPENK,
                 ))
             fig.update_layout(
                 title="Active Fraction per ROI",
@@ -285,11 +286,11 @@ with tab_celltypes:
             fig = go.Figure()
             fig.add_trace(go.Histogram(
                 x=penk_means, name="Penk+", opacity=0.7,
-                marker_color="green", nbinsx=30,
+                marker_color=HEX_PENK, nbinsx=30,
             ))
             fig.add_trace(go.Histogram(
                 x=nonpenk_means, name="Non-Penk", opacity=0.7,
-                marker_color="blue", nbinsx=30,
+                marker_color=HEX_NONPENK, nbinsx=30,
             ))
             fig.update_layout(
                 barmode="overlay",
@@ -314,11 +315,11 @@ with tab_celltypes:
                 fig = go.Figure()
                 fig.add_trace(go.Box(
                     y=penk_rates, name="Penk+",
-                    marker_color="green", boxmean=True,
+                    marker_color=HEX_PENK, boxmean=True,
                 ))
                 fig.add_trace(go.Box(
                     y=nonpenk_rates, name="Non-Penk",
-                    marker_color="blue", boxmean=True,
+                    marker_color=HEX_NONPENK, boxmean=True,
                 ))
                 fig.update_layout(
                     title="Event Rate by Cell Type",
