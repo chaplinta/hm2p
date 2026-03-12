@@ -63,8 +63,11 @@ signal = signals[cell_main]
 
 # Estimate cycle length from light transitions
 transitions = find_transitions(light_on)
-if len(transitions) >= 2:
-    cycle_frames = int(np.median(np.diff([t["frame"] for t in transitions])))
+all_transition_frames = np.sort(np.concatenate([
+    transitions["dark_to_light"], transitions["light_to_dark"],
+]))
+if len(all_transition_frames) >= 2:
+    cycle_frames = int(np.median(np.diff(all_transition_frames)))
 else:
     cycle_frames = int(60 * fps)  # default 60s
 
