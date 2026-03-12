@@ -1,7 +1,14 @@
-"""Population Decoder — Bayesian HD decoding from population activity.
+"""Population Decoder — PVA HD decoding from population activity.
 
 Decodes head direction from the activity of a population of HD cells
-using a Bayesian maximum-likelihood approach.
+using the Population Vector Average (PVA) method.
+
+References
+----------
+Georgopoulos et al. 1986. "Neuronal population coding of movement direction."
+    Science. doi:10.1126/science.3749885
+Peyrache et al. 2015. "Internally organized mechanisms of the head direction
+    sense." Nature Neuroscience. doi:10.1038/nn.3968
 
 Requires real sync.h5 data from S3.
 """
@@ -19,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 st.title("Population Decoder")
 st.caption(
-    "Bayesian maximum-likelihood head direction decoding from population activity. "
+    "Population Vector Average (PVA) head direction decoding from population activity. "
     "Cross-validated decoding accuracy from real HD cell populations."
 )
 
@@ -83,7 +90,7 @@ with tab_decode:
     st.subheader("Frame-by-Frame Decoding")
 
     dec = build_decoder(signals, hd, mask)
-    decoded, posterior = decode_hd(signals, dec)
+    decoded, confidence = decode_hd(signals, dec)
     errs = decode_error(decoded, hd % 360.0)
 
     # Metrics
@@ -143,27 +150,24 @@ with tab_decode:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    # Posterior heatmap (subset)
-    with st.expander("Posterior Probability"):
-        n_post = min(200, n_frames)
-        fig = px.imshow(
-            posterior[:n_post].T,
-            x=list(range(n_post)),
-            y=[f"{b:.0f}" for b in dec["bin_centers"]],
-            labels=dict(x="Frame", y="HD (deg)", color="P"),
-            color_continuous_scale="Hot",
-            title=f"Posterior P(HD | activity) -- first {n_post} frames",
-            aspect="auto",
-        )
-        # Overlay actual HD
+    # Decode confidence time series
+    with st.expander("Decode Confidence"):
+        n_conf = min(500, n_frames)
+        fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=list(range(n_post)),
-            y=[f"{hd[i] % 360:.0f}" for i in range(n_post)],
-            mode="markers", marker=dict(size=2, color="cyan"),
-            name="Actual HD",
+            y=confidence[:n_conf], mode="lines",
+            line=dict(color="darkorange", width=1), name="Confidence",
         ))
-        fig.update_layout(height=400)
+        fig.update_layout(
+            height=300,
+            title=f"PVA Confidence (resultant vector length) -- first {n_conf} frames",
+            xaxis_title="Frame", yaxis_title="Confidence (0-1)",
+            yaxis=dict(range=[0, 1]),
+        )
         st.plotly_chart(fig, use_container_width=True)
+
+        st.metric("Mean confidence", f"{np.mean(confidence):.3f}")
+        st.metric("Median confidence", f"{np.median(confidence):.3f}")
 
 
 # --- Cross-validation ---
@@ -202,11 +206,54 @@ with tab_cv:
     )
     st.plotly_chart(fig, use_container_width=True)
 
+    # CV confidence
+    cv_conf = cv_result["confidence"]
+    st.markdown(
+        f"**CV mean confidence:** {np.mean(cv_conf):.3f} --- "
+        f"**CV median confidence:** {np.median(cv_conf):.3f}"
+    )
+
+
+# --- Methods & References ---
+with st.expander("Methods & References"):
+    st.markdown("""
+**Population Vector Average (PVA) Decoder**
+
+The PVA decoder computes the decoded head direction as the circular mean of
+each cell's preferred direction, weighted by its current activity and tuning
+strength (mean vector length):
+
+```
+decoded_angle = atan2(sum(w_i * sin(PD_i)), sum(w_i * cos(PD_i)))
+```
+
+where `w_i = z_scored_activity_i * MVL_i`.
+
+This approach is model-free (no distributional assumptions on neural activity),
+works directly with continuous dF/F signals, and naturally handles the circular
+nature of head direction.
+
+**References:**
+
+- Georgopoulos, A. P., Schwartz, A. B. & Kettner, R. E. 1986. "Neuronal
+  population coding of movement direction." *Science*.
+  doi:10.1126/science.3749885
+
+- Peyrache, A., Lacber, M. M. & Bhatt, D. 2015. "Internally organized
+  mechanisms of the head direction sense." *Nature Neuroscience*.
+  doi:10.1038/nn.3968
+
+- Ajabi, Z. et al. 2023. "Population dynamics of head-direction neurons
+  during drift and reorientation." *Nature*. doi:10.1038/s41586-023-06086-7
+""")
+
 
 # --- Footer ---
 st.markdown("---")
 st.caption(
-    "Bayesian maximum-likelihood decoder assumes Poisson-like firing with "
-    "tuning curves as rate model and flat prior. Cross-validation uses "
-    "k-fold with shuffled frame assignment. Zhang, Sejnowski & Bhatt (1998)."
+    "Population Vector Average (PVA) decoder: weights each cell's preferred "
+    "direction by its current activity and mean vector length. Model-free, "
+    "works with continuous dF/F, naturally circular. Cross-validation uses "
+    "k-fold with shuffled frame assignment. "
+    "Georgopoulos et al. (1986); Peyrache et al. (2015)."
 )

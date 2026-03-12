@@ -1,4 +1,4 @@
-"""Tests for Bayesian HD decoder page logic."""
+"""Tests for PVA HD decoder page logic."""
 
 from __future__ import annotations
 
@@ -38,11 +38,11 @@ class TestDecoderPagePipeline:
         """Full pipeline: build -> decode -> error."""
         signals, hd, mask = _make_population()
         model = build_decoder(signals, hd, mask)
-        decoded, posterior = decode_hd(signals, model)
+        decoded, confidence = decode_hd(signals, model)
         err = decode_error(decoded, hd)
 
         assert decoded.shape == (3000,)
-        assert 3000 in posterior.shape  # (n_frames, n_bins) or (n_bins, n_frames)
+        assert confidence.shape == (3000,)
         assert "mean_abs_error" in err
         assert err["mean_abs_error"] > 0
 
@@ -53,16 +53,16 @@ class TestDecoderPagePipeline:
         assert "errors" in result
         assert "decoded_deg" in result
         assert "actual_deg" in result
+        assert "confidence" in result
         assert result["errors"]["mean_abs_error"] > 0
 
-    def test_posterior_sums_to_one(self):
-        """Each frame's posterior should sum to ~1."""
+    def test_confidence_in_range(self):
+        """Each frame's confidence should be in [0, 1]."""
         signals, hd, mask = _make_population()
         model = build_decoder(signals, hd, mask)
-        _, posterior = decode_hd(signals, model)
-        # Posterior is (n_frames, n_bins) — each row sums to 1
-        row_sums = posterior.sum(axis=1) if posterior.shape[0] == 3000 else posterior.sum(axis=0)
-        assert np.allclose(row_sums, 1.0, atol=0.01)
+        _, confidence = decode_hd(signals, model)
+        assert np.all(confidence >= 0)
+        assert np.all(confidence <= 1.0 + 1e-10)
 
     def test_good_population_low_error(self):
         """Well-tuned population should decode with low error."""
@@ -79,3 +79,12 @@ class TestDecoderPagePipeline:
             model = build_decoder(signals, hd, mask)
             decoded, _ = decode_hd(signals, model)
             assert decoded.shape == (3000,)
+
+    def test_build_decoder_has_pds_and_mvl(self):
+        """Decoder dict should include preferred_directions and mvl."""
+        signals, hd, mask = _make_population()
+        model = build_decoder(signals, hd, mask)
+        assert "preferred_directions" in model
+        assert "mvl" in model
+        assert model["preferred_directions"].shape == (8,)
+        assert model["mvl"].shape == (8,)

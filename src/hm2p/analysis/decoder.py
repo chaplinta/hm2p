@@ -1,9 +1,19 @@
-"""Bayesian population decoder for head direction.
+"""Population vector average (PVA) decoder for head direction.
 
-Implements a maximum-likelihood Bayesian decoder that uses population
-tuning curves to decode HD from single-trial neural activity. Standard
-approach in HD cell research (Zhang, Sejnowski & Bhatt, 1998; Peyrache
-et al., 2015).
+Implements a population vector decoder that weights each cell's preferred
+direction by its current activity to decode HD. This is the standard
+approach in HD cell research, naturally handles circular variables, and
+works directly with continuous dF/F signals (no Poisson assumption).
+
+References
+----------
+Georgopoulos, A. P., Schwartz, A. B. & Kettner, R. E. 1986. "Neuronal
+    population coding of movement direction." Science.
+    doi:10.1126/science.3749885
+
+Peyrache, A., Lacber, M. M., Bhatt, D. & Bhatt D. 2015. "Internally
+    organized mechanisms of the head direction sense." Nature Neuroscience.
+    doi:10.1038/nn.3968
 
 All functions are pure numpy — no I/O, no classes.
 """
@@ -22,14 +32,13 @@ def build_decoder(
     mask: npt.NDArray[np.bool_],
     n_bins: int = 36,
     smoothing_sigma_deg: float = 6.0,
-    min_rate: float = 1e-6,
 ) -> dict:
-    """Build tuning curves for all cells (decoder training).
+    """Build tuning curves and preferred directions for PVA decoder.
 
     Parameters
     ----------
     signals : (n_cells, n_frames) float
-        Neural signals for each cell.
+        Neural signals for each cell (dF/F, deconv, etc.).
     hd_deg : (n_frames,) float
         Head direction in degrees.
     mask : (n_frames,) bool
@@ -38,19 +47,21 @@ def build_decoder(
         Number of angular bins.
     smoothing_sigma_deg : float
         Gaussian smoothing sigma in degrees.
-    min_rate : float
-        Floor value to avoid log(0) in the decoder.
 
     Returns
     -------
     dict
         ``"tuning_curves"`` — (n_cells, n_bins) array.
         ``"bin_centers"`` — (n_bins,) array in degrees.
+        ``"preferred_directions"`` — (n_cells,) PD in degrees [0, 360).
+        ``"mvl"`` — (n_cells,) mean vector length from tuning curve.
         ``"n_cells"`` — number of cells.
         ``"n_bins"`` — number of bins.
     """
     n_cells = signals.shape[0]
     tuning_curves = np.empty((n_cells, n_bins), dtype=np.float64)
+    preferred_directions = np.empty(n_cells, dtype=np.float64)
+    mvl = np.empty(n_cells, dtype=np.float64)
     bin_centers = None
 
     for i in range(n_cells):
@@ -58,13 +69,29 @@ def build_decoder(
             signals[i], hd_deg, mask, n_bins=n_bins,
             smoothing_sigma_deg=smoothing_sigma_deg,
         )
-        tuning_curves[i] = np.where(np.isnan(tc), min_rate, np.maximum(tc, min_rate))
+        tc = np.where(np.isnan(tc), 0.0, tc)
+        tuning_curves[i] = tc
         if bin_centers is None:
             bin_centers = bc
+
+        # Preferred direction: circular mean weighted by tuning curve
+        theta_rad = np.deg2rad(bc)
+        tc_pos = np.maximum(tc, 0.0)
+        tc_sum = tc_pos.sum()
+        if tc_sum > 0:
+            C = np.sum(tc_pos * np.cos(theta_rad)) / tc_sum
+            S = np.sum(tc_pos * np.sin(theta_rad)) / tc_sum
+            preferred_directions[i] = np.rad2deg(np.arctan2(S, C)) % 360.0
+            mvl[i] = np.sqrt(C**2 + S**2)
+        else:
+            preferred_directions[i] = 0.0
+            mvl[i] = 0.0
 
     return {
         "tuning_curves": tuning_curves,
         "bin_centers": bin_centers,
+        "preferred_directions": preferred_directions,
+        "mvl": mvl,
         "n_cells": n_cells,
         "n_bins": n_bins,
     }
@@ -75,12 +102,13 @@ def decode_hd(
     decoder: dict,
     time_bins: int = 1,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Decode HD from population activity using Bayesian maximum likelihood.
+    """Decode HD using Population Vector Average (PVA).
 
-    For each time point (or time bin), computes the posterior probability
-    over HD bins assuming Poisson-like firing with tuning curves as the
-    rate model (flat prior). The decoded HD is the circular mean of the
-    posterior.
+    For each time point, computes the weighted circular mean of preferred
+    directions, where weights are the z-scored activity multiplied by
+    each cell's mean vector length (MVL).
+
+    decoded_angle = atan2(sum(w_i * sin(PD_i)), sum(w_i * cos(PD_i)))
 
     Parameters
     ----------
@@ -95,12 +123,12 @@ def decode_hd(
     -------
     decoded_deg : (n_steps,) float
         Decoded HD in degrees [0, 360).
-    posterior : (n_steps, n_bins) float
-        Posterior probability over HD bins for each step.
+    confidence : (n_steps,) float
+        Resultant vector length per frame (0-1). Higher = more confident.
     """
-    tc = decoder["tuning_curves"]  # (n_cells, n_bins)
-    bin_centers = decoder["bin_centers"]  # (n_bins,)
-    n_cells, n_bins = tc.shape
+    pds = decoder["preferred_directions"]  # (n_cells,)
+    cell_mvl = decoder["mvl"]  # (n_cells,)
+    n_cells = decoder["n_cells"]
     n_frames = signals.shape[1]
 
     # Bin signals if needed
@@ -108,38 +136,45 @@ def decode_hd(
         n_steps = n_frames // time_bins
         binned = np.zeros((n_cells, n_steps), dtype=np.float64)
         for i in range(n_steps):
-            binned[:, i] = np.mean(signals[:, i * time_bins:(i + 1) * time_bins], axis=1)
+            binned[:, i] = np.mean(
+                signals[:, i * time_bins:(i + 1) * time_bins], axis=1,
+            )
     else:
         n_steps = n_frames
         binned = signals.astype(np.float64)
 
-    # Log tuning curves for numerical stability
-    log_tc = np.log(tc + 1e-30)  # (n_cells, n_bins)
+    # Z-score each cell's activity so all cells contribute proportionally
+    cell_mean = np.mean(binned, axis=1, keepdims=True)
+    cell_std = np.std(binned, axis=1, keepdims=True)
+    cell_std = np.where(cell_std < 1e-10, 1.0, cell_std)
+    z_activity = (binned - cell_mean) / cell_std  # (n_cells, n_steps)
 
-    # Compute log-posterior for each time step
-    # log P(θ|r) ∝ sum_i [r_i * log(f_i(θ)) - f_i(θ)]  (Poisson likelihood)
-    # With flat prior, just sum over cells
-    posterior = np.zeros((n_steps, n_bins), dtype=np.float64)
+    # Shift so minimum is 0 (PVA needs non-negative weights)
+    z_min = z_activity.min(axis=1, keepdims=True)
+    z_activity = z_activity - z_min
 
-    for t in range(n_steps):
-        r = binned[:, t]  # (n_cells,)
-        # log-likelihood for each bin
-        log_lik = np.sum(r[:, None] * log_tc - tc, axis=0)  # (n_bins,)
-        # Convert to probability (softmax)
-        log_lik -= np.max(log_lik)  # Numerical stability
-        prob = np.exp(log_lik)
-        prob /= np.sum(prob)
-        posterior[t] = prob
+    # Pre-compute PD components
+    pd_rad = np.deg2rad(pds)
+    cos_pd = np.cos(pd_rad)  # (n_cells,)
+    sin_pd = np.sin(pd_rad)  # (n_cells,)
 
-    # Decoded direction: circular mean of posterior
-    theta_rad = np.deg2rad(bin_centers)
-    decoded_deg = np.zeros(n_steps, dtype=np.float64)
-    for t in range(n_steps):
-        C = np.sum(posterior[t] * np.cos(theta_rad))
-        S = np.sum(posterior[t] * np.sin(theta_rad))
-        decoded_deg[t] = np.rad2deg(np.arctan2(S, C)) % 360.0
+    # Weights: activity * MVL for each cell
+    weights = z_activity * cell_mvl[:, None]  # (n_cells, n_steps)
 
-    return decoded_deg, posterior
+    # Vectorized PVA
+    C = cos_pd @ weights  # (n_steps,)
+    S = sin_pd @ weights  # (n_steps,)
+
+    decoded_deg = np.rad2deg(np.arctan2(S, C)) % 360.0
+
+    # Confidence = resultant vector length (normalize by sum of weights)
+    R = np.sqrt(C**2 + S**2)
+    w_sum = np.sum(weights, axis=0)
+    w_sum = np.where(w_sum < 1e-10, 1.0, w_sum)
+    confidence = R / w_sum
+    confidence = np.clip(confidence, 0.0, 1.0)
+
+    return decoded_deg, confidence
 
 
 def decode_error(
@@ -197,7 +232,7 @@ def cross_validated_decode(
     smoothing_sigma_deg: float = 6.0,
     rng: np.random.Generator | None = None,
 ) -> dict:
-    """K-fold cross-validated decoding.
+    """K-fold cross-validated PVA decoding.
 
     Parameters
     ----------
@@ -214,6 +249,7 @@ def cross_validated_decode(
     dict
         ``"decoded_deg"`` — (n_valid,) decoded HD.
         ``"actual_deg"`` — (n_valid,) actual HD.
+        ``"confidence"`` — (n_valid,) PVA confidence per frame.
         ``"errors"`` — output of :func:`decode_error`.
         ``"n_folds"`` — number of folds.
     """
@@ -229,6 +265,7 @@ def cross_validated_decode(
 
     all_decoded = np.zeros(n_valid, dtype=np.float64)
     all_actual = np.zeros(n_valid, dtype=np.float64)
+    all_confidence = np.zeros(n_valid, dtype=np.float64)
 
     for fold in range(n_folds):
         test_start = fold * fold_size
@@ -248,16 +285,18 @@ def cross_validated_decode(
 
         # Decode test data
         test_signals = signals[:, test_idx]
-        decoded, _ = decode_hd(test_signals, dec)
+        decoded, confidence = decode_hd(test_signals, dec)
 
         all_decoded[test_start:test_end] = decoded
         all_actual[test_start:test_end] = hd_deg[test_idx] % 360.0
+        all_confidence[test_start:test_end] = confidence
 
     errors = decode_error(all_decoded, all_actual)
 
     return {
         "decoded_deg": all_decoded,
         "actual_deg": all_actual,
+        "confidence": all_confidence,
         "errors": errors,
         "n_folds": n_folds,
     }
