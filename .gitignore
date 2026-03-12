@@ -82,5 +82,8 @@ upload.log
 # Working notes (local only)
 NOTEPAD.md
 
+# Pipeline results (uploaded to S3)
+results/
+
 # Docker
 docker/.env

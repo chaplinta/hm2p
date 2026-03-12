@@ -93,7 +93,7 @@ def build_user_data() -> str:
         echo "=== Running keypoint-MoSeq on all sessions ==="
 
         # IAM instance profile credentials are available via EC2 metadata service
-        docker run --rm \\
+        docker run --rm --network host \\
             -v /home/ubuntu/kpms_project:/data/project \\
             -v /home/ubuntu/kpms_output:/data/output \\
             -v /home/ubuntu/hm2p/metadata:/app/metadata:ro \\

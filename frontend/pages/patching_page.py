@@ -6,16 +6,27 @@ morphology summary, and Penk+ vs non-Penk group comparisons.
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
+from frontend.data import DERIVATIVES_BUCKET, download_s3_bytes
+
 RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "results" / "patching" / "analysis"
+S3_PREFIX = "patching/analysis"
 
 
 @st.cache_data(ttl=300)
 def _load_csv(name: str) -> pd.DataFrame | None:
+    """Load a patching CSV from S3, falling back to local file."""
+    # Try S3 first
+    data = download_s3_bytes(DERIVATIVES_BUCKET, f"{S3_PREFIX}/{name}")
+    if data is not None:
+        return pd.read_csv(io.BytesIO(data))
+
+    # Fall back to local file
     path = RESULTS_DIR / name
     if not path.exists():
         return None

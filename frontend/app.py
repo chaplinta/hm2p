@@ -147,13 +147,14 @@ tracking_quality_page = st.Page(str(_app_dir / "pages/tracking_quality_page.py")
 zdrift_page = st.Page(str(_app_dir / "pages/zdrift_page.py"), title="Z-Drift", icon=":material/straighten:")
 anatomy_page = st.Page(str(_app_dir / "pages/anatomy_page.py"), title="Anatomy", icon=":material/neurology:")
 patching_page = st.Page(str(_app_dir / "pages/patching_page.py"), title="Patching", icon=":material/electric_bolt:")
+moseq_page = st.Page(str(_app_dir / "pages/moseq_page.py"), title="MoSeq", icon=":material/pets:")
 changelog_page = st.Page(str(_app_dir / "pages/changelog_page.py"), title="Changelog", icon=":material/history:")
 cost_page = st.Page(str(_app_dir / "pages/cost_page.py"), title="Costs", icon=":material/attach_money:")
 aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":material/cloud:")
 
 pg = st.navigation({
     "Overview": [home_page, summary_page, sessions_page, animals_page, pipeline_page, batch_page],
-    "Pipeline": [suite2p_page, calcium_page, dlc_page, tracking_quality_page, sync_page, zdrift_page, anatomy_page],
+    "Pipeline": [suite2p_page, calcium_page, dlc_page, tracking_quality_page, sync_page, zdrift_page, anatomy_page, moseq_page],
     "Explore": [explorer_page, timeline_page, gallery_page, events_page, event_dynamics_page, correlations_page, trace_compare_page],
     "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, decoder_page, stability_page, drift_page, gain_page, anchoring_page, speed_mod_page, pop_dynamics_page, ahv_page, info_theory_page, classify_page, signal_quality_page, qc_page, patching_page],
     "System": [aws_page, cost_page, changelog_page],
