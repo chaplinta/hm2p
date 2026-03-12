@@ -186,9 +186,15 @@ else:
                     # Likelihood statistics per bodypart
                     import plotly.graph_objects as go
 
+                    coords = df.columns.get_level_values(2).unique().tolist()
+                    lik_col = "likelihood" if "likelihood" in coords else None
+
                     fig = go.Figure()
                     for bp in bodyparts:
-                        likelihood = df[(scorer, bp, "likelihood")].values
+                        if lik_col:
+                            likelihood = df[(scorer, bp, lik_col)].values
+                        else:
+                            likelihood = np.ones(len(df))
                         fig.add_trace(go.Box(y=likelihood, name=bp, boxmean=True))
 
                     fig.update_layout(
@@ -204,7 +210,10 @@ else:
 
                     x = df[(scorer, bp_select, "x")].values
                     y = df[(scorer, bp_select, "y")].values
-                    likelihood = df[(scorer, bp_select, "likelihood")].values
+                    if lik_col:
+                        likelihood = df[(scorer, bp_select, lik_col)].values
+                    else:
+                        likelihood = np.ones(len(df))
 
                     # Filter by likelihood threshold
                     thresh = st.slider("Likelihood threshold", 0.0, 1.0, 0.5, 0.05, key="lik_thresh")
@@ -261,7 +270,8 @@ else:
                     ds = max(1, len(likelihood) // 3000)
                     fig_lik = go.Figure()
                     for bp in bodyparts[:5]:  # Show first 5 body parts
-                        lik = df[(scorer, bp, "likelihood")].values[::ds]
+                        lik = (df[(scorer, bp, lik_col)].values[::ds] if lik_col
+                               else np.ones(len(df))[::ds])
                         fig_lik.add_trace(go.Scatter(
                             y=lik, mode="lines",
                             line=dict(width=0.5), name=bp,
