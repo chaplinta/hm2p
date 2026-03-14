@@ -11,10 +11,11 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from frontend.data import (
+    PIPELINE_STAGES,
+    STAGE_PREFIXES,
     get_stage_summary,
     load_animals,
     load_experiments,
-    STAGE_PREFIXES,
 )
 
 log = logging.getLogger("hm2p.frontend.home")
@@ -48,8 +49,8 @@ st.subheader("Pipeline Status")
 with st.spinner("Checking pipeline status..."):
     stage_summary = get_stage_summary()
 
-# Show core stages (not ingest or kpms on home page)
-core_stages = [k for k in STAGE_PREFIXES]
+# Show all stages except ingest
+core_stages = [k for k in PIPELINE_STAGES if k != "ingest"]
 cols = st.columns(len(core_stages))
 for i, key in enumerate(core_stages):
     info = stage_summary[key]
