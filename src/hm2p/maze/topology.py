@@ -66,8 +66,8 @@ def _compute_accessible_cells() -> set[tuple[int, int]]:
 
 
 # Hardcoded fallback (computed once from shapely, verified)
-# Grid layout (O = accessible, . = wall):
-#   y=4   O O O O O O O   (top row: full 7-cell corridor)
+# Grid layout (O = accessible, . = wall, | = internal wall between cells):
+#   y=4   O O O|O|O O O   (top row: 3 groups separated by walls at 2-3 and 3-4)
 #   y=3   . O . O . O .   (3 vertical pillars)
 #   y=2   . O O O O O .   (central horizontal corridor)
 #   y=1   . O . . . O .   (2 vertical corridors)
@@ -100,17 +100,26 @@ def get_accessible_cells() -> set[tuple[int, int]]:
 # Cardinal directions: (dcol, drow)
 _DIRECTIONS = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 
+# Internal walls — pairs of cells that are both accessible but separated
+# by a physical wall in the rose maze.  Each entry is a frozenset of two
+# cells so lookup is order-independent.
+_BLOCKED_EDGES: set[frozenset[tuple[int, int]]] = {
+    frozenset({(2, 4), (3, 4)}),  # wall between columns 2–3 in top row
+    frozenset({(3, 4), (4, 4)}),  # wall between columns 3–4 in top row
+}
+
 
 def build_adjacency(cells: set[tuple[int, int]]) -> dict[tuple[int, int], list[tuple[int, int]]]:
     """Build adjacency dict: cell → list of accessible neighbours.
 
-    Two cells are adjacent if they share an edge (4-connected).
+    Two cells are adjacent if they share an edge (4-connected) AND there
+    is no internal wall between them (checked against ``_BLOCKED_EDGES``).
     """
     adj: dict[tuple[int, int], list[tuple[int, int]]] = {c: [] for c in cells}
     for c in cells:
         for dc, dr in _DIRECTIONS:
             nb = (c[0] + dc, c[1] + dr)
-            if nb in cells:
+            if nb in cells and frozenset({c, nb}) not in _BLOCKED_EDGES:
                 adj[c].append(nb)
     return adj
 

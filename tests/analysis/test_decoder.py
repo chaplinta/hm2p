@@ -1,4 +1,4 @@
-"""Tests for hm2p.analysis.decoder — Population Vector Average HD decoder.
+"""Tests for hm2p.analysis.decoder — PVA and template matching HD decoders.
 
 References
 ----------
@@ -6,6 +6,8 @@ Georgopoulos et al. 1986. "Neuronal population coding of movement direction."
     Science. doi:10.1126/science.3749885
 Peyrache et al. 2015. "Internally organized mechanisms of the head direction
     sense." Nature Neuroscience. doi:10.1038/nn.3968
+Wilson & McNaughton 1993. "Dynamics of the hippocampal ensemble code for
+    space." Science. doi:10.1126/science.8351520
 """
 
 from __future__ import annotations
@@ -18,6 +20,9 @@ from hm2p.analysis.decoder import (
     cross_validated_decode,
     decode_error,
     decode_hd,
+    pva_decode,
+    template_decode,
+    template_decode_cv,
 )
 
 
@@ -152,6 +157,219 @@ class TestDecodeHD:
         _, confidence = decode_hd(signals, dec)
         # With near-uniform activity, mean confidence should be moderate-to-low
         assert np.mean(confidence) < 0.8
+
+
+class TestPvaDecode:
+    """Tests for pva_decode — standalone PVA decoder."""
+
+    def test_output_shapes(self):
+        signals, hd, mask = _make_population(n_cells=5, n_frames=200)
+        pds = np.linspace(0, 360, 5, endpoint=False)
+        decoded, confidence = pva_decode(signals, pds)
+        assert decoded.shape == (200,)
+        assert confidence.shape == (200,)
+
+    def test_decoded_in_range(self):
+        signals, hd, mask = _make_population(n_cells=8, n_frames=500)
+        pds = np.linspace(0, 360, 8, endpoint=False)
+        decoded, confidence = pva_decode(signals, pds)
+        valid = np.isfinite(decoded)
+        assert np.all(decoded[valid] >= 0)
+        assert np.all(decoded[valid] < 360)
+
+    def test_confidence_in_range(self):
+        signals, hd, mask = _make_population(n_cells=8, n_frames=500)
+        pds = np.linspace(0, 360, 8, endpoint=False)
+        _, confidence = pva_decode(signals, pds)
+        assert np.all(confidence >= 0)
+        assert np.all(confidence <= 1.0 + 1e-10)
+
+    def test_with_mask(self):
+        """Masked-out frames should get NaN decoded and 0 confidence."""
+        signals, hd, mask = _make_population(n_cells=5, n_frames=100)
+        mask[50:] = False
+        pds = np.linspace(0, 360, 5, endpoint=False)
+        decoded, confidence = pva_decode(signals, pds, mask=mask)
+        assert np.all(np.isfinite(decoded[:50]))
+        assert np.all(np.isnan(decoded[50:]))
+        assert np.all(confidence[50:] == 0)
+
+    def test_with_mvl_weights(self):
+        """MVL weights should not cause errors."""
+        signals, hd, mask = _make_population(n_cells=5, n_frames=200)
+        pds = np.linspace(0, 360, 5, endpoint=False)
+        mvl = np.array([0.8, 0.6, 0.9, 0.3, 0.7])
+        decoded, confidence = pva_decode(signals, pds, mvl_weights=mvl)
+        assert decoded.shape == (200,)
+        assert np.all(np.isfinite(decoded))
+
+    def test_mismatched_shape_raises(self):
+        signals, hd, mask = _make_population(n_cells=5, n_frames=100)
+        pds = np.array([0.0, 90.0, 180.0])  # Wrong length
+        with pytest.raises(ValueError, match="does not match"):
+            pva_decode(signals, pds)
+
+    def test_empty_mask_returns_nan(self):
+        signals, hd, mask = _make_population(n_cells=5, n_frames=100)
+        mask = np.zeros(100, dtype=bool)
+        pds = np.linspace(0, 360, 5, endpoint=False)
+        decoded, confidence = pva_decode(signals, pds, mask=mask)
+        assert np.all(np.isnan(decoded))
+        assert np.all(confidence == 0)
+
+    def test_good_population_decodes_well(self):
+        """PVA with true PDs should decode well for strongly tuned cells."""
+        signals, hd, mask = _make_population(n_cells=15, kappa=5.0, noise=0.05)
+        # Use true preferred directions
+        pds = np.linspace(0, 360, 15, endpoint=False)
+        decoded, _ = pva_decode(signals, pds)
+        errs = decode_error(decoded, hd % 360.0)
+        assert errs["mean_abs_error"] < 45.0
+
+    def test_few_cells_still_works(self):
+        """PVA should work with as few as 3 cells."""
+        signals, hd, mask = _make_population(n_cells=3, n_frames=1000, kappa=5.0, noise=0.05)
+        pds = np.linspace(0, 360, 3, endpoint=False)
+        decoded, confidence = pva_decode(signals, pds)
+        assert decoded.shape == (1000,)
+        assert np.all(np.isfinite(decoded))
+        # Should beat chance (90 deg) even with 3 well-tuned cells
+        errs = decode_error(decoded, hd % 360.0)
+        assert errs["mean_abs_error"] < 90.0
+
+    def test_matches_decode_hd(self):
+        """pva_decode with build_decoder PDs should give similar results to decode_hd."""
+        signals, hd, mask = _make_population(n_cells=10, n_frames=1000)
+        dec = build_decoder(signals, hd, mask)
+        # decode_hd uses all frames
+        decoded_old, _ = decode_hd(signals, dec)
+        # pva_decode without mask also uses all frames
+        decoded_new, _ = pva_decode(
+            signals, dec["preferred_directions"],
+            mvl_weights=dec["mvl"],
+        )
+        errs_old = decode_error(decoded_old, hd % 360.0)
+        errs_new = decode_error(decoded_new, hd % 360.0)
+        # Both should have similar error (within 10 deg MAE)
+        assert abs(errs_old["mean_abs_error"] - errs_new["mean_abs_error"]) < 10.0
+
+
+class TestTemplateDecode:
+    """Tests for template_decode."""
+
+    def test_output_shapes(self):
+        signals, hd, mask = _make_population(n_cells=5, n_frames=500)
+        decoded, confidence = template_decode(signals, hd, mask)
+        assert decoded.shape == (500,)
+        assert confidence.shape == (500,)
+
+    def test_masked_frames_are_nan(self):
+        signals, hd, mask = _make_population(n_cells=5, n_frames=200)
+        mask[100:] = False
+        decoded, confidence = template_decode(signals, hd, mask)
+        assert np.all(np.isfinite(decoded[:100]))
+        assert np.all(np.isnan(decoded[100:]))
+        assert np.all(confidence[100:] == 0)
+
+    def test_decoded_values_are_bin_centers(self):
+        """Template decode should return bin centers."""
+        signals, hd, mask = _make_population(n_cells=5, n_frames=500)
+        n_bins = 36
+        decoded, _ = template_decode(signals, hd, mask, n_bins=n_bins)
+        valid = np.isfinite(decoded)
+        bin_edges = np.linspace(0, 360, n_bins + 1)
+        bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+        for v in decoded[valid]:
+            assert v in bin_centers
+
+    def test_confidence_in_range(self):
+        signals, hd, mask = _make_population(n_cells=8, n_frames=500)
+        _, confidence = template_decode(signals, hd, mask)
+        assert np.all(confidence >= 0)
+        assert np.all(confidence <= 1.0 + 1e-10)
+
+    def test_good_population_decodes_well(self):
+        """Template decoder with well-tuned population should beat chance."""
+        signals, hd, mask = _make_population(n_cells=15, kappa=5.0, noise=0.05)
+        decoded, _ = template_decode(signals, hd, mask)
+        valid = np.isfinite(decoded)
+        errs = decode_error(decoded[valid], hd[valid] % 360.0)
+        # Should beat chance level (90 deg)
+        assert errs["mean_abs_error"] < 90.0
+
+    def test_few_cells_still_works(self):
+        """Template matching should work with 3 cells."""
+        signals, hd, mask = _make_population(n_cells=3, n_frames=1000, kappa=5.0, noise=0.05)
+        decoded, confidence = template_decode(signals, hd, mask)
+        assert decoded.shape == (1000,)
+        valid = np.isfinite(decoded)
+        assert np.sum(valid) == 1000  # All frames valid when mask=all True
+
+    def test_empty_mask(self):
+        signals, hd, mask = _make_population(n_cells=5, n_frames=100)
+        mask = np.zeros(100, dtype=bool)
+        decoded, confidence = template_decode(signals, hd, mask)
+        assert np.all(np.isnan(decoded))
+        assert np.all(confidence == 0)
+
+    def test_different_n_bins(self):
+        """Should work with different bin counts."""
+        signals, hd, mask = _make_population(n_cells=5, n_frames=500)
+        for n_bins in [12, 36, 72]:
+            decoded, _ = template_decode(signals, hd, mask, n_bins=n_bins)
+            assert decoded.shape == (500,)
+
+
+class TestTemplateDecodeCv:
+    """Tests for template_decode_cv."""
+
+    def test_output_keys(self):
+        signals, hd, mask = _make_population(n_cells=5, n_frames=300)
+        result = template_decode_cv(
+            signals, hd, mask, n_folds=3, rng=np.random.default_rng(42),
+        )
+        assert "decoded_deg" in result
+        assert "actual_deg" in result
+        assert "confidence" in result
+        assert "errors" in result
+        assert result["n_folds"] == 3
+
+    def test_output_shapes(self):
+        signals, hd, mask = _make_population(n_cells=5, n_frames=300)
+        result = template_decode_cv(
+            signals, hd, mask, n_folds=3, rng=np.random.default_rng(42),
+        )
+        n_valid = np.sum(mask)
+        assert len(result["decoded_deg"]) == n_valid
+        assert len(result["actual_deg"]) == n_valid
+        assert len(result["confidence"]) == n_valid
+
+    def test_cv_better_than_chance(self):
+        """CV template decoding should beat chance with good tuning."""
+        signals, hd, mask = _make_population(n_cells=15, kappa=4.0, noise=0.1)
+        result = template_decode_cv(
+            signals, hd, mask, n_folds=5, rng=np.random.default_rng(42),
+        )
+        assert result["errors"]["mean_abs_error"] < 90.0
+
+    def test_cv_reproducible(self):
+        """Same RNG seed should give same results."""
+        signals, hd, mask = _make_population(n_cells=5, n_frames=200)
+        r1 = template_decode_cv(signals, hd, mask, n_folds=3,
+                                 rng=np.random.default_rng(42))
+        r2 = template_decode_cv(signals, hd, mask, n_folds=3,
+                                 rng=np.random.default_rng(42))
+        np.testing.assert_array_equal(r1["decoded_deg"], r2["decoded_deg"])
+
+    def test_error_keys(self):
+        signals, hd, mask = _make_population(n_cells=5, n_frames=300)
+        result = template_decode_cv(
+            signals, hd, mask, n_folds=3, rng=np.random.default_rng(42),
+        )
+        errs = result["errors"]
+        assert "mean_abs_error" in errs
+        assert "median_abs_error" in errs
+        assert "circular_std_error" in errs
 
 
 class TestDecodeError:

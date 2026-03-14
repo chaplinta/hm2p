@@ -50,12 +50,13 @@ def test_dff_output_shape_preserved(rng: np.random.Generator) -> None:
 )
 @settings(max_examples=50)
 def test_dff_property_known_amplitude(scale: float) -> None:
-    """dF/F0 = scale - 1 when F = scale * F0."""
+    """dF/F0 = scale - 1 when F = scale * F0 (within clip range)."""
     F0 = np.ones((3, 30), dtype=np.float32) * 100.0
     F = F0 * scale
     result = compute_dff(F, F0)
+    expected = np.clip(scale - 1.0, -1.0, 20.0)
     # float32 has ~6 sig-fig precision → rtol=1e-3 is appropriate
-    np.testing.assert_allclose(result, scale - 1.0, rtol=1e-3)
+    np.testing.assert_allclose(result, expected, rtol=1e-3)
 
 
 # ---------------------------------------------------------------------------
@@ -125,8 +126,8 @@ class TestComputeBaseline:
 
 
 class TestComputeDffEdgeCases:
-    def test_zero_baseline_uses_eps(self) -> None:
-        """When F0 is zero, eps is used to avoid division by zero."""
+    def test_zero_baseline_is_floored(self) -> None:
+        """When F0 is zero, the per-ROI floor prevents division by zero."""
         F = np.ones((2, 10), dtype=np.float32) * 5.0
         F0 = np.zeros((2, 10), dtype=np.float32)
         result = compute_dff(F, F0)
@@ -134,7 +135,7 @@ class TestComputeDffEdgeCases:
         assert np.all(result > 0)
 
     def test_negative_f(self) -> None:
-        """Negative F values produce negative dF/F0."""
+        """Negative F values produce negative dF/F0 (clipped to -1)."""
         F = np.full((1, 5), -10.0, dtype=np.float32)
         F0 = np.full((1, 5), 100.0, dtype=np.float32)
         result = compute_dff(F, F0)
@@ -146,3 +147,38 @@ class TestComputeDffEdgeCases:
         F0 = np.ones((3, 20), dtype=np.float64) * 100.0
         result = compute_dff(F.astype(np.float32), F0.astype(np.float32))
         assert result.dtype == np.float32
+
+    def test_near_zero_baseline_produces_clipped_dff(self) -> None:
+        """Near-zero F0 after neuropil subtraction should not produce extreme dF/F0."""
+        # Simulate a trace where baseline is near zero (e.g. 0.01)
+        F0 = np.full((1, 100), 0.01, dtype=np.float32)
+        F = np.full((1, 100), 500.0, dtype=np.float32)
+        result = compute_dff(F, F0)
+        # Without the floor, dF/F0 would be ~50000. With it, must be <= 20.
+        assert np.all(result <= 20.0)
+        assert np.all(np.isfinite(result))
+
+    def test_f0_floor_prevents_near_zero_division(self) -> None:
+        """F0 floor based on median prevents near-zero denominators."""
+        # ROI with median F0 = 200, but a few frames drop to ~0
+        F0 = np.full((1, 100), 200.0, dtype=np.float32)
+        F0[0, 50:55] = 0.001  # near-zero frames
+        F = np.full((1, 100), 300.0, dtype=np.float32)
+        result = compute_dff(F, F0)
+        # The near-zero frames should use the floor (10% of median = 20)
+        # so dF/F0 at those frames = (300 - 0.001) / 20 ≈ 15, not ~300000
+        assert np.all(result <= 20.0)
+        assert np.all(np.isfinite(result))
+
+    def test_output_clipped_to_range(self) -> None:
+        """dF/F0 output is always within [-1, 20] range."""
+        # Large positive dF/F0
+        F0 = np.full((2, 50), 100.0, dtype=np.float32)
+        F_high = np.full((2, 50), 10000.0, dtype=np.float32)
+        result_high = compute_dff(F_high, F0)
+        assert np.all(result_high <= 20.0)
+
+        # Large negative dF/F0
+        F_low = np.full((2, 50), -500.0, dtype=np.float32)
+        result_low = compute_dff(F_low, F0)
+        assert np.all(result_low >= -1.0)

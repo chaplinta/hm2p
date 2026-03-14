@@ -53,7 +53,7 @@ def run(
     output_path: Path,
     neuropil_coefficient: float = 0.7,
     dff_baseline_window_s: float = 60.0,
-    dff_gaussian_sigma_s: float = 5.0,
+    dff_gaussian_sigma_s: float = 10.0,
     run_cascade: bool = False,
     cascade_model: str = "Global_EXC_7.5Hz_smoothing200ms",
 ) -> None:

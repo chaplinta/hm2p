@@ -57,11 +57,17 @@ class TestAdjacency:
         assert len(adj[(0, 0)]) == 1
         assert (1, 0) in adj[(0, 0)]
 
-    def test_top_row_interior_has_two_neighbours(self):
+    def test_top_row_blocked_edges(self):
         cells = get_accessible_cells()
         adj = build_adjacency(cells)
-        # (2,4) should connect to (1,4) and (3,4)
-        assert len(adj[(2, 4)]) == 2
+        # (2,4) connects to (1,4) only — wall between (2,4) and (3,4)
+        assert (3, 4) not in adj[(2, 4)]
+        assert len(adj[(2, 4)]) == 1
+        # (3,4) is a dead end — walls on both sides, only connects down to (3,3)
+        assert len(adj[(3, 4)]) == 1
+        assert (3, 3) in adj[(3, 4)]
+        # (4,4) connects to (5,4) only — wall between (3,4) and (4,4)
+        assert (3, 4) not in adj[(4, 4)]
 
     def test_t_junction_has_three_neighbours(self):
         cells = get_accessible_cells()
@@ -95,27 +101,29 @@ class TestClassifyNodes:
         adj = build_adjacency(cells)
         types = classify_nodes(adj)
         dead_ends = [c for c, t in types.items() if t == "dead_end"]
-        assert len(dead_ends) == 6
+        assert len(dead_ends) == 9
 
     def test_t_junction_count(self):
         cells = get_accessible_cells()
         adj = build_adjacency(cells)
         types = classify_nodes(adj)
         junctions = [c for c, t in types.items() if t == "t_junction"]
-        assert len(junctions) == 8
+        assert len(junctions) == 7
 
     def test_known_dead_ends(self):
         cells = get_accessible_cells()
         adj = build_adjacency(cells)
         types = classify_nodes(adj)
-        for de in [(0, 0), (2, 0), (4, 0), (6, 0), (0, 4), (6, 4)]:
+        # Bottom corners + top corners + (3,4) which is walled off on row 4
+        for de in [(0, 0), (2, 0), (4, 0), (6, 0), (0, 4), (6, 4),
+                   (2, 4), (3, 4), (4, 4)]:
             assert types[de] == "dead_end", f"{de} should be dead_end"
 
     def test_known_t_junctions(self):
         cells = get_accessible_cells()
         adj = build_adjacency(cells)
         types = classify_nodes(adj)
-        for tj in [(1, 0), (5, 0), (1, 2), (5, 2), (3, 2), (1, 4), (3, 4), (5, 4)]:
+        for tj in [(1, 0), (5, 0), (1, 2), (5, 2), (3, 2), (1, 4), (5, 4)]:
             assert types[tj] == "t_junction", f"{tj} should be t_junction"
 
     def test_no_crossroads(self):
@@ -230,14 +238,14 @@ class TestRoseMaze:
         assert maze.n_cells == 23
 
     def test_junctions_count(self, maze):
-        assert len(maze.junctions) == 8
+        assert len(maze.junctions) == 7
 
     def test_dead_ends_count(self, maze):
-        assert len(maze.dead_ends) == 6
+        assert len(maze.dead_ends) == 9
 
     def test_corridors_count(self, maze):
-        # 23 total - 8 junctions - 6 dead ends = 9 corridors
-        assert len(maze.corridors) == 9
+        # 23 total - 7 junctions - 9 dead ends = 7 corridors
+        assert len(maze.corridors) == 7
 
     def test_distance_method(self, maze):
         assert maze.distance((0, 0), (1, 0)) == 1

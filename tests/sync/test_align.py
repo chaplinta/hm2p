@@ -250,18 +250,28 @@ def _write_synthetic_kinematics(path: Path, n: int = 600) -> None:
     )
 
 
-def _write_synthetic_ca(path: Path, t: int = 180, n_rois: int = 10) -> None:
+def _write_synthetic_ca(
+    path: Path,
+    t: int = 180,
+    n_rois: int = 10,
+    include_events: bool = False,
+    include_spikes: bool = False,
+) -> None:
     from hm2p.io.hdf5 import write_h5
 
+    rng = np.random.default_rng(5)
     frame_times = np.linspace(0, 6.0, t, dtype=np.float64)
+    arrays: dict[str, np.ndarray] = {
+        "frame_times": frame_times,
+        "dff": rng.standard_normal((n_rois, t)).astype(np.float32),
+    }
+    if include_events:
+        arrays["event_masks"] = (rng.random((n_rois, t)) > 0.8).astype(bool)
+    if include_spikes:
+        arrays["spikes"] = rng.random((n_rois, t)).astype(np.float32)
     write_h5(
         path,
-        arrays={
-            "frame_times": frame_times,
-            "dff": np.random.default_rng(5).standard_normal((n_rois, t)).astype(
-                np.float32
-            ),
-        },
+        arrays=arrays,
         attrs={"session_id": "test", "fps_imaging": 30.0, "extractor": "suite2p"},
     )
 
@@ -448,3 +458,68 @@ class TestRunPipeline:
         # Resampled kinematics should match dff columns, not frame_times length
         assert sync["hd_deg"].shape == (n_frames,)
         assert sync["dff"].shape == (n_rois, n_frames)
+
+    def test_event_masks_passed_through(self, tmp_path):
+        """event_masks from ca.h5 should appear in sync.h5."""
+        from hm2p.io.hdf5 import read_h5
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+        _write_synthetic_kinematics(kin_h5)
+        _write_synthetic_ca(ca_h5, include_events=True)
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5)
+        sync = read_h5(out_h5)
+        assert "event_masks" in sync
+        assert sync["event_masks"].shape == sync["dff"].shape
+
+    def test_spikes_passed_through(self, tmp_path):
+        """spikes (CASCADE deconv) from ca.h5 should appear in sync.h5."""
+        from hm2p.io.hdf5 import read_h5
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+        _write_synthetic_kinematics(kin_h5)
+        _write_synthetic_ca(ca_h5, include_spikes=True)
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5)
+        sync = read_h5(out_h5)
+        assert "spikes" in sync
+        assert sync["spikes"].shape == sync["dff"].shape
+
+    def test_all_ca_signals_passed_through(self, tmp_path):
+        """Both event_masks and spikes should coexist in sync.h5."""
+        from hm2p.io.hdf5 import read_h5
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+        _write_synthetic_kinematics(kin_h5)
+        _write_synthetic_ca(ca_h5, include_events=True, include_spikes=True)
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5)
+        sync = read_h5(out_h5)
+        assert "event_masks" in sync
+        assert "spikes" in sync
+        assert "dff" in sync
+        n_rois, n_frames = sync["dff"].shape
+        assert sync["event_masks"].shape == (n_rois, n_frames)
+        assert sync["spikes"].shape == (n_rois, n_frames)
+
+    def test_no_events_or_spikes_still_works(self, tmp_path):
+        """sync.h5 should work fine without event_masks or spikes."""
+        from hm2p.io.hdf5 import read_h5
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+        _write_synthetic_kinematics(kin_h5)
+        _write_synthetic_ca(ca_h5, include_events=False, include_spikes=False)
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5)
+        sync = read_h5(out_h5)
+        assert "dff" in sync
+        assert "event_masks" not in sync
+        assert "spikes" not in sync

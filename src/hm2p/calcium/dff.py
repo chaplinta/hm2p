@@ -78,5 +78,11 @@ def compute_dff(F: np.ndarray, F0: np.ndarray) -> np.ndarray:
     """
     if F.shape != F0.shape:
         raise ValueError(f"F shape {F.shape} != F0 shape {F0.shape}")
-    safe_F0 = np.where(F0 == 0, np.finfo(np.float32).eps, F0)
-    return ((F - F0) / safe_F0).astype(np.float32)
+    # Per-ROI floor: prevent near-zero denominators after neuropil subtraction
+    f0_median = np.median(F0, axis=1, keepdims=True)
+    f0_floor = np.maximum(f0_median * 0.1, 1.0)
+    safe_F0 = np.maximum(F0, f0_floor)
+    dff = ((F - F0) / safe_F0).astype(np.float32)
+    # Hard clip: GCaMP rarely exceeds 10x baseline
+    dff = np.clip(dff, -1.0, 20.0)
+    return dff

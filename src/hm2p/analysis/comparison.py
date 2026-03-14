@@ -264,30 +264,62 @@ def rayleigh_test(
         ``"mean_resultant_length"`` — R (mean resultant length).
         ``"mean_direction_deg"`` — circular mean direction in degrees [0, 360).
     """
-    angles_rad = np.deg2rad(np.asarray(angles_deg, dtype=np.float64))
+    angles_deg = np.asarray(angles_deg, dtype=np.float64)
+    angles_rad = np.deg2rad(angles_deg)
+
+    # Degenerate case: no data
+    if len(angles_rad) == 0:
+        return {
+            "z": 0.0,
+            "p_value": 1.0,
+            "mean_resultant_length": 0.0,
+            "mean_direction_deg": 0.0,
+        }
 
     if weights is not None:
         w = np.asarray(weights, dtype=np.float64)
-        w = w / w.sum()  # Normalise to sum to 1
+
+        # Clamp negative weights to zero — dF/F signals can go negative
+        # but negative "firing rates" are not meaningful for circular weighting
+        w = np.clip(w, 0.0, None)
+
+        w_sum = w.sum()
+        if w_sum == 0.0 or np.isnan(w_sum):
+            # All weights zero or NaN → degenerate, no directional signal
+            return {
+                "z": 0.0,
+                "p_value": 1.0,
+                "mean_resultant_length": 0.0,
+                "mean_direction_deg": 0.0,
+            }
+
+        w = w / w_sum  # Normalise to sum to 1
         C = np.sum(w * np.cos(angles_rad))
         S = np.sum(w * np.sin(angles_rad))
-        n = np.sum(w > 0)  # effective sample size
         R = np.sqrt(C**2 + S**2)
+        # Effective sample size for weighted data (Mardia & Jupp, 2000):
+        # n_eff = (sum w_i)^2 / sum(w_i^2), using unnormalised weights
+        w_unnorm = np.clip(np.asarray(weights, dtype=np.float64), 0.0, None)
+        n_eff = float(w_unnorm.sum() ** 2 / np.sum(w_unnorm**2))
     else:
         n = len(angles_rad)
         C = np.mean(np.cos(angles_rad))
         S = np.mean(np.sin(angles_rad))
         R = np.sqrt(C**2 + S**2)
+        n_eff = float(n)
 
-    n_eff = float(n)
+    # Ensure R is in [0, 1] (numerical noise can push slightly above 1)
+    R = min(R, 1.0)
+
     Z = n_eff * R**2
 
     # Approximate p-value (Mardia & Jupp, 2000)
     p = np.exp(-Z)
     # Correction for small samples
-    if n_eff < 50:
-        p = p * (1 + (2 * Z - Z**2) / (4 * n_eff) -
-                 (24 * Z - 132 * Z**2 + 76 * Z**3 - 9 * Z**4) / (288 * n_eff**2))
+    if n_eff >= 2:
+        if n_eff < 50:
+            p = p * (1 + (2 * Z - Z**2) / (4 * n_eff) -
+                     (24 * Z - 132 * Z**2 + 76 * Z**3 - 9 * Z**4) / (288 * n_eff**2))
     p = max(0.0, min(1.0, float(p)))
 
     mean_dir = float(np.rad2deg(np.arctan2(S, C))) % 360.0

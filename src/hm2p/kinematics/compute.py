@@ -76,15 +76,51 @@ _BODY_KEYPOINTS: tuple[str, ...] = ("mid_back", "mouse_center", "tail_base")
 # ---------------------------------------------------------------------------
 
 
+def _median_filter_1d(arr: np.ndarray, win: int = 5) -> np.ndarray:
+    """Apply rolling median filter, preserving NaN positions.
+
+    Matches the legacy pipeline's 5-frame rolling median on keypoint
+    coordinates and HD.
+
+    Args:
+        arr: (N,) input signal (may contain NaN).
+        win: Window size (default 5, must be odd).
+
+    Returns:
+        (N,) float64 — median-filtered signal with NaN preserved.
+    """
+    from scipy.ndimage import median_filter
+
+    if win <= 1:
+        return arr.copy()
+    nan_mask = np.isnan(arr)
+    if nan_mask.all():
+        return arr.copy()
+    filled = arr.copy()
+    if nan_mask.any():
+        idx = np.arange(len(arr), dtype=float)
+        valid = ~nan_mask
+        filled[nan_mask] = np.interp(idx[nan_mask], idx[valid], arr[valid])
+    out = median_filter(filled, size=win, mode="nearest")
+    out[nan_mask] = np.nan
+    return out
+
+
 def _compute_hd_deg(
     ear_left_x: np.ndarray,
     ear_left_y: np.ndarray,
     ear_right_x: np.ndarray,
     ear_right_y: np.ndarray,
+    median_filter_win: int = 5,
 ) -> np.ndarray:
     """Compute unwrapped head direction from ear vectors.
 
     Formula: arctan2(left_x - right_x, left_y - right_y) → 180 + degrees.
+
+    Applies a rolling median filter (default window=5) to ear coordinates
+    before computing HD, and to the unwrapped HD signal after computation,
+    matching the legacy pipeline's smoothing.
+
     NaN frames are temporarily filled by interpolation so that np.unwrap
     sees a continuous signal; NaN is restored afterward.
 
@@ -93,11 +129,20 @@ def _compute_hd_deg(
         ear_left_y: (N,) y coordinate of ear-left keypoint.
         ear_right_x: (N,) x coordinate of ear-right keypoint.
         ear_right_y: (N,) y coordinate of ear-right keypoint.
+        median_filter_win: Rolling median window size for smoothing
+            ear positions and HD (default 5, matching legacy pipeline).
+            Set to 0 or 1 to disable.
 
     Returns:
         (N,) float32 — HD in degrees, unwrapped.
     """
-    angle_rad = np.arctan2(ear_left_x - ear_right_x, ear_left_y - ear_right_y)
+    # Median-filter ear positions (matching legacy pipeline)
+    lx = _median_filter_1d(ear_left_x, median_filter_win)
+    ly = _median_filter_1d(ear_left_y, median_filter_win)
+    rx = _median_filter_1d(ear_right_x, median_filter_win)
+    ry = _median_filter_1d(ear_right_y, median_filter_win)
+
+    angle_rad = np.arctan2(lx - rx, ly - ry)
     angle_deg = 180.0 + np.degrees(angle_rad)
 
     nan_mask = np.isnan(angle_deg)
@@ -113,6 +158,10 @@ def _compute_hd_deg(
 
     rad_unwrapped = np.unwrap(np.deg2rad(angle_filled), discont=np.pi)
     deg_unwrapped = np.degrees(rad_unwrapped)
+
+    # Median-filter the unwrapped HD (matching legacy pipeline)
+    deg_unwrapped = _median_filter_1d(deg_unwrapped, median_filter_win)
+
     deg_unwrapped[nan_mask] = np.nan
     return deg_unwrapped.astype(np.float32)
 
@@ -442,6 +491,83 @@ def compute_bad_behav_mask(
     return mask
 
 
+def _windowed_gradient(
+    signal: np.ndarray,
+    frame_times: np.ndarray,
+    window_s: float = 0.2,
+) -> np.ndarray:
+    """Compute gradient using windowed linear regression (matching legacy pipeline).
+
+    For each frame, fits a linear regression over a symmetric window of ±window_s/2
+    seconds. The slope of the fit gives the smoothed derivative. Falls back to
+    np.gradient for edge frames where the window extends beyond the data.
+
+    Args:
+        signal: (N,) input signal (e.g., unwrapped HD in degrees, position in mm).
+        frame_times: (N,) timestamps in seconds.
+        window_s: Window duration in seconds (default 0.2, matching legacy).
+
+    Returns:
+        (N,) float64 — windowed gradient (units of signal per second).
+    """
+    n = len(signal)
+    fps = n / (frame_times[-1] - frame_times[0]) if n > 1 else 30.0
+    half_win = max(1, int(round(window_s * fps / 2)))
+    # Make window odd for symmetry
+    win = 2 * half_win + 1
+
+    result = np.full(n, np.nan, dtype=np.float64)
+    for i in range(n):
+        lo = max(0, i - half_win)
+        hi = min(n, i + half_win + 1)
+        t_local = frame_times[lo:hi]
+        s_local = signal[lo:hi]
+        valid = np.isfinite(s_local) & np.isfinite(t_local)
+        if valid.sum() >= 2:
+            # Linear regression slope = cov(t, s) / var(t)
+            t_v = t_local[valid]
+            s_v = s_local[valid]
+            t_mean = t_v.mean()
+            s_mean = s_v.mean()
+            dt = t_v - t_mean
+            denom = (dt * dt).sum()
+            if denom > 0:
+                result[i] = ((dt * (s_v - s_mean)).sum()) / denom
+
+    # Fill any remaining NaN at edges with simple central difference
+    nan_mask = np.isnan(result)
+    if nan_mask.any():
+        simple = np.gradient(signal, frame_times)
+        result[nan_mask] = simple[nan_mask]
+
+    return result
+
+
+def _windowed_speed(
+    x_mm: np.ndarray,
+    y_mm: np.ndarray,
+    frame_times: np.ndarray,
+    window_s: float = 0.2,
+) -> np.ndarray:
+    """Compute speed (cm/s) using windowed linear regression on position.
+
+    Matches the legacy pipeline's SPEED_FILT_GRAD: fits a line to x(t) and y(t)
+    over a sliding window, then computes speed as sqrt(dx_dt^2 + dy_dt^2) / 10.
+
+    Args:
+        x_mm: (N,) x position in mm.
+        y_mm: (N,) y position in mm.
+        frame_times: (N,) timestamps in seconds.
+        window_s: Window duration in seconds (default 0.2).
+
+    Returns:
+        (N,) float64 — speed in cm/s.
+    """
+    dx_dt = _windowed_gradient(x_mm, frame_times, window_s)
+    dy_dt = _windowed_gradient(y_mm, frame_times, window_s)
+    return np.sqrt(dx_dt**2 + dy_dt**2) / 10.0  # mm/s → cm/s
+
+
 def run(
     pose_path: Path,
     timestamps_h5: Path,
@@ -454,7 +580,7 @@ def run(
     output_path: Path,
     confidence_threshold: float = 0.9,
     gap_fill_frames: int = 5,
-    speed_active_threshold: float = 2.0,
+    speed_active_threshold: float = 0.5,
 ) -> None:
     """End-to-end Stage 3: pose file → kinematics.h5.
 
@@ -498,13 +624,11 @@ def run(
     x_mm, y_mm = compute_position_mm(ds, scale_mm_per_px)  # (N,) float32
     x_maze, y_maze = compute_maze_coords(x_mm, y_mm, maze_corners_px, scale_mm_per_px)
 
-    # Speed (cm/s): first-order finite difference of mm position, converted to cm/s
-    dx = np.gradient(x_mm, frame_times)
-    dy = np.gradient(y_mm, frame_times)
-    speed_cm_s = (np.sqrt(dx**2 + dy**2) / 10.0).astype(np.float32)  # mm/s → cm/s
+    # Speed (cm/s): windowed linear regression matching legacy pipeline
+    speed_cm_s = _windowed_speed(x_mm, y_mm, frame_times).astype(np.float32)
 
-    # Angular head velocity (deg/s)
-    ahv_deg_s = np.gradient(hd_deg, frame_times).astype(np.float32)
+    # Angular head velocity (deg/s): windowed linear regression on unwrapped HD
+    ahv_deg_s = _windowed_gradient(hd_deg, frame_times).astype(np.float32)
 
     # Active/inactive state
     active = (speed_cm_s >= speed_active_threshold).astype(bool)

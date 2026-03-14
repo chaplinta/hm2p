@@ -256,3 +256,53 @@ class TestRayleighTest:
         angles = np.array([0, 180, 0, 180, 0, 180])
         result = rayleigh_test(angles)
         assert result["mean_resultant_length"] < 0.1
+
+    def test_empty_angles_returns_degenerate(self):
+        """Empty input should return Z=0, p=1, R=0."""
+        result = rayleigh_test(np.array([]))
+        assert result["z"] == 0.0
+        assert result["p_value"] == 1.0
+        assert result["mean_resultant_length"] == 0.0
+
+    def test_all_zero_weights_returns_degenerate(self):
+        """All-zero weights should return Z=0, p=1, R=0 (not NaN)."""
+        angles = np.array([0, 90, 180, 270])
+        result = rayleigh_test(angles, weights=np.zeros(4))
+        assert result["z"] == 0.0
+        assert result["p_value"] == 1.0
+        assert result["mean_resultant_length"] == 0.0
+        assert not np.isnan(result["z"])
+
+    def test_negative_weights_clamped_to_zero(self):
+        """Negative weights (e.g. dF/F) should be clamped to zero, not cause NaN."""
+        angles = np.array([0, 90, 180, 270])
+        weights = np.array([-1.0, -0.5, 2.0, 3.0])
+        result = rayleigh_test(angles, weights=weights)
+        assert not np.isnan(result["z"])
+        assert not np.isnan(result["mean_resultant_length"])
+        assert 0 <= result["mean_resultant_length"] <= 1
+
+    def test_all_negative_weights_returns_degenerate(self):
+        """If all weights are negative (all clamp to zero), return degenerate."""
+        angles = np.array([0, 90, 180, 270])
+        result = rayleigh_test(angles, weights=np.array([-1, -2, -3, -4]))
+        assert result["z"] == 0.0
+        assert result["p_value"] == 1.0
+        assert result["mean_resultant_length"] == 0.0
+
+    def test_nan_weights_returns_degenerate(self):
+        """NaN weights should return degenerate result, not propagate NaN."""
+        angles = np.array([0, 90, 180])
+        result = rayleigh_test(angles, weights=np.array([np.nan, np.nan, np.nan]))
+        assert result["z"] == 0.0
+        assert result["p_value"] == 1.0
+
+    def test_weighted_concentrated_significant(self):
+        """Weighted Rayleigh with concentrated weights should be significant."""
+        rng = np.random.default_rng(42)
+        angles = 90 + rng.normal(0, 10, 200)
+        weights = np.exp(-0.5 * ((angles - 90) / 10) ** 2)  # high near 90
+        result = rayleigh_test(angles, weights=weights)
+        assert result["p_value"] < 0.05
+        assert not np.isnan(result["z"])
+        assert not np.isnan(result["mean_resultant_length"])

@@ -13,7 +13,10 @@ from hm2p.kinematics.compute import (
     _clip_to_maze_polygon,
     _compute_hd_deg,
     _maze_linear_transform,
+    _median_filter_1d,
     _rotate_xy,
+    _windowed_gradient,
+    _windowed_speed,
     compute_bad_behav_mask,
     compute_head_direction,
     compute_light_on,
@@ -74,6 +77,159 @@ def _make_pose_dataset(
 
 
 # ---------------------------------------------------------------------------
+# _median_filter_1d
+# ---------------------------------------------------------------------------
+
+
+class TestMedianFilter1d:
+    def test_preserves_nan(self) -> None:
+        """NaN positions in input remain NaN in output."""
+        arr = np.array([1.0, 2.0, np.nan, 4.0, 5.0])
+        out = _median_filter_1d(arr, win=3)
+        assert np.isnan(out[2])
+        assert not np.isnan(out[0])
+        assert not np.isnan(out[4])
+
+    def test_all_nan_returns_all_nan(self) -> None:
+        arr = np.full(5, np.nan)
+        out = _median_filter_1d(arr, win=3)
+        assert np.all(np.isnan(out))
+
+    def test_smooths_jittery_signal(self) -> None:
+        """A spike in an otherwise constant signal should be removed."""
+        arr = np.array([1.0, 1.0, 100.0, 1.0, 1.0], dtype=np.float64)
+        out = _median_filter_1d(arr, win=3)
+        # The spike at index 2 should be smoothed away
+        assert out[2] < 50.0
+
+    def test_win_1_returns_copy(self) -> None:
+        """win=1 returns an identical copy (no filtering)."""
+        arr = np.array([1.0, 5.0, 3.0, 7.0, 2.0])
+        out = _median_filter_1d(arr, win=1)
+        np.testing.assert_array_equal(out, arr)
+        # Must be a copy, not same object
+        assert out is not arr
+
+    def test_win_0_returns_copy(self) -> None:
+        """win=0 also returns a copy (edge case)."""
+        arr = np.array([1.0, 2.0, 3.0])
+        out = _median_filter_1d(arr, win=0)
+        np.testing.assert_array_equal(out, arr)
+        assert out is not arr
+
+    def test_output_shape_matches_input(self) -> None:
+        arr = np.random.default_rng(42).standard_normal(100)
+        out = _median_filter_1d(arr, win=7)
+        assert out.shape == arr.shape
+
+    def test_constant_signal_unchanged(self) -> None:
+        """A constant signal is not altered by median filtering."""
+        arr = np.full(20, 42.0)
+        out = _median_filter_1d(arr, win=5)
+        np.testing.assert_allclose(out, 42.0)
+
+
+# ---------------------------------------------------------------------------
+# _windowed_gradient
+# ---------------------------------------------------------------------------
+
+
+class TestWindowedGradient:
+    def test_constant_signal_zero_gradient(self) -> None:
+        """A constant signal should have zero gradient everywhere."""
+        n = 50
+        signal = np.full(n, 5.0)
+        times = np.linspace(0, 5, n)
+        grad = _windowed_gradient(signal, times, window_s=0.5)
+        np.testing.assert_allclose(grad, 0.0, atol=1e-10)
+
+    def test_linear_signal_correct_slope(self) -> None:
+        """A linear signal y = 3*t should have gradient ~3 everywhere."""
+        n = 100
+        times = np.linspace(0, 10, n)
+        signal = 3.0 * times
+        grad = _windowed_gradient(signal, times, window_s=0.5)
+        # Interior points should be very close to 3.0
+        np.testing.assert_allclose(grad[10:-10], 3.0, atol=0.1)
+
+    def test_handles_nan_in_signal(self) -> None:
+        """NaN values in the signal should not cause the entire output to be NaN."""
+        n = 50
+        times = np.linspace(0, 5, n)
+        signal = 2.0 * times
+        signal[20] = np.nan
+        grad = _windowed_gradient(signal, times, window_s=0.5)
+        # Most values should still be finite
+        assert np.isfinite(grad).sum() > n // 2
+
+    def test_output_shape(self) -> None:
+        n = 30
+        times = np.linspace(0, 3, n)
+        signal = np.sin(times)
+        grad = _windowed_gradient(signal, times, window_s=0.2)
+        assert grad.shape == (n,)
+
+    def test_output_dtype_float64(self) -> None:
+        n = 20
+        times = np.linspace(0, 2, n)
+        signal = np.ones(n, dtype=np.float32)
+        grad = _windowed_gradient(signal, times, window_s=0.2)
+        assert grad.dtype == np.float64
+
+
+# ---------------------------------------------------------------------------
+# _windowed_speed
+# ---------------------------------------------------------------------------
+
+
+class TestWindowedSpeed:
+    def test_stationary_zero_speed(self) -> None:
+        """Stationary position should yield zero speed."""
+        n = 50
+        times = np.linspace(0, 5, n)
+        x_mm = np.full(n, 100.0)
+        y_mm = np.full(n, 200.0)
+        speed = _windowed_speed(x_mm, y_mm, times, window_s=0.5)
+        np.testing.assert_allclose(speed, 0.0, atol=1e-10)
+
+    def test_constant_velocity_correct_speed(self) -> None:
+        """Moving at constant velocity: x = 100*t mm → dx/dt = 100 mm/s = 10 cm/s."""
+        n = 100
+        times = np.linspace(0, 10, n)
+        x_mm = 100.0 * times  # 100 mm/s in x
+        y_mm = np.zeros(n)
+        speed = _windowed_speed(x_mm, y_mm, times, window_s=0.5)
+        # Interior points should be ~10 cm/s (100 mm/s / 10)
+        np.testing.assert_allclose(speed[10:-10], 10.0, atol=0.5)
+
+    def test_non_negative_output(self) -> None:
+        """Speed should always be non-negative."""
+        rng = np.random.default_rng(123)
+        n = 60
+        times = np.linspace(0, 6, n)
+        x_mm = np.cumsum(rng.standard_normal(n))
+        y_mm = np.cumsum(rng.standard_normal(n))
+        speed = _windowed_speed(x_mm, y_mm, times, window_s=0.3)
+        assert np.all(speed >= 0.0)
+
+    def test_output_shape(self) -> None:
+        n = 40
+        times = np.linspace(0, 4, n)
+        speed = _windowed_speed(np.zeros(n), np.zeros(n), times, window_s=0.2)
+        assert speed.shape == (n,)
+
+    def test_diagonal_velocity(self) -> None:
+        """Moving diagonally: x=100*t, y=100*t → speed = sqrt(2)*10 cm/s."""
+        n = 100
+        times = np.linspace(0, 10, n)
+        x_mm = 100.0 * times
+        y_mm = 100.0 * times
+        speed = _windowed_speed(x_mm, y_mm, times, window_s=0.5)
+        expected = np.sqrt(2) * 10.0  # sqrt(100^2 + 100^2) / 10
+        np.testing.assert_allclose(speed[10:-10], expected, atol=0.5)
+
+
+# ---------------------------------------------------------------------------
 # _compute_hd_deg
 # ---------------------------------------------------------------------------
 
@@ -128,6 +284,20 @@ class TestComputeHdDeg:
         n = 50
         hd = _compute_hd_deg(np.ones(n), np.zeros(n), np.zeros(n), np.zeros(n))
         assert hd.shape == (n,)
+
+    def test_median_filter_win_0_unfiltered(self) -> None:
+        """median_filter_win=0 disables filtering, giving raw HD."""
+        n = 20
+        # Create a jittery ear signal
+        rng = np.random.default_rng(42)
+        lx = np.ones(n) + rng.normal(0, 0.01, n)
+        ly = np.zeros(n) + rng.normal(0, 0.01, n)
+        rx = np.zeros(n)
+        ry = np.zeros(n)
+        hd_filtered = _compute_hd_deg(lx, ly, rx, ry, median_filter_win=5)
+        hd_unfiltered = _compute_hd_deg(lx, ly, rx, ry, median_filter_win=0)
+        # Unfiltered should differ from filtered (jitter preserved)
+        assert not np.allclose(hd_filtered, hd_unfiltered, atol=1e-6)
 
     def test_unwrap_across_360_boundary(self) -> None:
         """Rotation passing through 360° should be unwrapped (no 360° jump)."""
