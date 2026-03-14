@@ -155,8 +155,8 @@ aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":mate
 
 pg = st.navigation({
     "Overview": [home_page, summary_page, sessions_page, animals_page, pipeline_page, batch_page],
-    "Pipeline": [suite2p_page, calcium_page, dlc_page, tracking_quality_page, sync_page, zdrift_page, anatomy_page, moseq_page, moseq_explore_page],
-    "Explore": [explorer_page, timeline_page, gallery_page, events_page, event_dynamics_page, correlations_page, trace_compare_page],
+    "Pipeline": [suite2p_page, calcium_page, dlc_page, tracking_quality_page, sync_page, zdrift_page, anatomy_page, moseq_page],
+    "Explore": [explorer_page, timeline_page, gallery_page, events_page, event_dynamics_page, correlations_page, trace_compare_page, moseq_explore_page],
     "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, decoder_page, stability_page, drift_page, gain_page, anchoring_page, speed_mod_page, pop_dynamics_page, ahv_page, info_theory_page, classify_page, signal_quality_page, qc_page, patching_page],
     "System": [aws_page, cost_page, changelog_page],
 })
