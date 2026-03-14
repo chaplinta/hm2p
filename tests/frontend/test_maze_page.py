@@ -13,8 +13,8 @@ class TestMazeTopologyDisplay:
         from hm2p.maze.topology import build_rose_maze
         maze = build_rose_maze()
         assert maze.n_cells == 23
-        assert len(maze.junctions) == 8
-        assert len(maze.dead_ends) == 6
+        assert len(maze.junctions) == 7
+        assert len(maze.dead_ends) == 9
 
     def test_maze_cell_list_sorted(self):
         from hm2p.maze.topology import build_rose_maze

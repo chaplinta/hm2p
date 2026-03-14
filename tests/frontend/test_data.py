@@ -31,7 +31,17 @@ def _passthrough_decorator(*args, **kwargs):
 
 _st_mock = MagicMock()
 _st_mock.cache_data = _passthrough_decorator
-sys.modules.setdefault("streamlit", _st_mock)
+
+# Save the original streamlit module (if any) so we can restore it after import.
+_orig_st = sys.modules.get("streamlit")
+_orig_data = sys.modules.get("frontend.data")
+
+# Force mock streamlit before (re)importing frontend.data so
+# @st.cache_data acts as a passthrough even when the full test suite has
+# already imported the real streamlit module.
+sys.modules["streamlit"] = _st_mock
+if "frontend.data" in sys.modules:
+    del sys.modules["frontend.data"]
 
 # Now it is safe to import the module under test.
 from frontend.data import (  # noqa: E402
@@ -50,6 +60,12 @@ from frontend.data import (  # noqa: E402
     load_experiments,
     parse_session_id,
 )
+
+# Restore original streamlit module so other test files aren't affected.
+if _orig_st is not None:
+    sys.modules["streamlit"] = _orig_st
+else:
+    sys.modules.pop("streamlit", None)
 
 
 # ===================================================================

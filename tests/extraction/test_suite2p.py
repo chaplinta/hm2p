@@ -13,6 +13,13 @@ from hm2p.extraction.suite2p import (
     classify_roi_types,
 )
 
+_suite2p_available = False
+try:
+    import suite2p  # noqa: F401
+    _suite2p_available = True
+except ImportError:
+    pass
+
 # ---------------------------------------------------------------------------
 # Helpers: write synthetic Suite2p plane0 files
 # ---------------------------------------------------------------------------
@@ -170,6 +177,7 @@ class TestSuite2pOptionalMethods:
         with pytest.raises(RuntimeError, match="stat.npy"):
             ext.get_roi_types()
 
+    @pytest.mark.skipif(not _suite2p_available, reason="suite2p not installed")
     def test_get_roi_types_with_stat(self, tmp_path: Path) -> None:
         """With stat.npy, ROIs classified as soma/dend/artefact."""
         s2p = tmp_path / "suite2p"
@@ -238,6 +246,7 @@ class TestClassifyHeuristic:
         assert labels[0] == "soma"
 
 
+@pytest.mark.skipif(not _suite2p_available, reason="suite2p not installed")
 class TestClassifyRoiTypes:
     """Tests for classify_roi_types using Suite2p trained classifiers."""
 

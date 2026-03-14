@@ -20,6 +20,14 @@ from hm2p.extraction.run_suite2p import (
 # ---------------------------------------------------------------------------
 
 
+_suite2p_available = False
+try:
+    import suite2p  # noqa: F401
+    _suite2p_available = True
+except ImportError:
+    pass
+
+
 class TestDefaultSettings:
     """Tests for the Suite2p 1.0 API default_settings."""
 
@@ -39,15 +47,18 @@ class TestDefaultSettings:
         settings = default_settings()
         assert settings["tau"] == 1.0
 
+    @pytest.mark.skipif(not _suite2p_available, reason="suite2p not installed")
     def test_deconvolution_off(self):
         """CASCADE handles spikes — Suite2p deconvolution should be off."""
         settings = default_settings()
         assert settings["run"]["do_deconvolution"] is False
 
+    @pytest.mark.skipif(not _suite2p_available, reason="suite2p not installed")
     def test_nonrigid_registration(self):
         settings = default_settings()
         assert settings["registration"]["nonrigid"] is True
 
+    @pytest.mark.skipif(not _suite2p_available, reason="suite2p not installed")
     def test_delete_bin_true(self):
         settings = default_settings()
         assert settings["io"]["delete_bin"] is True

@@ -515,7 +515,7 @@ class TestRunStatistics:
         mock_summary = pd.DataFrame({"metric": ["RMP"], "mean": [-65.0]})
         mock_mw = pd.DataFrame({"metric": ["RMP"], "pvalue": [0.05]})
         mock_stats_module.compute_summary_stats = MagicMock(return_value=mock_summary)
-        mock_stats_module.compute_mannwhitney = MagicMock(return_value=mock_mw)
+        mock_stats_module.mann_whitney_comparison = MagicMock(return_value=mock_mw)
 
         metrics_df = pd.DataFrame({"ephys_passive_RMP": [-65.0, -70.0]})
 
@@ -537,10 +537,15 @@ class TestRunStatistics:
 class TestRunPcaAnalysis:
     @patch("hm2p.patching.pca", create=True)
     def test_runs_all_subsets(self, mock_pca_module, tmp_config: PatchConfig):
-        mock_result = pd.DataFrame({"PC1": [0.1], "PC2": [0.2]})
+        mock_scores = pd.DataFrame({"PC1": [0.1], "PC2": [0.2]})
+        mock_result = MagicMock()
+        mock_result.scores = mock_scores
         mock_pca_module.run_pca = MagicMock(return_value=mock_result)
 
-        metrics_df = pd.DataFrame({"ephys_passive_RMP": [-65.0]})
+        metrics_df = pd.DataFrame({
+            "ephys_passive_RMP": [-65.0],
+            "morph_soma_area": [150.0],
+        })
 
         with patch.dict(
             "sys.modules",
@@ -558,15 +563,21 @@ class TestRunPcaAnalysis:
     def test_one_subset_failure_doesnt_stop_others(
         self, mock_pca_module, tmp_config: PatchConfig
     ):
-        ok_result = pd.DataFrame({"PC1": [0.1]})
+        ok_scores = pd.DataFrame({"PC1": [0.1]})
+        ok_result = MagicMock()
+        ok_result.scores = ok_scores
 
-        def side_effect(df, subset):
-            if subset == "morph":
+        def side_effect(df, metric_cols=None):
+            # Fail when ONLY morph columns are passed (not the "all" subset)
+            if metric_cols and all(c.startswith("morph_") for c in metric_cols):
                 raise ValueError("not enough data")
             return ok_result
 
         mock_pca_module.run_pca = MagicMock(side_effect=side_effect)
-        metrics_df = pd.DataFrame({"ephys_passive_RMP": [-65.0]})
+        metrics_df = pd.DataFrame({
+            "ephys_passive_RMP": [-65.0],
+            "morph_soma_area": [150.0],
+        })
 
         with patch.dict(
             "sys.modules",
