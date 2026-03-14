@@ -236,7 +236,7 @@ if has_inj_data:
                 from hm2p.anatomy.render import render_injection_sites
             except ImportError:
                 return None
-            _inj_df = pd.read_json(inj_json, orient="records")
+            _inj_df = pd.read_json(io.StringIO(inj_json), orient="records")
             return render_injection_sites(_inj_df, _BR_OUTPUT_DIR)
 
         try:

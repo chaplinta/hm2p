@@ -37,6 +37,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-venv \
     libhdf5-dev \
     pkg-config \
+    libosmesa6 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install uv (fast Python package manager) system-wide
