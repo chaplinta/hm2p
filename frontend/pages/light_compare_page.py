@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import logging
 import sys
 from pathlib import Path
@@ -13,13 +12,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from frontend.data import (
-    DERIVATIVES_BUCKET,
-    download_s3_bytes,
-    load_animals,
-    load_experiments,
-    parse_session_id,
-)
+from frontend.data import load_all_sync_data, session_filter_sidebar
 from hm2p.constants import CELLTYPE_HEX
 
 log = logging.getLogger("hm2p.frontend.light_compare")
@@ -27,115 +20,82 @@ log = logging.getLogger("hm2p.frontend.light_compare")
 st.title("Cross-Session Light Analysis")
 st.caption("Compare light modulation index across all sessions — Penk vs non-Penk.")
 
+# --- Load pooled sync data ---
+with st.spinner("Loading sync data for all sessions..."):
+    sync_data = load_all_sync_data()
 
-@st.cache_data(ttl=600)
-def compute_all_light_modulation() -> pd.DataFrame:
-    """Compute light modulation index for every ROI across all sessions."""
-    import h5py
+sessions = session_filter_sidebar(
+    sync_data["sessions"], show_roi_filter=True, key_prefix="lc"
+)
 
-    experiments = load_experiments()
-    animals = load_animals()
-    animal_map = {a["animal_id"]: a for a in animals}
+if not sessions:
+    st.warning("No sync data with light cycle information found.")
+    st.stop()
 
-    rows = []
-    for exp in experiments:
-        exp_id = exp["exp_id"]
-        animal_id = exp_id.split("_")[-1]
-        animal = animal_map.get(animal_id, {})
-        sub, ses = parse_session_id(exp_id)
-        celltype = animal.get("celltype", "?")
+n_sessions = len(sessions)
+n_total_rois = sum(s["n_rois"] for s in sessions)
+col1, col2 = st.columns(2)
+col1.metric("Sessions", n_sessions)
+col2.metric("Total ROIs", n_total_rois)
 
-        # Load calcium data
-        ca_bytes = download_s3_bytes(DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5")
-        if ca_bytes is None:
-            continue
+# --- Compute light modulation from cached sync data ---
+rows = []
+for s in sessions:
+    dff = s["dff"]
+    light_on = s["light_on"].astype(bool)
+    n_rois = s["n_rois"]
+    n_frames = s["n_frames"]
+    fps = n_frames / (s["frame_times"][-1] - s["frame_times"][0]) if n_frames > 1 else 9.8
+    event_masks = s.get("event_masks")
 
-        # Load timestamps
-        ts_bytes = download_s3_bytes(DERIVATIVES_BUCKET, f"movement/{sub}/{ses}/timestamps.h5")
-        if ts_bytes is None:
-            continue
+    # Skip sessions with no light variation
+    if light_on.all() or (~light_on).all():
+        continue
 
-        try:
-            ca_f = h5py.File(io.BytesIO(ca_bytes), "r")
-            ts_f = h5py.File(io.BytesIO(ts_bytes), "r")
+    for roi in range(n_rois):
+        trace = dff[roi]
+        light_mean = float(np.nanmean(trace[light_on]))
+        dark_mean = float(np.nanmean(trace[~light_on]))
+        lmi = (light_mean - dark_mean) / (light_mean + dark_mean + 1e-10)
 
-            dff = ca_f["dff"][:]
-            n_rois, n_frames = dff.shape
-            fps = float(ca_f.attrs.get("fps_imaging", 9.8))
+        # SNR
+        baseline_std = np.std(trace[trace < np.percentile(trace, 50)])
+        peak = np.percentile(trace, 95)
+        snr = peak / baseline_std if baseline_std > 0 else 0
 
-            if "light_on_times" not in ts_f or "light_off_times" not in ts_f:
-                ca_f.close()
-                ts_f.close()
-                continue
+        row = {
+            "exp_id": s["exp_id"],
+            "animal_id": s["animal_id"],
+            "celltype": s["celltype"],
+            "roi": roi,
+            "snr": snr,
+            "light_mean": light_mean,
+            "dark_mean": dark_mean,
+            "lmi_dff": lmi,
+        }
 
-            light_on_times = ts_f["light_on_times"][:]
-            light_off_times = ts_f["light_off_times"][:]
-            frame_times = ts_f["frame_times_imaging"][:n_frames]
+        # Event-based modulation
+        if event_masks is not None:
+            em = event_masks[roi].astype(bool)
+            light_events = em & light_on
+            dark_events = em & ~light_on
 
-            # Build light_on mask
-            light_on = np.zeros(n_frames, dtype=bool)
-            for on_t in light_on_times:
-                off_after = light_off_times[light_off_times > on_t]
-                off_t = off_after[0] if len(off_after) > 0 else frame_times[-1] + 1
-                mask = (frame_times >= on_t) & (frame_times < off_t)
-                light_on[mask] = True
+            light_onsets = np.flatnonzero(light_events[1:] & ~light_events[:-1])
+            dark_onsets = np.flatnonzero(dark_events[1:] & ~dark_events[:-1])
 
-            has_events = "event_masks" in ca_f
+            light_dur = light_on.sum() / fps / 60
+            dark_dur = (~light_on).sum() / fps / 60
 
-            for roi in range(n_rois):
-                trace = dff[roi]
-                light_mean = float(np.nanmean(trace[light_on]))
-                dark_mean = float(np.nanmean(trace[~light_on]))
-                lmi = (light_mean - dark_mean) / (light_mean + dark_mean + 1e-10)
+            lr = len(light_onsets) / light_dur if light_dur > 0 else 0
+            dr = len(dark_onsets) / dark_dur if dark_dur > 0 else 0
 
-                # SNR
-                baseline_std = np.std(trace[trace < np.percentile(trace, 50)])
-                peak = np.percentile(trace, 95)
-                snr = peak / baseline_std if baseline_std > 0 else 0
+            row["light_event_rate"] = lr
+            row["dark_event_rate"] = dr
+            row["lmi_events"] = (lr - dr) / (lr + dr + 1e-10)
 
-                row = {
-                    "exp_id": exp_id,
-                    "animal_id": animal_id,
-                    "celltype": celltype,
-                    "roi": roi,
-                    "snr": snr,
-                    "light_mean": light_mean,
-                    "dark_mean": dark_mean,
-                    "lmi_dff": lmi,
-                }
+        rows.append(row)
 
-                # Event-based modulation
-                if has_events:
-                    em = ca_f["event_masks"][roi].astype(bool)
-                    light_events = em & light_on
-                    dark_events = em & ~light_on
-
-                    light_onsets = np.flatnonzero(light_events[1:] & ~light_events[:-1])
-                    dark_onsets = np.flatnonzero(dark_events[1:] & ~dark_events[:-1])
-
-                    light_dur = light_on.sum() / fps / 60
-                    dark_dur = (~light_on).sum() / fps / 60
-
-                    lr = len(light_onsets) / light_dur if light_dur > 0 else 0
-                    dr = len(dark_onsets) / dark_dur if dark_dur > 0 else 0
-
-                    row["light_event_rate"] = lr
-                    row["dark_event_rate"] = dr
-                    row["lmi_events"] = (lr - dr) / (lr + dr + 1e-10)
-
-                rows.append(row)
-
-            ca_f.close()
-            ts_f.close()
-        except Exception as e:
-            log.warning(f"Error processing {exp_id}: {e}")
-            continue
-
-    return pd.DataFrame(rows)
-
-
-with st.spinner("Computing light modulation across all sessions..."):
-    df = compute_all_light_modulation()
+df = pd.DataFrame(rows)
 
 if df.empty:
     st.warning("No data with light cycle information found.")
@@ -143,12 +103,12 @@ if df.empty:
 
 # --- Summary ---
 n_rois = len(df)
-n_sessions = df["exp_id"].nunique()
+n_sessions_with_light = df["exp_id"].nunique()
 n_penk = len(df[df["celltype"] == "penk"])
 n_nonpenk = len(df[df["celltype"] == "nonpenk"])
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("Sessions with light data", n_sessions)
+col1.metric("Sessions with light data", n_sessions_with_light)
 col2.metric("Total ROIs", n_rois)
 col3.metric("Penk ROIs", n_penk)
 col4.metric("Non-Penk ROIs", n_nonpenk)
@@ -173,8 +133,8 @@ with tab_dist:
         df_filtered, x="lmi_dff", color="celltype", nbins=50,
         barmode="overlay", opacity=0.7,
         color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
-        title="Light Modulation Index (dF/F) — All ROIs",
-        labels={"lmi_dff": "LMI (dF/F)"},
+        title="Light Modulation Index (dF/F0) — All ROIs",
+        labels={"lmi_dff": "LMI (dF/F0)"},
     )
     fig.add_vline(x=0, line_dash="dash", line_color="gray")
     fig.update_layout(height=400)
@@ -210,7 +170,7 @@ with tab_celltype:
                     boxmean=True,
                 ))
         fig.add_hline(y=0, line_dash="dash", line_color="gray")
-        fig.update_layout(height=400, title="LMI (dF/F) by Cell Type", yaxis_title="LMI")
+        fig.update_layout(height=400, title="LMI (dF/F0) by Cell Type", yaxis_title="LMI")
         st.plotly_chart(fig, use_container_width=True)
 
     with col2:
@@ -234,8 +194,8 @@ with tab_celltype:
         df_filtered, x="light_mean", y="dark_mean", color="celltype",
         color_discrete_map={**CELLTYPE_HEX, "?": "gray"},
         opacity=0.4,
-        title="Mean dF/F: Light vs Dark (per ROI)",
-        labels={"light_mean": "Light ON mean dF/F", "dark_mean": "Light OFF mean dF/F"},
+        title="Mean dF/F0: Light vs Dark (per ROI)",
+        labels={"light_mean": "Light ON mean dF/F0", "dark_mean": "Light OFF mean dF/F0"},
     )
     max_val = max(df_filtered["light_mean"].max(), df_filtered["dark_mean"].max())
     fig.add_trace(go.Scatter(
@@ -283,7 +243,7 @@ with tab_stats:
         # Mann-Whitney U
         stat_mw, pval_mw = mannwhitneyu(penk_lmi, nonpenk_lmi, alternative="two-sided")
         st.markdown(
-            f"**Mann-Whitney U (LMI dF/F):** "
+            f"**Mann-Whitney U (LMI dF/F0):** "
             f"Penk median = {np.median(penk_lmi):.4f}, "
             f"Non-Penk median = {np.median(nonpenk_lmi):.4f}, "
             f"U = {stat_mw:.0f}, p = {pval_mw:.4f} "

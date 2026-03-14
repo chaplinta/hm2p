@@ -6,23 +6,19 @@ distributions without requiring kinematics data.
 
 from __future__ import annotations
 
-import io
 import logging
 import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from frontend.data import (
-    DERIVATIVES_BUCKET,
-    download_s3_bytes,
-    load_animals,
-    load_experiments,
-    parse_session_id,
-)
+from frontend.data import load_all_ca_data, session_filter_sidebar
 from hm2p.constants import CELLTYPE_HEX
 
 log = logging.getLogger("hm2p.frontend.population")
@@ -30,101 +26,72 @@ log = logging.getLogger("hm2p.frontend.population")
 st.title("Population Overview")
 st.caption("Aggregate calcium metrics across all sessions. No kinematics required.")
 
-
-@st.cache_data(ttl=600)
-def _load_all_calcium_summaries() -> list[dict]:
-    """Load calcium summary stats for all sessions."""
-    import h5py
-
-    experiments = load_experiments()
-    animals = load_animals()
-    animal_map = {a["animal_id"]: a for a in animals}
-    summaries = []
-
-    for exp in experiments:
-        exp_id = exp["exp_id"]
-        animal_id = exp_id.split("_")[-1]
-        animal = animal_map.get(animal_id, {})
-        sub, ses = parse_session_id(exp_id)
-
-        data = download_s3_bytes(DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5")
-        if data is None:
-            continue
-
-        try:
-            f = h5py.File(io.BytesIO(data), "r")
-            dff = f["dff"][:]
-            n_rois, n_frames = dff.shape
-            fps = float(f.attrs.get("fps_imaging", 9.8))
-
-            summary = {
-                "exp_id": exp_id,
-                "animal_id": animal_id,
-                "celltype": animal.get("celltype", "?"),
-                "sub": sub,
-                "ses": ses,
-                "n_rois": n_rois,
-                "n_frames": n_frames,
-                "fps": fps,
-                "duration_s": n_frames / fps,
-            }
-
-            # Per-ROI stats
-            for roi in range(n_rois):
-                trace = dff[roi]
-                # Compute SNR
-                f0 = np.percentile(trace, 10)
-                if f0 > 0:
-                    dff_trace = (trace - f0) / f0
-                else:
-                    dff_trace = trace
-                baseline_std = np.std(dff_trace[dff_trace < np.percentile(dff_trace, 50)])
-                peak = np.percentile(dff_trace, 95)
-                snr = peak / baseline_std if baseline_std > 0 else 0
-
-                # Event stats
-                n_events = 0
-                active_frac = 0.0
-                if "event_masks" in f:
-                    em = f["event_masks"][roi].astype(bool)
-                    onsets = np.flatnonzero(em[1:] & ~em[:-1])
-                    n_events = len(onsets) + (1 if em[0] else 0)
-                    active_frac = float(em.mean())
-
-                summaries.append({
-                    **summary,
-                    "roi_idx": roi,
-                    "mean_dff": float(np.nanmean(trace)),
-                    "max_dff": float(np.nanmax(trace)),
-                    "std_dff": float(np.nanstd(trace)),
-                    "snr": snr,
-                    "n_events": n_events,
-                    "event_rate": n_events / (n_frames / fps / 60) if n_frames > 0 else 0,
-                    "active_frac": active_frac,
-                    "skewness": float(np.nan_to_num(
-                        ((trace - trace.mean()) ** 3).mean() / (trace.std() ** 3)
-                        if trace.std() > 0 else 0
-                    )),
-                })
-            f.close()
-        except Exception:
-            continue
-
-    return summaries
-
-
+# --- Load pooled ca data ---
 with st.spinner("Loading calcium data for all sessions..."):
-    all_data = _load_all_calcium_summaries()
+    all_sessions = load_all_ca_data()
 
-if not all_data:
+sessions = session_filter_sidebar(
+    all_sessions, show_roi_filter=True, key_prefix="pop"
+)
+
+if not sessions:
     st.warning("No calcium data found on S3.")
     st.stop()
 
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
+# --- Build per-ROI dataframe from cached data ---
+rows = []
+for s in sessions:
+    dff = s["dff"]
+    n_rois, n_frames = s["n_rois"], s["n_frames"]
+    fps = s["fps"]
+    duration_s = n_frames / fps
+    em = s.get("event_masks")
 
-df = pd.DataFrame(all_data)
+    for roi in range(n_rois):
+        trace = dff[roi]
+
+        # Compute SNR
+        f0 = np.percentile(trace, 10)
+        if f0 > 0:
+            dff_trace = (trace - f0) / f0
+        else:
+            dff_trace = trace
+        baseline_std = np.std(dff_trace[dff_trace < np.percentile(dff_trace, 50)])
+        peak = np.percentile(dff_trace, 95)
+        snr = peak / baseline_std if baseline_std > 0 else 0
+
+        # Event stats
+        n_events = 0
+        active_frac = 0.0
+        if em is not None:
+            em_roi = em[roi].astype(bool)
+            onsets = np.flatnonzero(em_roi[1:] & ~em_roi[:-1])
+            n_events = len(onsets) + (1 if em_roi[0] else 0)
+            active_frac = float(em_roi.mean())
+
+        rows.append({
+            "exp_id": s["exp_id"],
+            "animal_id": s["animal_id"],
+            "celltype": s["celltype"],
+            "roi_idx": roi,
+            "mean_dff": float(np.nanmean(trace)),
+            "max_dff": float(np.nanmax(trace)),
+            "std_dff": float(np.nanstd(trace)),
+            "snr": snr,
+            "n_events": n_events,
+            "event_rate": n_events / (duration_s / 60) if duration_s > 0 else 0,
+            "active_frac": active_frac,
+            "skewness": float(np.nan_to_num(
+                ((trace - trace.mean()) ** 3).mean() / (trace.std() ** 3)
+                if trace.std() > 0 else 0
+            )),
+        })
+
+df = pd.DataFrame(rows)
+
+if df.empty:
+    st.warning("No ROI data available.")
+    st.stop()
 
 # --- Summary metrics ---
 n_sessions = df["exp_id"].nunique()
@@ -176,7 +143,7 @@ with tab_dist:
             df, x="max_dff", color="celltype", nbins=40,
             barmode="overlay", opacity=0.7,
             color_discrete_map=CELLTYPE_HEX,
-            title="Max dF/F Distribution",
+            title="Max dF/F0 Distribution",
         )
         fig.update_layout(height=350)
         st.plotly_chart(fig, use_container_width=True)
@@ -306,9 +273,12 @@ with tab_table:
     # Filtering
     col1, col2 = st.columns(2)
     with col1:
-        ct_filter = st.multiselect("Cell type", ["penk", "nonpenk"], default=["penk", "nonpenk"])
+        ct_filter = st.multiselect(
+            "Cell type", ["penk", "nonpenk"], default=["penk", "nonpenk"],
+            key="pop_table_ct",
+        )
     with col2:
-        min_snr = st.number_input("Min SNR filter", 0.0, 20.0, 0.0, 0.5)
+        min_snr = st.number_input("Min SNR filter", 0.0, 20.0, 0.0, 0.5, key="pop_table_snr")
 
     filtered = df[df["celltype"].isin(ct_filter) & (df["snr"] >= min_snr)]
     st.markdown(f"**{len(filtered)} ROIs** shown")

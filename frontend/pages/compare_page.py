@@ -1,125 +1,86 @@
-"""Cross-session comparison page — compare HD tuning across sessions and cell types.
+"""Cross-session comparison page — compare calcium metrics across sessions and cell types.
 
-Enables comparison of calcium metrics, HD tuning distributions, and place
-coding across sessions, animals, and cell types (Penk vs non-Penk).
+Enables comparison of calcium metrics, activity distributions, and cell-type
+differences across sessions, animals, and cell types (Penk vs non-Penk).
 """
 
 from __future__ import annotations
 
-import io
 import logging
 import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from frontend.data import (
-    DERIVATIVES_BUCKET,
-    REGION,
-    download_s3_bytes,
-    load_animals,
-    load_experiments,
-    parse_session_id,
-)
+from frontend.data import load_all_ca_data, session_filter_sidebar
 from hm2p.constants import CELLTYPE_HEX, HEX_PENK, HEX_NONPENK
 
 log = logging.getLogger("hm2p.frontend.compare")
 
 st.title("Cross-Session Comparison")
 
-# --- Load metadata ---
-experiments = load_experiments()
-animals = load_animals()
-animal_map = {a["animal_id"]: a for a in animals}
+# --- Load pooled ca data ---
+with st.spinner("Loading calcium data for all sessions..."):
+    all_sessions = load_all_ca_data()
 
+sessions = session_filter_sidebar(
+    all_sessions, show_roi_filter=True, key_prefix="compare"
+)
 
-@st.cache_data(ttl=600)
-def _load_ca_summary(sub: str, ses: str) -> dict | None:
-    """Load ca.h5 from S3 and return summary stats."""
-    import h5py
-
-    data = download_s3_bytes(DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5")
-    if data is None:
-        return None
-    try:
-        f = h5py.File(io.BytesIO(data), "r")
-        dff = f["dff"][:]
-        n_rois, n_frames = dff.shape
-        fps = float(f.attrs.get("fps_imaging", 9.8))
-
-        result = {
-            "n_rois": n_rois,
-            "n_frames": n_frames,
-            "fps": fps,
-            "duration_s": n_frames / fps,
-            "mean_dff": float(np.nanmean(dff)),
-            "max_dff": float(np.nanmax(dff)),
-            "per_roi_mean": np.nanmean(dff, axis=1).tolist(),
-            "per_roi_max": np.nanmax(dff, axis=1).tolist(),
-            "per_roi_std": np.nanstd(dff, axis=1).tolist(),
-        }
-
-        if "event_masks" in f:
-            em = f["event_masks"][:]
-            result["per_roi_active_frac"] = em.mean(axis=1).tolist()
-            # Event counts
-            counts = []
-            for i in range(n_rois):
-                m = em[i].astype(bool)
-                onsets = np.flatnonzero(m[1:] & ~m[:-1])
-                counts.append(len(onsets) + (1 if m[0] else 0))
-            result["per_roi_event_count"] = counts
-            result["per_roi_event_rate"] = [c / (n_frames / fps / 60) for c in counts]
-
-        f.close()
-        return result
-    except Exception:
-        return None
-
-
-# --- Load summaries for all sessions ---
-st.sidebar.header("Filters")
-
-# Cell type filter
-celltypes = sorted(set(animal_map.get(e["exp_id"].split("_")[-1], {}).get("celltype", "?") for e in experiments))
-celltype_filter = st.sidebar.multiselect("Cell type", celltypes, default=celltypes)
-
-# Build session list
-session_data = []
-with st.spinner("Loading calcium summaries from S3..."):
-    for exp in experiments:
-        exp_id = exp["exp_id"]
-        animal_id = exp_id.split("_")[-1]
-        animal = animal_map.get(animal_id, {})
-        celltype = animal.get("celltype", "?")
-
-        if celltype not in celltype_filter:
-            continue
-
-        sub, ses = parse_session_id(exp_id)
-        summary = _load_ca_summary(sub, ses)
-        if summary is not None:
-            summary["exp_id"] = exp_id
-            summary["animal_id"] = animal_id
-            summary["celltype"] = celltype
-            summary["sub"] = sub
-            summary["ses"] = ses
-            session_data.append(summary)
-
-if not session_data:
+if not sessions:
     st.warning("No calcium data found for the selected filters.")
     st.stop()
 
-st.sidebar.markdown(f"**{len(session_data)} sessions** loaded")
+# --- Build session summaries from cached data ---
+session_data = []
+for s in sessions:
+    dff = s["dff"]
+    n_rois, n_frames = s["n_rois"], s["n_frames"]
+    fps = s["fps"]
+
+    summary = {
+        "exp_id": s["exp_id"],
+        "animal_id": s["animal_id"],
+        "celltype": s["celltype"],
+        "sub": s["sub"],
+        "ses": s["ses"],
+        "n_rois": n_rois,
+        "n_frames": n_frames,
+        "fps": fps,
+        "duration_s": n_frames / fps,
+        "mean_dff": float(np.nanmean(dff)),
+        "max_dff": float(np.nanmax(dff)),
+        "per_roi_mean": np.nanmean(dff, axis=1).tolist(),
+        "per_roi_max": np.nanmax(dff, axis=1).tolist(),
+        "per_roi_std": np.nanstd(dff, axis=1).tolist(),
+    }
+
+    em = s.get("event_masks")
+    if em is not None:
+        summary["per_roi_active_frac"] = em.mean(axis=1).tolist()
+        counts = []
+        for i in range(n_rois):
+            m = em[i].astype(bool)
+            onsets = np.flatnonzero(m[1:] & ~m[:-1])
+            counts.append(len(onsets) + (1 if m[0] else 0))
+        summary["per_roi_event_count"] = counts
+        summary["per_roi_event_rate"] = [c / (n_frames / fps / 60) for c in counts]
+
+    session_data.append(summary)
+
+n_sessions = len(session_data)
+n_total_rois = sum(s["n_rois"] for s in session_data)
+col1, col2 = st.columns(2)
+col1.metric("Sessions", n_sessions)
+col2.metric("Total ROIs", n_total_rois)
 
 # --- Overview table ---
 st.subheader("Session Overview")
-
-import pandas as pd
-import plotly.graph_objects as go
 
 overview_rows = []
 for s in session_data:
@@ -130,8 +91,8 @@ for s in session_data:
         "ROIs": s["n_rois"],
         "Duration (s)": f"{s['duration_s']:.0f}",
         "FPS": f"{s['fps']:.1f}",
-        "Mean dF/F": f"{s['mean_dff']:.4f}",
-        "Max dF/F": f"{s['max_dff']:.2f}",
+        "Mean dF/F0": f"{s['mean_dff']:.4f}",
+        "Max dF/F0": f"{s['max_dff']:.2f}",
     })
 
 df_overview = pd.DataFrame(overview_rows)
@@ -178,8 +139,8 @@ with tab_rois:
         fig.update_layout(title="Total ROIs by Cell Type", height=400)
         st.plotly_chart(fig, use_container_width=True)
 
-    # Per-ROI mean dF/F distribution across sessions
-    st.subheader("Per-ROI Mean dF/F Distribution")
+    # Per-ROI mean dF/F0 distribution across sessions
+    st.subheader("Per-ROI Mean dF/F0 Distribution")
     fig = go.Figure()
     for s in session_data:
         fig.add_trace(go.Box(
@@ -189,8 +150,8 @@ with tab_rois:
             marker_color=HEX_PENK if s["celltype"] == "penk" else HEX_NONPENK,
         ))
     fig.update_layout(
-        title="Mean dF/F per ROI (each box = one session)",
-        yaxis_title="Mean dF/F",
+        title="Mean dF/F0 per ROI (each box = one session)",
+        yaxis_title="Mean dF/F0",
         height=400,
         showlegend=False,
     )
@@ -267,6 +228,9 @@ with tab_celltypes:
     if not penk_sessions or not nonpenk_sessions:
         st.info("Need both Penk and non-Penk sessions for comparison.")
     else:
+        penk_rois = sum(s["n_rois"] for s in penk_sessions)
+        nonpenk_rois = sum(s["n_rois"] for s in nonpenk_sessions)
+
         col1, col2, col3 = st.columns(3)
         col1.metric("Penk sessions", len(penk_sessions))
         col2.metric("Non-Penk sessions", len(nonpenk_sessions))
@@ -294,8 +258,8 @@ with tab_celltypes:
             ))
             fig.update_layout(
                 barmode="overlay",
-                title="Mean dF/F Distribution",
-                xaxis_title="Mean dF/F",
+                title="Mean dF/F0 Distribution",
+                xaxis_title="Mean dF/F0",
                 height=350,
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -334,7 +298,7 @@ with tab_celltypes:
 
         summary = []
         for metric_name, penk_vals, nonpenk_vals in [
-            ("Mean dF/F", penk_means, nonpenk_means),
+            ("Mean dF/F0", penk_means, nonpenk_means),
             ("Event rate", penk_rates, nonpenk_rates),
         ]:
             if penk_vals and nonpenk_vals:

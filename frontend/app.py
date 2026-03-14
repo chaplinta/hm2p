@@ -107,7 +107,7 @@ else:
 # --- Multipage navigation using Streamlit's native system ---
 _app_dir = Path(__file__).resolve().parent
 home_page = st.Page(str(_app_dir / "pages/home_page.py"), title="Home", icon=":material/home:", default=True)
-summary_page = st.Page(str(_app_dir / "pages/summary_page.py"), title="Summary", icon=":material/summarize:")
+summary_page = st.Page(str(_app_dir / "pages/summary_page.py"), title="Cell Summary", icon=":material/summarize:")
 sessions_page = st.Page(str(_app_dir / "pages/sessions_page.py"), title="Sessions", icon=":material/table:")
 animals_page = st.Page(str(_app_dir / "pages/animals_page.py"), title="Animals", icon=":material/pets:")
 pipeline_page = st.Page(str(_app_dir / "pages/pipeline_page.py"), title="Pipeline", icon=":material/monitoring:")
@@ -128,7 +128,6 @@ events_page = st.Page(str(_app_dir / "pages/events_page.py"), title="Events", ic
 event_dynamics_page = st.Page(str(_app_dir / "pages/event_dynamics_page.py"), title="Event Dynamics", icon=":material/show_chart:")
 correlations_page = st.Page(str(_app_dir / "pages/correlations_page.py"), title="Correlations", icon=":material/hub:")
 trace_compare_page = st.Page(str(_app_dir / "pages/trace_compare_page.py"), title="Trace Compare", icon=":material/compare_arrows:")
-batch_page = st.Page(str(_app_dir / "pages/batch_page.py"), title="Batch", icon=":material/dashboard:")
 qc_page = st.Page(str(_app_dir / "pages/qc_report_page.py"), title="QC Report", icon=":material/verified:")
 maze_page = st.Page(str(_app_dir / "pages/maze_page.py"), title="Maze", icon=":material/map:")
 signal_quality_page = st.Page(str(_app_dir / "pages/signal_quality_page.py"), title="Signal Quality", icon=":material/troubleshoot:")
@@ -147,17 +146,19 @@ tracking_quality_page = st.Page(str(_app_dir / "pages/tracking_quality_page.py")
 zdrift_page = st.Page(str(_app_dir / "pages/zdrift_page.py"), title="Z-Drift", icon=":material/straighten:")
 anatomy_page = st.Page(str(_app_dir / "pages/anatomy_page.py"), title="Anatomy", icon=":material/neurology:")
 patching_page = st.Page(str(_app_dir / "pages/patching_page.py"), title="Patching", icon=":material/electric_bolt:")
+patching_traces_page = st.Page(str(_app_dir / "pages/patching_traces_page.py"), title="Patching Traces", icon=":material/show_chart:")
 moseq_page = st.Page(str(_app_dir / "pages/moseq_page.py"), title="MoSeq", icon=":material/pets:")
 moseq_explore_page = st.Page(str(_app_dir / "pages/moseq_explore_page.py"), title="MoSeq Explore", icon=":material/travel_explore:")
+behaviour_page = st.Page(str(_app_dir / "pages/behaviour_page.py"), title="Behaviour", icon=":material/directions_run:")
 changelog_page = st.Page(str(_app_dir / "pages/changelog_page.py"), title="Changelog", icon=":material/history:")
 cost_page = st.Page(str(_app_dir / "pages/cost_page.py"), title="Costs", icon=":material/attach_money:")
 aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":material/cloud:")
 
 pg = st.navigation({
-    "Overview": [home_page, summary_page, sessions_page, animals_page, pipeline_page, batch_page],
+    "Overview": [home_page, sessions_page, animals_page, pipeline_page, summary_page],
     "Pipeline": [suite2p_page, calcium_page, dlc_page, tracking_quality_page, sync_page, zdrift_page, anatomy_page, moseq_page],
-    "Explore": [explorer_page, timeline_page, gallery_page, events_page, event_dynamics_page, correlations_page, trace_compare_page, moseq_explore_page],
-    "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, decoder_page, stability_page, drift_page, gain_page, anchoring_page, speed_mod_page, pop_dynamics_page, ahv_page, info_theory_page, classify_page, signal_quality_page, qc_page, patching_page],
+    "Explore": [explorer_page, timeline_page, gallery_page, events_page, event_dynamics_page, correlations_page, trace_compare_page, moseq_explore_page, behaviour_page],
+    "Analysis": [analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, decoder_page, stability_page, drift_page, gain_page, anchoring_page, speed_mod_page, pop_dynamics_page, ahv_page, info_theory_page, classify_page, signal_quality_page, qc_page, patching_page, patching_traces_page],
     "System": [aws_page, cost_page, changelog_page],
 })
 pg.run()

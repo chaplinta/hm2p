@@ -87,7 +87,7 @@ PIPELINE_STAGES = {
         "label": "Stage 3 — Kinematics",
         "short": "Kinematics",
         "s3_prefix": "kinematics",
-        "expected": 21,
+        "expected": 26,
     },
     "calcium": {
         "label": "Stage 4 — Calcium",
@@ -99,13 +99,13 @@ PIPELINE_STAGES = {
         "label": "Stage 5 — Sync",
         "short": "Sync",
         "s3_prefix": "sync",
-        "expected": 21,
+        "expected": 26,
     },
     "analysis": {
         "label": "Stage 6 — Analysis",
         "short": "Analysis",
         "s3_prefix": "analysis",
-        "expected": 21,
+        "expected": 26,
     },
     "kpms": {
         "label": "Stage 3b — MoSeq",
@@ -366,7 +366,7 @@ def load_all_sync_data() -> dict:
         ``"sessions"`` — list of dicts, each with keys:
             exp_id, sub, ses, animal_id, celltype, dff, hd_deg, speed_cm_s,
             light_on, active, bad_behav, n_rois, n_frames, frame_times,
-            roi_types
+            roi_types, deconv (or None), event_masks (or None)
         ``"n_sessions"`` — number of sessions loaded
         ``"n_total_rois"`` — total ROIs across all sessions
     """
@@ -391,10 +391,6 @@ def _fetch_all_sync_data() -> dict:
     sessions = []
 
     for exp in experiments:
-        # Only include primary sessions in analysis
-        if str(exp.get("primary_exp", "1")) != "1":
-            continue
-
         exp_id = exp["exp_id"]
         sub, ses = parse_session_id(exp_id)
         animal_id = exp_id.split("_")[-1]
@@ -415,6 +411,16 @@ def _fetch_all_sync_data() -> dict:
                 bad_behav = f["bad_behav"][:] if "bad_behav" in f else np.zeros(len(hd_deg), dtype=bool)
                 frame_times = f["frame_times"][:] if "frame_times" in f else np.arange(len(hd_deg), dtype=float)
                 roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
+                # Deconvolved spikes (Suite2p spks or CASCADE spikes)
+                deconv = f["spikes"][:] if "spikes" in f else None
+                # Event masks (Voigts & Harnett binary events)
+                event_masks = f["event_masks"][:] if "event_masks" in f else None
+                # Position and AHV (from kinematics, resampled to imaging rate)
+                x_mm = f["x_mm"][:] if "x_mm" in f else None
+                y_mm = f["y_mm"][:] if "y_mm" in f else None
+                x_maze = f["x_maze"][:] if "x_maze" in f else None
+                y_maze = f["y_maze"][:] if "y_maze" in f else None
+                ahv_deg_s = f["ahv_deg_s"][:] if "ahv_deg_s" in f else None
 
             sessions.append({
                 "exp_id": exp_id,
@@ -422,13 +428,22 @@ def _fetch_all_sync_data() -> dict:
                 "ses": ses,
                 "animal_id": animal_id,
                 "celltype": animal_info.get("celltype", "unknown"),
+                "exclude": str(exp.get("exclude", "0")).strip(),
+                "primary_exp": str(exp.get("primary_exp", "1")).strip(),
                 "dff": dff,
+                "deconv": deconv,
+                "event_masks": event_masks,
                 "hd_deg": hd_deg,
                 "speed_cm_s": speed,
                 "light_on": light_on,
                 "active": active,
                 "bad_behav": bad_behav,
                 "roi_types": roi_types,
+                "x_mm": x_mm,
+                "y_mm": y_mm,
+                "x_maze": x_maze,
+                "y_maze": y_maze,
+                "ahv_deg_s": ahv_deg_s,
                 "n_rois": dff.shape[0],
                 "n_frames": dff.shape[1],
                 "frame_times": frame_times,
@@ -447,8 +462,8 @@ def _fetch_all_sync_data() -> dict:
 def load_all_ca_data() -> list[dict]:
     """Load ca.h5 data for ALL sessions. Cached in session state.
 
-    Returns list of dicts with: exp_id, animal_id, celltype, dff, fps,
-    roi_types, n_rois, n_frames.
+    Returns list of dicts with: exp_id, sub, ses, animal_id, celltype, dff,
+    fps, roi_types, n_rois, n_frames, event_masks (or None).
     """
     cache_key = _session_state_key("ca_data")
     if cache_key in st.session_state:
@@ -471,10 +486,6 @@ def _fetch_all_ca_data() -> list[dict]:
     sessions = []
 
     for exp in experiments:
-        # Only include primary sessions in analysis
-        if str(exp.get("primary_exp", "1")) != "1":
-            continue
-
         exp_id = exp["exp_id"]
         sub, ses = parse_session_id(exp_id)
         animal_id = exp_id.split("_")[-1]
@@ -489,6 +500,7 @@ def _fetch_all_ca_data() -> list[dict]:
                 dff = f["dff"][:]
                 fps = float(f.attrs.get("fps_imaging", 30.0))
                 roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
+                event_masks = f["event_masks"][:] if "event_masks" in f else None
 
             sessions.append({
                 "exp_id": exp_id,
@@ -499,6 +511,7 @@ def _fetch_all_ca_data() -> list[dict]:
                 "dff": dff,
                 "fps": fps,
                 "roi_types": roi_types,
+                "event_masks": event_masks,
                 "n_rois": dff.shape[0],
                 "n_frames": dff.shape[1],
             })
@@ -542,6 +555,24 @@ def session_filter_sidebar(
 
     with st.sidebar:
         st.header("Filters")
+
+        # Session inclusion filters
+        has_exclude_info = any("exclude" in s for s in sessions)
+        if has_exclude_info:
+            include_excluded = st.checkbox(
+                "Include excluded sessions",
+                value=False,
+                key=f"{key_prefix}_include_excluded",
+            )
+            primary_only = st.checkbox(
+                "Primary experiments only",
+                value=True,
+                key=f"{key_prefix}_primary_only",
+            )
+        else:
+            include_excluded = True
+            primary_only = False
+
         sel_celltypes = st.multiselect(
             "Cell type", celltypes, default=celltypes,
             key=f"{key_prefix}_celltype",
@@ -560,10 +591,15 @@ def session_filter_sidebar(
         else:
             roi_filter = "All ROIs"
 
-    filtered = [
-        s for s in sessions
-        if s["celltype"] in sel_celltypes and s["animal_id"] in sel_animals
-    ]
+    filtered = []
+    for s in sessions:
+        if s["celltype"] not in sel_celltypes or s["animal_id"] not in sel_animals:
+            continue
+        if not include_excluded and s.get("exclude", "0") == "1":
+            continue
+        if primary_only and s.get("primary_exp", "1") != "1":
+            continue
+        filtered.append(s)
 
     # Apply ROI type filtering within each session
     if roi_filter != "All ROIs":
@@ -577,6 +613,10 @@ def session_filter_sidebar(
                     s_copy = dict(s)
                     s_copy["dff"] = s["dff"][mask]
                     s_copy["roi_types"] = roi_types[mask]
+                    if s.get("deconv") is not None:
+                        s_copy["deconv"] = s["deconv"][mask]
+                    if s.get("event_masks") is not None:
+                        s_copy["event_masks"] = s["event_masks"][mask]
                     s_copy["n_rois"] = int(mask.sum())
                     roi_filtered.append(s_copy)
             else:

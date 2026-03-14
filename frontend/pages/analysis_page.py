@@ -1,93 +1,60 @@
-"""Analysis page — multi-signal comparison, HD tuning, place tuning, robustness.
+"""Analysis page -- multi-signal HD & place tuning, pooled across sessions.
 
-Loads ca.h5 + kinematics data from S3, runs analysis with configurable
-parameters across all signal types (dF/F, deconv, events), and compares
-whether conclusions hold across calcium measures.
+Loads sync.h5 data for all sessions via load_all_sync_data(), with optional
+filtering by celltype, animal, ROI type, and individual session.  All six
+analysis tabs work on the pooled (or filtered) data.
 """
 
 from __future__ import annotations
 
-import io
 import logging
 import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
-
-log = logging.getLogger("hm2p.frontend.analysis")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-REGION = "ap-southeast-2"
-DERIVATIVES_BUCKET = "hm2p-derivatives"
+log = logging.getLogger("hm2p.frontend.analysis")
 
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-@st.cache_data(ttl=300)
-def _list_sessions_with_calcium() -> list[str]:
-    """List sessions that have ca.h5 on S3."""
-    import boto3
-
-    s3 = boto3.client("s3", region_name=REGION)
-    paginator = s3.get_paginator("list_objects_v2")
-    sessions = []
-    for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix="calcium/", Delimiter="/"):
-        for cp in page.get("CommonPrefixes", []):
-            sub_prefix = cp["Prefix"]
-            for page2 in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=sub_prefix, Delimiter="/"):
-                for cp2 in page2.get("CommonPrefixes", []):
-                    ses_prefix = cp2["Prefix"]
-                    resp = s3.list_objects_v2(
-                        Bucket=DERIVATIVES_BUCKET,
-                        Prefix=ses_prefix + "ca.h5",
-                        MaxKeys=1,
-                    )
-                    if resp.get("KeyCount", 0) > 0:
-                        parts = ses_prefix.rstrip("/").split("/")
-                        sessions.append(f"{parts[-2]}/{parts[-1]}")
-    return sorted(sessions)
-
-
-@st.cache_data(ttl=600)
-def _download_h5(bucket: str, key: str) -> dict:
-    """Download an HDF5 file from S3 and return contents as dict."""
-    import tempfile
-
-    import boto3
-    import h5py
-
-    s3 = boto3.client("s3", region_name=REGION)
-    with tempfile.NamedTemporaryFile(suffix=".h5") as tmp:
-        s3.download_file(bucket, key, tmp.name)
-        with h5py.File(tmp.name, "r") as f:
-            data = {}
-            for k in f.keys():
-                data[k] = f[k][:]
-            for k, v in f.attrs.items():
-                data[k] = v
-            return data
-
+_signal_labels = {"dff": "dF/F\u2080", "deconv": "Deconv", "events": "Events"}
 
 # ---------------------------------------------------------------------------
-# Page layout
+# Data loading
 # ---------------------------------------------------------------------------
 
-st.title("Analysis — Multi-Signal HD & Place Tuning")
+st.title("Analysis -- Multi-Signal HD & Place Tuning")
 
-# Sidebar
-st.sidebar.header("Session")
-sessions = _list_sessions_with_calcium()
-if not sessions:
-    st.warning("No sessions with ca.h5 found on S3.")
+from frontend.data import load_all_sync_data, session_filter_sidebar
+
+all_data = load_all_sync_data()
+if all_data["n_sessions"] == 0:
+    st.warning("No data available yet. Run pipeline stages 0-5 first.")
     st.stop()
 
-selected = st.sidebar.selectbox("Session", sessions)
-sub, ses = selected.split("/")
+sessions = session_filter_sidebar(all_data["sessions"], key_prefix="analysis")
+
+if not sessions:
+    st.warning("No sessions match the current filters.")
+    st.stop()
+
+# Optional session selector (default = all sessions pooled)
+session_labels = ["All sessions (pooled)"] + [s["exp_id"] for s in sessions]
+sel_session_label = st.sidebar.selectbox(
+    "Session", session_labels, index=0, key="analysis_session_select",
+)
+
+if sel_session_label == "All sessions (pooled)":
+    active_sessions = sessions
+else:
+    active_sessions = [s for s in sessions if s["exp_id"] == sel_session_label]
+
+# ---------------------------------------------------------------------------
+# Parameters
+# ---------------------------------------------------------------------------
 
 st.sidebar.header("Parameters")
 speed_threshold = st.sidebar.slider("Speed threshold (cm/s)", 0.0, 10.0, 2.5, 0.5)
@@ -102,54 +69,63 @@ place_sigma = st.sidebar.slider("Place smoothing (cm)", 0.0, 10.0, 3.0, 0.5)
 
 n_shuffles = st.sidebar.number_input("Bootstrap shuffles", 100, 2000, 500, 100)
 
-# Load data
-try:
-    ca = _download_h5(DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5")
-except Exception as e:
-    log.exception("Failed to load ca.h5")
-    st.error("Failed to load ca.h5. Check server logs for details.")
-    st.stop()
+# Summary
+total_rois = sum(s["n_rois"] for s in active_sessions)
+total_frames = sum(s["n_frames"] for s in active_sessions)
+st.sidebar.markdown(
+    f"**Sessions:** {len(active_sessions)} | "
+    f"**ROIs:** {total_rois} | "
+    f"**Total frames:** {total_frames}"
+)
 
-dff = ca.get("dff")
-if dff is None:
-    st.error("ca.h5 has no 'dff' dataset")
-    st.stop()
+st.success(
+    f"Loaded {len(active_sessions)} session(s), "
+    f"{total_rois} total ROIs"
+)
 
-n_rois, n_frames = dff.shape
-fps = float(ca.get("fps_imaging", 9.8))
-deconv = ca.get("spks")
-event_masks = ca.get("event_masks")
-
-# Available signal types
+# Determine which signals are available across loaded sessions
 available_signals = ["dff"]
-if deconv is not None:
+if any(s.get("deconv") is not None for s in sessions):
     available_signals.append("deconv")
-if event_masks is not None:
+if any(s.get("event_masks") is not None for s in sessions):
     available_signals.append("events")
 
-st.sidebar.markdown(f"**ROIs:** {n_rois} | **Frames:** {n_frames} | **FPS:** {fps:.1f}")
-st.sidebar.markdown(f"**Signals:** {', '.join(available_signals)}")
-
-# Try to load kinematics
-has_kinematics = False
-try:
-    ts = _download_h5(DERIVATIVES_BUCKET, f"movement/{sub}/{ses}/timestamps.h5")
-    kin = _download_h5(DERIVATIVES_BUCKET, f"movement/{sub}/{ses}/kinematics.h5")
-    has_kinematics = True
-except Exception:
-    ts = None
-    kin = None
+# ---------------------------------------------------------------------------
+# Helpers -- per-session data access
+# ---------------------------------------------------------------------------
 
 
-def _get_signal_array(signal_type: str) -> np.ndarray:
-    """Get signal array for a given type."""
-    if signal_type == "dff":
-        return dff[:, :n_frames]
-    elif signal_type == "deconv" and deconv is not None:
-        return deconv[:, :n_frames]
-    elif signal_type == "events" and event_masks is not None:
-        return event_masks[:, :n_frames].astype(np.float32)
-    return dff[:, :n_frames]
+def _get_signal(ses: dict, roi: int, signal_type: str) -> np.ndarray:
+    """Get signal array for a given ROI and signal type.
+
+    Falls back to dff if the requested signal is not available.
+    """
+    if signal_type == "deconv":
+        arr = ses.get("deconv")
+        if arr is not None:
+            return arr[roi]
+        return ses["dff"][roi]
+    elif signal_type == "events":
+        arr = ses.get("event_masks")
+        if arr is not None:
+            return arr[roi].astype(np.float32)
+        return np.zeros(ses["n_frames"], dtype=np.float32)
+    return ses["dff"][roi]
+
+
+def _get_session_masks(ses: dict) -> dict:
+    """Compute common masks for a session."""
+    active_mask = ses["active"] & ~ses["bad_behav"]
+    speed = ses["speed_cm_s"]
+    moving_mask = (speed >= speed_threshold) & active_mask
+    light_on = ses["light_on"].astype(bool)
+    return {
+        "active": active_mask,
+        "moving": moving_mask,
+        "light_on": light_on,
+        "speed": speed,
+        "hd_deg": ses["hd_deg"],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -168,267 +144,204 @@ tab_compare, tab_activity, tab_hd, tab_place, tab_robust, tab_population = st.ta
 # ---- Tab 1: Multi-signal comparison ----
 with tab_compare:
     st.subheader("Cross-Signal Comparison")
-
-    if not has_kinematics:
-        st.info("Kinematics not available. Run Stages 2-3 first.")
-
-        # Basic comparison without kinematics
-        st.markdown("### Signal Statistics (no behavioural data)")
-        import plotly.graph_objects as go
-
-        for sig_name in available_signals:
-            sig = _get_signal_array(sig_name)
-            mean_vals = np.nanmean(sig, axis=1)
-            std_vals = np.nanstd(sig, axis=1)
-
-            col1, col2 = st.columns(2)
-            with col1:
-                fig = go.Figure()
-                fig.add_trace(go.Bar(x=list(range(n_rois)), y=mean_vals))
-                fig.update_layout(title=f"Mean {sig_name} per ROI", height=300)
-                st.plotly_chart(fig, use_container_width=True)
-            with col2:
-                fig = go.Figure()
-                fig.add_trace(go.Bar(x=list(range(n_rois)), y=std_vals))
-                fig.update_layout(title=f"Std {sig_name} per ROI", height=300)
-                st.plotly_chart(fig, use_container_width=True)
-
-        # Cross-signal correlation
-        if len(available_signals) > 1:
-            st.markdown("### Cross-Signal Correlation")
-            for i in range(n_rois):
-                pass  # Will show per-ROI correlation between signal types
-
-            # Aggregate: mean correlation across ROIs
-            pairs = []
-            for i, s1 in enumerate(available_signals):
-                for s2 in available_signals[i+1:]:
-                    sig1 = _get_signal_array(s1)
-                    sig2 = _get_signal_array(s2)
-                    corrs = []
-                    for roi in range(n_rois):
-                        r = np.corrcoef(sig1[roi], sig2[roi])[0, 1]
-                        if np.isfinite(r):
-                            corrs.append(r)
-                    if corrs:
-                        pairs.append({"pair": f"{s1} vs {s2}", "mean_r": np.mean(corrs), "std_r": np.std(corrs)})
-
-            if pairs:
-                import pandas as pd
-                st.dataframe(pd.DataFrame(pairs), use_container_width=True)
-
-    else:
-        from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length
-        from hm2p.sync.align import resample_to_imaging_rate
-
-        cam_times = ts["frame_times_camera"]
-        img_times = ts["frame_times_imaging"]
-
-        hd_deg = resample_to_imaging_rate(kin["hd_deg"], cam_times, img_times)[:n_frames]
-        speed = resample_to_imaging_rate(kin["speed_cm_s"], cam_times, img_times)[:n_frames]
-        light_on = resample_to_imaging_rate(
-            kin["light_on"].astype(np.float64), cam_times, img_times,
-        )[:n_frames] > 0.5
-        bad = resample_to_imaging_rate(
-            kin["bad_behav"].astype(np.float64), cam_times, img_times,
-        )[:n_frames] > 0.5
-        active_mask = ~bad
-        moving_mask = (speed >= speed_threshold) & active_mask
-
+    if len(available_signals) > 1:
         st.markdown(
-            "Compare HD tuning metrics computed with different calcium signals. "
-            "If the same cells are significant across all signal types, "
-            "conclusions are robust to the choice of calcium measure."
+            "Compare HD tuning metrics across signal types (dF/F, deconvolved, "
+            "events). If the same cells are significant across signals, "
+            "conclusions are robust."
+        )
+    else:
+        st.markdown(
+            "Compare HD tuning metrics computed with dF/F across all sessions. "
+            "Deconvolved spikes and event masks will appear here when sync.h5 "
+            "files are regenerated with Stage 5."
         )
 
-        # Compute MVL for each signal type
-        import plotly.graph_objects as go
+    from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length
 
-        mvl_data = {}
-        for sig_name in available_signals:
-            sig = _get_signal_array(sig_name)
-            mvls = []
-            for roi in range(n_rois):
-                if moving_mask.sum() > 50:
+    # Compute MVL for each ROI across all sessions, for each signal
+    mvl_by_signal: dict[str, np.ndarray] = {}
+    roi_labels = []
+    for sig_type in available_signals:
+        mvl_data = []
+        for ses in active_sessions:
+            m = _get_session_masks(ses)
+            for roi in range(ses["n_rois"]):
+                if m["moving"].sum() > 50:
+                    sig = _get_signal(ses, roi, sig_type)
                     tc, centers = compute_hd_tuning_curve(
-                        sig[roi], hd_deg, moving_mask,
+                        sig, m["hd_deg"], m["moving"],
                         n_bins=hd_n_bins, smoothing_sigma_deg=hd_sigma,
                     )
-                    mvls.append(mean_vector_length(tc, centers))
+                    mvl_data.append(mean_vector_length(tc, centers))
                 else:
-                    mvls.append(np.nan)
-            mvl_data[sig_name] = np.array(mvls)
+                    mvl_data.append(np.nan)
+                if sig_type == available_signals[0]:
+                    roi_labels.append(f"{ses['exp_id']}:ROI{roi}")
+        mvl_by_signal[sig_type] = np.array(mvl_data)
 
-        # MVL comparison scatter
-        if len(available_signals) >= 2:
-            st.subheader("MVL Cross-Signal Scatter")
-            pairs = [(available_signals[i], available_signals[j])
-                     for i in range(len(available_signals))
-                     for j in range(i+1, len(available_signals))]
+    # For backwards compat (used in significance tab)
+    mvl_arr = mvl_by_signal["dff"]
 
-            cols = st.columns(len(pairs))
-            for col, (s1, s2) in zip(cols, pairs):
-                with col:
-                    fig = go.Figure()
-                    fig.add_trace(go.Scatter(
-                        x=mvl_data[s1], y=mvl_data[s2],
-                        mode="markers",
-                        text=[f"ROI {i}" for i in range(n_rois)],
-                        marker=dict(size=6),
-                    ))
-                    # Add identity line
-                    max_val = max(mvl_data[s1].max(), mvl_data[s2].max())
-                    fig.add_trace(go.Scatter(
-                        x=[0, max_val], y=[0, max_val],
-                        mode="lines", line=dict(dash="dash", color="gray"),
-                        showlegend=False,
-                    ))
-                    valid = np.isfinite(mvl_data[s1]) & np.isfinite(mvl_data[s2])
-                    if valid.sum() > 2:
-                        r = np.corrcoef(mvl_data[s1][valid], mvl_data[s2][valid])[0, 1]
-                        title = f"MVL: {s1} vs {s2} (r={r:.3f})"
-                    else:
-                        title = f"MVL: {s1} vs {s2}"
-                    fig.update_layout(
-                        title=title,
-                        xaxis_title=f"MVL ({s1})",
-                        yaxis_title=f"MVL ({s2})",
-                        height=400,
+    # MVL distribution — overlaid per signal
+    st.subheader("MVL Distribution")
+    fig = go.Figure()
+    for sig_type in available_signals:
+        vals = mvl_by_signal[sig_type]
+        vals = vals[np.isfinite(vals)]
+        fig.add_trace(go.Histogram(
+            x=vals, nbinsx=20, name=_signal_labels.get(sig_type, sig_type),
+            opacity=0.6,
+        ))
+    fig.update_layout(
+        xaxis_title="Mean Vector Length",
+        yaxis_title="Count",
+        barmode="overlay",
+        height=350,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Cross-signal MVL scatter (if multiple signals available)
+    if len(available_signals) >= 2:
+        st.subheader("Cross-Signal MVL Agreement")
+        ref_sig = available_signals[0]
+        for other_sig in available_signals[1:]:
+            ref_vals = mvl_by_signal[ref_sig]
+            other_vals = mvl_by_signal[other_sig]
+            valid = np.isfinite(ref_vals) & np.isfinite(other_vals)
+            if valid.sum() > 2:
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=ref_vals[valid], y=other_vals[valid],
+                    mode="markers", marker=dict(size=5),
+                    text=[roi_labels[i] for i in np.flatnonzero(valid)],
+                ))
+                maxv = max(ref_vals[valid].max(), other_vals[valid].max())
+                fig.add_trace(go.Scatter(
+                    x=[0, maxv], y=[0, maxv], mode="lines",
+                    line=dict(dash="dash", color="gray"), showlegend=False,
+                ))
+                corr = np.corrcoef(ref_vals[valid], other_vals[valid])[0, 1]
+                fig.update_layout(
+                    title=f"{_signal_labels[ref_sig]} vs {_signal_labels[other_sig]} (r={corr:.3f})",
+                    xaxis_title=f"MVL ({_signal_labels[ref_sig]})",
+                    yaxis_title=f"MVL ({_signal_labels[other_sig]})",
+                    height=400,
+                )
+                st.plotly_chart(fig, use_container_width=True)
+
+    # Per-ROI bar chart (mean dff)
+    st.subheader("Mean dF/F per ROI")
+    mean_vals = []
+    for ses in active_sessions:
+        for roi in range(ses["n_rois"]):
+            mean_vals.append(np.nanmean(ses["dff"][roi]))
+
+    fig = go.Figure()
+    fig.add_trace(go.Bar(y=mean_vals))
+    fig.update_layout(
+        xaxis_title="ROI index (pooled)",
+        yaxis_title="Mean dF/F",
+        height=350,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Significance agreement
+    st.subheader("Significance Agreement")
+    st.caption(
+        "Run significance testing and see which ROIs are HD-tuned."
+    )
+
+    if st.button("Run significance test", key="sig_compare"):
+        from hm2p.analysis.significance import hd_tuning_significance
+
+        sig_results = []
+        progress = st.progress(0)
+        roi_idx = 0
+
+        for ses in active_sessions:
+            m = _get_session_masks(ses)
+            for roi in range(ses["n_rois"]):
+                p_val = np.nan
+                is_sig = False
+                if m["moving"].sum() > 50:
+                    res = hd_tuning_significance(
+                        ses["dff"][roi], m["hd_deg"], m["moving"],
+                        n_shuffles=n_shuffles,
+                        n_bins=hd_n_bins,
+                        smoothing_sigma_deg=hd_sigma,
+                        rng=np.random.default_rng(roi_idx),
                     )
-                    st.plotly_chart(fig, use_container_width=True)
-
-        # MVL distribution overlay
-        st.subheader("MVL Distribution by Signal Type")
-        fig = go.Figure()
-        for sig_name in available_signals:
-            vals = mvl_data[sig_name]
-            vals = vals[np.isfinite(vals)]
-            fig.add_trace(go.Histogram(
-                x=vals, name=sig_name, opacity=0.6, nbinsx=20,
-            ))
-        fig.update_layout(
-            barmode="overlay",
-            xaxis_title="Mean Vector Length",
-            yaxis_title="Count",
-            height=350,
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Agreement table
-        st.subheader("Significance Agreement")
-        st.caption(
-            "Run significance testing across signal types and compare "
-            "which ROIs are significant. High agreement = robust conclusions."
-        )
-
-        if st.button("Run significance comparison", key="sig_compare"):
-            from hm2p.analysis.significance import hd_tuning_significance
-
-            sig_results = {}
-            progress = st.progress(0)
-            total_steps = len(available_signals) * n_rois
-
-            for si, sig_name in enumerate(available_signals):
-                sig = _get_signal_array(sig_name)
-                significant = np.zeros(n_rois, dtype=bool)
-                p_values = np.full(n_rois, np.nan)
-
-                for roi in range(n_rois):
-                    if moving_mask.sum() > 50:
-                        res = hd_tuning_significance(
-                            sig[roi], hd_deg, moving_mask,
-                            n_shuffles=n_shuffles,
-                            n_bins=hd_n_bins,
-                            smoothing_sigma_deg=hd_sigma,
-                            rng=np.random.default_rng(roi),
-                        )
-                        p_values[roi] = res["p_value"]
-                        significant[roi] = res["p_value"] < 0.05
-                    step = si * n_rois + roi + 1
-                    progress.progress(step / total_steps)
-
-                sig_results[sig_name] = {
-                    "significant": significant,
-                    "p_values": p_values,
-                    "n_significant": int(significant.sum()),
-                }
-
-            progress.empty()
-
-            # Summary
-            import pandas as pd
-
-            summary_rows = []
-            for sig_name, res in sig_results.items():
-                summary_rows.append({
-                    "Signal": sig_name,
-                    "N significant": res["n_significant"],
-                    "Fraction": f"{res['n_significant']/n_rois:.1%}",
-                    "Mean p-value": f"{np.nanmean(res['p_values']):.4f}",
+                    p_val = res["p_value"]
+                    is_sig = p_val < 0.05
+                sig_results.append({
+                    "Session": ses["exp_id"],
+                    "Celltype": ses["celltype"],
+                    "ROI": roi,
+                    "MVL": f"{mvl_arr[roi_idx]:.4f}" if np.isfinite(mvl_arr[roi_idx]) else "---",
+                    "p-value": f"{p_val:.4f}" if np.isfinite(p_val) else "---",
+                    "Significant": "Y" if is_sig else "-",
                 })
-            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
+                roi_idx += 1
+                progress.progress(roi_idx / total_rois)
 
-            # Agreement matrix
-            if len(available_signals) >= 2:
-                st.markdown("### Pairwise Agreement")
-                for s1, s2 in pairs:
-                    both = sig_results[s1]["significant"] & sig_results[s2]["significant"]
-                    either = sig_results[s1]["significant"] | sig_results[s2]["significant"]
-                    jaccard = both.sum() / either.sum() if either.sum() > 0 else 0
-                    st.text(
-                        f"  {s1} vs {s2}: "
-                        f"Both={both.sum()}, Either={either.sum()}, "
-                        f"Jaccard={jaccard:.2f}"
-                    )
+        progress.empty()
 
-                # Per-ROI table
-                roi_rows = []
-                for roi in range(n_rois):
-                    row = {"ROI": roi}
-                    for sig_name, res in sig_results.items():
-                        row[f"{sig_name}_sig"] = "Y" if res["significant"][roi] else "-"
-                        row[f"{sig_name}_p"] = f"{res['p_values'][roi]:.4f}"
-                        row[f"{sig_name}_mvl"] = f"{mvl_data[sig_name][roi]:.4f}"
-                    roi_rows.append(row)
-                st.dataframe(pd.DataFrame(roi_rows), use_container_width=True)
+        df_sig = pd.DataFrame(sig_results)
+        n_sig = sum(1 for r in sig_results if r["Significant"] == "Y")
+        st.markdown(
+            f"**{n_sig} / {total_rois} ROIs** significantly HD-tuned "
+            f"({n_sig / total_rois:.1%})"
+        )
+        st.dataframe(df_sig, use_container_width=True)
 
 
 # ---- Tab 2: Activity by condition ----
 with tab_activity:
     st.subheader("Activity by Condition (2x2: Movement x Light)")
 
-    if not has_kinematics:
-        st.info("Kinematics data not yet available. Run Stage 3 first.")
-        st.markdown("### Basic dF/F Statistics")
+    from hm2p.analysis.activity import compute_batch_activity
+    from hm2p.plotting import format_pvalue, paired_condition_scatter
 
-        import plotly.graph_objects as go
+    # Collect activity results across all sessions
+    all_results = []
+    all_session_labels = []
+    fps_values = []
 
-        mean_dff = np.nanmean(dff, axis=1)
-        fig = go.Figure()
-        fig.add_trace(go.Bar(x=list(range(n_rois)), y=mean_dff, name="Mean dF/F"))
-        fig.update_layout(xaxis_title="ROI", yaxis_title="Mean dF/F", height=400)
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        signal_type_act = st.selectbox("Signal type", available_signals, key="act_sig")
-        signals = _get_signal_array(signal_type_act)
-        evts = event_masks[:, :n_frames] if event_masks is not None else np.zeros_like(signals, dtype=bool)
+    for ses in active_sessions:
+        m = _get_session_masks(ses)
+        n_rois_ses = ses["n_rois"]
+        n_frames_ses = ses["n_frames"]
+        # Estimate fps from frame_times
+        ft = ses["frame_times"]
+        if len(ft) > 1:
+            fps = 1.0 / np.median(np.diff(ft))
+        else:
+            fps = 9.8
 
-        from hm2p.analysis.activity import compute_batch_activity
+        # Use real event_masks from sync.h5 if available, else zeros
+        evts = ses.get("event_masks")
+        if evts is None:
+            evts = np.zeros_like(ses["dff"], dtype=bool)
 
         results = compute_batch_activity(
-            signals, evts, speed, light_on, active_mask, fps,
-            speed_threshold=speed_threshold,
+            ses["dff"], evts, m["speed"], m["light_on"],
+            m["active"], fps, speed_threshold=speed_threshold,
         )
+        all_results.extend(results)
+        all_session_labels.extend([ses["exp_id"]] * n_rois_ses)
 
-        import plotly.graph_objects as go
-        from hm2p.plotting import paired_condition_scatter, format_pvalue
+    if not all_results:
+        st.info("No activity data computed.")
+    else:
+        n_rois_total = len(all_results)
 
         # Paired scatter: Light vs Dark within each movement state
         st.markdown("**Event rate: Light vs Dark (paired per ROI)**")
         col1, col2 = st.columns(2)
         with col1:
-            mov_light = np.array([r["moving_light_event_rate"] for r in results])
-            mov_dark = np.array([r["moving_dark_event_rate"] for r in results])
+            mov_light = np.array([r["moving_light_event_rate"] for r in all_results])
+            mov_dark = np.array([r["moving_dark_event_rate"] for r in all_results])
             fig_ml, stat_ml = paired_condition_scatter(
                 mov_light, mov_dark, "Light", "Dark",
                 "Event Rate (moving)", height=400, width=400,
@@ -437,8 +350,8 @@ with tab_activity:
             st.markdown(f"Wilcoxon: {format_pvalue(stat_ml['p'])}, n={stat_ml['n']}")
 
         with col2:
-            stat_light = np.array([r["stationary_light_event_rate"] for r in results])
-            stat_dark = np.array([r["stationary_dark_event_rate"] for r in results])
+            stat_light = np.array([r["stationary_light_event_rate"] for r in all_results])
+            stat_dark = np.array([r["stationary_dark_event_rate"] for r in all_results])
             fig_sl, stat_sl = paired_condition_scatter(
                 stat_light, stat_dark, "Light", "Dark",
                 "Event Rate (stationary)", height=400, width=400,
@@ -446,14 +359,14 @@ with tab_activity:
             st.plotly_chart(fig_sl, use_container_width=True)
             st.markdown(f"Wilcoxon: {format_pvalue(stat_sl['p'])}, n={stat_sl['n']}")
 
-        # Modulation indices scatter (not a light/dark comparison — keep as is)
+        # Modulation indices scatter
         st.markdown("**Modulation Indices**")
-        mov_mod = [r["movement_modulation"] for r in results]
-        light_mod = [r["light_modulation"] for r in results]
+        mov_mod = [r["movement_modulation"] for r in all_results]
+        light_mod = [r["light_modulation"] for r in all_results]
         fig_mod = go.Figure()
         fig_mod.add_trace(go.Scatter(
             x=mov_mod, y=light_mod, mode="markers",
-            text=[f"ROI {i}" for i in range(n_rois)],
+            text=[f"{all_session_labels[i]}:ROI{i}" for i in range(n_rois_total)],
             marker=dict(size=8),
         ))
         fig_mod.add_hline(y=0, line_dash="dash", line_color="gray")
@@ -465,12 +378,12 @@ with tab_activity:
         )
         st.plotly_chart(fig_mod, use_container_width=True)
 
-        # Mean signal: Light vs Dark (paired scatter)
+        # Mean signal: Light vs Dark
         st.subheader("Mean Signal by Condition")
         col1, col2 = st.columns(2)
         with col1:
-            ml_sig = np.array([r["moving_light_mean_signal"] for r in results])
-            md_sig = np.array([r["moving_dark_mean_signal"] for r in results])
+            ml_sig = np.array([r["moving_light_mean_signal"] for r in all_results])
+            md_sig = np.array([r["moving_dark_mean_signal"] for r in all_results])
             fig_ms, stat_ms = paired_condition_scatter(
                 ml_sig, md_sig, "Light", "Dark",
                 "Mean Signal (moving)", height=400, width=400,
@@ -479,8 +392,8 @@ with tab_activity:
             st.markdown(f"Wilcoxon: {format_pvalue(stat_ms['p'])}, n={stat_ms['n']}")
 
         with col2:
-            sl_sig = np.array([r["stationary_light_mean_signal"] for r in results])
-            sd_sig = np.array([r["stationary_dark_mean_signal"] for r in results])
+            sl_sig = np.array([r["stationary_light_mean_signal"] for r in all_results])
+            sd_sig = np.array([r["stationary_dark_mean_signal"] for r in all_results])
             fig_ss, stat_ss = paired_condition_scatter(
                 sl_sig, sd_sig, "Light", "Dark",
                 "Mean Signal (stationary)", height=400, width=400,
@@ -490,18 +403,22 @@ with tab_activity:
 
         # Summary table
         st.markdown("### Per-ROI Summary")
-        import pandas as pd
         rows = []
-        for i, r in enumerate(results):
-            rows.append({
-                "ROI": i,
-                "Move+Light": f"{r['moving_light_event_rate']:.3f}",
-                "Move+Dark": f"{r['moving_dark_event_rate']:.3f}",
-                "Still+Light": f"{r['stationary_light_event_rate']:.3f}",
-                "Still+Dark": f"{r['stationary_dark_event_rate']:.3f}",
-                "Move MI": f"{r['movement_modulation']:.3f}",
-                "Light MI": f"{r['light_modulation']:.3f}",
-            })
+        roi_global = 0
+        for ses in active_sessions:
+            for roi in range(ses["n_rois"]):
+                r = all_results[roi_global]
+                rows.append({
+                    "Session": ses["exp_id"],
+                    "ROI": roi,
+                    "Move+Light": f"{r['moving_light_event_rate']:.3f}",
+                    "Move+Dark": f"{r['moving_dark_event_rate']:.3f}",
+                    "Still+Light": f"{r['stationary_light_event_rate']:.3f}",
+                    "Still+Dark": f"{r['stationary_dark_event_rate']:.3f}",
+                    "Move MI": f"{r['movement_modulation']:.3f}",
+                    "Light MI": f"{r['light_modulation']:.3f}",
+                })
+                roi_global += 1
         st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
 
@@ -509,307 +426,343 @@ with tab_activity:
 with tab_hd:
     st.subheader("Head Direction Tuning")
 
-    if not has_kinematics:
-        st.info("Kinematics data not yet available.")
-    else:
-        from hm2p.analysis.tuning import (
-            compute_hd_tuning_curve,
-            mean_vector_length,
-            preferred_direction,
+    from hm2p.analysis.tuning import (
+        compute_hd_tuning_curve,
+        mean_vector_length,
+        preferred_direction,
+    )
+
+    # Signal selector
+    if len(available_signals) > 1:
+        hd_signal_type = st.radio(
+            "Signal", available_signals,
+            format_func=lambda s: _signal_labels.get(s, s),
+            horizontal=True, key="hd_signal",
         )
+    else:
+        hd_signal_type = "dff"
 
-        signal_type_hd = st.selectbox("Signal type", available_signals, key="hd_sig")
-        signals_hd = _get_signal_array(signal_type_hd)
+    # Session + ROI picker for single-cell view
+    hd_session_labels = [s["exp_id"] for s in active_sessions]
+    hd_ses_idx = st.selectbox(
+        "Session (single cell view)", range(len(hd_session_labels)),
+        format_func=lambda i: hd_session_labels[i], key="hd_ses",
+    )
+    ses_hd = active_sessions[hd_ses_idx]
+    n_rois_hd = ses_hd["n_rois"]
+    roi_select = st.selectbox("ROI", list(range(n_rois_hd)), key="hd_roi")
+    m_hd = _get_session_masks(ses_hd)
 
-        roi_select = st.selectbox("ROI", list(range(n_rois)), key="hd_roi")
-        sig = signals_hd[roi_select]
+    sig = _get_signal(ses_hd, roi_select, hd_signal_type)
+    moving_mask = m_hd["moving"]
+    hd_deg = m_hd["hd_deg"]
+    light_on = m_hd["light_on"]
+    moving_light_mask = moving_mask & light_on
+    moving_dark_mask = moving_mask & ~light_on
 
-        moving_light_mask = moving_mask & light_on
-        moving_dark_mask = moving_mask & ~light_on
+    col1, col2 = st.columns(2)
 
-        import plotly.graph_objects as go
+    with col1:
+        st.markdown("#### All moving frames")
+        if moving_mask.sum() > 50:
+            tc, centers = compute_hd_tuning_curve(
+                sig, hd_deg, moving_mask,
+                n_bins=hd_n_bins, smoothing_sigma_deg=hd_sigma,
+            )
+            mvl = mean_vector_length(tc, centers)
+            pd_val = preferred_direction(tc, centers)
 
-        col1, col2 = st.columns(2)
+            tc_closed = np.append(tc, tc[0])
+            centers_closed = np.append(centers, centers[0] + 360)
+            fig = go.Figure()
+            fig.add_trace(go.Scatterpolar(
+                r=tc_closed, theta=centers_closed,
+                mode="lines", fill="toself", name="All",
+            ))
+            fig.update_layout(
+                title=f"ROI {roi_select} -- MVL={mvl:.3f}, PD={pd_val:.0f}",
+                polar=dict(radialaxis=dict(visible=False), angularaxis=dict(showticklabels=False)),
+                height=400,
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
-        with col1:
-            st.markdown("#### All moving frames")
-            if moving_mask.sum() > 50:
-                tc, centers = compute_hd_tuning_curve(
-                    sig, hd_deg, moving_mask,
+    with col2:
+        st.markdown("#### Light vs Dark")
+        if moving_light_mask.sum() > 50 and moving_dark_mask.sum() > 50:
+            tc_l, centers = compute_hd_tuning_curve(
+                sig, hd_deg, moving_light_mask,
+                n_bins=hd_n_bins, smoothing_sigma_deg=hd_sigma,
+            )
+            tc_d, _ = compute_hd_tuning_curve(
+                sig, hd_deg, moving_dark_mask,
+                n_bins=hd_n_bins, smoothing_sigma_deg=hd_sigma,
+            )
+            mvl_l = mean_vector_length(tc_l, centers)
+            mvl_d = mean_vector_length(tc_d, centers)
+
+            tc_l_c = np.append(tc_l, tc_l[0])
+            tc_d_c = np.append(tc_d, tc_d[0])
+            centers_c = np.append(centers, centers[0] + 360)
+
+            fig = go.Figure()
+            fig.add_trace(go.Scatterpolar(
+                r=tc_l_c, theta=centers_c, mode="lines",
+                name=f"Light (MVL={mvl_l:.3f})", line=dict(color="gold"),
+            ))
+            fig.add_trace(go.Scatterpolar(
+                r=tc_d_c, theta=centers_c, mode="lines",
+                name=f"Dark (MVL={mvl_d:.3f})", line=dict(color="navy"),
+            ))
+            fig.update_layout(
+                title=f"ROI {roi_select} -- Light vs Dark",
+                polar=dict(radialaxis=dict(visible=False), angularaxis=dict(showticklabels=False)),
+                height=400,
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            from hm2p.analysis.comparison import (
+                preferred_direction_shift,
+                tuning_curve_correlation,
+            )
+
+            corr = tuning_curve_correlation(tc_l, tc_d)
+            pd_shift = preferred_direction_shift(tc_l, tc_d, centers)
+            col_m1, col_m2 = st.columns(2)
+            col_m1.metric("TC correlation", f"{corr:.3f}")
+            col_m2.metric("PD shift (deg)", f"{pd_shift:.1f}")
+
+    # Population HD summary (all sessions pooled)
+    st.markdown("### Population HD Summary (all sessions)")
+    mvls_pop = []
+    pds_pop = []
+    pop_labels = []
+    for ses in active_sessions:
+        m = _get_session_masks(ses)
+        for roi in range(ses["n_rois"]):
+            if m["moving"].sum() > 50:
+                pop_sig = _get_signal(ses, roi, hd_signal_type)
+                tc_i, c_i = compute_hd_tuning_curve(
+                    pop_sig, m["hd_deg"], m["moving"],
                     n_bins=hd_n_bins, smoothing_sigma_deg=hd_sigma,
                 )
-                mvl = mean_vector_length(tc, centers)
-                pd_val = preferred_direction(tc, centers)
+                mvls_pop.append(mean_vector_length(tc_i, c_i))
+                pds_pop.append(preferred_direction(tc_i, c_i))
+                pop_labels.append(f"{ses['exp_id']}:ROI{roi}")
 
-                tc_closed = np.append(tc, tc[0])
-                centers_closed = np.append(centers, centers[0] + 360)
-                fig = go.Figure()
-                fig.add_trace(go.Scatterpolar(
-                    r=tc_closed, theta=centers_closed,
-                    mode="lines", fill="toself", name="All",
-                ))
-                fig.update_layout(
-                    title=f"ROI {roi_select} ({signal_type_hd}) -- MVL={mvl:.3f}, PD={pd_val:.0f}",
-                    polar=dict(radialaxis=dict(visible=True)),
-                    height=400,
-                )
-                st.plotly_chart(fig, use_container_width=True)
+    if mvls_pop:
+        col1, col2 = st.columns(2)
+        with col1:
+            fig = go.Figure()
+            fig.add_trace(go.Histogram(x=mvls_pop, nbinsx=20))
+            fig.update_layout(
+                title="MVL Distribution",
+                xaxis_title="MVL", yaxis_title="Count", height=350,
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            st.markdown("#### Light vs Dark")
-            if moving_light_mask.sum() > 50 and moving_dark_mask.sum() > 50:
-                tc_l, centers = compute_hd_tuning_curve(
-                    sig, hd_deg, moving_light_mask,
-                    n_bins=hd_n_bins, smoothing_sigma_deg=hd_sigma,
-                )
-                tc_d, _ = compute_hd_tuning_curve(
-                    sig, hd_deg, moving_dark_mask,
-                    n_bins=hd_n_bins, smoothing_sigma_deg=hd_sigma,
-                )
-                mvl_l = mean_vector_length(tc_l, centers)
-                mvl_d = mean_vector_length(tc_d, centers)
-
-                tc_l_c = np.append(tc_l, tc_l[0])
-                tc_d_c = np.append(tc_d, tc_d[0])
-                centers_c = np.append(centers, centers[0] + 360)
-
-                fig = go.Figure()
-                fig.add_trace(go.Scatterpolar(
-                    r=tc_l_c, theta=centers_c, mode="lines",
-                    name=f"Light (MVL={mvl_l:.3f})", line=dict(color="gold"),
-                ))
-                fig.add_trace(go.Scatterpolar(
-                    r=tc_d_c, theta=centers_c, mode="lines",
-                    name=f"Dark (MVL={mvl_d:.3f})", line=dict(color="navy"),
-                ))
-                fig.update_layout(
-                    title=f"ROI {roi_select} -- Light vs Dark",
-                    polar=dict(radialaxis=dict(visible=True)),
-                    height=400,
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-                from hm2p.analysis.comparison import preferred_direction_shift, tuning_curve_correlation
-                corr = tuning_curve_correlation(tc_l, tc_d)
-                pd_shift = preferred_direction_shift(tc_l, tc_d, centers)
-                col_m1, col_m2 = st.columns(2)
-                col_m1.metric("TC correlation", f"{corr:.3f}")
-                col_m2.metric("PD shift (deg)", f"{pd_shift:.1f}")
-
-        # Population HD summary
-        st.markdown("### Population HD Summary")
-        mvls = []
-        pds = []
-        for i in range(n_rois):
-            if moving_mask.sum() > 50:
-                tc_i, c_i = compute_hd_tuning_curve(
-                    signals_hd[i], hd_deg, moving_mask,
-                    n_bins=hd_n_bins, smoothing_sigma_deg=hd_sigma,
-                )
-                mvls.append(mean_vector_length(tc_i, c_i))
-                pds.append(preferred_direction(tc_i, c_i))
-
-        if mvls:
-            col1, col2 = st.columns(2)
-            with col1:
-                fig = go.Figure()
-                fig.add_trace(go.Histogram(x=mvls, nbinsx=20))
-                fig.update_layout(
-                    title="MVL Distribution",
-                    xaxis_title="MVL", yaxis_title="Count", height=350,
-                )
-                st.plotly_chart(fig, use_container_width=True)
-
-            with col2:
-                # Polar plot of preferred directions weighted by MVL
-                fig = go.Figure()
-                fig.add_trace(go.Scatterpolar(
-                    r=mvls, theta=pds,
-                    mode="markers",
-                    marker=dict(size=6),
-                    text=[f"ROI {i}" for i in range(len(mvls))],
-                ))
-                fig.update_layout(
-                    title="Preferred Directions (radius = MVL)",
-                    height=350,
-                )
-                st.plotly_chart(fig, use_container_width=True)
+            fig = go.Figure()
+            fig.add_trace(go.Scatterpolar(
+                r=mvls_pop, theta=pds_pop,
+                mode="markers",
+                marker=dict(size=6),
+                text=pop_labels,
+            ))
+            fig.update_layout(
+                title="Preferred Directions (radius = MVL)",
+                polar=dict(radialaxis=dict(visible=False), angularaxis=dict(showticklabels=False)),
+                height=350,
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
 
 # ---- Tab 4: Place Tuning ----
 with tab_place:
     st.subheader("Place Tuning")
 
-    if not has_kinematics:
-        st.info("Kinematics data not yet available.")
+    from hm2p.analysis.tuning import compute_place_rate_map, spatial_information
+
+    # Session + ROI picker
+    pl_session_labels = [s["exp_id"] for s in active_sessions]
+    pl_ses_idx = st.selectbox(
+        "Session", range(len(pl_session_labels)),
+        format_func=lambda i: pl_session_labels[i], key="pl_ses",
+    )
+    ses_pl = active_sessions[pl_ses_idx]
+    n_rois_pl = ses_pl["n_rois"]
+    roi_select_pl = st.selectbox("ROI", list(range(n_rois_pl)), key="place_roi")
+
+    m_pl = _get_session_masks(ses_pl)
+    sig_pl = ses_pl["dff"][roi_select_pl]
+    moving_mask_pl = m_pl["moving"]
+    light_on_pl = m_pl["light_on"]
+
+    # Position: sync.h5 has speed_cm_s but not x/y position
+    # Place tuning needs position -- check if available
+    has_position = False
+    # sync.h5 does not include x_mm/y_mm; place tuning requires
+    # separate position data. Show a note.
+    st.info(
+        "Place tuning requires x/y position data, which is not stored in "
+        "sync.h5. Position-based rate maps will be available when position "
+        "data is added to the sync output."
+    )
+
+    # Estimate fps
+    ft_pl = ses_pl["frame_times"]
+    if len(ft_pl) > 1:
+        fps_pl = 1.0 / np.median(np.diff(ft_pl))
     else:
-        from hm2p.analysis.tuning import compute_place_rate_map, spatial_information
+        fps_pl = 9.8
 
-        signal_type_pl = st.selectbox("Signal type", available_signals, key="pl_sig")
-        signals_pl = _get_signal_array(signal_type_pl)
-
-        x_cm = resample_to_imaging_rate(kin["x_mm"], cam_times, img_times)[:n_frames] / 10.0
-        y_cm = resample_to_imaging_rate(kin["y_mm"], cam_times, img_times)[:n_frames] / 10.0
-
-        roi_select_pl = st.selectbox("ROI", list(range(n_rois)), key="place_roi")
-        sig_pl = signals_pl[roi_select_pl]
-
-        import plotly.graph_objects as go
-
-        col1, col2, col3 = st.columns(3)
-        for col, (label, mask) in zip(
-            [col1, col2, col3],
-            [("All moving", moving_mask), ("Light", moving_mask & light_on), ("Dark", moving_mask & ~light_on)],
-        ):
-            with col:
-                st.markdown(f"#### {label}")
-                if mask.sum() > 50:
-                    rm, om, bx, by = compute_place_rate_map(
-                        sig_pl, x_cm, y_cm, mask,
-                        bin_size=place_bin, smoothing_sigma=place_sigma,
-                        min_occupancy_s=0.5, fps=fps,
-                    )
-                    si = spatial_information(rm, om)
-                    fig = go.Figure(data=go.Heatmap(
-                        z=rm.T, colorscale="Hot", colorbar=dict(title="Rate"),
-                    ))
-                    fig.update_layout(
-                        title=f"SI={si:.3f} bits",
-                        height=350, width=350,
-                        yaxis=dict(scaleanchor="x"),
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-
-        # Occupancy map
-        st.subheader("Occupancy Map")
-        if moving_mask.sum() > 50:
-            _, occ, _, _ = compute_place_rate_map(
-                sig_pl, x_cm, y_cm, moving_mask,
-                bin_size=place_bin, smoothing_sigma=0,
-                min_occupancy_s=0.0, fps=fps,
-            )
-            fig_occ = go.Figure(data=go.Heatmap(
-                z=occ.T, colorscale="Blues",
-                colorbar=dict(title="Seconds"),
-            ))
-            fig_occ.update_layout(
-                title="Occupancy (all moving frames)",
-                height=350,
-                yaxis=dict(scaleanchor="x"),
-            )
-            st.plotly_chart(fig_occ, use_container_width=True)
+    # Occupancy in HD space as a proxy
+    st.subheader("HD Occupancy (proxy)")
+    hd_moving = m_pl["hd_deg"][moving_mask_pl]
+    if len(hd_moving) > 50:
+        fig = go.Figure()
+        fig.add_trace(go.Histogram(x=hd_moving, nbinsx=36, name="HD occupancy"))
+        fig.update_layout(
+            xaxis_title="Head Direction (deg)",
+            yaxis_title="Frame count",
+            height=300,
+        )
+        st.plotly_chart(fig, use_container_width=True)
 
 
 # ---- Tab 5: Robustness ----
 with tab_robust:
     st.subheader("Robustness -- Parameter Sensitivity")
+    st.markdown(
+        "### Parameter Grid (HD Tuning)\n"
+        "Test how the fraction of significant cells changes across "
+        "bin sizes and smoothing levels, pooled across all sessions."
+    )
 
-    if not has_kinematics:
-        st.info("Kinematics data not yet available.")
-    else:
-        st.markdown("### Parameter Grid (HD Tuning)")
-        st.markdown(
-            "Test how the fraction of significant cells changes across "
-            "signal types, bin sizes, and smoothing levels."
-        )
+    bin_options = st.multiselect(
+        "HD bins", [12, 18, 24, 36, 72], default=[18, 36], key="rob_bins",
+    )
+    sigma_options = st.multiselect(
+        "Smoothing (deg)", [0, 3, 6, 9, 12], default=[3, 6], key="rob_sigma",
+    )
+    grid_shuffles = st.number_input(
+        "Shuffles per cell", 50, 1000, 100, 50, key="grid_shuf",
+    )
 
-        sig_types = st.multiselect("Signal types", available_signals, default=available_signals, key="rob_sig")
-        bin_options = st.multiselect("HD bins", [12, 18, 24, 36, 72], default=[18, 36], key="rob_bins")
-        sigma_options = st.multiselect("Smoothing (deg)", [0, 3, 6, 9, 12], default=[3, 6], key="rob_sigma")
-        grid_shuffles = st.number_input("Shuffles per cell", 50, 1000, 100, 50, key="grid_shuf")
+    grid_signals = st.multiselect(
+        "Signals to test", available_signals, default=available_signals,
+        format_func=lambda s: _signal_labels.get(s, s), key="rob_signals",
+    )
 
-        if st.button("Run Parameter Grid", key="run_grid"):
-            from hm2p.analysis.significance import hd_tuning_significance
+    if st.button("Run Parameter Grid", key="run_grid"):
+        from hm2p.analysis.significance import hd_tuning_significance
+        from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length
 
-            progress = st.progress(0)
-            total = len(sig_types) * len(bin_options) * len(sigma_options)
-            grid_results = []
-            step = 0
+        progress = st.progress(0)
+        total = len(grid_signals) * len(bin_options) * len(sigma_options)
+        grid_results = []
+        step = 0
 
-            for st_name in sig_types:
-                sigs = _get_signal_array(st_name)
-
-                for nb in bin_options:
-                    for sg in sigma_options:
-                        n_sig = 0
-                        for roi in range(n_rois):
-                            if moving_mask.sum() > 50:
+        for sig_type in grid_signals:
+            for nb in bin_options:
+                for sg in sigma_options:
+                    n_sig = 0
+                    n_tested = 0
+                    roi_global = 0
+                    for ses in active_sessions:
+                        m = _get_session_masks(ses)
+                        for roi in range(ses["n_rois"]):
+                            if m["moving"].sum() > 50:
+                                sig_arr = _get_signal(ses, roi, sig_type)
                                 res = hd_tuning_significance(
-                                    sigs[roi], hd_deg, moving_mask,
+                                    sig_arr, m["hd_deg"], m["moving"],
                                     n_shuffles=grid_shuffles,
                                     n_bins=nb, smoothing_sigma_deg=float(sg),
-                                    rng=np.random.default_rng(roi),
+                                    rng=np.random.default_rng(roi_global),
                                 )
                                 if res["p_value"] < 0.05:
                                     n_sig += 1
-                        frac = n_sig / n_rois if n_rois > 0 else 0
-                        grid_results.append({
-                            "signal": st_name,
-                            "bins": nb,
-                            "sigma": sg,
-                            "n_significant": n_sig,
-                            "frac_significant": frac,
-                        })
-                        step += 1
-                        progress.progress(step / total)
+                                n_tested += 1
+                            roi_global += 1
 
-            progress.empty()
+                    frac = n_sig / n_tested if n_tested > 0 else 0
+                    grid_results.append({
+                        "signal": _signal_labels.get(sig_type, sig_type),
+                        "bins": nb,
+                        "sigma": sg,
+                        "n_significant": n_sig,
+                        "n_tested": n_tested,
+                        "frac_significant": frac,
+                    })
+                    step += 1
+                    progress.progress(step / total)
 
-            import pandas as pd
-            df = pd.DataFrame(grid_results)
-            st.dataframe(df, use_container_width=True)
+        progress.empty()
 
-            if len(df) > 1:
-                import plotly.express as px
-                fig = px.scatter(
-                    df, x="bins", y="sigma", size="frac_significant",
-                    color="signal", hover_data=["n_significant"],
-                    title="Fraction of HD-tuned cells across parameters",
-                )
-                st.plotly_chart(fig, use_container_width=True)
+        df = pd.DataFrame(grid_results)
+        st.dataframe(df, use_container_width=True)
+
+        if len(df) > 1:
+            import plotly.express as px
+
+            fig = px.scatter(
+                df, x="bins", y="sigma", size="frac_significant",
+                color="signal", hover_data=["n_significant", "n_tested"],
+                title="Fraction of HD-tuned cells across parameters",
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
 
 # ---- Tab 6: Population Summary ----
 with tab_population:
     st.subheader("Population Summary")
+    st.markdown(
+        "Overview of all ROIs across all loaded sessions, with metrics "
+        "for each available signal type."
+    )
 
-    if not has_kinematics:
-        st.info("Kinematics data not yet available.")
-    else:
-        st.markdown(
-            "Overview of all ROIs across all available signal types."
-        )
+    from hm2p.analysis.tuning import (
+        compute_hd_tuning_curve,
+        mean_vector_length,
+        preferred_direction,
+    )
 
-        import pandas as pd
-        import plotly.graph_objects as go
-        from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length, preferred_direction
+    pop_rows = []
+    for ses in active_sessions:
+        m = _get_session_masks(ses)
+        for roi in range(ses["n_rois"]):
+            row = {
+                "Session": ses["exp_id"],
+                "Animal": ses["animal_id"],
+                "Celltype": ses["celltype"],
+                "ROI": roi,
+                "dff_mean": f"{np.nanmean(ses['dff'][roi]):.4f}",
+                "dff_max": f"{np.nanmax(ses['dff'][roi]):.3f}",
+            }
 
-        # Build population table
-        pop_rows = []
-        for roi in range(n_rois):
-            row = {"ROI": roi}
-            for sig_name in available_signals:
-                sig = _get_signal_array(sig_name)
-                row[f"{sig_name}_mean"] = f"{np.nanmean(sig[roi]):.4f}"
-                row[f"{sig_name}_max"] = f"{np.nanmax(sig[roi]):.3f}"
-
-                if moving_mask.sum() > 50:
+            for sig_type in available_signals:
+                sig_arr = _get_signal(ses, roi, sig_type)
+                label = _signal_labels.get(sig_type, sig_type)
+                if m["moving"].sum() > 50:
                     tc, centers = compute_hd_tuning_curve(
-                        sig[roi], hd_deg, moving_mask,
+                        sig_arr, m["hd_deg"], m["moving"],
                         n_bins=hd_n_bins, smoothing_sigma_deg=hd_sigma,
                     )
-                    row[f"{sig_name}_mvl"] = f"{mean_vector_length(tc, centers):.4f}"
-                    row[f"{sig_name}_pd"] = f"{preferred_direction(tc, centers):.0f}"
+                    row[f"{label}_mvl"] = f"{mean_vector_length(tc, centers):.4f}"
+                    row[f"{label}_pd"] = f"{preferred_direction(tc, centers):.0f}"
+                else:
+                    row[f"{label}_mvl"] = "---"
+                    row[f"{label}_pd"] = "---"
+
             pop_rows.append(row)
 
-        df_pop = pd.DataFrame(pop_rows)
-        st.dataframe(df_pop, use_container_width=True, height=400)
+    df_pop = pd.DataFrame(pop_rows)
+    st.dataframe(df_pop, use_container_width=True, height=400)
 
-        # Download as CSV
-        csv_data = df_pop.to_csv(index=False)
-        st.download_button(
-            "Download as CSV",
-            csv_data,
-            f"population_summary_{sub}_{ses}.csv",
-            "text/csv",
-        )
+    # Download as CSV
+    csv_data = df_pop.to_csv(index=False)
+    st.download_button(
+        "Download as CSV",
+        csv_data,
+        "population_summary_pooled.csv",
+        "text/csv",
+    )

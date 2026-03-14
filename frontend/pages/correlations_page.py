@@ -88,9 +88,11 @@ if "spks" in data:
 if "event_masks" in data:
     signal_options.append("events")
 
+_signal_labels = {"dff": "dF/F\u2080", "deconv": "Deconv", "events": "Events"}
+
 col1, col2 = st.columns(2)
 with col1:
-    signal_type = st.selectbox("Signal", signal_options, key="corr_signal")
+    signal_type = st.selectbox("Signal", signal_options, format_func=lambda x: _signal_labels.get(x, x), key="corr_signal")
 with col2:
     smooth_window = st.slider("Smoothing (frames)", 0, 30, 5, key="corr_smooth")
 
@@ -153,6 +155,17 @@ with tab_matrix:
     col1, col2 = st.columns([1, 1])
     with col1:
         cluster_order = st.checkbox("Hierarchical clustering order", value=True, key="corr_cluster")
+
+    with st.expander("About ensembles & clustering"):
+        st.markdown(
+            "**Ensembles** are groups of neurons that tend to be co-active (fire together), "
+            "suggesting they may be part of a functional circuit or encode similar information "
+            "(e.g. a shared head-direction preference). "
+            "**Hierarchical clustering** groups ROIs by similarity of their activity patterns "
+            "(pairwise correlation), building a tree (dendrogram) where nearby branches are "
+            "more correlated. Reordering the matrix by this tree reveals ensemble structure as "
+            "bright blocks along the diagonal."
+        )
 
     display_matrix = reordered if (cluster_order and use_clustering) else corr_matrix
 
@@ -289,8 +302,8 @@ with tab_ensembles:
     st.subheader("Population Co-activation")
 
     if "event_masks" not in data:
-        st.info("Event masks not available — using dF/F threshold instead.")
-        # Use dF/F > 2*std as proxy
+        st.info("Event masks not available — using dF/F\u2080 threshold instead.")
+        # Use dF/F0 > 2*std as proxy
         threshold = 2.0
         active = (dff > dff.mean(axis=1, keepdims=True) + threshold * dff.std(axis=1, keepdims=True))
     else:
@@ -335,6 +348,17 @@ with tab_ensembles:
 
     # Population event detection
     st.subheader("Population Events")
+
+    with st.expander("About population events"):
+        st.markdown(
+            "A **population event** is a time bin where many neurons are simultaneously "
+            "active — more than expected by chance if cells fired independently. "
+            "High co-activation rates indicate ensemble-level coordination: neurons "
+            "that consistently participate together likely share tuning properties or "
+            "circuit connectivity. The participation bar chart below shows which ROIs "
+            "are most reliably recruited during these events."
+        )
+
     pop_threshold = st.slider(
         "Min co-active cells for population event",
         1, max(2, n_rois // 2), max(2, n_rois // 4),

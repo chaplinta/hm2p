@@ -37,11 +37,11 @@ n_penk_animals = len([a for a in session_animals if animal_map.get(a, {}).get("c
 n_nonpenk_animals = len([a for a in session_animals if animal_map.get(a, {}).get("celltype") == "nonpenk"])
 
 st.subheader("Project Overview")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Sessions", n_sessions)
-col2.metric("Animals", f"{n_animals} ({n_penk_animals} Penk+, {n_nonpenk_animals} CamKII+)")
-col3.metric("Penk+ sessions", n_penk_sessions)
-col4.metric("Non-Penk sessions", n_nonpenk_sessions)
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Penk+ animals", n_penk_animals)
+c2.metric("Non-Penk animals", n_nonpenk_animals)
+c3.metric("Penk+ sessions", n_penk_sessions)
+c4.metric("Non-Penk sessions", n_nonpenk_sessions)
 
 # --- Pipeline status ---
 st.subheader("Pipeline Status")
@@ -85,7 +85,7 @@ with col3:
     st.page_link("pages/suite2p_page.py", label="Suite2p Viewer")
     st.page_link("pages/calcium_page.py", label="Calcium Viewer")
     st.page_link("pages/dlc_page.py", label="DLC Progress")
-    st.page_link("pages/batch_page.py", label="Batch Overview")
+    st.page_link("pages/summary_page.py", label="Cell Summary")
 
 # --- Recent changelog ---
 st.subheader("Recent Updates")
