@@ -113,6 +113,7 @@ def build_user_data() -> str:
             --project-dir /data/project \\
             --output-dir /data/output \\
             --skip-existing \\
+            --bodyparts nose left_ear right_ear neck mid_back mouse_center mid_backend mid_backend2 \\
             --kappa 1000000 \\
             --num-pcs 10 \\
             --num-iters 50

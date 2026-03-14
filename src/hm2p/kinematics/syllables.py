@@ -76,7 +76,10 @@ def run_keypoint_moseq(
         FileNotFoundError: If Docker image not found or script missing.
     """
     if bodyparts is None:
-        bodyparts = ["left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"]
+        bodyparts = [
+            "nose", "left_ear", "right_ear", "neck",
+            "mid_back", "mouse_center", "mid_backend", "mid_backend2",
+        ]
 
     output_dir.mkdir(parents=True, exist_ok=True)
     project_dir.mkdir(parents=True, exist_ok=True)

@@ -251,7 +251,7 @@ with st.expander("Pipeline Configuration"):
     | Num PCs | 10 |
     | Num iterations | 50 |
     | Docker | `hm2p-kpms` (isolated numpy<1.27 environment) |
-    | Bodyparts | left_ear, right_ear, mid_back, mouse_center, tail_base |
+    | Bodyparts | nose, left_ear, right_ear, neck, mid_back, mouse_center, mid_backend, mid_backend2 |
     """)
 
 # ── Methods & References ────────────────────────────────────────────────

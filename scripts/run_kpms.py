@@ -294,8 +294,11 @@ def main():
     )
     parser.add_argument(
         "--bodyparts", nargs="*",
-        default=["left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"],
-        help="Body parts to use for fitting.",
+        default=[
+            "nose", "left_ear", "right_ear", "neck",
+            "mid_back", "mouse_center", "mid_backend", "mid_backend2",
+        ],
+        help="Body parts to use for fitting (kpms recommends 5-10, no tail).",
     )
     parser.add_argument("--kappa", type=float, default=1e6)
     parser.add_argument("--num-pcs", type=int, default=10)
