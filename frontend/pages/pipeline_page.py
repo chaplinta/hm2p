@@ -177,8 +177,9 @@ for prefix, label in STAGE_PREFIXES.items():
         with col1:
             st.markdown(f"**{label}** -- {status}")
             if total > 0:
+                pct = min((completed + skipped) / total, 1.0)
                 st.progress(
-                    (completed + skipped) / total,
+                    pct,
                     text=f"{completed}/{total} done, {failed} failed, {skipped} skipped",
                 )
         with col2:
