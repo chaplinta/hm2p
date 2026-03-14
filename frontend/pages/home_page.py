@@ -28,16 +28,19 @@ animals = load_animals()
 animal_map = {a["animal_id"]: a for a in animals}
 
 n_sessions = len(experiments)
-n_penk = sum(1 for e in experiments if animal_map.get(e["exp_id"].split("_")[-1], {}).get("celltype") == "penk")
-n_nonpenk = sum(1 for e in experiments if animal_map.get(e["exp_id"].split("_")[-1], {}).get("celltype") == "nonpenk")
-n_animals = len(set(e["exp_id"].split("_")[-1] for e in experiments))
+session_animals = set(e["exp_id"].split("_")[-1] for e in experiments)
+n_animals = len(session_animals)
+n_penk_sessions = sum(1 for e in experiments if animal_map.get(e["exp_id"].split("_")[-1], {}).get("celltype") == "penk")
+n_nonpenk_sessions = sum(1 for e in experiments if animal_map.get(e["exp_id"].split("_")[-1], {}).get("celltype") == "nonpenk")
+n_penk_animals = len([a for a in session_animals if animal_map.get(a, {}).get("celltype") == "penk"])
+n_nonpenk_animals = len([a for a in session_animals if animal_map.get(a, {}).get("celltype") == "nonpenk"])
 
 st.subheader("Project Overview")
 col1, col2, col3, col4 = st.columns(4)
 col1.metric("Sessions", n_sessions)
-col2.metric("Animals", n_animals)
-col3.metric("Penk+ sessions", n_penk)
-col4.metric("Non-Penk sessions", n_nonpenk)
+col2.metric("Animals", f"{n_animals} ({n_penk_animals} Penk+, {n_nonpenk_animals} CamKII+)")
+col3.metric("Penk+ sessions", n_penk_sessions)
+col4.metric("Non-Penk sessions", n_nonpenk_sessions)
 
 # --- Pipeline status ---
 st.subheader("Pipeline Status")

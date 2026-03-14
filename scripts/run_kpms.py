@@ -30,6 +30,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+import os
+
+# Force JAX to CPU-only (avoids noisy CUDA errors on CPU instances)
+os.environ["JAX_PLATFORMS"] = "cpu"
+
 import numpy as np
 
 logging.basicConfig(
@@ -188,17 +193,21 @@ def fit_kpms(
     """
     import keypoint_moseq as kpms
 
+    # Clean project dir to avoid "directory already exists" error from kpms
+    import shutil
+    if project_dir.exists():
+        shutil.rmtree(project_dir)
     project_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize project config
-    config_path = project_dir / "config.yml"
-    if not config_path.exists():
-        kpms.setup_project(
-            project_dir=str(project_dir),
-            deeplabcut_config=None,
-            bodyparts=bodyparts,
-            use_bodyparts=bodyparts,
-        )
+    log.info("Setting up kpms project (bodyparts=%s)...", bodyparts)
+    kpms.setup_project(
+        project_dir=str(project_dir),
+        deeplabcut_config=None,
+        bodyparts=bodyparts,
+        use_bodyparts=bodyparts,
+        overwrite=True,
+    )
 
     # Update config with our parameters
     config = kpms.load_config(str(project_dir))
