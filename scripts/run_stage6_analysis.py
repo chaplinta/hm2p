@@ -185,11 +185,7 @@ def main():
     # Load experiment list
     import csv
     with open(METADATA_DIR / "experiments.csv") as f:
-        experiments = [
-            e for e in csv.DictReader(f)
-            if str(e.get("exclude", "0")).strip() != "1"
-            and str(e.get("primary_exp", "1")).strip() == "1"
-        ]
+        experiments = list(csv.DictReader(f))
 
     if args.session:
         experiments = [e for e in experiments if e["exp_id"] == args.session]

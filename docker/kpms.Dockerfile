@@ -28,6 +28,14 @@ RUN apt-get update && apt-get install -y \
 # ── Python dependencies ────────────────────────────────────────────────────
 WORKDIR /app
 
+# Force JAX to CPU-only at the environment level so the CUDA plugin is never
+# initialised, even if jax[cuda12] ends up installed as a transitive dep.
+ENV JAX_PLATFORMS=cpu
+
+# Install CPU-only JAX first to prevent the CUDA plugin from being pulled in.
+# keypoint-MoSeq depends on JAX but doesn't need GPU — running on c5 CPU instance.
+RUN pip install --no-cache-dir "jax[cpu]"
+
 # Install keypoint-MoSeq and its dependencies in isolation
 # Pin numpy to what kpms requires
 RUN pip install --no-cache-dir \

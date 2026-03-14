@@ -45,6 +45,44 @@ The `main` branch is protected on GitHub:
 | `test/` | Test additions or fixes |
 | `ci/` | CI/CD and infrastructure |
 
+## Pre-commit Hooks
+
+Pre-commit hooks run automatically before every `git commit`:
+
+- **ruff** — linting + formatting (replaces black + flake8 + isort)
+- **mypy** — static type checking
+- **nbstripout** — strips Jupyter notebook outputs to keep git history clean
+
+Install hooks after cloning:
+
+```bash
+pre-commit install
+```
+
+If a hook fails, fix the issue and re-run `git commit`. Do not use `--no-verify`.
+
+## Test Coverage
+
+All PRs must maintain **90%+ test coverage** (hard requirement). CI runs `pytest --cov`
+on every push; PRs are blocked if coverage drops below the threshold.
+
+- Every function (public and private) needs at least one unit test
+- Tests use small synthetic arrays only -- never real data files
+- Use `hypothesis` for numerical functions to auto-generate adversarial inputs
+- Use `pandera` to validate HDF5 schemas in tests
+- Current status: **1119+ tests, 91%+ coverage**
+
+## Citation Policy
+
+Any analysis method or algorithm taken from a paper must be cited in **three places**:
+
+1. **Code** -- module/function docstring with: first author, year, title, journal, DOI,
+   and GitHub URL if available
+2. **Docs** -- relevant markdown files under `docs/`
+3. **Frontend** -- a "Methods & References" expander on any page that uses the method
+
+Format: `Author et al. YEAR. "Title." Journal. doi:XX.XXXX/XXXXX`
+
 ## Copilot Code Review
 
 GitHub Copilot can automatically review PRs if you have a Copilot Pro (or higher)

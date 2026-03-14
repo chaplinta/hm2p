@@ -56,7 +56,7 @@ hm2p-v2/
 ├── ARCHITECTURE.md    ← code layout, HDF5 schemas, interface contracts
 ├── CLAUDE.md          ← coding standards, tool versions, rules for AI agents (auto-loaded by Claude Code)
 ├── old-pipeline/      ← legacy pipeline code (read-only reference — never modify)
-├── frontend/         ← Streamlit dashboard (43 pages)
+├── frontend/         ← Streamlit dashboard (43+ pages)
 │   ├── app.py
 │   ├── data.py       ← S3 data loading + caching
 │   └── pages/        ← analysis, pipeline QC, system pages
@@ -65,7 +65,7 @@ hm2p-v2/
 │   ├── aws-setup.md   ← AWS account, IAM, S3 bucket setup
 │   ├── analysis-plan.md
 │   └── research-landscape.md
-├── src/hm2p/          ← pipeline source code
+├── src/hm2p/          ← pipeline source code (incl. patching/ for patch-clamp analysis)
 ├── tests/             ← unit tests (≥ 90% coverage required)
 ├── workflow/          ← Snakemake DAG + compute profiles
 ├── config/            ← pipeline parameters
@@ -263,7 +263,7 @@ instructions (local macOS and devcontainer).
 
 ## Status
 
-**Implementation phase** — core pipeline code and tests are written. 1038+ tests passing, 92% coverage.
+**Implementation phase** — core pipeline code and tests are written. 1119+ tests passing, 91%+ coverage.
 
 | Component | Status |
 | --- | --- |
@@ -271,18 +271,20 @@ instructions (local macOS and devcontainer).
 | HDF5 schema validation | Done |
 | Stage 0 — TDMS ingest (`ingest/daq.py`) | Done |
 | **Stage 1 — Suite2p cloud run (all 26 sessions)** | **Done** |
-| Stage 2 — DLC pose estimation | In progress (13/26 sessions) |
-| Stage 3 — Kinematics (`kinematics/compute.py`) | Done |
+| Stage 2 — DLC pose estimation | **Done** — 26/26 sessions |
+| Stage 3 — Kinematics (`kinematics/compute.py`) | **Done** — 21/21 sessions |
 | Stage 4 — Calcium processing (`calcium/`) | Done — 26/26 sessions (CASCADE deferred) |
-| Stage 5 — Sync (`sync/align.py`) | Done |
+| Stage 5 — Sync (`sync/align.py`) | **Done** — 21/21 sessions |
+| Stage 6 — Analysis (`analysis/`, 16 modules) | **Done** — 21/21 sessions |
 | Suite2p extractor (`extraction/suite2p.py`) | Done |
 | CaImAn extractor (`extraction/caiman.py`) | Done |
 | S3 data upload (26 sessions) | Done |
 | EC2 cloud run infrastructure | Done (`scripts/launch_suite2p_ec2.py`) |
 | Snakemake DAG | Pending — rules defined, shell commands needed |
 | Docker images for cloud | Done (gpu, cpu, kpms Dockerfiles) |
-| Frontend dashboard (43 pages) | Done |
+| Frontend dashboard (43+ pages) | Done |
 | Analysis framework (16 modules) | Done |
+| Patching pipeline (10 modules, 227 tests) | Done |
 | keypoint-MoSeq Docker integration | Done |
 | NWB export (neuroconv) | Pending — stub only |
 

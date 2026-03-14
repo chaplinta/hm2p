@@ -193,10 +193,16 @@ def fit_kpms(
     """
     import keypoint_moseq as kpms
 
-    # Clean project dir to avoid "directory already exists" error from kpms
+    # Clean project dir contents to avoid "directory already exists" error
+    # from kpms.  We clear contents rather than rmtree because the dir may be
+    # a Docker bind-mount (rmtree on a mount point raises EBUSY).
     import shutil
     if project_dir.exists():
-        shutil.rmtree(project_dir)
+        for child in project_dir.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
     project_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize project config

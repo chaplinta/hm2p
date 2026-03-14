@@ -435,28 +435,28 @@ tests only), but all numerical modules must be near 100%.
 
 ---
 
-## 6. Implementation Order
+## 6. Implementation Order & Status
 
-Dependencies flow downward — implement in this order:
+Dependencies flow downward. Phases 1-3 are **COMPLETE** (10 modules, 227 tests passing).
 
 ```
-Phase 1: Core I/O and processing
-  1. config.py               — no deps
-  2. io.py                   — depends on h5py, navis
-  3. ephys.py                — depends on scipy.signal
-  4. protocols.py            — depends on io.py, ephys.py
-  5. spike_features.py       — depends on efel
-  6. morphology.py           — depends on io.py, navis, scipy.spatial
+Phase 1: Core I/O and processing — COMPLETE
+  1. config.py               ✅ (11 tests)
+  2. io.py                   ✅ (18 tests)
+  3. ephys.py                ✅ (33 tests)
+  4. protocols.py            ✅ (27 tests)
+  5. spike_features.py       ✅ (11 tests)
+  6. morphology.py           ✅ (26 tests)
 
-Phase 2: Metrics and analysis
-  7. metrics.py              — depends on protocols.py, spike_features.py, morphology.py
-  8. statistics.py           — depends on scipy.stats
-  9. pca.py                  — depends on sklearn
+Phase 2: Metrics and analysis — COMPLETE
+  7. metrics.py              ✅ (14 tests)
+  8. statistics.py           ✅ (33 tests)
+  9. pca.py                  ✅ (29 tests)
 
-Phase 3: Orchestration
-  10. run.py                 — depends on everything above
+Phase 3: Orchestration — COMPLETE
+  10. run.py                 ✅ (30 tests)
 
-Phase 4: Plotting
+Phase 4: Plotting — TODO
   11. plotting/ephys_plots.py
   12. plotting/morph_plots.py
   13. plotting/violin_box.py
@@ -464,7 +464,7 @@ Phase 4: Plotting
   15. plotting/pca_plots.py
   16. plotting/confocal_stack.py
 
-Phase 5: Frontend
+Phase 5: Frontend — TODO
   17. frontend/pages/patching_page.py
   18. frontend/pages/patching_ephys_page.py
   19. frontend/pages/patching_morph_page.py

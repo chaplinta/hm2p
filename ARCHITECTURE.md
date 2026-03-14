@@ -72,7 +72,7 @@ flowchart TB
 
     S5  -->|"sync.h5"| ANA
 
-    subgraph ANA["📊 Analysis  (future)"]
+    subgraph ANA["📊 Stage 6 — Analysis  (done — 16 modules)"]
         direction LR
         PYN["pynapple\nTsdFrame"]
         CEB["CEBRA\nHD manifold"]
@@ -86,7 +86,7 @@ flowchart TB
     style S3  fill:#dcfce7,stroke:#16a34a,color:#14532d
     style S4  fill:#dcfce7,stroke:#16a34a,color:#14532d
     style S5  fill:#dcfce7,stroke:#16a34a,color:#14532d
-    style ANA fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e,stroke-dasharray:6 4
+    style ANA fill:#dcfce7,stroke:#16a34a,color:#14532d
 ```
 
 ### Intermediate File Data Flow
@@ -106,10 +106,13 @@ flowchart LR
     KIN -->|Stage 5| SYN["sync.h5\nneural + behaviour\naligned to imaging rate"]
     CA  -->|Stage 5| SYN
 
+    SYN -->|Stage 6| ANAL["analysis.h5\nHD tuning · significance\ndecoding · stability"]
+
     style TS  fill:#fef3c7,stroke:#d97706
     style KIN fill:#dcfce7,stroke:#16a34a
     style CA  fill:#dcfce7,stroke:#16a34a
     style SYN fill:#dbeafe,stroke:#2563eb
+    style ANAL fill:#dcfce7,stroke:#16a34a
 ```
 
 ---
@@ -123,7 +126,10 @@ hm2p-v2/
 ├── src/
 │   └── hm2p/
 │       ├── __init__.py
+│       ├── cli.py                 # Command-line interface entry points
 │       ├── config.py              # Pydantic settings: paths, compute profile, versions
+│       ├── constants.py           # Shared constants (bin counts, thresholds, etc.)
+│       ├── plotting.py            # Shared plotting utilities
 │       ├── session.py             # Session dataclass, registry loading from experiments.csv
 │       ├── ingest/
 │       │   ├── __init__.py
@@ -154,6 +160,7 @@ hm2p-v2/
 │       │   └── run.py             # Stage 4 runner: neuropil → dF/F → CASCADE → ca.h5
 │       ├── analysis/
 │       │   ├── __init__.py
+│       │   ├── cache.py           # Analysis result caching utilities
 │       │   ├── activity.py        # Active-cell detection and firing rate stats
 │       │   ├── tuning.py          # HD tuning curves, PD, MVL, Rayleigh
 │       │   ├── significance.py    # Circular shuffle tests for HD significance
@@ -201,7 +208,28 @@ hm2p-v2/
 │           └── s3.py              # S3 path resolution (cloud vs local)
 ├── tests/
 │   ├── conftest.py                # shared pytest fixtures (synthetic data only)
+│   ├── test_cli.py
+│   ├── test_config.py
+│   ├── test_plotting.py
 │   ├── test_session.py
+│   ├── analysis/
+│   │   ├── test_activity.py
+│   │   ├── test_ahv.py
+│   │   ├── test_anchoring.py
+│   │   ├── test_cache.py
+│   │   ├── test_classify.py
+│   │   ├── test_comparison.py
+│   │   ├── test_decoder.py
+│   │   ├── test_gain.py
+│   │   ├── test_hypothesis_analysis.py
+│   │   ├── test_information.py
+│   │   ├── test_population.py
+│   │   ├── test_run.py
+│   │   ├── test_save.py
+│   │   ├── test_significance.py
+│   │   ├── test_speed.py
+│   │   ├── test_stability.py
+│   │   └── test_tuning.py
 │   ├── ingest/
 │   │   ├── test_validate.py
 │   │   └── test_daq.py
@@ -350,6 +378,31 @@ positions via scale calibration and video ROI crop metadata.
 /roi_types           (R,) uint8   — 0=soma, 1=dend, 2=artefact
 ```
 
+#### `analysis.h5` (Stage 6 output)
+
+```text
+/session_id          (str attr)
+/signal_type         (str attr) — "dff", "deconv", or "events"
+/roi_ids             (R,) int32   — ROI indices
+/roi_types           (R,) uint8   — 0=soma, 1=dend, 2=artefact
+/tuning_curves       (R, B) float32 — HD tuning curve per ROI (B angular bins)
+/pd                  (R,) float32 — preferred direction, degrees
+/mvl                 (R,) float32 — mean vector length
+/rayleigh_p          (R,) float64 — Rayleigh test p-value
+/is_hd               (R,) bool    — classified as HD cell
+/si                  (R,) float32 — spatial / directional information (bits/spike)
+/shuffle_p           (R,) float64 — circular shuffle significance p-value
+/light_pd            (R,) float32 — PD during light-on epochs
+/dark_pd             (R,) float32 — PD during light-off epochs
+/pd_shift            (R,) float32 — PD shift (dark − light), degrees
+/gain_index          (R,) float32 — light/dark gain modulation index
+/mean_rate           (R,) float32 — mean firing rate (active frames)
+/peak_rate           (R,) float32 — peak rate in tuning curve
+/ahv_slope           (R,) float32 — AHV modulation slope
+/speed_slope         (R,) float32 — speed modulation slope
+/decoder_error       (float attr) — population HD decode mean absolute error, degrees
+```
+
 ---
 
 ## Interface Contracts
@@ -431,6 +484,7 @@ s3://hm2p-derivatives/
   derivatives/movement/sub-{id}/ses-{date}/
   derivatives/calcium/sub-{id}/ses-{date}/
   derivatives/sync/sub-{id}/ses-{date}/
+  derivatives/analysis/sub-{id}/ses-{date}/
 ```
 
 When running locally, the same relative paths are used under a local root directory

@@ -264,7 +264,50 @@ is quantified using Jaccard similarity of the significant-ROI sets.
 
 ---
 
-## 8. References
+## 8. Implementation Status
+
+**Stage 6 analysis is complete: 21/21 non-excluded sessions processed.** All analysis.h5
+files are on S3 at `s3://hm2p-derivatives/sync/sub-{id}/ses-{date}/analysis.h5`.
+
+### Implemented analysis modules (`src/hm2p/analysis/`)
+
+| Module | Purpose |
+|--------|---------|
+| `activity.py` | Condition-split activity metrics (event rate, mean dF/F, modulation indices) |
+| `tuning.py` | HD and place tuning curve computation |
+| `significance.py` | Circular shuffle significance testing |
+| `comparison.py` | Light vs dark comparison (tuning curve correlation, PD shift, MVL ratio, SI ratio, split-half reliability, Rayleigh test) |
+| `decoder.py` | Bayesian population HD decoder (build, decode, cross-validate, error metrics) |
+| `stability.py` | Temporal stability (split halves, sliding window, light/dark, drift per epoch) |
+| `population.py` | Population-level statistics and summaries |
+| `ahv.py` | Angular head velocity tuning analysis |
+| `information.py` | Spatial information (Skaggs) and mutual information |
+| `classify.py` | Automated HD cell classification (single cell + population) |
+| `gain.py` | Light/dark gain modulation index and epoch tracking |
+| `anchoring.py` | Visual vs idiothetic HD anchoring analysis |
+| `speed.py` | Speed tuning and speed-filtered analyses |
+| `run.py` | Orchestrator: runs all analyses for a session, saves analysis.h5 |
+| `save.py` | HDF5 serialisation for analysis results |
+
+### Multi-signal analysis
+
+All metrics are computed using three calcium signal types stored in ca.h5:
+- **dF/F** (`dff`) -- raw fluorescence changes
+- **Deconvolved** (`deconv`) -- Suite2p deconvolved spikes
+- **Events** (`events`) -- V&H binary event masks
+
+Results are saved per signal type in analysis.h5 so the frontend can compare whether
+conclusions hold across all measures. Agreement is quantified via Jaccard similarity
+of the significant-ROI sets.
+
+### Maze analysis
+
+Separate module at `src/hm2p/maze/` (topology, discretize, analysis) for rose-maze
+navigation analysis (occupancy, exploration efficiency, turn bias, sequence entropy).
+
+---
+
+## 9. References
 
 - HD tuning, MVL, shuffled significance: Zong et al. 2022 (Cell)
 - Skaggs spatial information: Skaggs et al. 1996

@@ -50,10 +50,6 @@ def get_sessions() -> list[dict]:
             sub = f"sub-{animal}"
             ses = f"ses-{parts[0]}T{parts[1]}{parts[2]}{parts[3]}"
 
-            # Skip excluded sessions
-            if str(row.get("exclude", "0")).strip() == "1":
-                continue
-
             orientation = float(row.get("orientation", 0) or 0)
             bad_behav_times = row.get("bad_behav_times", "")
             tracker = row.get("tracker", "dlc")

@@ -40,9 +40,6 @@ def get_sessions() -> list[dict]:
             animal = parts[-1]
             sub = f"sub-{animal}"
             ses = f"ses-{parts[0]}T{parts[1]}{parts[2]}{parts[3]}"
-            # Skip excluded sessions
-            if str(row.get("exclude", "0")).strip() == "1":
-                continue
             sessions.append({"exp_id": exp_id, "sub": sub, "ses": ses})
     return sessions
 

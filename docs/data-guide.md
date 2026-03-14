@@ -334,8 +334,8 @@ a Gaussian-smoothed maximum filter — equivalent to Suite2p's baseline estimati
 
 ### ROI Classification — Soma vs Dendrite
 
-Currently Suite2p is run **twice** with different parameters. The new pipeline will run
-Suite2p **once** and classify ROIs post-hoc from `stat.npy` shape statistics:
+Suite2p is run **once** with parameters broad enough to detect both soma and dendrite ROIs.
+ROIs are then classified post-hoc from `stat.npy` shape statistics:
 
 | `stat` field | Type | Notes |
 | --- | --- | --- |
@@ -347,8 +347,14 @@ Suite2p **once** and classify ROIs post-hoc from `stat.npy` shape statistics:
 | `footprint` | float | Spatial footprint size |
 | `npix` | int | Number of pixels in ROI |
 
-Soma ROIs: compact (`aspect_ratio` ≈ 1), `radius` ~5–15 px.
-Dendrite ROIs: elongated (`aspect_ratio` >> 1), large footprint.
+Classification rules (implemented in `src/hm2p/extraction/suite2p.py`):
+- `aspect_ratio > 2.5` → dendrite
+- `radius < 2` or `compact < 0.1` → artefact
+- Otherwise → soma
+
+ROI types are stored as `roi_types` (uint8: 0=soma, 1=dend, 2=artefact) in ca.h5 and
+propagated to sync.h5. Analysis defaults to soma-only via sidebar filter; all ROIs are
+processed through the calcium pipeline.
 
 ---
 
@@ -473,18 +479,29 @@ kept for reference and for processing any new sessions in future.
 
 ### DeepLabCut Pose Tracking
 
-**Model:** ResNet-50, trained on hm2p-maze project.
-**Model name:** `DLC_resnet50_hm2p-mazeFeb17shuffle1_950000`
+#### Current model (DLC 3.0)
 
-**Body parts tracked:**
+**Model:** DeepLabCut 3.0rc13 (PyTorch backend) — **SuperAnimal TopViewMouse** foundation
+model with **HRNet-W32** backbone and **FasterRCNN** detector (mandatory for PyTorch mode).
+No fine-tuning — using the pre-trained foundation model weights directly.
 
-| Keypoint | Description |
+**All 26 sessions have been processed.** Videos were subsampled from ~100 fps to 30 fps
+before inference to mitigate the FasterRCNN detector bottleneck (~5 it/s on T4).
+Processed on EC2 g4dn.xlarge + g5.xlarge instances (parallel shards).
+
+**Body parts used for downstream kinematics (Stage 3):**
+
+| SuperAnimal keypoint | Description |
 | --- | --- |
-| `ear-left` | Left ear tip |
-| `ear-right` | Right ear tip |
-| `back-upper` | Upper back / base of neck |
-| `back-middle` | Mid-back |
-| `back-tail` | Base of tail |
+| `left_ear` | Left ear tip |
+| `right_ear` | Right ear tip |
+| `mid_back` | Mid-back |
+| `mouse_center` | Body centre |
+| `tail_base` | Base of tail |
+
+The SuperAnimal TopViewMouse model outputs 27 keypoints total. The 5 above are the subset
+used for head direction and position computation. The remaining 22 keypoints are retained
+in the pose output files but not used.
 
 **Output file:** HDF5 per video, `{video_basename}{DLC_iter_name}.h5`.
 Loaded with `pd.read_hdf()`.
@@ -492,7 +509,13 @@ Loaded with `pd.read_hdf()`.
 **HDF5 structure:** MultiIndex columns `(scorer, bodypart, coord)` where `coord` ∈
 `{x, y, likelihood}`. Shape: `(n_frames, n_keypoints × 3)`.
 
-**DLC output directory:** `hm2p/dlc/hm2p-maze-tristan-2023-02-17/videos/`
+#### Legacy model (DLC 2.x, for reference only)
+
+The legacy pipeline used a ResNet-50 model (`DLC_resnet50_hm2p-mazeFeb17shuffle1_950000`)
+trained on the hm2p-maze project with keypoints named `ear-left`, `ear-right`,
+`back-upper`, `back-middle`, `back-tail`. This model is no longer used.
+
+**Legacy DLC output directory:** `hm2p/dlc/hm2p-maze-tristan-2023-02-17/videos/`
 
 ---
 

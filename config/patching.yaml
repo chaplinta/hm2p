@@ -10,8 +10,8 @@
 # morph_dir is set to a placeholder — morphology processing is skipped
 # when SWC files are not available (the code handles missing dirs gracefully).
 
-metadata_dir: /data/patching/patching/metadata
-ephys_root_dir: /data/patching/patching/ephys
-morph_dir: /data/patching/patching/morphology  # placeholder — no SWC files in mount
+metadata_dir: /data/patching/metadata
+ephys_root_dir: /data/patching/ephys
+morph_dir: /data/patching/morphology  # placeholder — no SWC files in mount
 processed_dir: /workspace/results/patching/processed
 analysis_dir: /workspace/results/patching/analysis

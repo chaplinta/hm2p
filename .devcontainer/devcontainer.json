@@ -47,7 +47,7 @@
     "source=hm2p-bashhistory-${devcontainerId},target=/commandhistory,type=volume",
     "source=hm2p-claude-config-${devcontainerId},target=/home/node/.claude,type=volume",
     "source=${localEnv:HOME}/.aws,target=/home/node/.aws,type=bind,readonly=true",
-    "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/patching,target=/data/patching,type=bind,readonly=true",
+    "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/patching/patching,target=/data/patching,type=bind,readonly=true",
     "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/z-stacks,target=/data/z-stacks,type=bind,readonly=true",
     "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/brains-sorted,target=/data/brains-sorted,type=bind,readonly=true",
     "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/brains-reg,target=/data/brains-reg,type=bind,readonly=true",

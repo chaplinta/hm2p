@@ -100,8 +100,15 @@ This document summarises the three key reference papers for the hm2p pipeline, t
 
 **Comparison with hm2p:**
 - Old pipeline: uses Suite2p deconvolution (`spks.npy`), normalized to max
-- New pipeline: Suite2p deconvolution now enabled (`do_deconvolution = True` in EC2 launch script). spks.npy downloaded but not yet used in `calcium/run.py` — the primary event detection is V&H
-- **Note:** Zong 2022 uses deconvolved events for spatial tuning, not raw dF/F transients. This is relevant for the analysis stages.
+- New pipeline: Suite2p deconvolution is enabled (`do_deconvolution = True`). The deconvolved
+  trace (`deconv`) is stored in ca.h5 alongside dF/F and V&H events. The Stage 6 multi-signal
+  analysis pipeline runs all metrics using all three signal types (dff, deconv, events) and
+  saves results per signal type in analysis.h5, enabling direct comparison of whether
+  conclusions hold across measures.
+- **CASCADE** (calibrated spike inference) remains deferred — requires a separate conda
+  environment (tensorflow==2.3, Python 3.8). When available, CASCADE spike rates would
+  replace Suite2p deconv as the primary inferred-spike signal.
+- **Note:** Zong 2022 uses deconvolved events for spatial tuning, not raw dF/F transients. The new pipeline follows this approach by including deconv as one of the three signal types in all analyses.
 
 #### SNR calculation
 - Signal = mean amplitude over all 90th percentiles of dF/F in significant transients
@@ -233,7 +240,7 @@ This is the algorithm reimplemented in `src/hm2p/calcium/events.py`:
 | Baseline (F0) | Suite2p | Sliding-window min of Gaussian-smoothed | Same | Zong 2022 uses 8th percentile method |
 | dF/F | Standard | (F-F0)/F0 | (F-F0)/F0 | Identical |
 | Event detection | V&H 2020 | Full V&H with joint | V&H single-trace | Joint detection not needed for single-plane |
-| Deconvolution | Suite2p | spks.npy (normalized) | spks.npy (enabled) | Zong 2022 uses deconvolved for spatial tuning |
+| Deconvolution | Suite2p | spks.npy (normalized) | spks.npy in ca.h5 as `deconv`; used in multi-signal analysis | Zong 2022 uses deconvolved for spatial tuning |
 | SNR | Custom | mean(amp)/std(non-event) | Same | Zong 2022 uses different definition |
 | HD computation | Zong 2022 / V&H | Ear vector | Ear vector | Verify 90-deg convention |
 | Spatial tuning | Zong 2022 | Skaggs SI, MVL, shuffled | `analysis/tuning.py`, `analysis/information.py` | Follows Zong 2022 methods |

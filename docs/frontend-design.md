@@ -90,19 +90,21 @@ View outputs from each pipeline stage for any session.
 
 **Data sources:** `s3://hm2p-derivatives/{stage}/{sub}/{ses}/`
 
-### R5 — Analysis (future)
+### R5 — Analysis (implemented)
 
-Scientific analysis tools, built on top of Stages 1–5 outputs.
+Scientific analysis tools, built on top of Stages 1–5 outputs and Stage 6 analysis.h5.
 
 - **HD tuning**: Polar tuning curves, Rayleigh vector length, preferred direction
 - **Light on vs off**: Compare tuning in light-on vs light-off epochs
-- **Population decoding**: Bayesian or linear decoder for HD from population activity
-- **Cross-session comparison**: Same cells across sessions (if tracked), or population-level
-  stats across animals/celltypes
+- **Population decoding**: Bayesian HD decoder with cross-validation
+- **Cross-session comparison**: Population-level stats across animals/celltypes
 - **Penk+ vs nonPenk**: Side-by-side comparison of all metrics by celltype
+- **Stability/Drift/Gain/Anchoring**: Temporal stability, drift rate, gain modulation
+- **AHV/Speed/Info Theory**: Angular head velocity tuning, speed tuning, spatial information
+- **Cell classification**: Automated HD cell classification with summary tables
 - **Export**: Download figures, tables, filtered datasets as CSV/HDF5
 
-**Data sources:** `sync.h5`, `kinematics.h5`, `ca.h5`, `metadata/*.csv`
+**Data sources:** `analysis.h5`, `sync.h5`, `kinematics.h5`, `ca.h5`, `metadata/*.csv`
 
 ---
 
@@ -162,15 +164,16 @@ for the full list. Key sections:
 
 ## Open Questions
 
-1. **Do we need multi-user access?** Or is this just for you? Affects auth and deployment.
-2. **How important is video playback?** Streaming from S3 adds complexity. Could start with
-   keyframe thumbnails and add full playback later.
-3. **Should the frontend trigger pipeline runs?** (R1 mentions "ability to trigger reruns")
-   This adds complexity — could start read-only and add triggers later.
-4. **What analysis visualizations matter most?** HD tuning curves? Population vectors?
-   This determines what to build first in R5.
-5. **Offline support?** Should the app work without S3 access (e.g. on a plane)?
-   Could cache session data locally.
+1. **Do we need multi-user access?** Single-user for now; Google OAuth (streamlit-google-auth)
+   is implemented but only whitelists one email. Multi-user deferred.
+2. **How important is video playback?** Deferred — keyframe thumbnails and pose trajectory
+   overlays are implemented; full streaming not yet needed.
+3. **Should the frontend trigger pipeline runs?** Read-only for now. Pipeline runs are
+   triggered via CLI scripts. May add trigger capability later.
+4. ~~**What analysis visualizations matter most?**~~ Resolved — all analysis pages are
+   implemented (HD tuning, decoder, population, stability, etc.).
+5. **Offline support?** Not implemented. All data loads from S3. Could add local caching
+   in future.
 
 ---
 
@@ -218,8 +221,13 @@ for the full list. Key sections:
 - Correlations & Ensembles: pairwise correlation matrix with hierarchical clustering, PCA
   dimensionality analysis, population co-activation and ensemble detection
 
-### Phase 6 — Kinematics & Tuning (blocked on DLC)
-- HD tuning curves with light on/off comparison (requires sync.h5)
-- Full condition-split analysis (movement × light × celltype)
+### Phase 6 — Kinematics & Tuning (done)
+- HD tuning curves with light on/off comparison (from sync.h5 + analysis.h5)
+- Full condition-split analysis (movement x light x celltype)
 - Place tuning maps
 - Robustness analysis across parameter grids
+- Population decoder page
+- Stability, drift, gain, anchoring, speed, AHV, info theory pages
+- Classify page (automated HD cell classification)
+- Signal quality and QC report pages
+- All analysis features load real data from analysis.h5 on S3

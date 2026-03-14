@@ -672,49 +672,62 @@ Notebooks
 
 ### Completed
 
-1. ✅ **Project skeleton** — `pyproject.toml`, `src/hm2p/`, `tests/` (1038+ tests, 92%
-   coverage), pre-commit, GitHub Actions CI/lint, `uv` venv, `metadata/` CSVs.
+1. ✅ **Project skeleton** — `pyproject.toml`, `src/hm2p/`, `tests/` (1119+ tests, 91%+
+   coverage), pre-commit (ruff, mypy, nbstripout), GitHub Actions CI/lint, `uv` venv,
+   `metadata/` CSVs.
 2. ✅ **HDF5 schemas** — pandera schema validation in `io/hdf5.py` for all output files.
 3. ✅ **S3 data upload** — 26 sessions (91.4 GiB, 503 objects) uploaded to
    `s3://hm2p-rawdata/rawdata/` in NeuroBlueprint layout. Verified with
    `scripts/verify_s3_upload.sh`.
-4. ✅ **Stage 0 — Ingest** — TDMS parser → `timestamps.h5`; fully unit-tested.
-5. ✅ **Stage 1 — Suite2p extraction** — `extraction/suite2p.py` (extractor class +
-   post-hoc soma/dendrite ROI classification), `extraction/run_suite2p.py` (wraps
-   `suite2p.run_s2p()`), `extraction/base.py` (abstract interface). CaImAn extractor
-   also implemented. All tested with synthetic data.
-6. ✅ **Stage 3 — Kinematics** — `kinematics/compute.py` using `movement` library.
-   HD, position, speed, AHV, movement state, light on/off, bad_behav masking.
-7. ✅ **Stage 4 — Calcium processing** — neuropil subtraction (fixed coefficient),
-   dF/F0 baseline, per-ROI stats. CASCADE spike inference deferred (needs conda env).
-8. ✅ **Stage 5 — Sync** — `sync/align.py` resamples behaviour → imaging frame times.
-9. ✅ **Snakemake DAG** — `workflow/Snakefile` + 6 stage rules (`workflow/rules/*.smk`)
-   with resource specs. Three profiles: `local`, `local-gpu`, `aws-batch`.
-10. ✅ **Docker images defined** — `docker/gpu.Dockerfile` (CUDA 12.1 + Suite2p + DLC),
+4. ✅ **Stage 0 — Ingest** — TDMS parser → `timestamps.h5`; 26/26 sessions on S3.
+5. ✅ **Stage 1 — Suite2p extraction** — 26/26 sessions processed on EC2 g4dn.xlarge.
+   `extraction/suite2p.py` (extractor class + post-hoc soma/dendrite ROI classification),
+   `extraction/run_suite2p.py` (wraps `suite2p.run_s2p()`), `extraction/base.py` (abstract
+   interface). CaImAn extractor also implemented. Results on S3 at
+   `s3://hm2p-derivatives/ca_extraction/{sub}/{ses}/suite2p/`.
+6. ✅ **Stage 2 — DLC pose estimation** — 26/26 sessions completed. DLC 3.0rc13 PyTorch
+   backend with SuperAnimal TopViewMouse + HRNet-W32 + FasterRCNN detector. Videos
+   subsampled to 30 fps. Processed on g4dn.xlarge + g5.xlarge EC2 instances (parallel
+   shards). All EC2 instances stopped.
+7. ✅ **Stage 3 — Kinematics** — 21/21 sessions (non-excluded) processed.
+   `kinematics/compute.py` using `movement` library. HD, position, speed, AHV, movement
+   state, light on/off, bad_behav masking. kinematics.h5 on S3 for all 21 sessions.
+8. ✅ **Stage 4 — Calcium processing** — 26/26 sessions processed. 391 total ROIs.
+   Neuropil subtraction (fixed coefficient), dF/F0 baseline, V&H event detection,
+   per-ROI stats, soma/dendrite/artefact classification. ca.h5 on S3.
+9. ✅ **Stage 5 — Sync** — 21/21 sessions processed. `sync/align.py` resamples behaviour
+   → imaging frame times. sync.h5 on S3 for all 21 sessions.
+10. ✅ **Stage 6 — Analysis** — 21/21 sessions processed. 16 analysis modules: activity,
+    tuning, significance, comparison, decoder, stability, population, ahv, information,
+    classify, gain, anchoring, speed, run, save, plus maze analysis module. Multi-signal
+    analysis (dF/F, deconv, events). analysis.h5 on S3 for all 21 sessions.
+11. ✅ **Snakemake DAG** — `workflow/Snakefile` + 6 stage rules (`workflow/rules/*.smk`)
+    with resource specs. Three profiles: `local`, `local-gpu`, `aws-batch`.
+12. ✅ **Docker images defined** — `docker/gpu.Dockerfile` (CUDA 12.1 + Suite2p + DLC),
     `docker/cpu.Dockerfile` (CPU-only stages).
-11. ✅ **AWS S3 infrastructure** — buckets created (`hm2p-rawdata`, `hm2p-derivatives`),
+13. ✅ **AWS S3 infrastructure** — buckets created (`hm2p-rawdata`, `hm2p-derivatives`),
     versioning enabled, lifecycle policy (Standard → IA after 30 days).
-12. ✅ **Legacy pipeline reference** — copied into `old-pipeline/` (read-only, never modify).
-13. ✅ **EC2 launch script** — `scripts/launch_suite2p_ec2.py` launches a g4dn.xlarge
-    instance via boto3, bootstraps Suite2p, processes all 26 sessions, uploads results
-    to S3, and self-terminates. Supports `--status`, `--terminate`, `--dry-run`.
-
-### In Progress / Recently Completed
-
-14. ✅ **Suite2p cloud run (Stage 1)** — All 26 sessions processed on EC2 g4dn.xlarge
-    (GPU) with custom soma classifier and legacy parameters. Results uploaded to
-    `s3://hm2p-derivatives/ca_extraction/{sub}/{ses}/suite2p/`. Local validation on
-    `sub-1117788/ses-20221018T105617`: 99 ROIs, 25 cells (custom classifier), 14577 frames.
-    Key fixes: Suite2p 1.0 API (`run_s2p(db=..., settings=...)`), `sparsedetect` mode()
-    bug patch, dpkg lock wait for Ubuntu DLAMI, S3 progress tracking.
-15. ✅ **Visualization script** — `scripts/viz_suite2p.py` generates multi-panel figure
-    (mean image + ROIs, cell map, classification histogram, top-N dF/F traces).
-    Example output: `docs/figures/suite2p_example_sub-1117788.png`.
+14. ✅ **Legacy pipeline reference** — copied into `old-pipeline/` (read-only, never modify).
+15. ✅ **EC2 launch scripts** — `scripts/launch_suite2p_ec2.py` (Suite2p),
+    `scripts/launch_dlc_parallel.py` (DLC parallel shards). Both support `--status`,
+    `--terminate`, `--dry-run`.
+16. ✅ **Visualization script** — `scripts/viz_suite2p.py` generates multi-panel figure.
+17. ✅ **Frontend / dashboard** — Streamlit app with 43+ pages organized in 5 navigation
+    sections (Overview, Pipeline, Explore, Analysis, System). Loads real data from S3;
+    shows clear message if unavailable. No synthetic data.
+18. ✅ **keypoint-MoSeq** — Docker container + orchestration script implemented for
+    zero-label behavioural syllable extraction.
+19. ✅ **Security tooling** — bandit, checkov, detect-secrets, pip-audit, vulture
+    integrated in CI + pre-commit hooks. SG lockdown, S3 access logging, Google auth.
+20. ✅ **Patching pipeline** — 10 modules complete (config, io, ephys, protocols,
+    spike_features, morphology, metrics, statistics, pca, run) under `src/hm2p/patching/`.
+    227 patching-specific tests passing. Plotting and frontend pages remain TODO.
 
 ### Cloud Infrastructure
 
 - `scripts/launch_suite2p_ec2.py` — boto3 script to launch g4dn.xlarge, process all
   sessions, upload results to S3, self-terminate. Supports `--status`/`--progress`/`--terminate`.
+- `scripts/launch_dlc_parallel.py` — splits sessions across N Spot instances for DLC.
 - S3 progress tracking: `--progress` reads `_progress.json` from S3.
 - Custom classifier at `s3://hm2p-derivatives/config/suite2p/classifier_soma.npy`.
 - EC2 key pair (`hm2p-suite2p`) and security group (`hm2p-suite2p-sg`) already created.
@@ -723,37 +736,18 @@ Notebooks
 - `scripts/ecr_push.sh` — builds and pushes GPU/CPU Docker images to ECR.
 - `workflow/profiles/aws-batch/config.yaml` — Snakemake AWS Batch profile.
 
-### In Progress
-
-16. 🔄 **DLC pose estimation (Stage 2)** — IN PROGRESS. 13/26 sessions completed on
-    2x g5.xlarge EC2 On-Demand (parallel shards). DLC 3.0 PyTorch backend with
-    SuperAnimal TopViewMouse + HRNet-W32 + FasterRCNN detector. Videos subsampled
-    to 30 fps before inference.
-
-### Recently Completed
-
-17. ✅ **Stage 4 — Calcium processing (cloud)** — 26/26 sessions processed. 391 total
-    ROIs across 26 sessions. ca.h5 files uploaded to S3. Soma/dendrite/artefact
-    classification via Suite2p stat.npy shape metrics.
-18. ✅ **Frontend / dashboard** — Streamlit app with 43+ pages organized in 5 navigation
-    sections (Overview, Pipeline, Explore, Analysis, System). Loads real data from S3;
-    shows clear message if unavailable. No synthetic data.
-19. ✅ **Analysis framework** — 16 analysis modules: activity, tuning, significance,
-    comparison, decoder, stability, population, ahv, information, classify, gain,
-    anchoring, speed, run, save, plus maze analysis module.
-20. ✅ **keypoint-MoSeq** — Docker container + orchestration script implemented for
-    zero-label behavioural syllable extraction.
-21. ✅ **Security tooling** — bandit, checkov, detect-secrets, pip-audit, vulture
-    integrated in CI + pre-commit hooks.
-
 ### Remaining
 
-22. ⬜ **CASCADE spike inference** — requires separate conda env (tensorflow==2.3,
+21. ⬜ **CASCADE spike inference** — requires separate conda env (tensorflow==2.3,
     Python 3.8 only). See `docs/manual-installs.md`. Can run on CPU after Stage 4
     dF/F0 is computed.
-23. ⬜ **FISSA neuropil subtraction** — optional, more accurate than fixed coefficient.
+22. ⬜ **FISSA neuropil subtraction** — optional, more accurate than fixed coefficient.
     Requires separate env (scikit-learn<1.2). See `docs/manual-installs.md`.
-24. ⬜ **neuroconv NWB export** — write NWB files from ca.h5 + kinematics.h5 for DANDI
+23. ⬜ **neuroconv NWB export** — write NWB files from ca.h5 + kinematics.h5 for DANDI
     archiving. Stub only.
-25. ⬜ **Rotate hm2p-agent S3 credentials** — current access key was exposed in EC2
+24. ⬜ **Rotate hm2p-agent S3 credentials** — current access key was exposed in EC2
     user-data script. Rotate after cloud runs complete.
+25. ⬜ **Patching plotting modules** — `src/hm2p/patching/plotting/` (Phase 4 of
+    patching-port-plan).
+26. ⬜ **Patching frontend pages** — patching_page, patching_ephys_page,
+    patching_morph_page, patching_pca_page (Phase 5 of patching-port-plan).
