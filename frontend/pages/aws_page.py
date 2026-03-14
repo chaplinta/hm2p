@@ -8,7 +8,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-import json
 import logging
 
 import streamlit as st
@@ -17,7 +16,6 @@ from frontend.data import (
     DERIVATIVES_BUCKET,
     PIPELINE_STAGES,
     REGION,
-    STAGE_PREFIXES,
     download_s3_bytes,
     get_pipeline_status,
     get_progress,
@@ -122,53 +120,46 @@ def _list_completed_sessions(stage_prefix: str) -> list[str]:
     return completed
 
 
-# Suite2p sub-section
-st.subheader("Suite2p (ca_extraction)")
-try:
-    s2p_completed = _list_completed_sessions("ca_extraction")
-    n_s2p = len(s2p_completed)
-    st.progress(
-        n_s2p / TOTAL_SESSIONS,
-        text=f"{n_s2p}/{TOTAL_SESSIONS} sessions completed",
-    )
-    if s2p_completed:
-        with st.expander(f"Completed sessions ({n_s2p})"):
-            for s in s2p_completed:
-                st.text(s)
-    else:
-        st.info("No Suite2p outputs found yet.")
-except Exception as e:
-    log.exception("Could not check Suite2p progress")
-    st.error("Could not check Suite2p progress. Check server logs for details.")
+for _stage_key, _stage_info in PIPELINE_STAGES.items():
+    _s3_prefix = _stage_info.get("s3_prefix")
+    if _s3_prefix is None:
+        continue  # skip ingest (rawdata bucket)
 
-# DLC sub-section
-st.subheader("DLC (pose)")
-try:
-    dlc_completed = _list_completed_sessions("pose")
-    n_dlc = len(dlc_completed)
-    st.progress(
-        n_dlc / TOTAL_SESSIONS,
-        text=f"{n_dlc}/{TOTAL_SESSIONS} sessions completed",
-    )
-    if dlc_completed:
-        with st.expander(f"Completed sessions ({n_dlc})"):
-            for s in dlc_completed:
-                st.text(s)
-    else:
-        st.info("No DLC outputs found yet.")
-except Exception as e:
-    log.exception("Could not check DLC progress")
-    st.error("Could not check DLC progress. Check server logs for details.")
+    _label = _stage_info["label"]
+    _expected = _stage_info["expected"]
+
+    st.subheader(_label)
+    try:
+        completed = _list_completed_sessions(_s3_prefix)
+        n_done = len(completed)
+        st.progress(
+            n_done / _expected,
+            text=f"{n_done}/{_expected} sessions completed",
+        )
+        if completed:
+            with st.expander(f"Completed sessions ({n_done})"):
+                for s in completed:
+                    st.text(s)
+        else:
+            st.info(f"No {_stage_info['short']} outputs found yet.")
+    except Exception as e:
+        log.exception("Could not check %s progress", _label)
+        st.error(f"Could not check {_stage_info['short']} progress. Check server logs.")
 
 
 # ── Section 3: Job Logs ──────────────────────────────────────────────────────
 
 st.header("Job Logs")
 
-log_sources = {
-    "Suite2p log": "ca_extraction/_suite2p_log.txt",
-    "DLC log": "pose/_dlc_log.txt",
-}
+log_sources = {}
+for _key, _info in PIPELINE_STAGES.items():
+    _pfx = _info.get("s3_prefix")
+    if _pfx is None:
+        continue
+    log_sources[f"{_info['short']} progress"] = f"{_pfx}/_progress.json"
+# Keep the original text log files too
+log_sources["Suite2p log (text)"] = "ca_extraction/_suite2p_log.txt"
+log_sources["DLC log (text)"] = "pose/_dlc_log.txt"
 
 selected_log = st.selectbox("Log source", list(log_sources.keys()))
 log_key = log_sources[selected_log]
@@ -208,40 +199,3 @@ if progress_data:
             text=f"{progress_data.get('completed', 0)}/{progress_data['total']} done",
         )
 
-
-# ── Section 4: DLC Progress Detail ───────────────────────────────────────────
-
-st.header("DLC Progress Detail")
-
-dlc_progress = get_progress("pose")
-if dlc_progress:
-    st.subheader("Overview")
-    cols = st.columns(4)
-    cols[0].metric("Status", dlc_progress.get("status", "?"))
-    cols[1].metric("Completed", dlc_progress.get("completed", 0))
-    cols[2].metric("Failed", dlc_progress.get("failed", 0))
-    cols[3].metric("Skipped", dlc_progress.get("skipped", 0))
-
-    # Show failed sessions with error messages
-    failed_sessions = dlc_progress.get("failed_sessions", [])
-    if failed_sessions:
-        st.subheader("Failed Sessions")
-        for entry in failed_sessions:
-            if isinstance(entry, dict):
-                session = entry.get("session", "unknown")
-                error = entry.get("error", "no error message")
-                st.error(f"**{session}** -- {sanitize_error(error)}")
-            else:
-                st.error(sanitize_error(str(entry)))
-    elif dlc_progress.get("failed", 0) > 0:
-        st.warning(
-            "Failed sessions exist but no detailed error messages are available "
-            "in _progress.json."
-        )
-    else:
-        st.success("No failed sessions.")
-else:
-    st.info(
-        "No _progress.json found for DLC (pose). "
-        "DLC processing may not have started yet."
-    )

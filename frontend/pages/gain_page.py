@@ -163,7 +163,7 @@ with tab_single:
         ))
     fig.update_layout(
         height=350, title=f"Cell {cell_idx+1} — Light vs Dark Tuning",
-        polar=dict(radialaxis=dict(showticklabels=True)),
+        polar=dict(radialaxis=dict(visible=False), angularaxis=dict(showticklabels=False)),
     )
     st.plotly_chart(fig, use_container_width=True)
 

@@ -226,7 +226,7 @@ if avail.get("calcium"):
             fig.add_trace(go.Scatter(
                 x=time_ax, y=trace,
                 mode="lines", line=dict(width=0.8, color="black"),
-                name="dF/F",
+                name="dF/F0",
             ))
 
             # Event overlay
@@ -255,9 +255,9 @@ if avail.get("calcium"):
                             )
 
             fig.update_layout(
-                title=f"ROI {roi} dF/F",
+                title=f"ROI {roi} dF/F0",
                 xaxis_title="Time (s)",
-                yaxis_title="dF/F",
+                yaxis_title="dF/F0",
                 height=400,
             )
             st.plotly_chart(fig, use_container_width=True)

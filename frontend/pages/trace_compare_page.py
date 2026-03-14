@@ -79,14 +79,35 @@ fps = data["fps"]
 time_s = np.arange(n_frames) / fps
 duration_s = n_frames / fps
 
-# Compute SNR
+# Compute per-ROI metrics
 snrs = []
+max_dffs = []
+event_rates = []
 for i in range(n_rois):
     trace = dff[i]
     baseline_std = np.std(trace[trace < np.percentile(trace, 50)])
     peak = np.percentile(trace, 95)
     snrs.append(peak / baseline_std if baseline_std > 0 else 0)
+    max_dffs.append(float(np.nanmax(trace)))
+
+    if "event_masks" in data:
+        em = data["event_masks"][i].astype(bool)
+        onsets = np.flatnonzero(em[1:] & ~em[:-1])
+        n_events = len(onsets) + (1 if em[0] else 0)
+        event_rates.append(n_events / (duration_s / 60))
+    else:
+        event_rates.append(0.0)
+
 snrs = np.array(snrs)
+max_dffs = np.array(max_dffs)
+event_rates = np.array(event_rates)
+
+# Precompute full correlation matrix for ranked pair selection
+if n_rois >= 2:
+    _full_corr = np.corrcoef(dff)
+    np.fill_diagonal(_full_corr, np.nan)
+else:
+    _full_corr = None
 
 # --- Controls ---
 col1, col2, col3 = st.columns(3)
@@ -95,7 +116,8 @@ with col1:
     display_mode = st.selectbox("Display", ["Overlay", "Stacked", "Normalized"], key="tc_mode")
 
 with col2:
-    signal = st.selectbox("Signal", ["dff"] + (["deconv"] if "spks" in data else []) + (["events"] if "event_masks" in data else []), key="tc_signal")
+    _signal_labels = {"dff": "dF/F\u2080", "deconv": "Deconv", "events": "Events"}
+    signal = st.selectbox("Signal", ["dff"] + (["deconv"] if "spks" in data else []) + (["events"] if "event_masks" in data else []), format_func=lambda x: _signal_labels.get(x, x), key="tc_signal")
 
 with col3:
     show_events = st.checkbox("Highlight events", value=True, key="tc_events")
@@ -109,7 +131,18 @@ with col1:
     good_rois = np.where(snrs >= min_snr)[0]
 
     # Quick select options
-    select_mode = st.radio("Selection mode", ["Manual", "Top N by SNR", "Most correlated pair"], key="tc_select_mode")
+    _modes = [
+        "Manual",
+        "Top N by SNR",
+        "Top N by max dF/F\u2080",
+        "Top N by event rate",
+        "Bottom N by SNR",
+        "Bottom N by max dF/F\u2080",
+        "Bottom N by event rate",
+        "Nth most correlated pair",
+        "Nth least correlated pair",
+    ]
+    select_mode = st.radio("Selection mode", _modes, key="tc_select_mode")
 
     if select_mode == "Manual":
         selected_rois = st.multiselect(
@@ -119,22 +152,71 @@ with col1:
             format_func=lambda i: f"ROI {i} (SNR={snrs[i]:.1f})",
             key="tc_rois",
         )
-    elif select_mode == "Top N by SNR":
-        n_top = st.slider("N", 2, min(10, len(good_rois)), 3, key="tc_top_n")
-        top_idx = np.argsort(snrs[good_rois])[::-1][:n_top]
-        selected_rois = good_rois[top_idx].tolist()
-        st.markdown(f"Selected: {', '.join(f'ROI {r}' for r in selected_rois)}")
-    else:
-        # Find most correlated pair
-        if len(good_rois) >= 2:
-            corr_sub = np.corrcoef(dff[good_rois])
-            np.fill_diagonal(corr_sub, -1)
-            max_idx = np.unravel_index(np.argmax(corr_sub), corr_sub.shape)
-            selected_rois = [good_rois[max_idx[0]], good_rois[max_idx[1]]]
-            r_val = corr_sub[max_idx]
-            st.markdown(f"Most correlated: ROI {selected_rois[0]} & ROI {selected_rois[1]} (r={r_val:.3f})")
+    elif select_mode.startswith("Top N") or select_mode.startswith("Bottom N"):
+        n_sel = st.slider("N", 2, min(10, len(good_rois)), 3, key="tc_top_n")
+        is_bottom = select_mode.startswith("Bottom")
+
+        if "SNR" in select_mode:
+            metric_vals = snrs[good_rois]
+            metric_name = "SNR"
+        elif "max dF/F" in select_mode:
+            metric_vals = max_dffs[good_rois]
+            metric_name = "max dF/F\u2080"
         else:
-            selected_rois = good_rois.tolist()
+            metric_vals = event_rates[good_rois]
+            metric_name = "event rate"
+
+        if is_bottom:
+            order = np.argsort(metric_vals)[:n_sel]
+        else:
+            order = np.argsort(metric_vals)[::-1][:n_sel]
+
+        selected_rois = good_rois[order].tolist()
+        direction = "Bottom" if is_bottom else "Top"
+        st.markdown(f"**{direction} {n_sel} by {metric_name}:**")
+        for r in selected_rois:
+            if metric_name == "SNR":
+                val = f"SNR={snrs[r]:.1f}"
+            elif "max dF/F" in metric_name:
+                val = f"max={max_dffs[r]:.2f}"
+            else:
+                val = f"{event_rates[r]:.1f}/min"
+            st.text(f"  ROI {r} ({val})")
+
+    elif select_mode.endswith("correlated pair"):
+        is_least = "least" in select_mode
+        if _full_corr is not None and len(good_rois) >= 2:
+            # Get all unique pairs from good_rois, ranked by correlation
+            corr_sub = _full_corr[np.ix_(good_rois, good_rois)].copy()
+            np.fill_diagonal(corr_sub, np.nan)
+            # Flatten upper triangle only
+            iu = np.triu_indices(len(good_rois), k=1)
+            pair_corrs = corr_sub[iu]
+            valid = np.isfinite(pair_corrs)
+            if valid.any():
+                if is_least:
+                    rank_order = np.argsort(pair_corrs[valid])
+                else:
+                    rank_order = np.argsort(pair_corrs[valid])[::-1]
+
+                n_pairs = int(valid.sum())
+                pair_rank = st.slider("Pair rank", 1, min(n_pairs, 50), 1, key="tc_pair_rank")
+                pick = rank_order[pair_rank - 1]
+                # Map back to original indices
+                valid_indices = np.where(valid)[0]
+                flat_idx = valid_indices[pick]
+                i_local, j_local = iu[0][flat_idx], iu[1][flat_idx]
+                r_val = pair_corrs[flat_idx]
+                selected_rois = [int(good_rois[i_local]), int(good_rois[j_local])]
+                label = "least" if is_least else "most"
+                st.markdown(
+                    f"**#{pair_rank} {label} correlated:** "
+                    f"ROI {selected_rois[0]} & ROI {selected_rois[1]} (r={r_val:.3f})"
+                )
+            else:
+                selected_rois = good_rois[:2].tolist()
+        else:
+            selected_rois = good_rois[:2].tolist() if len(good_rois) >= 2 else good_rois.tolist()
 
 with col2:
     # Time range
@@ -210,9 +292,9 @@ for plot_idx, roi_idx in enumerate(selected_rois):
 
 fig.update_layout(
     height=400,
-    title=f"{display_mode} view — {signal} — {len(selected_rois)} ROIs",
+    title=f"{display_mode} view — {_signal_labels.get(signal, signal)} — {len(selected_rois)} ROIs",
     xaxis_title="Time (s)",
-    yaxis_title=signal if display_mode != "Normalized" else "Z-score",
+    yaxis_title=_signal_labels.get(signal, signal) if display_mode != "Normalized" else "Z-score",
     margin=dict(l=50, r=20, t=40, b=30),
 )
 st.plotly_chart(fig, use_container_width=True)

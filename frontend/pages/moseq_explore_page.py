@@ -407,7 +407,7 @@ if sync_data is not None and "hd" in sync_data:
                     ))
                 fig_polar.update_layout(
                     title="Syllable HD preference",
-                    polar=dict(angularaxis=dict(direction="clockwise")),
+                    polar=dict(radialaxis=dict(visible=False), angularaxis=dict(direction="clockwise", showticklabels=False)),
                     height=400,
                 )
                 st.plotly_chart(fig_polar, use_container_width=True)

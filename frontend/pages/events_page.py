@@ -200,7 +200,7 @@ with tab_browse:
             x=t_window,
             y=trace_window,
             mode="lines",
-            name="dF/F",
+            name="dF/F\u2080",
             line=dict(color="black", width=1),
         ))
 
@@ -219,7 +219,7 @@ with tab_browse:
             height=300,
             title=f"Event {event_idx + 1}/{len(events)} — onset: {ev['onset_time_s']:.1f}s, dur: {ev['duration_s']:.2f}s, peak: {ev['peak_dff']:.3f}",
             xaxis_title="Time (s)",
-            yaxis_title="dF/F",
+            yaxis_title="dF/F\u2080",
             margin=dict(l=50, r=20, t=40, b=30),
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -227,8 +227,8 @@ with tab_browse:
         # Event details
         col1, col2, col3, col4, col5 = st.columns(5)
         col1.metric("Duration", f"{ev['duration_s']:.2f}s")
-        col2.metric("Peak dF/F", f"{ev['peak_dff']:.3f}")
-        col3.metric("Mean dF/F", f"{ev['mean_dff']:.3f}")
+        col2.metric("Peak dF/F\u2080", f"{ev['peak_dff']:.3f}")
+        col3.metric("Mean dF/F\u2080", f"{ev['mean_dff']:.3f}")
         col4.metric("AUC", f"{ev['auc']:.3f}")
         col5.metric("Onset", f"{ev['onset_time_s']:.1f}s")
 
@@ -303,7 +303,7 @@ with tab_waveforms:
             height=400,
             title=f"Event Waveforms (n={len(events)}, aligned to onset)",
             xaxis_title="Time from onset (s)",
-            yaxis_title="dF/F",
+            yaxis_title="dF/F\u2080",
             margin=dict(l=50, r=20, t=40, b=30),
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -327,7 +327,7 @@ with tab_stats:
             st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            fig = px.histogram(ev_df, x="peak_dff", nbins=30, title="Peak dF/F Distribution")
+            fig = px.histogram(ev_df, x="peak_dff", nbins=30, title="Peak dF/F\u2080 Distribution")
             fig.update_layout(height=250, margin=dict(l=40, r=20, t=40, b=30))
             st.plotly_chart(fig, use_container_width=True)
 
@@ -354,8 +354,8 @@ with tab_stats:
             "Event rate (events/min)": f"{len(events) / (n_frames/fps/60):.1f}",
             "Mean duration (s)": f"{ev_df['duration_s'].mean():.3f}",
             "Median duration (s)": f"{ev_df['duration_s'].median():.3f}",
-            "Mean peak dF/F": f"{ev_df['peak_dff'].mean():.4f}",
-            "Median peak dF/F": f"{ev_df['peak_dff'].median():.4f}",
+            "Mean peak dF/F\u2080": f"{ev_df['peak_dff'].mean():.4f}",
+            "Median peak dF/F\u2080": f"{ev_df['peak_dff'].median():.4f}",
             "Mean AUC": f"{ev_df['auc'].mean():.4f}",
             "Active fraction": f"{event_masks[roi_idx].astype(bool).mean():.3f}",
         }

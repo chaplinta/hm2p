@@ -193,7 +193,7 @@ with tab_overview:
 
     metrics = [
         ("event_rate", "Event Rate (events/min)"),
-        ("mean_amplitude", "Mean Amplitude (dF/F)"),
+        ("mean_amplitude", "Mean Amplitude (dF/F0)"),
         ("mean_duration_s", "Mean Duration (s)"),
         ("mean_rise_time_s", "Mean Rise Time (s)"),
         ("mean_decay_time_s", "Mean Decay Time (s)"),
@@ -249,7 +249,7 @@ with tab_overview:
     fig.update_layout(
         height=350,
         xaxis_title="Event Rate (events/min)",
-        yaxis_title="Mean Amplitude (dF/F)",
+        yaxis_title="Mean Amplitude (dF/F0)",
         margin=dict(l=50, r=20, t=40, b=30),
     )
     st.plotly_chart(fig, use_container_width=True, key="amp_rate_scatter")
@@ -267,8 +267,8 @@ with tab_celltype:
     else:
         comparison_metrics = [
             ("event_rate", "Event Rate (events/min)"),
-            ("mean_amplitude", "Mean Amplitude (dF/F)"),
-            ("median_amplitude", "Median Amplitude (dF/F)"),
+            ("mean_amplitude", "Mean Amplitude (dF/F0)"),
+            ("median_amplitude", "Median Amplitude (dF/F0)"),
             ("mean_duration_s", "Mean Duration (s)"),
             ("mean_rise_time_s", "Mean Rise Time (s)"),
             ("mean_decay_time_s", "Mean Decay Time (s)"),
@@ -411,8 +411,8 @@ with st.expander("Methods"):
 (Voigts & Harnett 2020, [doi:10.1016/j.neuron.2019.10.016](https://doi.org/10.1016/j.neuron.2019.10.016)).
 [GitHub](https://github.com/jvoigts/cell_labeling_bhv)
 
-**Per-event metrics:** amplitude (peak dF/F), duration (onset to offset),
-rise time (onset to peak), decay time (peak to offset), AUC (integral of dF/F).
+**Per-event metrics:** amplitude (peak dF/F0), duration (onset to offset),
+rise time (onset to peak), decay time (peak to offset), AUC (integral of dF/F0).
 
 **Per-cell summaries:** event rate, SNR (mean amplitude / baseline std),
 fraction active, mean inter-event interval, and aggregated event metrics.

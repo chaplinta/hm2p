@@ -2,10 +2,12 @@
 
 Visualizes population-level properties of HD cell ensembles: dimensionality,
 pairwise correlations, population vector structure, and temporal coherence.
+All data loaded from real sync.h5 files on S3.
 """
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
@@ -13,17 +15,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 import numpy as np
-import pandas as pd
-import streamlit as st
-
-st.title("Population Dynamics")
-st.caption(
-    "Population-level analysis: PCA dimensionality, pairwise correlations, "
-    "population vector ring structure, and ensemble coherence."
-)
-
 import plotly.express as px
 import plotly.graph_objects as go
+import streamlit as st
 
 from hm2p.analysis.population import (
     ensemble_coherence,
@@ -32,35 +26,58 @@ from hm2p.analysis.population import (
     population_vector_correlation,
 )
 
+log = logging.getLogger("hm2p.frontend.pop_dynamics")
 
-def _make_hd_population(n_cells=15, n_frames=3000, kappa=3.0, noise=0.15, seed=42):
-    """Generate HD-tuned population."""
-    rng = np.random.default_rng(seed)
-    hd = np.cumsum(rng.normal(0, 5, n_frames)) % 360.0
-    theta = np.deg2rad(hd)
-    prefs = np.linspace(0, 360, n_cells, endpoint=False)
-    signals = np.zeros((n_cells, n_frames))
-    for i in range(n_cells):
-        signals[i] = 0.1 + np.exp(kappa * np.cos(theta - np.deg2rad(prefs[i])))
-        signals[i] /= signals[i].max()
-        signals[i] += rng.normal(0, noise, n_frames)
-        signals[i] = np.clip(signals[i], 0, None)
-    mask = np.ones(n_frames, dtype=bool)
-    return signals, hd, mask, prefs
-
-
-# Controls
-col_c1, col_c2, col_c3 = st.columns(3)
-with col_c1:
-    n_cells = st.slider("Number of cells", 5, 40, 15, 5, key="popdyn_n")
-with col_c2:
-    kappa = st.slider("Tuning κ", 0.5, 8.0, 3.0, 0.5, key="popdyn_kappa")
-with col_c3:
-    noise = st.slider("Noise level", 0.05, 0.8, 0.15, 0.05, key="popdyn_noise")
-
-signals, hd, mask, prefs = _make_hd_population(
-    n_cells=n_cells, kappa=kappa, noise=noise,
+st.title("Population Dynamics")
+st.caption(
+    "Population-level analysis: PCA dimensionality, pairwise correlations, "
+    "population vector ring structure, and ensemble coherence."
 )
+
+# ── Load real data ────────────────────────────────────────────────────────
+
+try:
+    from frontend.data import load_all_sync_data, session_filter_sidebar
+except ImportError:
+    st.error("Frontend data module not available.")
+    st.stop()
+
+try:
+    all_data = load_all_sync_data()
+except Exception as e:
+    log.warning("Could not load sync data: %s", e)
+    st.warning("Could not load sync data from S3. Check server logs.")
+    st.stop()
+
+if all_data["n_sessions"] == 0:
+    st.warning(
+        "No sync data available yet. This page will populate automatically "
+        "when Stage 5 (sync) completes."
+    )
+    st.stop()
+
+sessions = session_filter_sidebar(all_data["sessions"])
+
+if not sessions:
+    st.warning("No sessions match the current filter.")
+    st.stop()
+
+# Session selector
+exp_ids = [s["exp_id"] for s in sessions]
+selected_exp = st.selectbox("Session", exp_ids, key="popdyn_session")
+ses_data = next(s for s in sessions if s["exp_id"] == selected_exp)
+
+signals = ses_data["dff"]
+hd = ses_data["hd_deg"]
+mask = ses_data["active"] & ~ses_data["bad_behav"]
+n_cells = ses_data["n_rois"]
+n_frames = ses_data["n_frames"]
+
+st.success(f"Loaded {n_cells} cells, {n_frames} frames from {selected_exp}")
+
+if n_cells < 3:
+    st.warning("Need at least 3 cells for population dynamics analysis.")
+    st.stop()
 
 tab_pca, tab_corr, tab_pv, tab_coherence = st.tabs([
     "PCA", "Correlations", "Pop. Vector", "Coherence",
@@ -116,7 +133,7 @@ with tab_pca:
             marker=dict(
                 size=3, opacity=0.5,
                 color=hd[subsample], colorscale="HSV",
-                colorbar=dict(title="HD (°)"),
+                colorbar=dict(title="HD (deg)"),
             ),
         )])
         fig.update_layout(
@@ -135,7 +152,7 @@ with tab_corr:
     st.subheader("Pairwise Correlations")
 
     corr = pairwise_correlations(signals)
-    labels = [f"Cell {i+1}" for i in range(n_cells)]
+    labels = [f"Cell {i}" for i in range(n_cells)]
 
     fig = px.imshow(
         corr, x=labels, y=labels,
@@ -151,7 +168,7 @@ with tab_corr:
     upper = corr[np.triu_indices_from(corr, k=1)]
     fig = go.Figure(data=[go.Histogram(x=upper, nbinsx=30, marker_color="royalblue")])
     fig.update_layout(
-        height=300, title=f"Off-Diagonal Correlation Distribution (mean={np.mean(upper):.3f})",
+        height=300, title=f"Off-Diagonal Correlation Distribution (mean={np.nanmean(upper):.3f})",
         xaxis_title="Pearson r", yaxis_title="Count",
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -167,14 +184,14 @@ with tab_pv:
     )
 
     pvc = population_vector_correlation(signals, hd, mask, n_bins=36)
-    bin_labels = [f"{i*10}°" for i in range(36)]
+    bin_labels = [f"{i*10}" for i in range(36)]
 
     fig = px.imshow(
         pvc,
         x=bin_labels, y=bin_labels,
         color_continuous_scale="RdBu_r",
         zmin=-1, zmax=1,
-        title="Population Vector Correlation (HD × HD)",
+        title="Population Vector Correlation (HD x HD)",
         aspect="equal",
     )
     fig.update_layout(height=500)
@@ -199,8 +216,9 @@ with tab_coherence:
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    st.metric("Mean coherence", f"{np.mean(coh):.3f}")
-    st.metric("Coherence std", f"{np.std(coh):.3f}")
+    if len(coh) > 0:
+        st.metric("Mean coherence", f"{np.nanmean(coh):.3f}")
+        st.metric("Coherence std", f"{np.nanstd(coh):.3f}")
 
 # Footer
 st.markdown("---")

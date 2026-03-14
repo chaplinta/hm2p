@@ -78,9 +78,298 @@ raw_files = list_s3_session_files(RAWDATA_BUCKET, rawdata_prefix)
 tdms_files = [f for f in raw_files if f["key"].endswith(".tdms")]
 
 # --- Tab layout ---
-tab_timing, tab_quality, tab_batch, tab_raw = st.tabs(
-    ["Timing Pulses", "Sync Quality", "Batch Validation", "Raw Files"]
+tab_scanner, tab_timing, tab_quality, tab_batch, tab_raw = st.tabs(
+    ["Problem Scanner", "Timing Pulses", "Sync Quality", "Batch Validation", "Raw Files"]
 )
+
+with tab_scanner:
+    st.subheader("Cross-Session Sync Problem Scanner")
+    st.caption(
+        "Scans all sessions for sync issues. Checks timestamps, frame counts, "
+        "kinematics, calcium, and sync.h5 completeness. Shows likely causes."
+    )
+
+    if st.button("Scan all sessions", key="scan_sync", type="primary"):
+        from hm2p.sync.validate import Status, validate_timestamps
+
+        problems: list[dict] = []
+        progress = st.progress(0, text="Scanning sessions...")
+
+        for i, exp in enumerate(experiments):
+            exp_id = exp["exp_id"]
+            s, ss = parse_session_id(exp_id)
+
+            progress.progress((i + 1) / len(experiments), text=f"Scanning {exp_id}...")
+
+            # ── Check 1: timestamps.h5 exists ─────────────────────────
+            ts_key = f"movement/{s}/{ss}/timestamps.h5"
+            ts = load_h5_from_s3(DERIVATIVES_BUCKET, ts_key)
+
+            if ts is None:
+                problems.append({
+                    "session": exp_id,
+                    "severity": "error",
+                    "check": "Stage 0 — timestamps.h5",
+                    "issue": "Missing timestamps.h5",
+                    "cause": "Stage 0 (DAQ parsing) has not been run, or TDMS file is missing/corrupt.",
+                })
+                continue
+
+            # ── Check 2: Run validation suite ─────────────────────────
+            ts_data = {k: v for k, v in ts.items() if not k.startswith("_attr_")}
+            fps_c = ts.get("_attr_fps_camera")
+            fps_i = ts.get("_attr_fps_imaging")
+
+            # Get Suite2p frame count
+            n_tiff = None
+            ops_key = f"ca_extraction/{s}/{ss}/suite2p/plane0/ops.npy"
+            ops_data = download_s3_numpy(DERIVATIVES_BUCKET, ops_key, allow_pickle=True)
+            if ops_data is not None:
+                ops_dict = ops_data.item() if hasattr(ops_data, "item") else ops_data
+                n_tiff = ops_dict.get("nframes")
+
+            results = validate_timestamps(
+                ts_data,
+                fps_camera=float(fps_c) if fps_c is not None else None,
+                fps_imaging=float(fps_i) if fps_i is not None else None,
+                n_tiff_frames=n_tiff,
+            )
+
+            _CAUSE_MAP = {
+                "camera_jitter": (
+                    "Basler camera dropped frames or USB bandwidth issue. "
+                    "Check camera cable and DAQ trigger settings."
+                ),
+                "imaging_jitter": (
+                    "SciScan trigger pulses inconsistent. May indicate "
+                    "thermal drift in galvo timing or DAQ clock issue."
+                ),
+                "temporal_overlap": (
+                    "Camera and imaging started/stopped at different times. "
+                    "DAQ trigger routing may have failed for part of session."
+                ),
+                "frame_count": (
+                    "Suite2p found different frame count than DAQ trigger pulses. "
+                    "Off-by-1 is normal (SciScan edge); >1 means dropped TIFF frames "
+                    "or DAQ missed triggers."
+                ),
+                "light_cycle": (
+                    "Light controller timing drifted or malfunctioned. "
+                    "Check Arduino/TTL light controller firmware."
+                ),
+            }
+
+            for r in results:
+                if r.status in (Status.WARN, Status.ERROR):
+                    problems.append({
+                        "session": exp_id,
+                        "severity": r.status.value,
+                        "check": r.name,
+                        "issue": r.message,
+                        "cause": _CAUSE_MAP.get(r.name, "Unknown"),
+                        **{k: v for k, v in r.details.items()
+                           if isinstance(v, (int, float, str))},
+                    })
+
+            # ── Check 3: Frame count sanity ───────────────────────────
+            cam_times = ts.get("frame_times_camera")
+            img_times = ts.get("frame_times_imaging")
+
+            if cam_times is not None and len(cam_times) < 1000:
+                problems.append({
+                    "session": exp_id,
+                    "severity": "error",
+                    "check": "Camera frame count",
+                    "issue": f"Only {len(cam_times)} camera frames (expected >50,000)",
+                    "cause": (
+                        "Camera recording was very short or terminated early. "
+                        "Check if overhead camera was running."
+                    ),
+                })
+
+            if img_times is not None and len(img_times) < 100:
+                problems.append({
+                    "session": exp_id,
+                    "severity": "error",
+                    "check": "Imaging frame count",
+                    "issue": f"Only {len(img_times)} imaging frames (expected >5,000)",
+                    "cause": (
+                        "Imaging acquisition terminated early or TDMS file truncated."
+                    ),
+                })
+
+            # ── Check 4: ca.h5 exists ─────────────────────────────────
+            ca_check = download_s3_bytes(DERIVATIVES_BUCKET, f"calcium/{s}/{ss}/ca.h5")
+            if ca_check is None:
+                problems.append({
+                    "session": exp_id,
+                    "severity": "warn",
+                    "check": "Stage 4 — ca.h5",
+                    "issue": "Missing ca.h5",
+                    "cause": (
+                        "Stage 4 (calcium processing) has not been run, "
+                        "or Suite2p extraction failed for this session."
+                    ),
+                })
+
+            # ── Check 5: kinematics.h5 exists ─────────────────────────
+            kin_check = download_s3_bytes(DERIVATIVES_BUCKET, f"kinematics/{s}/{ss}/kinematics.h5")
+            if kin_check is None:
+                exclude = str(exp.get("exclude", "0"))
+                bad_behav = exp.get("bad_behav_times", "")
+                if exclude == "1":
+                    cause = "Session is excluded (exclude=1 in experiments.csv)."
+                elif bad_behav:
+                    cause = (
+                        f"Session has bad_behav_times={bad_behav}. "
+                        "May have been skipped due to behaviour artefacts."
+                    )
+                else:
+                    cause = (
+                        "Stage 3 (kinematics) has not been run, "
+                        "or DLC pose output is missing."
+                    )
+                problems.append({
+                    "session": exp_id,
+                    "severity": "warn",
+                    "check": "Stage 3 — kinematics.h5",
+                    "issue": "Missing kinematics.h5",
+                    "cause": cause,
+                })
+
+            # ── Check 6: sync.h5 exists ───────────────────────────────
+            sync_check = download_s3_bytes(DERIVATIVES_BUCKET, f"sync/{s}/{ss}/sync.h5")
+            if sync_check is None:
+                if kin_check is None:
+                    cause = "Cannot create sync.h5 without kinematics.h5 — fix Stage 3 first."
+                elif ca_check is None:
+                    cause = "Cannot create sync.h5 without ca.h5 — fix Stage 4 first."
+                else:
+                    cause = (
+                        "Both ca.h5 and kinematics.h5 exist but sync.h5 is missing. "
+                        "Run Stage 5 (sync alignment)."
+                    )
+                problems.append({
+                    "session": exp_id,
+                    "severity": "warn",
+                    "check": "Stage 5 — sync.h5",
+                    "issue": "Missing sync.h5",
+                    "cause": cause,
+                })
+
+            # ── Check 7: sync.h5 data quality ─────────────────────────
+            if sync_check is not None:
+                import h5py
+                try:
+                    sf = h5py.File(io.BytesIO(sync_check), "r")
+
+                    # Check for NaN in key signals
+                    for sig_name in ["hd_deg", "speed_cm_s", "x_mm", "y_mm"]:
+                        if sig_name in sf:
+                            arr = sf[sig_name][:]
+                            nan_frac = np.isnan(arr).mean()
+                            if nan_frac > 0.1:
+                                problems.append({
+                                    "session": exp_id,
+                                    "severity": "warn",
+                                    "check": f"sync.h5 — {sig_name}",
+                                    "issue": f"{nan_frac:.0%} NaN values in {sig_name}",
+                                    "cause": (
+                                        f"DLC tracking failed for many frames. "
+                                        f"Check DLC likelihood and consider retraining."
+                                    ),
+                                })
+
+                    # Check bad_behav fraction
+                    if "bad_behav" in sf:
+                        bad_frac = sf["bad_behav"][:].mean()
+                        if bad_frac > 0.3:
+                            problems.append({
+                                "session": exp_id,
+                                "severity": "warn",
+                                "check": "sync.h5 — bad_behav",
+                                "issue": f"{bad_frac:.0%} of frames flagged as bad behaviour",
+                                "cause": (
+                                    "Mouse got stuck on tether/fibre for extended periods. "
+                                    "These frames will be excluded from analysis."
+                                ),
+                            })
+
+                    # Check frame count consistency
+                    if "dff" in sf and "hd_deg" in sf:
+                        n_ca = sf["dff"].shape[1]
+                        n_kin = len(sf["hd_deg"])
+                        if n_ca != n_kin:
+                            problems.append({
+                                "session": exp_id,
+                                "severity": "error",
+                                "check": "sync.h5 — frame mismatch",
+                                "issue": f"dff has {n_ca} frames but hd_deg has {n_kin}",
+                                "cause": (
+                                    "Sync alignment failed — calcium and kinematics "
+                                    "have different frame counts after resampling. "
+                                    "Re-run Stage 5."
+                                ),
+                            })
+
+                    sf.close()
+                except Exception as e:
+                    problems.append({
+                        "session": exp_id,
+                        "severity": "error",
+                        "check": "sync.h5 — corrupt",
+                        "issue": f"Cannot read sync.h5: {e}",
+                        "cause": "File may be corrupt or incomplete. Re-run Stage 5.",
+                    })
+
+        progress.empty()
+
+        # ── Display results ───────────────────────────────────────────
+        if not problems:
+            st.success("No problems found across all sessions.")
+        else:
+            import pandas as pd
+
+            prob_df = pd.DataFrame(problems)
+            n_errors = (prob_df["severity"] == "error").sum()
+            n_warns = (prob_df["severity"] == "warn").sum()
+            sessions_affected = prob_df["session"].nunique()
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("Sessions with issues", sessions_affected)
+            col2.metric("Errors", int(n_errors))
+            col3.metric("Warnings", int(n_warns))
+
+            # Errors first
+            if n_errors > 0:
+                st.markdown("### Errors")
+                errors = prob_df[prob_df["severity"] == "error"]
+                for _, row in errors.iterrows():
+                    with st.expander(
+                        f":x: **{row['session']}** — {row['check']}: {row['issue']}",
+                        expanded=True,
+                    ):
+                        st.markdown(f"**Likely cause:** {row['cause']}")
+
+            # Warnings
+            if n_warns > 0:
+                st.markdown("### Warnings")
+                warns = prob_df[prob_df["severity"] == "warn"]
+                for _, row in warns.iterrows():
+                    with st.expander(
+                        f":warning: **{row['session']}** — {row['check']}: {row['issue']}"
+                    ):
+                        st.markdown(f"**Likely cause:** {row['cause']}")
+
+            # Summary table
+            st.markdown("### All Issues")
+            display_cols = ["session", "severity", "check", "issue", "cause"]
+            st.dataframe(
+                prob_df[display_cols],
+                use_container_width=True,
+                hide_index=True,
+            )
+
 
 with tab_timing:
     if timestamps is None:

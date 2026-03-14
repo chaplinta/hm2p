@@ -174,8 +174,60 @@ else:
                     tmp.flush()
                     df = pd.read_hdf(tmp.name)
 
-                # DLC multi-index: scorer -> bodyparts -> coords
+                # DLC multi-index: scorer -> bodyparts -> coords (single animal)
+                # or scorer -> individuals -> bodyparts -> coords (multi-animal)
                 if isinstance(df.columns, pd.MultiIndex):
+                    n_levels = df.columns.nlevels
+
+                    if n_levels == 4:
+                        # Multi-animal DLC format — collapse to single animal
+                        # Pick best individual per frame by mean likelihood
+                        scorer = df.columns.get_level_values(0)[0]
+                        individuals = df.columns.get_level_values(1).unique().tolist()
+                        bodyparts = df.columns.get_level_values(2).unique().tolist()
+                        coords_list = df.columns.get_level_values(3).unique().tolist()
+
+                        st.caption(f"Multi-animal DLC format detected ({len(individuals)} individuals). "
+                                   "Showing best individual per frame.")
+
+                        # Build single-animal DataFrame by selecting best individual per frame
+                        if "likelihood" in coords_list:
+                            # Mean likelihood per individual per frame
+                            mean_liks = {}
+                            for ind in individuals:
+                                lik_vals = []
+                                for bp in bodyparts:
+                                    try:
+                                        lik_vals.append(df[(scorer, ind, bp, "likelihood")].values)
+                                    except KeyError:
+                                        pass
+                                if lik_vals:
+                                    mean_liks[ind] = np.nanmean(np.column_stack(lik_vals), axis=1)
+                            # Best individual per frame
+                            if mean_liks:
+                                lik_arr = np.column_stack([mean_liks[ind] for ind in individuals])
+                                best_idx = np.argmax(lik_arr, axis=1)
+                                best_individuals = [individuals[i] for i in best_idx]
+                            else:
+                                best_individuals = [individuals[0]] * len(df)
+                        else:
+                            best_individuals = [individuals[0]] * len(df)
+
+                        # Reconstruct single-animal columns
+                        new_data = {}
+                        for bp in bodyparts:
+                            for coord in coords_list:
+                                vals = np.empty(len(df))
+                                for frame_idx in range(len(df)):
+                                    try:
+                                        vals[frame_idx] = df.iloc[frame_idx][(scorer, best_individuals[frame_idx], bp, coord)]
+                                    except (KeyError, IndexError):
+                                        vals[frame_idx] = np.nan
+                                new_data[(scorer, bp, coord)] = vals
+                        df = pd.DataFrame(new_data, index=df.index)
+                        df.columns = pd.MultiIndex.from_tuples(df.columns)
+                        n_levels = 3
+
                     scorer = df.columns.get_level_values(0)[0]
                     bodyparts = df.columns.get_level_values(1).unique().tolist()
 

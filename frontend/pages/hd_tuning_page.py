@@ -134,8 +134,8 @@ with tab_single:
         fig.update_layout(
             height=400,
             polar=dict(
-                radialaxis=dict(visible=True),
-                angularaxis=dict(direction="clockwise", rotation=90),
+                radialaxis=dict(visible=False),
+                angularaxis=dict(direction="clockwise", rotation=90, showticklabels=False),
             ),
             title="Polar Tuning Curve",
             showlegend=True,
@@ -246,7 +246,7 @@ with tab_population:
             ))
             fig.update_layout(
                 height=300,
-                polar=dict(angularaxis=dict(direction="clockwise", rotation=90)),
+                polar=dict(radialaxis=dict(visible=False), angularaxis=dict(direction="clockwise", rotation=90, showticklabels=False)),
                 title="Preferred Directions",
             )
             st.plotly_chart(fig, use_container_width=True)
@@ -351,7 +351,7 @@ with tab_significance:
     ))
     fig.update_layout(
         height=350,
-        polar=dict(angularaxis=dict(direction="clockwise", rotation=90)),
+        polar=dict(radialaxis=dict(visible=False), angularaxis=dict(direction="clockwise", rotation=90, showticklabels=False)),
         title=f"Tuning Curve (p={p_val:.4f})",
     )
     st.plotly_chart(fig, use_container_width=True)

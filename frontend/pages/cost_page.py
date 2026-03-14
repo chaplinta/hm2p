@@ -14,7 +14,7 @@ from frontend.data import (
     DERIVATIVES_BUCKET,
     RAWDATA_BUCKET,
     REGION,
-    STAGE_PREFIXES,
+    PIPELINE_STAGES,
     get_s3_bucket_size,
     get_s3_prefix_sizes,
 )
@@ -39,73 +39,36 @@ EC2_PRICING = {
     "c5.xlarge": {"on_demand": 0.226, "spot_approx": 0.07, "gpu": "None (CPU)"},
 }
 
+# ── Compute all costs before display ─────────────────────────────────────────
 
-# ── S3 Storage Costs ────────────────────────────────────────────────────────
+# S3 costs
+try:
+    raw_size = get_s3_bucket_size(RAWDATA_BUCKET)
+    raw_monthly = raw_size["total_gb"] * S3_STORAGE_PER_GB_MONTH
+except Exception:
+    raw_size = None
+    raw_monthly = 0
 
-st.header("S3 Storage")
+stage_prefixes = [
+    info["s3_prefix"]
+    for info in PIPELINE_STAGES.values()
+    if info.get("s3_prefix")
+]
+# Deduplicate (e.g. kinematics appears twice: kinematics + kpms)
+stage_prefixes = list(dict.fromkeys(stage_prefixes))
 
-if st.button("Scan S3 buckets", key="scan_s3"):
-    st.cache_data.clear()
+try:
+    prefix_sizes = get_s3_prefix_sizes(DERIVATIVES_BUCKET, stage_prefixes)
+    total_deriv_gb = sum(v["total_gb"] for v in prefix_sizes.values())
+    deriv_monthly = total_deriv_gb * S3_STORAGE_PER_GB_MONTH
+except Exception:
+    prefix_sizes = None
+    total_deriv_gb = 0
+    deriv_monthly = 0
 
-tab_raw, tab_deriv = st.tabs(["Raw Data", "Derivatives"])
+s3_monthly = raw_monthly + deriv_monthly
 
-with tab_raw:
-    try:
-        raw_size = get_s3_bucket_size(RAWDATA_BUCKET)
-        monthly_cost = raw_size["total_gb"] * S3_STORAGE_PER_GB_MONTH
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Size", f"{raw_size['total_gb']:.1f} GB")
-        col2.metric("Objects", f"{raw_size['n_objects']:,}")
-        col3.metric("Monthly Storage", f"${monthly_cost:.2f}")
-
-        st.caption(f"Bucket: `{RAWDATA_BUCKET}` ({REGION})")
-    except Exception as e:
-        log.exception("Could not scan raw data bucket")
-        st.warning("Could not scan raw data bucket. Check server logs for details.")
-
-with tab_deriv:
-    try:
-        # Per-stage breakdown
-        stage_prefixes = list(STAGE_PREFIXES.keys())
-        prefix_sizes = get_s3_prefix_sizes(DERIVATIVES_BUCKET, stage_prefixes)
-
-        total_deriv_gb = sum(v["total_gb"] for v in prefix_sizes.values())
-        total_deriv_cost = total_deriv_gb * S3_STORAGE_PER_GB_MONTH
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total Size", f"{total_deriv_gb:.1f} GB")
-        col2.metric("Objects", f"{sum(v['n_objects'] for v in prefix_sizes.values()):,}")
-        col3.metric("Monthly Storage", f"${total_deriv_cost:.2f}")
-
-        # Per-stage breakdown table
-        st.subheader("By Pipeline Stage")
-        for prefix, label in STAGE_PREFIXES.items():
-            info = prefix_sizes.get(prefix, {"total_gb": 0, "n_objects": 0})
-            if info["n_objects"] > 0:
-                cost = info["total_gb"] * S3_STORAGE_PER_GB_MONTH
-                st.markdown(
-                    f"**{label}** — {info['total_gb']:.2f} GB "
-                    f"({info['n_objects']} files) — ${cost:.3f}/month"
-                )
-
-        st.caption(f"Bucket: `{DERIVATIVES_BUCKET}` ({REGION})")
-    except Exception as e:
-        log.exception("Could not scan derivatives bucket")
-        st.warning("Could not scan derivatives bucket. Check server logs for details.")
-
-
-# ── EC2 Compute Costs ───────────────────────────────────────────────────────
-
-st.markdown("---")
-st.header("EC2 Compute Costs")
-
-st.markdown(
-    "Estimated compute costs for completed and planned pipeline stages. "
-    "Based on On-Demand and approximate Spot pricing in ap-southeast-2."
-)
-
-# Known completed jobs
+# EC2 completed jobs
 completed_jobs = [
     {
         "stage": "Stage 1 — Suite2p",
@@ -125,11 +88,15 @@ completed_jobs = [
     },
 ]
 
-# In-progress / planned jobs
-planned_jobs = []
+total_completed_cost = 0
+for job in completed_jobs:
+    pricing = EC2_PRICING.get(job["instance"], EC2_PRICING["g4dn.xlarge"])
+    rate = pricing["spot_approx"] if job.get("spot") else pricing["on_demand"]
+    n_inst = job.get("n_instances", 1)
+    total_completed_cost += rate * job["hours"] * n_inst
 
-# ── Live EC2 instance tracking ────────────────────────────────────────────
-# Query running hm2p instances to estimate current costs
+# EC2 active / in-progress jobs
+planned_jobs = []
 try:
     import boto3
     import datetime
@@ -166,14 +133,54 @@ try:
 except Exception as e:
     log.warning("Could not query EC2 instances: %s", e)
 
+total_active_cost = 0
+for job in planned_jobs:
+    pricing = EC2_PRICING.get(job["instance"], EC2_PRICING["g4dn.xlarge"])
+    rate = pricing["spot_approx"] if job.get("spot") else pricing["on_demand"]
+    n_inst = job.get("n_instances", 1)
+    total_active_cost += rate * job["hours"] * n_inst
+
+total_ec2 = total_completed_cost + total_active_cost
+total_all = total_ec2 + s3_monthly
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DISPLAY — ordered by importance: summary first, details after
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── 1. Total Project Cost Summary ────────────────────────────────────────────
+
+st.header("Total Project Cost Summary")
+
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("S3 Storage (monthly)", f"${s3_monthly:.2f}")
+col2.metric("EC2 Completed", f"${total_completed_cost:.2f}")
+col3.metric("EC2 Active", f"${total_active_cost:.2f}")
+col4.metric("Total to Date", f"${total_all:.2f}")
+
+st.caption(
+    "S3 cost is per month. EC2 cost is cumulative (completed + active). "
+    "Actual AWS bill may differ slightly due to EBS volumes, data transfer, "
+    "and API request costs. Check AWS Cost Explorer for exact figures."
+)
+
+
+# ── 2. EC2 Compute Costs ─────────────────────────────────────────────────────
+
+st.markdown("---")
+st.header("EC2 Compute Costs")
+
+st.markdown(
+    "Estimated compute costs for completed and planned pipeline stages. "
+    "Based on On-Demand and approximate Spot pricing in ap-southeast-2."
+)
+
 st.subheader("Completed Jobs")
-total_completed_cost = 0
 for job in completed_jobs:
     pricing = EC2_PRICING.get(job["instance"], EC2_PRICING["g4dn.xlarge"])
     rate = pricing["spot_approx"] if job.get("spot") else pricing["on_demand"]
     n_inst = job.get("n_instances", 1)
     cost = rate * job["hours"] * n_inst
-    total_completed_cost += cost
 
     spot_label = "Spot" if job.get("spot") else "On-Demand"
     st.markdown(
@@ -184,7 +191,6 @@ for job in completed_jobs:
 
 st.metric("Total Completed", f"${total_completed_cost:.2f}")
 
-total_active_cost = 0
 if planned_jobs:
     st.subheader("Active / In-Progress")
     for job in planned_jobs:
@@ -192,7 +198,6 @@ if planned_jobs:
         rate = pricing["spot_approx"] if job.get("spot") else pricing["on_demand"]
         n_inst = job.get("n_instances", 1)
         cost = rate * job["hours"] * n_inst
-        total_active_cost += cost
         spot_label = "Spot" if job.get("spot") else "On-Demand"
 
         st.markdown(
@@ -204,30 +209,55 @@ if planned_jobs:
     st.metric("Active Instance Cost (so far)", f"${total_active_cost:.2f}")
 
 
-# ── EC2 Instance Pricing Reference ──────────────────────────────────────────
+# ── 3. S3 Storage ────────────────────────────────────────────────────────────
 
 st.markdown("---")
-st.header("Instance Pricing Reference")
-st.caption("ap-southeast-2 (Sydney), approximate as of March 2026")
+st.header("S3 Storage")
 
-import pandas as pd
+if st.button("Scan S3 buckets", key="scan_s3"):
+    st.cache_data.clear()
 
-pricing_df = pd.DataFrame([
-    {
-        "Instance": itype,
-        "GPU": info["gpu"],
-        "On-Demand ($/hr)": f"${info['on_demand']:.3f}",
-        "Spot ($/hr, approx)": f"${info['spot_approx']:.3f}",
-        "Spot Savings": f"{(1 - info['spot_approx'] / info['on_demand']) * 100:.0f}%",
-        "24h On-Demand": f"${info['on_demand'] * 24:.2f}",
-        "24h Spot": f"${info['spot_approx'] * 24:.2f}",
-    }
-    for itype, info in EC2_PRICING.items()
-])
-st.dataframe(pricing_df, hide_index=True, use_container_width=True)
+tab_raw, tab_deriv = st.tabs(["Raw Data", "Derivatives"])
+
+with tab_raw:
+    if raw_size is not None:
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Monthly Cost", f"${raw_monthly:.2f}")
+        col2.metric("Total Size", f"{raw_size['total_gb']:.1f} GB")
+        col3.metric("Objects", f"{raw_size['n_objects']:,}")
+        st.caption(f"Bucket: `{RAWDATA_BUCKET}` ({REGION})")
+    else:
+        log.exception("Could not scan raw data bucket")
+        st.warning("Could not scan raw data bucket. Check server logs for details.")
+
+with tab_deriv:
+    if prefix_sizes is not None:
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Monthly Cost", f"${deriv_monthly:.2f}")
+        col2.metric("Total Size", f"{total_deriv_gb:.1f} GB")
+        col3.metric("Objects", f"{sum(v['n_objects'] for v in prefix_sizes.values()):,}")
+
+        # Per-stage breakdown table
+        st.subheader("By Pipeline Stage")
+        for _key, info in PIPELINE_STAGES.items():
+            s3_prefix = info.get("s3_prefix")
+            if not s3_prefix:
+                continue
+            pinfo = prefix_sizes.get(s3_prefix, {"total_gb": 0, "n_objects": 0})
+            if pinfo["n_objects"] > 0:
+                cost = pinfo["total_gb"] * S3_STORAGE_PER_GB_MONTH
+                st.markdown(
+                    f"**{info['label']}** — {pinfo['total_gb']:.2f} GB "
+                    f"({pinfo['n_objects']} files) — ${cost:.3f}/month"
+                )
+
+        st.caption(f"Bucket: `{DERIVATIVES_BUCKET}` ({REGION})")
+    else:
+        log.exception("Could not scan derivatives bucket")
+        st.warning("Could not scan derivatives bucket. Check server logs for details.")
 
 
-# ── Cost Calculator ─────────────────────────────────────────────────────────
+# ── 4. Cost Calculator ───────────────────────────────────────────────────────
 
 st.markdown("---")
 st.header("Cost Calculator")
@@ -254,40 +284,27 @@ col2.metric("Total Hours", f"{calc_hours * calc_n}h")
 col3.metric("Estimated Cost", f"${calc_cost:.2f}")
 
 
-# ── Total Project Cost Summary ──────────────────────────────────────────────
+# ── 5. Instance Pricing Reference ────────────────────────────────────────────
 
 st.markdown("---")
-st.header("Total Project Cost Summary")
+st.header("Instance Pricing Reference")
+st.caption("ap-southeast-2 (Sydney), approximate as of March 2026")
 
-try:
-    raw_size = get_s3_bucket_size(RAWDATA_BUCKET)
-    raw_monthly = raw_size["total_gb"] * S3_STORAGE_PER_GB_MONTH
-except Exception:
-    raw_monthly = 0
+import pandas as pd
 
-try:
-    stage_prefixes = list(STAGE_PREFIXES.keys())
-    prefix_sizes = get_s3_prefix_sizes(DERIVATIVES_BUCKET, stage_prefixes)
-    deriv_monthly = sum(v["total_gb"] for v in prefix_sizes.values()) * S3_STORAGE_PER_GB_MONTH
-except Exception:
-    deriv_monthly = 0
-
-s3_monthly = raw_monthly + deriv_monthly
-
-total_ec2 = total_completed_cost + total_active_cost
-total_all = total_ec2 + s3_monthly
-
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("S3 Storage (monthly)", f"${s3_monthly:.2f}")
-col2.metric("EC2 Completed", f"${total_completed_cost:.2f}")
-col3.metric("EC2 Active", f"${total_active_cost:.2f}")
-col4.metric("Total to Date", f"${total_all:.2f}")
-
-st.caption(
-    "S3 cost is per month. EC2 cost is cumulative (completed + active). "
-    "Actual AWS bill may differ slightly due to EBS volumes, data transfer, "
-    "and API request costs. Check AWS Cost Explorer for exact figures."
-)
+pricing_df = pd.DataFrame([
+    {
+        "Instance": itype,
+        "GPU": info["gpu"],
+        "On-Demand ($/hr)": f"${info['on_demand']:.3f}",
+        "Spot ($/hr, approx)": f"${info['spot_approx']:.3f}",
+        "Spot Savings": f"{(1 - info['spot_approx'] / info['on_demand']) * 100:.0f}%",
+        "24h On-Demand": f"${info['on_demand'] * 24:.2f}",
+        "24h Spot": f"${info['spot_approx'] * 24:.2f}",
+    }
+    for itype, info in EC2_PRICING.items()
+])
+st.dataframe(pricing_df, hide_index=True, use_container_width=True)
 
 st.markdown("---")
 st.caption("AWS Cost Report | hm2p v2")

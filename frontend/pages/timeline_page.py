@@ -149,9 +149,9 @@ n_rows = 3 if has_sync else 2
 row_heights = [0.15, 0.6, 0.25] if has_sync else [0.3, 0.7]
 subplot_titles = []
 if has_sync:
-    subplot_titles = ["Behaviour", "Population Activity (dF/F)", "Event Rate"]
+    subplot_titles = ["Behaviour", "Population Activity (dF/F0)", "Event Rate"]
 else:
-    subplot_titles = ["Population Activity (dF/F)", "Event Rate"]
+    subplot_titles = ["Population Activity (dF/F0)", "Event Rate"]
 
 fig = make_subplots(
     rows=n_rows,
@@ -244,7 +244,7 @@ if has_sync and sync_data:
             col=1,
         )
 
-# --- Row 2: Population dF/F heatmap ---
+# --- Row 2: Population dF/F0 heatmap ---
 # Sort ROIs by SNR for better visualization
 snr = ca_data["snr"]
 sort_idx = np.argsort(snr)[::-1]  # High SNR first
@@ -265,8 +265,8 @@ fig.add_trace(
         x=time_ds,
         y=np.arange(n_rois),
         colorscale="Hot",
-        colorbar=dict(title="dF/F", len=0.3, y=0.5),
-        hovertemplate="Time: %{x:.1f}s<br>ROI: %{y}<br>dF/F: %{z:.3f}<extra></extra>",
+        colorbar=dict(title="dF/F0", len=0.3, y=0.5),
+        hovertemplate="Time: %{x:.1f}s<br>ROI: %{y}<br>dF/F0: %{z:.3f}<extra></extra>",
     ),
     row=heatmap_row,
     col=1,
@@ -296,7 +296,7 @@ if "event_masks" in ca_data:
         col=1,
     )
 else:
-    # Use mean dF/F as proxy
+    # Use mean dF/F0 as proxy
     mean_dff = dff.mean(axis=0)
     kernel_size = max(1, int(fps))
     kernel = np.ones(kernel_size) / kernel_size
@@ -307,7 +307,7 @@ else:
             x=time_s,
             y=mean_smooth,
             mode="lines",
-            name="Mean dF/F",
+            name="Mean dF/F0",
             line=dict(color="#2ca02c", width=1),
             fill="tozeroy",
             fillcolor="rgba(44,160,44,0.2)",
@@ -413,13 +413,13 @@ with col2:
                 line_width=0,
             )
 
-    # dF/F trace
+    # dF/F0 trace
     roi_fig.add_trace(
         go.Scatter(
             x=time_s,
             y=trace,
             mode="lines",
-            name="dF/F",
+            name="dF/F0",
             line=dict(color="black", width=0.8),
         )
     )
@@ -444,7 +444,7 @@ with col2:
         margin=dict(l=50, r=20, t=30, b=30),
         title=f"ROI {roi_idx} — SNR={snr[roi_idx]:.1f}",
         xaxis_title="Time (s)",
-        yaxis_title="dF/F",
+        yaxis_title="dF/F0",
         showlegend=True,
     )
     st.plotly_chart(roi_fig, use_container_width=True)

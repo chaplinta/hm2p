@@ -67,11 +67,18 @@ n_penk = (metrics["cell_type"] == "penkpos").sum()
 n_nonpenk = (metrics["cell_type"] == "penkneg").sum()
 n_animals = metrics["animal_id"].nunique()
 
-c1, c2, c3, c4 = st.columns(4)
+n_penk_animals = metrics[metrics["cell_type"] == "penkpos"]["animal_id"].nunique()
+n_nonpenk_animals = metrics[metrics["cell_type"] == "penkneg"]["animal_id"].nunique()
+
+c1, c2, c3 = st.columns(3)
 c1.metric("Total cells", n_cells)
-c2.metric("Penk+", n_penk)
-c3.metric("Non-Penk", n_nonpenk)
-c4.metric("Animals", n_animals)
+c2.metric("Penk+ cells", n_penk)
+c3.metric("Non-Penk cells", n_nonpenk)
+
+c4, c5, c6 = st.columns(3)
+c4.metric("Total animals", n_animals)
+c5.metric("Penk+ animals", n_penk_animals)
+c6.metric("Non-Penk animals", n_nonpenk_animals)
 
 # --- Passive electrophysiology ---
 st.header("Passive Properties")

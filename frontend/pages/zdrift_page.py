@@ -105,7 +105,7 @@ st.markdown(f"**Z-stack:** `{zstack_id}` | **Animal:** `{sub}` | **Session:** `{
 
 # ── Load z-drift data ────────────────────────────────────────────────────
 
-zdrift_key = f"derivatives/zdrift/{sub}/{ses}/zdrift.h5"
+zdrift_key = f"zdrift/{sub}/{ses}/zdrift.h5"
 zdrift = _load_zdrift(DERIVATIVES_BUCKET, zdrift_key)
 
 if zdrift is None:

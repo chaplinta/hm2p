@@ -81,7 +81,7 @@ with st.sidebar:
     )
     min_snr = st.slider("Min SNR", 0.0, 15.0, 0.0, 0.5, key="gal_snr")
     sort_by = st.selectbox(
-        "Sort by", ["Session + ROI index", "SNR (high first)", "Event rate", "Max dF/F", "Aspect ratio"],
+        "Sort by", ["Session + ROI index", "SNR (high first)", "Event rate", "Max dF/F0", "Aspect ratio"],
         key="gal_sort",
     )
     n_cols = st.selectbox("Grid columns", [3, 4, 5, 6], index=1, key="gal_cols")
@@ -159,7 +159,7 @@ roi_df = pd.DataFrame(rows)
 # Sort
 if sort_by == "SNR (high first)":
     roi_df = roi_df.sort_values("snr", ascending=False)
-elif sort_by == "Max dF/F":
+elif sort_by == "Max dF/F0":
     roi_df = roi_df.sort_values("max_dff", ascending=False)
 elif sort_by == "Aspect ratio":
     roi_df = roi_df.sort_values("aspect_ratio", ascending=False, na_position="last")
@@ -400,7 +400,7 @@ with tab_features:
             ("compact", "Compactness"),
             ("npix", "Number of Pixels"),
             ("snr", "SNR"),
-            ("max_dff", "Max dF/F"),
+            ("max_dff", "Max dF/F0"),
         ]
 
         for row_start in range(0, len(feature_metrics), 3):
@@ -421,7 +421,7 @@ with tab_features:
         if len(df_sd) > 0 and df_sd["roi_type"].nunique() >= 2:
             comp_metrics = [
                 ("snr", "SNR"),
-                ("max_dff", "Max dF/F"),
+                ("max_dff", "Max dF/F0"),
                 ("skewness", "Trace Skewness"),
                 ("aspect_ratio", "Aspect Ratio"),
             ]

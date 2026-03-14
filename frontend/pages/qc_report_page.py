@@ -124,7 +124,8 @@ for i in range(n_rois):
 
     if "noise_probs" in data:
         val = data["noise_probs"][i]
-        noise_scores.append(float(np.asarray(val).item()))
+        arr = np.asarray(val)
+        noise_scores.append(float(arr.mean()) if arr.size > 1 else float(arr.item()))
 
 snrs = np.array(snrs)
 skewnesses = np.array(skewnesses)
@@ -244,7 +245,7 @@ from plotly.subplots import make_subplots
 
 fig = make_subplots(
     rows=2, cols=2,
-    subplot_titles=["SNR", "Skewness", "Event Rate (events/min)", "Max dF/F"],
+    subplot_titles=["SNR", "Skewness", "Event Rate (events/min)", "Max dF/F0"],
 )
 
 fig.add_trace(
@@ -265,7 +266,7 @@ if event_rates:
     )
 
 fig.add_trace(
-    go.Histogram(x=max_dffs, nbinsx=20, marker_color="steelblue", name="Max dF/F"),
+    go.Histogram(x=max_dffs, nbinsx=20, marker_color="steelblue", name="Max dF/F0"),
     row=2, col=2,
 )
 

@@ -14,7 +14,6 @@ import streamlit as st
 
 from frontend.data import (
     PIPELINE_STAGES,
-    STAGE_PREFIXES,
     get_ec2_instances,
     get_pipeline_status,
     get_progress,
@@ -77,8 +76,12 @@ else:
 
 # ── Progress JSON per stage ───────────────────────────────────────────────
 st.subheader("Stage Progress (from _progress.json)")
-for prefix, label in STAGE_PREFIXES.items():
-    progress = get_progress(prefix)
+for key, stage_info in PIPELINE_STAGES.items():
+    if key == "ingest":
+        continue  # ingest has no _progress.json
+    s3_prefix = stage_info.get("s3_prefix", key)
+    label = stage_info["label"]
+    progress = get_progress(s3_prefix)
     if progress:
         total = progress.get("total", 0)
         completed = progress.get("completed", 0)
@@ -113,8 +116,10 @@ st.subheader("Stage Completion Matrix")
 pipeline_status = get_pipeline_status()
 experiments = load_experiments()
 
-header = "| Session | Animal | " + " | ".join(STAGE_PREFIXES.values()) + " |"
-separator = "|---|---|" + "|".join(["---"] * len(STAGE_PREFIXES)) + "|"
+# Use core stages (skip ingest — rawdata bucket)
+_matrix_stages = {k: v for k, v in PIPELINE_STAGES.items() if k != "ingest"}
+header = "| Session | Animal | " + " | ".join(v["short"] for v in _matrix_stages.values()) + " |"
+separator = "|---|---|" + "|".join(["---"] * len(_matrix_stages)) + "|"
 rows = [header, separator]
 
 for exp in experiments:
@@ -122,7 +127,8 @@ for exp in experiments:
     animal = exp_id.split("_")[-1]
     status = pipeline_status.get(exp_id, {})
     cells = []
-    for prefix in STAGE_PREFIXES:
+    for key, stage_info in _matrix_stages.items():
+        prefix = stage_info.get("s3_prefix", key)
         done = status.get(prefix, False)
         cells.append("Y" if done else "-")
     rows.append(f"| {exp_id[:8]} | {animal} | " + " | ".join(cells) + " |")

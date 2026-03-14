@@ -228,7 +228,7 @@ with tab_tuning:
                 fig.update_layout(
                     height=220, margin=dict(l=30, r=30, t=40, b=20),
                     title=f"{title} MVL={row['mvl']:.3f} [{row['grade']}]",
-                    polar=dict(radialaxis=dict(showticklabels=False)),
+                    polar=dict(radialaxis=dict(visible=False), angularaxis=dict(showticklabels=False)),
                     showlegend=False,
                 )
                 st.plotly_chart(fig, use_container_width=True,
@@ -252,7 +252,7 @@ with tab_tuning:
                 fig.update_layout(
                     height=220, margin=dict(l=30, r=30, t=40, b=20),
                     title=f"Cell {row['cell']} MVL={row['mvl']:.3f}",
-                    polar=dict(radialaxis=dict(showticklabels=False)),
+                    polar=dict(radialaxis=dict(visible=False), angularaxis=dict(showticklabels=False)),
                     showlegend=False,
                 )
                 st.plotly_chart(fig, use_container_width=True,

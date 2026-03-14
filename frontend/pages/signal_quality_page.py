@@ -88,8 +88,8 @@ col4.metric("FPS", f"{fps:.1f} Hz")
 import plotly.express as px
 import plotly.graph_objects as go
 
-tab_bleach, tab_noise, tab_autocorr, tab_summary = st.tabs([
-    "Photobleaching", "Noise Floor", "Autocorrelation", "ROI Summary",
+tab_bleach, tab_f0, tab_noise, tab_autocorr, tab_summary = st.tabs([
+    "Photobleaching", "F0 Baseline", "Noise Floor", "Autocorrelation", "ROI Summary",
 ])
 
 with tab_bleach:
@@ -103,7 +103,7 @@ with tab_bleach:
     window_s = st.slider("Smoothing window (s)", 10, 120, 60, 10, key="bleach_window")
     window_frames = max(1, int(window_s * fps))
 
-    # Population mean dF/F baseline
+    # Population mean dF/F0 baseline
     mean_trace = np.nanmean(dff, axis=0)
 
     # Sliding window smooth
@@ -114,7 +114,7 @@ with tab_bleach:
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=time_s, y=mean_trace, mode="lines",
-        name="Population mean dF/F", opacity=0.3, line=dict(width=0.5),
+        name="Population mean dF/F0", opacity=0.3, line=dict(width=0.5),
     ))
     fig.add_trace(go.Scatter(
         x=time_s, y=smoothed, mode="lines",
@@ -122,9 +122,9 @@ with tab_bleach:
     ))
     fig.update_layout(
         height=350,
-        title="Population Mean dF/F Over Time",
+        title="Population Mean dF/F0 Over Time",
         xaxis_title="Time (s)",
-        yaxis_title="Mean dF/F",
+        yaxis_title="Mean dF/F0",
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -142,7 +142,7 @@ with tab_bleach:
         fig = px.histogram(
             drift, nbins=30,
             title="Baseline Drift (last 10% - first 10%)",
-            labels={"value": "dF/F drift"},
+            labels={"value": "dF/F0 drift"},
         )
         fig.add_vline(x=0, line_dash="dash", line_color="gray")
         fig.update_layout(height=300)
@@ -164,6 +164,84 @@ with tab_bleach:
         st.warning(f"{n_drifting}/{n_rois} ROIs show >50% baseline drift.")
     else:
         st.success("No ROIs show excessive baseline drift.")
+
+
+with tab_f0:
+    st.subheader("F0 Baseline Estimation")
+    st.markdown(
+        "Rolling baseline F0 estimated from dF/F0 using 3-step filter: "
+        "Gaussian smooth (\u03c3=10s) \u2192 rolling min (60s) \u2192 rolling max (60s). "
+        "Pachitariu et al. 2017, doi:10.1101/061507."
+    )
+
+    from hm2p.calcium.dff import compute_baseline
+
+    # Reconstruct a proxy of F0 shape from dff
+    # F0 \u221d baseline of (1 + dff), since dff = (F - F0)/F0 \u2192 F = F0*(1+dff)
+    # The baseline of (1+dff) tracks F0/mean(F), i.e. the normalized baseline
+    f_proxy = 1.0 + dff  # proxy for F/mean(F)
+    f0_proxy = compute_baseline(f_proxy.astype(np.float32), fps)
+
+    time_s = np.arange(n_frames) / fps
+
+    # Plot individual F0 traces
+    st.markdown("**Per-cell F0 baseline:**")
+    fig = go.Figure()
+    for i in range(n_rois):
+        fig.add_trace(go.Scatter(
+            x=time_s, y=f0_proxy[i],
+            mode="lines", name=f"ROI {i}",
+            opacity=0.5, line=dict(width=1),
+        ))
+    fig.update_layout(
+        height=400,
+        title="F0 Baseline (all cells)",
+        xaxis_title="Time (s)",
+        yaxis_title="F0 (normalised)",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Average normalised F0: each F0 normalised by its mean
+    st.markdown("**Average normalised F0** (each cell's F0 divided by its mean):")
+    f0_normed = np.zeros_like(f0_proxy)
+    for i in range(n_rois):
+        mean_f0 = np.nanmean(f0_proxy[i])
+        if mean_f0 > 0:
+            f0_normed[i] = f0_proxy[i] / mean_f0
+        else:
+            f0_normed[i] = f0_proxy[i]
+
+    mean_normed = np.nanmean(f0_normed, axis=0)
+    std_normed = np.nanstd(f0_normed, axis=0)
+
+    fig = go.Figure()
+    # Shaded +/-1 SD
+    fig.add_trace(go.Scatter(
+        x=np.concatenate([time_s, time_s[::-1]]),
+        y=np.concatenate([mean_normed + std_normed, (mean_normed - std_normed)[::-1]]),
+        fill="toself", fillcolor="rgba(65, 105, 225, 0.2)",
+        line=dict(width=0), name="\u00b11 SD",
+    ))
+    fig.add_trace(go.Scatter(
+        x=time_s, y=mean_normed,
+        mode="lines", name="Mean normalised F0",
+        line=dict(color="royalblue", width=2),
+    ))
+    fig.add_hline(y=1.0, line_dash="dash", line_color="gray", opacity=0.5)
+    fig.update_layout(
+        height=350,
+        title="Mean Normalised F0 (each cell F0 / mean(F0))",
+        xaxis_title="Time (s)",
+        yaxis_title="Normalised F0",
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Summary metrics
+    overall_drift = (np.nanmean(mean_normed[-int(fps*30):]) - np.nanmean(mean_normed[:int(fps*30)]))
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Mean F0 drift", f"{overall_drift*100:.1f}%")
+    col2.metric("F0 CV", f"{np.nanstd(mean_normed)/np.nanmean(mean_normed)*100:.1f}%")
+    col3.metric("ROIs plotted", n_rois)
 
 
 with tab_noise:
@@ -196,7 +274,7 @@ with tab_noise:
     with col1:
         fig = px.histogram(
             noise_stds[np.isfinite(noise_stds)], nbins=30,
-            title="Baseline Noise (std of sub-median dF/F)",
+            title="Baseline Noise (std of sub-median dF/F0)",
             labels={"value": "Noise σ"},
         )
         fig.update_layout(height=300)
@@ -381,7 +459,7 @@ with tab_summary:
             "SNR": round(snr, 2),
             "Noise σ": round(noise_std, 4),
             "Skewness": round(skew, 2),
-            "Max dF/F": round(max_dff, 3),
+            "Max dF/F0": round(max_dff, 3),
             "Events": n_events,
             "Event rate (/min)": round(event_rate, 1),
             "Active %": round(active_frac * 100, 1),

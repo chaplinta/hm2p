@@ -227,48 +227,68 @@ if has_inj_data:
             "(green) with injection sites (blue = Penk+, red = CamKII+)."
         )
 
+        _BR_S3_PREFIX = "figures/brainrender/"
+        _BR_VIEWS = ("dorsal", "sagittal", "coronal")
         _BR_OUTPUT_DIR = "/tmp/brainrender"
 
-        @st.cache_data(show_spinner="Rendering brainrender views...")
-        def _render_brainrender(inj_json: str) -> list[str] | None:
-            """Render injection sites with brainrender (cached)."""
-            try:
-                from hm2p.anatomy.render import render_injection_sites
-            except ImportError:
-                return None
-            _inj_df = pd.read_json(io.StringIO(inj_json), orient="records")
-            return render_injection_sites(_inj_df, _BR_OUTPUT_DIR)
+        @st.cache_data(ttl=3600)
+        def _load_brainrender_from_s3() -> dict[str, bytes]:
+            """Load pre-rendered brainrender PNGs from S3."""
+            images = {}
+            for view in _BR_VIEWS:
+                key = f"{_BR_S3_PREFIX}injection_{view}.png"
+                data = download_s3_bytes(DERIVATIVES_BUCKET, key)
+                if data:
+                    images[view] = data
+            return images
 
+        # Try loading cached renders from S3 first
+        s3_renders = _load_brainrender_from_s3()
+
+        if s3_renders:
+            col_d, col_s, col_c = st.columns(3)
+            if "dorsal" in s3_renders:
+                col_d.image(s3_renders["dorsal"], caption="Dorsal (top-down)")
+            if "sagittal" in s3_renders:
+                col_s.image(s3_renders["sagittal"], caption="Sagittal (side)")
+            if "coronal" in s3_renders:
+                col_c.image(s3_renders["coronal"], caption="Coronal (front)")
+        else:
+            # Fall back to local cache
+            import os as _os
+
+            _local_files = {
+                v: _os.path.join(_BR_OUTPUT_DIR, f"injection_{v}.png")
+                for v in _BR_VIEWS
+            }
+            _has_local = all(_os.path.exists(f) for f in _local_files.values())
+
+            if _has_local:
+                col_d, col_s, col_c = st.columns(3)
+                col_d.image(_local_files["dorsal"], caption="Dorsal (top-down)")
+                col_s.image(_local_files["sagittal"], caption="Sagittal (side)")
+                col_c.image(_local_files["coronal"], caption="Coronal (front)")
+            else:
+                st.info(
+                    "No pre-rendered brain images found on S3 or locally. "
+                    "Click 'Generate & upload' below (requires brainrender)."
+                )
+
+        # Generate button (renders locally and uploads to S3)
         try:
             from hm2p.anatomy.render import render_injection_sites as _check_br  # noqa: F401
             _br_available = True
         except ImportError:
             _br_available = False
 
-        if not _br_available:
-            st.info(
-                "brainrender is not installed in this environment. "
-                "Install with `pip install brainrender` to enable "
-                "atlas-based 3D rendering of injection sites."
-            )
-        else:
-            import os as _os
+        if _br_available:
+            if st.button("Generate & upload to S3", type="primary"):
+                @st.cache_data(show_spinner="Rendering brainrender views...")
+                def _render_brainrender(inj_json: str) -> list[str] | None:
+                    from hm2p.anatomy.render import render_injection_sites
+                    _inj_df = pd.read_json(io.StringIO(inj_json), orient="records")
+                    return render_injection_sites(_inj_df, _BR_OUTPUT_DIR)
 
-            _cached_files = []
-            _expected = [
-                _os.path.join(_BR_OUTPUT_DIR, f"injection_{v}.png")
-                for v in ("dorsal", "sagittal", "coronal")
-            ]
-            if all(_os.path.exists(f) for f in _expected):
-                _cached_files = _expected
-
-            if _cached_files:
-                col_d, col_s, col_c = st.columns(3)
-                col_d.image(_cached_files[0], caption="Dorsal (top-down)")
-                col_s.image(_cached_files[1], caption="Sagittal (side)")
-                col_c.image(_cached_files[2], caption="Coronal (front)")
-
-            if st.button("Generate brainrender images", type="primary"):
                 inj_json = inj_df[
                     ["animal_id", "celltype", "inj_ap", "inj_ml", "inj_dv"]
                 ].to_json(orient="records")
@@ -276,20 +296,43 @@ if has_inj_data:
                 if result is None:
                     st.error(
                         "Rendering failed — brainrender or VTK may not "
-                        "support headless rendering in this environment. "
-                        "Check logs for details."
+                        "support headless rendering in this environment."
                     )
                 else:
                     st.success(f"Rendered {len(result)} views.")
                     col_d, col_s, col_c = st.columns(3)
+
+                    import boto3
+                    s3_client = boto3.client("s3", region_name="ap-southeast-2")
+
                     for fpath in result:
                         fname = _os.path.basename(fpath)
+                        # Upload to S3
+                        s3_key = f"{_BR_S3_PREFIX}{fname}"
+                        try:
+                            s3_client.upload_file(
+                                fpath, DERIVATIVES_BUCKET, s3_key,
+                                ExtraArgs={"ContentType": "image/png"},
+                            )
+                            log.info("Uploaded %s to s3://%s/%s", fname, DERIVATIVES_BUCKET, s3_key)
+                        except Exception as e:
+                            log.warning("Failed to upload %s: %s", fname, e)
+
                         if "dorsal" in fname:
                             col_d.image(fpath, caption="Dorsal (top-down)")
                         elif "sagittal" in fname:
                             col_s.image(fpath, caption="Sagittal (side)")
                         elif "coronal" in fname:
                             col_c.image(fpath, caption="Coronal (front)")
+
+                    # Clear S3 cache so next load picks up new images
+                    _load_brainrender_from_s3.clear()
+        elif not s3_renders:
+            st.info(
+                "brainrender is not installed in this environment. "
+                "Generate renders on a machine with brainrender + VTK installed, "
+                "then they will be cached on S3 for all environments."
+            )
 
         # ── 2D projections ───────────────────────────────────────────────
         with st.expander("2D projection views"):

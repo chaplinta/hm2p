@@ -1,4 +1,4 @@
-"""Calcium data viewer — dF/F traces, events, neuropil, per-cell drill-down.
+"""Calcium data viewer — dF/F0 traces, events, neuropil, per-cell drill-down.
 
 Displays calcium processing results (ca.h5) with interactive trace viewing,
 event detection overlays, and per-cell quality metrics.
@@ -107,8 +107,8 @@ with tab_overview:
     std_dff = np.nanstd(dff, axis=1)
 
     fig = make_subplots(rows=2, cols=2, subplot_titles=[
-        "Mean dF/F per ROI", "Max dF/F per ROI",
-        "Std dF/F per ROI", "Active fraction per ROI",
+        "Mean dF/F\u2080 per ROI", "Max dF/F\u2080 per ROI",
+        "Std dF/F\u2080 per ROI", "Active fraction per ROI",
     ])
 
     fig.add_trace(go.Bar(x=list(range(n_rois)), y=mean_dff, name="Mean"), row=1, col=1)
@@ -125,20 +125,23 @@ with tab_overview:
     fig.update_layout(height=600, showlegend=False)
     st.plotly_chart(fig, use_container_width=True)
 
-    # Heatmap of dF/F (downsampled for display)
-    st.subheader("dF/F Heatmap (all ROIs)")
+    # Heatmap of dF/F0 (downsampled for display)
+    st.subheader("dF/F\u2080 Heatmap (all ROIs)")
     # Downsample to max 1000 columns
     ds_factor = max(1, n_frames // 1000)
     dff_ds = dff[:, ::ds_factor]
     time_ds = np.arange(dff_ds.shape[1]) * ds_factor / fps
 
+    abs_vals = np.abs(dff_ds)
+    z_lim = float(np.percentile(abs_vals, 95)) if abs_vals.size > 0 else 1.0
+
     fig_heat = go.Figure(data=go.Heatmap(
         z=dff_ds,
         x=time_ds,
         colorscale="RdBu_r",
-        zmin=-np.percentile(np.abs(dff_ds), 95),
-        zmax=np.percentile(np.abs(dff_ds), 95),
-        colorbar=dict(title="dF/F"),
+        zmin=-z_lim,
+        zmax=z_lim,
+        colorbar=dict(title="dF/F\u2080"),
     ))
     fig_heat.update_layout(
         xaxis_title="Time (s)",
@@ -291,7 +294,7 @@ with tab_events:
 
             from plotly.subplots import make_subplots
             fig_np = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                                   subplot_titles=["dF/F", "Noise probability"])
+                                   subplot_titles=["dF/F\u2080", "Noise probability"])
             fig_np.add_trace(go.Scatter(x=time_np, y=dff_trace, line=dict(width=0.5)), row=1, col=1)
             fig_np.add_trace(go.Scatter(x=time_np, y=np_trace, line=dict(width=0.5, color="orange")), row=2, col=1)
             fig_np.add_hline(y=0.2, line_dash="dash", line_color="red", row=2, col=1,
@@ -321,9 +324,9 @@ with tab_cell:
 
     # Compute basic stats
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Mean dF/F", f"{np.nanmean(trace):.4f}")
-    col2.metric("Max dF/F", f"{np.nanmax(trace):.3f}")
-    col3.metric("Std dF/F", f"{np.nanstd(trace):.4f}")
+    col1.metric("Mean dF/F\u2080", f"{np.nanmean(trace):.4f}")
+    col2.metric("Max dF/F\u2080", f"{np.nanmax(trace):.3f}")
+    col3.metric("Std dF/F\u2080", f"{np.nanstd(trace):.4f}")
 
     if event_masks is not None:
         em = event_masks[roi].astype(bool)
@@ -335,11 +338,11 @@ with tab_cell:
     # Full trace with events
     n_plots = 2 if spks is not None else 1
     fig = make_subplots(rows=n_plots, cols=1, shared_xaxes=True,
-                        subplot_titles=["dF/F + Events"] + (["Deconvolved"] if spks is not None else []))
+                        subplot_titles=["dF/F\u2080 + Events"] + (["Deconvolved"] if spks is not None else []))
 
     fig.add_trace(
         go.Scatter(x=t_ds, y=trace_ds, mode="lines",
-                   line=dict(width=0.5, color="black"), name="dF/F"),
+                   line=dict(width=0.5, color="black"), name="dF/F\u2080"),
         row=1, col=1,
     )
 
@@ -365,18 +368,18 @@ with tab_cell:
     fig.update_xaxes(title_text="Time (s)", row=n_plots, col=1)
     st.plotly_chart(fig, use_container_width=True)
 
-    # dF/F histogram
-    st.subheader("dF/F Distribution")
+    # dF/F0 histogram
+    st.subheader("dF/F\u2080 Distribution")
     col1, col2 = st.columns(2)
 
     with col1:
         fig_hist = go.Figure()
         fig_hist.add_trace(go.Histogram(
-            x=trace[~np.isnan(trace)], nbinsx=100, name="dF/F",
+            x=trace[~np.isnan(trace)], nbinsx=100, name="dF/F\u2080",
         ))
         fig_hist.update_layout(
-            xaxis_title="dF/F", yaxis_title="Count",
-            height=300, title="dF/F Histogram",
+            xaxis_title="dF/F\u2080", yaxis_title="Count",
+            height=300, title="dF/F\u2080 Histogram",
         )
         st.plotly_chart(fig_hist, use_container_width=True)
 
@@ -397,7 +400,7 @@ with tab_cell:
             fig_amp = go.Figure()
             fig_amp.add_trace(go.Histogram(x=amplitudes, nbinsx=30, name="Amplitude"))
             fig_amp.update_layout(
-                xaxis_title="Peak dF/F", yaxis_title="Count",
+                xaxis_title="Peak dF/F\u2080", yaxis_title="Count",
                 height=300, title="Event Amplitude Distribution",
             )
             st.plotly_chart(fig_amp, use_container_width=True)

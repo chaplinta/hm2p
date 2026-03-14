@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
@@ -43,8 +44,6 @@ if not experiments:
 @st.cache_data(ttl=300)
 def _load_dlc_data(sub: str, ses: str) -> tuple:
     """Load DLC h5 + meta from S3. Returns (df, meta_dict, bodyparts, scorer)."""
-    import pandas as pd
-
     files = list_s3_session_files(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/")
     h5_files = [f for f in files if f["key"].endswith(".h5")]
     if not h5_files:
@@ -62,8 +61,47 @@ def _load_dlc_data(sub: str, ses: str) -> tuple:
     if not hasattr(df.columns, "get_level_values"):
         return None, None, None, None
 
-    scorer = df.columns.get_level_values(0)[0]
-    bodyparts = df.columns.get_level_values(1).unique().tolist()
+    # Handle multi-animal DLC format (4 levels: scorer/individuals/bodyparts/coords)
+    if df.columns.nlevels == 4:
+        scorer = df.columns.get_level_values(0)[0]
+        individuals = df.columns.get_level_values(1).unique().tolist()
+        bodyparts = df.columns.get_level_values(2).unique().tolist()
+        coords_list = df.columns.get_level_values(3).unique().tolist()
+
+        # Pick best individual per frame by mean likelihood
+        if "likelihood" in coords_list and len(individuals) > 1:
+            lik_arrays = []
+            for ind in individuals:
+                lik_vals = []
+                for bp in bodyparts:
+                    try:
+                        lik_vals.append(df[(scorer, ind, bp, "likelihood")].values)
+                    except KeyError:
+                        pass
+                if lik_vals:
+                    lik_arrays.append(np.nanmean(np.column_stack(lik_vals), axis=1))
+                else:
+                    lik_arrays.append(np.zeros(len(df)))
+            best_idx = np.argmax(np.column_stack(lik_arrays), axis=1)
+        else:
+            best_idx = np.zeros(len(df), dtype=int)
+
+        # Reconstruct single-animal DataFrame
+        new_data = {}
+        for bp in bodyparts:
+            for coord in coords_list:
+                vals = np.empty(len(df))
+                for frame_idx in range(len(df)):
+                    try:
+                        vals[frame_idx] = df.iloc[frame_idx][(scorer, individuals[best_idx[frame_idx]], bp, coord)]
+                    except (KeyError, IndexError):
+                        vals[frame_idx] = np.nan
+                new_data[(scorer, bp, coord)] = vals
+        df = pd.DataFrame(new_data, index=df.index)
+        df.columns = pd.MultiIndex.from_tuples(df.columns)
+    else:
+        scorer = df.columns.get_level_values(0)[0]
+        bodyparts = df.columns.get_level_values(1).unique().tolist()
 
     meta_bytes = download_s3_bytes(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/dlc_meta.json")
     meta = json.loads(meta_bytes) if meta_bytes else {}
@@ -358,9 +396,11 @@ if st.button("Select frames", key="select_frames_btn"):
 
     # Build likelihood matrix (n_frames, n_keypoints)
     n_total = len(df)
-    lik_matrix = np.column_stack([
-        kp_data[bp]["likelihood"] for bp in bodyparts if bp in kp_data
-    ])
+    lik_cols = [kp_data[bp]["likelihood"] for bp in bodyparts if bp in kp_data]
+    if not lik_cols:
+        st.warning("No likelihood data available for selected bodyparts.")
+        st.stop()
+    lik_matrix = np.column_stack(lik_cols)
 
     if method.startswith("Stratified"):
         result = stratified_frame_selection(

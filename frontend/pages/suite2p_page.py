@@ -166,7 +166,7 @@ if f_traces is not None and cell_mask.any():
     cell_f = f_traces[cell_mask]
     cell_neu = f_neu[cell_mask] if f_neu is not None else None
 
-    # SNR: mean(dF/F peak) / std(baseline)
+    # SNR: mean(dF/F0 peak) / std(baseline)
     snrs = []
     for i in range(len(cell_f)):
         trace = cell_f[i]
@@ -279,7 +279,7 @@ with tab_traces:
                 ax.spines[["top", "right"]].set_visible(False)
 
             axes[-1].set_xlabel("Frame")
-            fig.suptitle("dF/F Traces (cells only)", fontsize=12)
+            fig.suptitle("dF/F0 Traces (cells only)", fontsize=12)
             plt.tight_layout()
             st.pyplot(fig)
             plt.close()
@@ -292,10 +292,21 @@ with tab_soma:
     if stat is None or iscell is None or f_traces is None:
         st.warning("stat.npy, iscell.npy, and F.npy are required for soma/dendrite classification.")
     else:
-        from hm2p.extraction.suite2p import classify_roi_types
+        try:
+            from hm2p.extraction.suite2p import classify_roi_types
+        except (ImportError, ModuleNotFoundError):
+            st.warning("Suite2p is not installed in this environment. Soma/dendrite classification requires suite2p.")
+            classify_roi_types = None  # type: ignore[assignment]
+
+        if classify_roi_types is None:
+            st.stop()
 
         # Classify all ROIs (accepted + rejected)
-        all_types = classify_roi_types(list(stat))
+        try:
+            all_types = classify_roi_types(list(stat))
+        except (FileNotFoundError, ImportError, ModuleNotFoundError) as e:
+            st.warning(f"Could not classify ROIs: {e}")
+            st.stop()
         all_types = np.array(all_types)
 
         # Filter to accepted cells only
@@ -422,7 +433,7 @@ with tab_soma:
                 ax.spines[["top", "right"]].set_visible(False)
 
             axes[-1].set_xlabel("Time (s)")
-            fig.suptitle(f"{label} dF/F Traces", fontsize=12, y=1.01)
+            fig.suptitle(f"{label} dF/F0 Traces", fontsize=12, y=1.01)
             plt.tight_layout()
             st.pyplot(fig)
             plt.close()
@@ -431,7 +442,7 @@ with tab_soma:
         st.subheader("Soma vs Dendrite Comparison")
 
         if n_soma > 0 and n_dend > 0:
-            # Compute dF/F stats per ROI
+            # Compute dF/F0 stats per ROI
             soma_idx = cell_idx[soma_mask]
             dend_idx = cell_idx[dend_mask]
 
@@ -458,14 +469,14 @@ with tab_soma:
             # Peak dF/F
             axes[0].hist(soma_peak, bins=15, alpha=0.6, color=colors["soma"], label="Soma")
             axes[0].hist(dend_peak, bins=15, alpha=0.6, color=colors["dend"], label="Dendrite")
-            axes[0].set_xlabel("Peak dF/F (95th percentile)")
+            axes[0].set_xlabel("Peak dF/F0 (95th percentile)")
             axes[0].set_title("Peak Activity")
             axes[0].legend(fontsize=8)
 
             # Mean dF/F
             axes[1].hist(soma_mean, bins=15, alpha=0.6, color=colors["soma"], label="Soma")
             axes[1].hist(dend_mean, bins=15, alpha=0.6, color=colors["dend"], label="Dendrite")
-            axes[1].set_xlabel("Mean dF/F")
+            axes[1].set_xlabel("Mean dF/F0")
             axes[1].set_title("Mean Activity")
 
             # Size comparison
@@ -481,7 +492,7 @@ with tab_soma:
             # Summary table
             import pandas as pd
             comparison = pd.DataFrame({
-                "Metric": ["Count", "Mean peak dF/F", "Mean dF/F", "Median size (px)", "Median aspect ratio"],
+                "Metric": ["Count", "Mean peak dF/F0", "Mean dF/F0", "Median size (px)", "Median aspect ratio"],
                 "Soma": [
                     n_soma,
                     f"{soma_peak.mean():.3f}",
