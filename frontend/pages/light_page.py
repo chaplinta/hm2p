@@ -183,47 +183,32 @@ snrs = np.array(snrs)
 with tab_overview:
     st.subheader("Light vs Dark Activity")
 
-    # Mean dF/F comparison
+    # Mean dF/F comparison (paired scatter — same ROIs in both conditions)
+    from hm2p.plotting import paired_condition_scatter, format_pvalue
+
     col1, col2 = st.columns(2)
     with col1:
-        fig = go.Figure()
-        fig.add_trace(go.Box(y=light_means, name="Light ON", marker_color="gold", boxmean=True))
-        fig.add_trace(go.Box(y=dark_means, name="Light OFF", marker_color="gray", boxmean=True))
-        fig.update_layout(height=350, title="Mean dF/F by Light Condition", yaxis_title="Mean dF/F")
-        st.plotly_chart(fig, use_container_width=True)
+        fig_dff, stat_dff = paired_condition_scatter(
+            light_means, dark_means,
+            "Light", "Dark", "Mean dF/F",
+            height=400, width=400,
+        )
+        st.plotly_chart(fig_dff, use_container_width=True)
+        st.markdown(
+            f"Wilcoxon signed-rank: {format_pvalue(stat_dff['p'])}, n={stat_dff['n']}"
+        )
 
     with col2:
         if light_event_rates:
-            fig = go.Figure()
-            fig.add_trace(go.Box(y=light_event_rates, name="Light ON", marker_color="gold", boxmean=True))
-            fig.add_trace(go.Box(y=dark_event_rates, name="Light OFF", marker_color="gray", boxmean=True))
-            fig.update_layout(height=350, title="Event Rate by Light Condition", yaxis_title="Events/min")
-            st.plotly_chart(fig, use_container_width=True)
-
-    # Statistical test
-    from scipy.stats import wilcoxon
-
-    if n_rois >= 3:
-        try:
-            stat, pval = wilcoxon(light_means, dark_means)
-            st.markdown(
-                f"**Wilcoxon signed-rank (paired):** "
-                f"Light mean = {np.mean(light_means):.4f}, Dark mean = {np.mean(dark_means):.4f}, "
-                f"p = {pval:.4f} {'(significant)' if pval < 0.05 else '(not significant)'}"
+            fig_ev, stat_ev = paired_condition_scatter(
+                light_event_rates, dark_event_rates,
+                "Light", "Dark", "Event Rate (events/min)",
+                height=400, width=400,
             )
-        except Exception:
-            st.markdown("Wilcoxon test could not be computed.")
-
-    if light_event_rates and n_rois >= 3:
-        try:
-            stat, pval = wilcoxon(light_event_rates, dark_event_rates)
+            st.plotly_chart(fig_ev, use_container_width=True)
             st.markdown(
-                f"**Event rate Wilcoxon:** "
-                f"Light = {np.mean(light_event_rates):.1f}, Dark = {np.mean(dark_event_rates):.1f}, "
-                f"p = {pval:.4f} {'(significant)' if pval < 0.05 else '(not significant)'}"
+                f"Wilcoxon signed-rank: {format_pvalue(stat_ev['p'])}, n={stat_ev['n']}"
             )
-        except Exception:
-            pass
 
     # Light cycle timeline
     st.subheader("Light Cycle Timeline")

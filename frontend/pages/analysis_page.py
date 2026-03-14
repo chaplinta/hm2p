@@ -421,51 +421,72 @@ with tab_activity:
         )
 
         import plotly.graph_objects as go
+        from hm2p.plotting import paired_condition_scatter, format_pvalue
 
-        conditions = ["moving_light", "moving_dark", "stationary_light", "stationary_dark"]
-
+        # Paired scatter: Light vs Dark within each movement state
+        st.markdown("**Event rate: Light vs Dark (paired per ROI)**")
         col1, col2 = st.columns(2)
         with col1:
-            fig = go.Figure()
-            for cond in conditions:
-                vals = [r[f"{cond}_event_rate"] for r in results]
-                fig.add_trace(go.Box(y=vals, name=cond.replace("_", " ").title(), boxmean=True))
-            fig.update_layout(
-                title=f"Event Rate by Condition ({signal_type_act})",
-                yaxis_title="Events/s", height=400,
+            mov_light = np.array([r["moving_light_event_rate"] for r in results])
+            mov_dark = np.array([r["moving_dark_event_rate"] for r in results])
+            fig_ml, stat_ml = paired_condition_scatter(
+                mov_light, mov_dark, "Light", "Dark",
+                "Event Rate (moving)", height=400, width=400,
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_ml, use_container_width=True)
+            st.markdown(f"Wilcoxon: {format_pvalue(stat_ml['p'])}, n={stat_ml['n']}")
 
         with col2:
-            mov_mod = [r["movement_modulation"] for r in results]
-            light_mod = [r["light_modulation"] for r in results]
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                x=mov_mod, y=light_mod, mode="markers",
-                text=[f"ROI {i}" for i in range(n_rois)],
-                marker=dict(size=8),
-            ))
-            fig.add_hline(y=0, line_dash="dash", line_color="gray")
-            fig.add_vline(x=0, line_dash="dash", line_color="gray")
-            fig.update_layout(
-                title="Modulation Indices",
-                xaxis_title="Movement Modulation",
-                yaxis_title="Light Modulation",
-                height=400,
+            stat_light = np.array([r["stationary_light_event_rate"] for r in results])
+            stat_dark = np.array([r["stationary_dark_event_rate"] for r in results])
+            fig_sl, stat_sl = paired_condition_scatter(
+                stat_light, stat_dark, "Light", "Dark",
+                "Event Rate (stationary)", height=400, width=400,
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig_sl, use_container_width=True)
+            st.markdown(f"Wilcoxon: {format_pvalue(stat_sl['p'])}, n={stat_sl['n']}")
 
-        # Mean signal by condition
-        st.subheader("Mean Signal by Condition")
-        fig_mean = go.Figure()
-        for cond in conditions:
-            vals = [r[f"{cond}_mean_signal"] for r in results]
-            fig_mean.add_trace(go.Box(y=vals, name=cond.replace("_", " ").title(), boxmean=True))
-        fig_mean.update_layout(
-            title=f"Mean Signal by Condition ({signal_type_act})",
-            yaxis_title="Mean signal", height=350,
+        # Modulation indices scatter (not a light/dark comparison — keep as is)
+        st.markdown("**Modulation Indices**")
+        mov_mod = [r["movement_modulation"] for r in results]
+        light_mod = [r["light_modulation"] for r in results]
+        fig_mod = go.Figure()
+        fig_mod.add_trace(go.Scatter(
+            x=mov_mod, y=light_mod, mode="markers",
+            text=[f"ROI {i}" for i in range(n_rois)],
+            marker=dict(size=8),
+        ))
+        fig_mod.add_hline(y=0, line_dash="dash", line_color="gray")
+        fig_mod.add_vline(x=0, line_dash="dash", line_color="gray")
+        fig_mod.update_layout(
+            xaxis_title="Movement Modulation",
+            yaxis_title="Light Modulation",
+            height=400,
         )
-        st.plotly_chart(fig_mean, use_container_width=True)
+        st.plotly_chart(fig_mod, use_container_width=True)
+
+        # Mean signal: Light vs Dark (paired scatter)
+        st.subheader("Mean Signal by Condition")
+        col1, col2 = st.columns(2)
+        with col1:
+            ml_sig = np.array([r["moving_light_mean_signal"] for r in results])
+            md_sig = np.array([r["moving_dark_mean_signal"] for r in results])
+            fig_ms, stat_ms = paired_condition_scatter(
+                ml_sig, md_sig, "Light", "Dark",
+                "Mean Signal (moving)", height=400, width=400,
+            )
+            st.plotly_chart(fig_ms, use_container_width=True)
+            st.markdown(f"Wilcoxon: {format_pvalue(stat_ms['p'])}, n={stat_ms['n']}")
+
+        with col2:
+            sl_sig = np.array([r["stationary_light_mean_signal"] for r in results])
+            sd_sig = np.array([r["stationary_dark_mean_signal"] for r in results])
+            fig_ss, stat_ss = paired_condition_scatter(
+                sl_sig, sd_sig, "Light", "Dark",
+                "Mean Signal (stationary)", height=400, width=400,
+            )
+            st.plotly_chart(fig_ss, use_container_width=True)
+            st.markdown(f"Wilcoxon: {format_pvalue(stat_ss['p'])}, n={stat_ss['n']}")
 
         # Summary table
         st.markdown("### Per-ROI Summary")
