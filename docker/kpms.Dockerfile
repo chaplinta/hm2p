@@ -35,7 +35,8 @@ RUN pip install --no-cache-dir \
     "numpy<1.27" \
     "h5py>=3.0" \
     "boto3>=1.26" \
-    "pandas>=1.5"
+    "pandas>=1.5" \
+    "tables>=3.8"
 
 # ── Pipeline code (only what kpms needs) ──────────────────────────────────
 COPY scripts/run_kpms.py scripts/run_kpms.py

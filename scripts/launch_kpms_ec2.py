@@ -30,7 +30,7 @@ from pathlib import Path
 import boto3
 
 REGION = "ap-southeast-2"
-INSTANCE_TYPE = "c5.2xlarge"  # 8 vCPU, 16 GB RAM — CPU-only, kpms doesn't need GPU
+INSTANCE_TYPE = "c5.4xlarge"  # 16 vCPU, 32 GB RAM — CPU-only, kpms doesn't need GPU
 AMI_ID = "ami-0818a4d7794d429b1"  # Ubuntu 22.04 LTS (ap-southeast-2)
 KEY_NAME = "hm2p-suite2p"
 SG_NAME = "hm2p-suite2p-sg"
@@ -65,10 +65,11 @@ def build_user_data() -> str:
     """Build the cloud-init user-data script."""
     return textwrap.dedent("""\
         #!/bin/bash
-        set -euxo pipefail
+        # Do NOT use set -e — we want to capture errors and upload logs.
+        set -uxo pipefail
         exec > >(tee /var/log/kpms-setup.log) 2>&1
 
-        echo "=== keypoint-MoSeq setup starting ==="
+        echo "=== keypoint-MoSeq setup starting $(date) ==="
         export DEBIAN_FRONTEND=noninteractive
 
         # ── System packages ──────────────────────────────────────────────
@@ -83,14 +84,23 @@ def build_user_data() -> str:
         cd hm2p
 
         # ── Build kpms Docker image ──────────────────────────────────────
-        echo "=== Building hm2p-kpms Docker image ==="
+        echo "=== Building hm2p-kpms Docker image $(date) ==="
         docker build -f docker/kpms.Dockerfile -t hm2p-kpms .
+        BUILD_EXIT=$?
+        if [ $BUILD_EXIT -ne 0 ]; then
+            echo "=== Docker build FAILED (exit $BUILD_EXIT) $(date) ==="
+            echo '{"status": "failed", "error": "docker build failed"}' > /tmp/kpms_status.json
+            aws s3 cp /tmp/kpms_status.json s3://hm2p-derivatives/kinematics/kpms_status.json
+            aws s3 cp /var/log/kpms-setup.log s3://hm2p-derivatives/kinematics/kpms-setup.log
+            shutdown -h now
+            exit 1
+        fi
 
         # ── Create working directories ───────────────────────────────────
         mkdir -p /home/ubuntu/kpms_project /home/ubuntu/kpms_output
 
         # ── Run kpms on all sessions ─────────────────────────────────────
-        echo "=== Running keypoint-MoSeq on all sessions ==="
+        echo "=== Running keypoint-MoSeq on all sessions $(date) ==="
 
         # IAM instance profile credentials are available via EC2 metadata service
         docker run --rm --network host \\
@@ -106,15 +116,22 @@ def build_user_data() -> str:
             --kappa 1000000 \\
             --num-pcs 10 \\
             --num-iters 50
+        RUN_EXIT=$?
 
-        echo "=== keypoint-MoSeq complete ==="
+        if [ $RUN_EXIT -ne 0 ]; then
+            echo "=== keypoint-MoSeq FAILED (exit $RUN_EXIT) $(date) ==="
+            echo "{\\\"status\\\": \\\"failed\\\", \\\"error\\\": \\\"docker run exit $RUN_EXIT\\\"}" > /tmp/kpms_status.json
+        else
+            echo "=== keypoint-MoSeq complete $(date) ==="
+            echo '{"status": "complete"}' > /tmp/kpms_status.json
+        fi
 
-        # ── Upload progress marker ───────────────────────────────────────
-        echo '{"status": "complete"}' > /tmp/kpms_status.json
+        # ── Upload status + logs ─────────────────────────────────────────
         aws s3 cp /tmp/kpms_status.json s3://hm2p-derivatives/kinematics/kpms_status.json
+        aws s3 cp /var/log/kpms-setup.log s3://hm2p-derivatives/kinematics/kpms-setup.log
 
         # ── Self-terminate ───────────────────────────────────────────────
-        echo "=== Shutting down ==="
+        echo "=== Shutting down $(date) ==="
         shutdown -h now
     """)
 

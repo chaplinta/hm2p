@@ -59,6 +59,94 @@ def download_s3_file(s3, bucket: str, key: str, local_path: Path) -> bool:
         return False
 
 
+def convert_madlc_to_single(h5_path: Path, bodyparts: list[str]) -> Path:
+    """Convert multi-animal DLC .h5 to single-animal format for kpms.
+
+    SuperAnimal TopViewMouse + FasterRCNN produces maDLC output with
+    4-level columns (scorer/individuals/bodyparts/coords) and multiple
+    detected "animals". We pick the best individual per frame (highest
+    mean likelihood across target bodyparts) and output standard DLC
+    3-level columns (scorer/bodyparts/coords).
+
+    Returns path to the converted file (same directory, _single.h5 suffix).
+    """
+    import pandas as pd
+
+    df = pd.read_hdf(h5_path)
+
+    # Check if already single-animal format (3 levels)
+    if df.columns.nlevels == 3:
+        log.info("  Already single-animal format: %s", h5_path.name)
+        return h5_path
+
+    if df.columns.nlevels != 4:
+        raise ValueError(f"Expected 3 or 4 column levels, got {df.columns.nlevels}")
+
+    scorer = df.columns.get_level_values("scorer")[0]
+    individuals = df.columns.get_level_values("individuals").unique().tolist()
+    available_bps = df.columns.get_level_values("bodyparts").unique().tolist()
+
+    # Filter to requested bodyparts that exist in the data
+    use_bps = [bp for bp in bodyparts if bp in available_bps]
+    if not use_bps:
+        raise ValueError(
+            f"None of the requested bodyparts {bodyparts} found in file. "
+            f"Available: {available_bps}"
+        )
+    log.info("  Using %d/%d bodyparts: %s", len(use_bps), len(available_bps), use_bps)
+
+    n_frames = len(df)
+
+    # For each frame, pick the individual with highest mean likelihood
+    # across the target bodyparts (vectorized)
+    log.info("  Selecting best individual per frame (%d frames, %d individuals)...",
+             n_frames, len(individuals))
+
+    # Build (n_frames, n_individuals) likelihood matrix
+    ind_scores = np.full((n_frames, len(individuals)), -1.0)
+    for j, ind in enumerate(individuals):
+        lk_cols = []
+        for bp in use_bps:
+            try:
+                lk_cols.append(df[(scorer, ind, bp, "likelihood")].values)
+            except KeyError:
+                pass
+        if lk_cols:
+            # Mean likelihood across bodyparts per frame
+            ind_scores[:, j] = np.nanmean(np.column_stack(lk_cols), axis=1)
+
+    best_ind_idx = np.argmax(ind_scores, axis=1)  # (n_frames,)
+
+    # Build single-animal dataframe by gathering from best individual per frame
+    new_columns = pd.MultiIndex.from_tuples(
+        [(scorer, bp, coord) for bp in use_bps for coord in ("x", "y", "likelihood")],
+        names=["scorer", "bodyparts", "coords"],
+    )
+    new_data = np.empty((n_frames, len(new_columns)), dtype=np.float64)
+
+    col_idx = 0
+    for bp in use_bps:
+        for coord in ("x", "y", "likelihood"):
+            # Stack all individuals' values for this bp+coord: (n_frames, n_individuals)
+            all_vals = np.full((n_frames, len(individuals)), np.nan)
+            for j, ind in enumerate(individuals):
+                try:
+                    all_vals[:, j] = df[(scorer, ind, bp, coord)].values
+                except KeyError:
+                    pass
+            # Gather from best individual per frame
+            new_data[:, col_idx] = all_vals[np.arange(n_frames), best_ind_idx]
+            col_idx += 1
+
+    new_df = pd.DataFrame(new_data, index=df.index, columns=new_columns)
+
+    out_path = h5_path.with_name(h5_path.stem + "_single.h5")
+    new_df.to_hdf(out_path, key="df_with_missing", mode="w")
+    log.info("  Converted maDLC → single: %s (%d frames)", out_path.name, n_frames)
+
+    return out_path
+
+
 def upload_s3_file(s3, local_path: Path, bucket: str, key: str):
     """Upload a file to S3."""
     s3.upload_file(str(local_path), bucket, key)
@@ -270,7 +358,8 @@ def main():
                 )
                 h5_keys = [
                     obj["Key"] for obj in resp.get("Contents", [])
-                    if obj["Key"].endswith(".h5") and "DLC" in obj["Key"]
+                    if obj["Key"].endswith(".h5")
+                    and not obj["Key"].endswith("_single.h5")
                 ]
             except Exception:
                 log.warning("No pose data for %s", exp_id)
@@ -283,9 +372,14 @@ def main():
             # Download first matching DLC file
             local_h5 = tmpdir / f"{exp_id}.h5"
             if download_s3_file(s3, args.s3_bucket, h5_keys[0], local_h5):
-                dlc_files[exp_id] = local_h5
+                # Convert multi-animal DLC to single-animal format
+                try:
+                    converted = convert_madlc_to_single(local_h5, args.bodyparts)
+                    dlc_files[exp_id] = converted
+                except Exception as e:
+                    log.error("Failed to convert %s: %s", exp_id, e)
 
-        log.info("Downloaded %d DLC files from S3", len(dlc_files))
+        log.info("Downloaded and converted %d DLC files from S3", len(dlc_files))
 
     else:
         parser.error("Provide --dlc-dir, --all-sessions, or --sessions")
