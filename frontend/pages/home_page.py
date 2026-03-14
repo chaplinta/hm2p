@@ -46,33 +46,33 @@ st.subheader("Pipeline Status")
 with st.spinner("Checking pipeline status..."):
     pipeline_status = get_pipeline_status()
 
+# Stages that depend on kinematics have fewer expected sessions (5 excluded)
+# Stages 0-2, 4 expect 26; Stages 3, 5, 6 expect 21
+STAGE_EXPECTED = {
+    "ca_extraction": 26,
+    "pose": 26,
+    "movement": 21,
+    "calcium": 26,
+    "sync": 21,
+    "analysis": 21,
+}
+
 stage_done = {}
 for prefix, label in STAGE_PREFIXES.items():
     done = sum(1 for s in pipeline_status.values() if s.get(prefix, False))
-    stage_done[label] = done
+    stage_done[label] = (done, STAGE_EXPECTED.get(prefix, n_sessions))
 
 cols = st.columns(len(STAGE_PREFIXES))
-for i, (label, done) in enumerate(stage_done.items()):
+for i, (label, (done, expected)) in enumerate(stage_done.items()):
     with cols[i]:
         short_label = label.split(" — ")[1]
-        pct = done / n_sessions * 100 if n_sessions > 0 else 0
-        st.metric(short_label, f"{done}/{n_sessions}")
-        if pct >= 100:
+        st.metric(short_label, f"{done}/{expected}")
+        if done >= expected:
             st.markdown(":green[Complete]")
-        elif pct > 0:
-            st.progress(pct / 100)
+        elif done > 0:
+            st.progress(done / expected)
         else:
             st.markdown(":red[Not started]")
-
-# --- DLC progress ---
-dlc_progress = get_progress("pose")
-if dlc_progress:
-    completed = dlc_progress.get("completed", 0)
-    status = dlc_progress.get("status", "")
-    updated = dlc_progress.get("updated", "")[:19]
-
-    if completed < n_sessions and "DONE" not in status:
-        st.info(f"DLC processing: {status} (updated {updated})")
 
 # --- Quick links ---
 st.subheader("Quick Links")
