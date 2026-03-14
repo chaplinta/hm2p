@@ -228,11 +228,11 @@ st.markdown(f"{n_pass} pass, {n_warn} warnings, {n_fail} failures")
 st.subheader("Quality Checks")
 for name, status, msg in checks:
     if status == "PASS":
-        st.markdown(f":green_circle: **{name}**: {msg}")
+        st.markdown(f":green[**{name}**]: {msg}")
     elif status == "WARN":
-        st.markdown(f":orange_circle: **{name}**: {msg}")
+        st.markdown(f":orange[**{name}**]: {msg}")
     else:
-        st.markdown(f":red_circle: **{name}**: {msg}")
+        st.markdown(f":red[**{name}**]: {msg}")
 
 # --- Visualizations ---
 st.markdown("---")

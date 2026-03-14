@@ -27,37 +27,42 @@ STAGE_STATUS = {
     "ingest": {
         "label": "Stage 0 -- Ingest",
         "status": "Complete",
-        "detail": "26/26 sessions uploaded to S3 (hm2p-rawdata)",
+        "detail": "26/26 sessions uploaded to S3 (hm2p-rawdata); timestamps.h5 generated",
     },
     "ca_extraction": {
         "label": "Stage 1 -- Suite2p",
         "status": "Complete",
-        "detail": "26/26 sessions processed; outputs in ca_extraction/",
+        "detail": "26/26 sessions processed on EC2 g4dn.xlarge; outputs in ca_extraction/",
     },
     "pose": {
         "label": "Stage 2 -- DLC Pose",
-        "status": "In progress",
-        "detail": "Running on EC2 g4dn.xlarge (SuperAnimal TopViewMouse, DLC 3.0rc13, ~3h/session)",
+        "status": "Complete",
+        "detail": "26/26 sessions complete (SuperAnimal TopViewMouse, DLC 3.0rc13, 30fps subsampled)",
     },
     "movement": {
         "label": "Stage 3 -- Kinematics",
-        "status": "Blocked",
-        "detail": "Blocked on Stage 2 (DLC pose estimation); script ready at scripts/run_stage3_kinematics.py",
+        "status": "Complete",
+        "detail": "21/21 sessions complete; kinematics.h5 on S3 (HD, position, speed, AHV)",
     },
     "calcium": {
         "label": "Stage 4 -- Calcium processing",
         "status": "Complete",
-        "detail": "26/26 ca.h5 on S3 (dF/F, events, noise_probs; 391 ROIs total)",
+        "detail": "26/26 ca.h5 on S3 (dF/F, events, deconv; 391 ROIs total)",
     },
     "sync": {
         "label": "Stage 5 -- Sync",
-        "status": "Blocked",
-        "detail": "Blocked on Stage 3; script ready at scripts/run_stage5_sync.py",
+        "status": "Complete",
+        "detail": "21/21 sync.h5 on S3 (kinematics resampled to ~9.6 Hz imaging rate)",
     },
     "analysis": {
         "label": "Stage 6 -- Analysis",
-        "status": "Ready",
-        "detail": "Multi-signal analysis ready (dff/deconv/events); run scripts/run_stage6_analysis.py",
+        "status": "Complete",
+        "detail": "21/21 analysis.h5 on S3 (HD tuning, significance, stability, etc.)",
+    },
+    "kpms": {
+        "label": "Stage 3b -- keypoint-MoSeq",
+        "status": "In progress",
+        "detail": "Running on EC2 c5.2xlarge; zero-label syllable discovery from DLC pose data",
     },
 }
 
@@ -65,6 +70,7 @@ STATUS_COLOURS = {
     "Complete": "green",
     "In progress": "orange",
     "Blocked": "red",
+    "Ready": "blue",
 }
 
 st.subheader("Pipeline Overview")

@@ -58,11 +58,11 @@ for i, (label, done) in enumerate(stage_done.items()):
         pct = done / n_sessions * 100 if n_sessions > 0 else 0
         st.metric(short_label, f"{done}/{n_sessions}")
         if pct >= 100:
-            st.markdown(":green_circle: Complete")
+            st.markdown(":green[Complete]")
         elif pct > 0:
             st.progress(pct / 100)
         else:
-            st.markdown(":red_circle: Not started")
+            st.markdown(":red[Not started]")
 
 # --- DLC progress ---
 dlc_progress = get_progress("pose")
