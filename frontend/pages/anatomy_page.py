@@ -41,8 +41,8 @@ try:
         load_experiments,
         parse_session_id,
     )
-except ImportError:
-    st.error("Frontend data module not available.")
+except ImportError as _imp_err:
+    st.error(f"Frontend data module not available: {_imp_err}")
     st.stop()
 
 # ── Load metadata ────────────────────────────────────────────────────────

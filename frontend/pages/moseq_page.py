@@ -12,6 +12,12 @@ Reference:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
+
 import json
 import logging
 
@@ -38,8 +44,8 @@ try:
         load_experiments,
         sanitize_error,
     )
-except ImportError:
-    st.error("Frontend data module not available.")
+except ImportError as _imp_err:
+    st.error(f"Frontend data module not available: {_imp_err}")
     st.stop()
 
 TOTAL_SESSIONS = 26
