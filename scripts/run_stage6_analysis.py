@@ -188,6 +188,7 @@ def main():
         experiments = [
             e for e in csv.DictReader(f)
             if str(e.get("exclude", "0")).strip() != "1"
+            and str(e.get("primary_exp", "1")).strip() == "1"
         ]
 
     if args.session:

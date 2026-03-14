@@ -278,6 +278,10 @@ def _fetch_all_sync_data() -> dict:
     sessions = []
 
     for exp in experiments:
+        # Only include primary sessions in analysis
+        if str(exp.get("primary_exp", "1")) != "1":
+            continue
+
         exp_id = exp["exp_id"]
         sub, ses = parse_session_id(exp_id)
         animal_id = exp_id.split("_")[-1]
@@ -354,6 +358,10 @@ def _fetch_all_ca_data() -> list[dict]:
     sessions = []
 
     for exp in experiments:
+        # Only include primary sessions in analysis
+        if str(exp.get("primary_exp", "1")) != "1":
+            continue
+
         exp_id = exp["exp_id"]
         sub, ses = parse_session_id(exp_id)
         animal_id = exp_id.split("_")[-1]
