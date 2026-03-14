@@ -38,7 +38,7 @@ st.title("Event Dynamics")
 st.caption(
     "Compare calcium transient properties between Penk+ and non-Penk CamKII+ "
     "populations, and between animals within each cell type. "
-    "Method: Voigts & Harnett 2020 (doi:10.1016/j.neuron.2019.10.016)."
+    "Method: Voigts & Harnett 2020 ([doi:10.1016/j.neuron.2019.10.016](https://doi.org/10.1016/j.neuron.2019.10.016))."
 )
 
 
@@ -408,7 +408,7 @@ st.markdown("---")
 with st.expander("Methods"):
     st.markdown("""
 **Event detection:** Percentile-based noise model with CDF thresholding
-(Voigts & Harnett 2020, doi:10.1016/j.neuron.2019.10.016).
+(Voigts & Harnett 2020, [doi:10.1016/j.neuron.2019.10.016](https://doi.org/10.1016/j.neuron.2019.10.016)).
 [GitHub](https://github.com/jvoigts/cell_labeling_bhv)
 
 **Per-event metrics:** amplitude (peak dF/F), duration (onset to offset),
@@ -425,5 +425,5 @@ cell-type comparisons. No correction for multiple comparisons shown
 st.caption(
     "Event dynamics characterization compares calcium transient properties "
     "between Penk+ and non-Penk CamKII+ RSP populations. "
-    "Voigts & Harnett 2020, doi:10.1016/j.neuron.2019.10.016."
+    "Voigts & Harnett 2020, [doi:10.1016/j.neuron.2019.10.016](https://doi.org/10.1016/j.neuron.2019.10.016)."
 )

@@ -397,9 +397,9 @@ with st.expander("Methods & References"):
     **References:**
     - Tyson et al. 2022. "Accurate determination of marker location within
       whole-brain microscopy images." *Scientific Reports*.
-      doi:10.1038/s41598-021-04676-9
+      [doi:10.1038/s41598-021-04676-9](https://doi.org/10.1038/s41598-021-04676-9)
     - Wang et al. 2020. "The Allen Mouse Brain Common Coordinate Framework."
-      *Cell*. doi:10.1016/j.cell.2020.04.007
+      *Cell*. [doi:10.1016/j.cell.2020.04.007](https://doi.org/10.1016/j.cell.2020.04.007)
     - Claudi et al. 2021. "Visualizing anatomically registered data with
-      brainrender." *eLife*. doi:10.7554/eLife.65751
+      brainrender." *eLife*. [doi:10.7554/eLife.65751](https://doi.org/10.7554/eLife.65751)
     """)

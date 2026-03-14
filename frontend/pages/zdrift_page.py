@@ -29,7 +29,7 @@ session's serial2p z-stack. Sessions without a z-stack are skipped.
 followed by Gaussian smoothing and argmax to get z-position per frame.
 
 > Pachitariu et al. 2017. "Suite2p: beyond 10,000 neurons with standard
-> two-photon microscopy." *bioRxiv*. doi:10.1101/061507
+> two-photon microscopy." *bioRxiv*. [doi:10.1101/061507](https://doi.org/10.1101/061507)
 """)
 
 # ── Imports ──────────────────────────────────────────────────────────────
@@ -240,5 +240,5 @@ with st.expander("Methods & References"):
 
     **References:**
     - Pachitariu et al. 2017. "Suite2p: beyond 10,000 neurons with standard
-      two-photon microscopy." *bioRxiv*. doi:10.1101/061507
+      two-photon microscopy." *bioRxiv*. [doi:10.1101/061507](https://doi.org/10.1101/061507)
     """)

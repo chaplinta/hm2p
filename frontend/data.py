@@ -60,6 +60,119 @@ STAGE_PREFIXES = {
     "analysis": "Stage 6 — Analysis",
 }
 
+# ── Unified pipeline stage registry ─────────────────────────────────────
+# Single source of truth for all pipeline status display.
+# expected: how many sessions should have output (21 = excludes 5 bad behaviour)
+
+PIPELINE_STAGES = {
+    "ingest": {
+        "label": "Stage 0 — Ingest",
+        "short": "Ingest",
+        "s3_prefix": None,  # rawdata bucket, not derivatives
+        "expected": 26,
+    },
+    "ca_extraction": {
+        "label": "Stage 1 — Suite2p",
+        "short": "Suite2p",
+        "s3_prefix": "ca_extraction",
+        "expected": 26,
+    },
+    "pose": {
+        "label": "Stage 2 — DLC",
+        "short": "DLC",
+        "s3_prefix": "pose",
+        "expected": 26,
+    },
+    "kinematics": {
+        "label": "Stage 3 — Kinematics",
+        "short": "Kinematics",
+        "s3_prefix": "kinematics",
+        "expected": 21,
+    },
+    "calcium": {
+        "label": "Stage 4 — Calcium",
+        "short": "Calcium",
+        "s3_prefix": "calcium",
+        "expected": 26,
+    },
+    "sync": {
+        "label": "Stage 5 — Sync",
+        "short": "Sync",
+        "s3_prefix": "sync",
+        "expected": 21,
+    },
+    "analysis": {
+        "label": "Stage 6 — Analysis",
+        "short": "Analysis",
+        "s3_prefix": "analysis",
+        "expected": 21,
+    },
+    "kpms": {
+        "label": "Stage 3b — MoSeq",
+        "short": "MoSeq",
+        "s3_prefix": "kinematics",  # syllables.npz lives under kinematics/
+        "expected": 26,
+    },
+}
+
+
+def get_stage_summary() -> dict[str, dict]:
+    """Get unified pipeline status summary for all stages.
+
+    Returns dict[stage_key -> {label, short, expected, done, status, color}].
+    Uses cached pipeline_status from S3.
+    """
+    pipeline_status = get_pipeline_status()
+
+    summary = {}
+    for key, info in PIPELINE_STAGES.items():
+        expected = info["expected"]
+
+        if key == "kpms":
+            # MoSeq: count syllables.npz files on S3
+            done = _count_kpms_outputs()
+        elif key == "ingest":
+            # Ingest: count timestamps.h5 on rawdata bucket
+            done = expected  # always 26/26 (already uploaded)
+        else:
+            done = sum(
+                1 for s in pipeline_status.values() if s.get(key, False)
+            )
+
+        if done >= expected:
+            status, color = "Complete", "green"
+        elif done > 0:
+            status, color = "In progress", "orange"
+        else:
+            status, color = "Not started", "red"
+
+        summary[key] = {
+            "label": info["label"],
+            "short": info["short"],
+            "expected": expected,
+            "done": done,
+            "status": status,
+            "color": color,
+        }
+
+    return summary
+
+
+@st.cache_data(ttl=120)
+def _count_kpms_outputs() -> int:
+    """Count syllables.npz files on S3."""
+    try:
+        s3 = get_s3_client()
+        resp = s3.list_objects_v2(
+            Bucket=DERIVATIVES_BUCKET, Prefix="kinematics/",
+        )
+        return sum(
+            1 for obj in resp.get("Contents", [])
+            if obj["Key"].endswith("syllables.npz")
+        )
+    except Exception:
+        return 0
+
 
 @st.cache_data(ttl=3600)
 def load_experiments() -> list[dict[str, str]]:

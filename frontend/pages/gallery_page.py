@@ -452,7 +452,7 @@ with tab_features:
 st.markdown("---")
 with st.expander("Methods"):
     st.markdown("""
-**ROI extraction:** Suite2p (Pachitariu et al. 2017, doi:10.1101/061507).
+**ROI extraction:** Suite2p (Pachitariu et al. 2017, [doi:10.1101/061507](https://doi.org/10.1101/061507)).
 [GitHub](https://github.com/MouseLand/suite2p)
 
 **Soma/dendrite classification:** Heuristic from Suite2p `stat.npy` shape features:

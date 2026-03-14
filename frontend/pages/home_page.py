@@ -11,8 +11,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from frontend.data import (
-    get_pipeline_status,
-    get_progress,
+    get_stage_summary,
     load_animals,
     load_experiments,
     STAGE_PREFIXES,
@@ -44,35 +43,16 @@ col4.metric("Non-Penk sessions", n_nonpenk)
 st.subheader("Pipeline Status")
 
 with st.spinner("Checking pipeline status..."):
-    pipeline_status = get_pipeline_status()
+    stage_summary = get_stage_summary()
 
-# Stages that depend on kinematics have fewer expected sessions (5 excluded)
-# Stages 0-2, 4 expect 26; Stages 3, 5, 6 expect 21
-STAGE_EXPECTED = {
-    "ca_extraction": 26,
-    "pose": 26,
-    "movement": 21,
-    "calcium": 26,
-    "sync": 21,
-    "analysis": 21,
-}
-
-stage_done = {}
-for prefix, label in STAGE_PREFIXES.items():
-    done = sum(1 for s in pipeline_status.values() if s.get(prefix, False))
-    stage_done[label] = (done, STAGE_EXPECTED.get(prefix, n_sessions))
-
-cols = st.columns(len(STAGE_PREFIXES))
-for i, (label, (done, expected)) in enumerate(stage_done.items()):
+# Show core stages (not ingest or kpms on home page)
+core_stages = [k for k in STAGE_PREFIXES]
+cols = st.columns(len(core_stages))
+for i, key in enumerate(core_stages):
+    info = stage_summary[key]
     with cols[i]:
-        short_label = label.split(" — ")[1]
-        st.metric(short_label, f"{done}/{expected}")
-        if done >= expected:
-            st.markdown(":green[Complete]")
-        elif done > 0:
-            st.progress(done / expected)
-        else:
-            st.markdown(":red[Not started]")
+        st.metric(info["short"], f"{info['done']}/{info['expected']}")
+        st.markdown(f":{info['color']}[{info['status']}]")
 
 # --- Quick links ---
 st.subheader("Quick Links")

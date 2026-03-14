@@ -15,6 +15,7 @@ import streamlit as st
 
 from frontend.data import (
     DERIVATIVES_BUCKET,
+    PIPELINE_STAGES,
     REGION,
     STAGE_PREFIXES,
     download_s3_bytes,
@@ -28,7 +29,7 @@ from frontend.data import (
 
 log = logging.getLogger("hm2p.frontend")
 
-TOTAL_SESSIONS = 26
+TOTAL_SESSIONS = PIPELINE_STAGES["pose"]["expected"]  # 26
 
 st.title("AWS Job Status & Logs")
 

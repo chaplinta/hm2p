@@ -184,8 +184,9 @@ if selected:
     for i, (prefix, label) in enumerate(STAGE_PREFIXES.items()):
         with status_cols[i]:
             done = status.get(prefix, False)
-            icon = "white_check_mark" if done else "x"
-            st.markdown(f":{icon}: {label.split(' — ')[1]}")
+            color = "green" if done else "red"
+            mark = "Done" if done else "—"
+            st.markdown(f":{color}[{label.split(' — ')[1]}]: {mark}")
 
     # Store selected session for other pages
     st.session_state["selected_sub"] = sub

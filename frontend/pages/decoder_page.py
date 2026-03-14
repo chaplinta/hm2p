@@ -237,14 +237,14 @@ nature of head direction.
 
 - Georgopoulos, A. P., Schwartz, A. B. & Kettner, R. E. 1986. "Neuronal
   population coding of movement direction." *Science*.
-  doi:10.1126/science.3749885
+  [doi:10.1126/science.3749885](https://doi.org/10.1126/science.3749885)
 
 - Peyrache, A., Lacber, M. M. & Bhatt, D. 2015. "Internally organized
   mechanisms of the head direction sense." *Nature Neuroscience*.
-  doi:10.1038/nn.3968
+  [doi:10.1038/nn.3968](https://doi.org/10.1038/nn.3968)
 
 - Ajabi, Z. et al. 2023. "Population dynamics of head-direction neurons
-  during drift and reorientation." *Nature*. doi:10.1038/s41586-023-06086-7
+  during drift and reorientation." *Nature*. [doi:10.1038/s41586-023-06086-7](https://doi.org/10.1038/s41586-023-06086-7)
 """)
 
 

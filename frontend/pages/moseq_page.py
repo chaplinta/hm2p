@@ -38,6 +38,7 @@ st.caption(
 try:
     from frontend.data import (
         DERIVATIVES_BUCKET,
+        PIPELINE_STAGES,
         REGION,
         download_s3_bytes,
         get_s3_client,
@@ -48,7 +49,7 @@ except ImportError as _imp_err:
     st.error(f"Frontend data module not available: {_imp_err}")
     st.stop()
 
-TOTAL_SESSIONS = 26
+TOTAL_SESSIONS = PIPELINE_STAGES["kpms"]["expected"]
 
 if st.button("Refresh", key="refresh_moseq"):
     st.cache_data.clear()
@@ -272,6 +273,6 @@ with st.expander("Methods & References"):
     Weinreb, C., Osman, A., Datta, S.R., & Mathis, A. (2024).
     "Keypoint-MoSeq: parsing behavior by linking point tracking to pose
     dynamics." *Nature Methods*, 21(9), 1329-1339.
-    doi:10.1038/s41592-024-02318-2.
+    [doi:10.1038/s41592-024-02318-2](https://doi.org/10.1038/s41592-024-02318-2).
     https://github.com/dattalab/keypoint-moseq
     """)
