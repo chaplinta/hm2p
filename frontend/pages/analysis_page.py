@@ -580,7 +580,12 @@ with tab_hd:
 with tab_place:
     st.subheader("Place Tuning")
 
-    from hm2p.analysis.tuning import compute_place_rate_map, spatial_information
+    from hm2p.analysis.tuning import (
+        compute_place_rate_map,
+        spatial_coherence,
+        spatial_information,
+        spatial_sparsity,
+    )
 
     # Session + ROI picker
     pl_session_labels = [s["exp_id"] for s in active_sessions]
@@ -597,17 +602,6 @@ with tab_place:
     moving_mask_pl = m_pl["moving"]
     light_on_pl = m_pl["light_on"]
 
-    # Position: sync.h5 has speed_cm_s but not x/y position
-    # Place tuning needs position -- check if available
-    has_position = False
-    # sync.h5 does not include x_mm/y_mm; place tuning requires
-    # separate position data. Show a note.
-    st.info(
-        "Place tuning requires x/y position data, which is not stored in "
-        "sync.h5. Position-based rate maps will be available when position "
-        "data is added to the sync output."
-    )
-
     # Estimate fps
     ft_pl = ses_pl["frame_times"]
     if len(ft_pl) > 1:
@@ -615,18 +609,117 @@ with tab_place:
     else:
         fps_pl = 9.8
 
-    # Occupancy in HD space as a proxy
-    st.subheader("HD Occupancy (proxy)")
-    hd_moving = m_pl["hd_deg"][moving_mask_pl]
-    if len(hd_moving) > 50:
-        fig = go.Figure()
-        fig.add_trace(go.Histogram(x=hd_moving, nbinsx=36, name="HD occupancy"))
+    # Check if position data is available
+    if ses_pl.get("x_mm") is not None:
+        # Convert mm to cm
+        x_cm = ses_pl["x_mm"] / 10.0
+        y_cm = ses_pl["y_mm"] / 10.0
+
+        # --- All moving frames rate map ---
+        st.subheader("Place Rate Map (all moving frames)")
+        rate_map, occ_map, bex, bey = compute_place_rate_map(
+            sig_pl, x_cm, y_cm, moving_mask_pl,
+            bin_size=place_bin, smoothing_sigma=place_sigma,
+            min_occupancy_s=0.5, fps=fps_pl,
+        )
+
+        fig = go.Figure(data=go.Heatmap(
+            z=rate_map,
+            x=0.5 * (bex[:-1] + bex[1:]),
+            y=0.5 * (bey[:-1] + bey[1:]),
+            colorscale="Hot",
+            colorbar=dict(title="dF/F\u2080"),
+        ))
         fig.update_layout(
-            xaxis_title="Head Direction (deg)",
-            yaxis_title="Frame count",
-            height=300,
+            xaxis_title="X (cm)", yaxis_title="Y (cm)",
+            height=450, yaxis=dict(scaleanchor="x"),
         )
         st.plotly_chart(fig, use_container_width=True)
+
+        # Spatial metrics
+        si = spatial_information(rate_map, occ_map)
+        coh = spatial_coherence(rate_map)
+        spar = spatial_sparsity(rate_map, occ_map)
+        mc1, mc2, mc3 = st.columns(3)
+        mc1.metric("Spatial Info (bits/event)", f"{si:.4f}")
+        mc2.metric("Coherence", f"{coh:.3f}" if np.isfinite(coh) else "N/A")
+        mc3.metric("Sparsity", f"{spar:.3f}" if np.isfinite(spar) else "N/A")
+
+        # --- Light vs Dark rate maps ---
+        st.subheader("Light vs Dark Rate Maps")
+        moving_light_pl = moving_mask_pl & light_on_pl
+        moving_dark_pl = moving_mask_pl & ~light_on_pl
+
+        col_l, col_d = st.columns(2)
+        with col_l:
+            st.markdown("**Light ON**")
+            if moving_light_pl.sum() > 50:
+                rm_l, om_l, bex_l, bey_l = compute_place_rate_map(
+                    sig_pl, x_cm, y_cm, moving_light_pl,
+                    bin_size=place_bin, smoothing_sigma=place_sigma,
+                    min_occupancy_s=0.5, fps=fps_pl,
+                )
+                fig_l = go.Figure(data=go.Heatmap(
+                    z=rm_l,
+                    x=0.5 * (bex_l[:-1] + bex_l[1:]),
+                    y=0.5 * (bey_l[:-1] + bey_l[1:]),
+                    colorscale="Hot",
+                    colorbar=dict(title="dF/F\u2080"),
+                ))
+                fig_l.update_layout(
+                    xaxis_title="X (cm)", yaxis_title="Y (cm)",
+                    height=400, yaxis=dict(scaleanchor="x"),
+                )
+                st.plotly_chart(fig_l, use_container_width=True)
+                si_l = spatial_information(rm_l, om_l)
+                st.caption(f"SI = {si_l:.4f} bits/event")
+            else:
+                st.info("Too few light-on moving frames for rate map.")
+
+        with col_d:
+            st.markdown("**Light OFF (dark)**")
+            if moving_dark_pl.sum() > 50:
+                rm_d, om_d, bex_d, bey_d = compute_place_rate_map(
+                    sig_pl, x_cm, y_cm, moving_dark_pl,
+                    bin_size=place_bin, smoothing_sigma=place_sigma,
+                    min_occupancy_s=0.5, fps=fps_pl,
+                )
+                fig_d = go.Figure(data=go.Heatmap(
+                    z=rm_d,
+                    x=0.5 * (bex_d[:-1] + bex_d[1:]),
+                    y=0.5 * (bey_d[:-1] + bey_d[1:]),
+                    colorscale="Hot",
+                    colorbar=dict(title="dF/F\u2080"),
+                ))
+                fig_d.update_layout(
+                    xaxis_title="X (cm)", yaxis_title="Y (cm)",
+                    height=400, yaxis=dict(scaleanchor="x"),
+                )
+                st.plotly_chart(fig_d, use_container_width=True)
+                si_d = spatial_information(rm_d, om_d)
+                st.caption(f"SI = {si_d:.4f} bits/event")
+            else:
+                st.info("Too few dark moving frames for rate map.")
+
+    else:
+        st.info(
+            "Place tuning requires x/y position data, which is not available "
+            "in this session's sync.h5. Position-based rate maps will appear "
+            "when x_mm/y_mm are added to the sync output."
+        )
+
+        # Occupancy in HD space as a proxy
+        st.subheader("HD Occupancy (proxy)")
+        hd_moving = m_pl["hd_deg"][moving_mask_pl]
+        if len(hd_moving) > 50:
+            fig = go.Figure()
+            fig.add_trace(go.Histogram(x=hd_moving, nbinsx=36, name="HD occupancy"))
+            fig.update_layout(
+                xaxis_title="Head Direction (deg)",
+                yaxis_title="Frame count",
+                height=300,
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
 
 # ---- Tab 5: Robustness ----

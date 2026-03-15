@@ -5,13 +5,18 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from hm2p.maze.analysis import (
     cell_occupancy,
     classify_turn,
     cross_entropy,
+    cross_entropy_2nd_order,
     dead_end_visits,
     exploration_efficiency,
     find_monotonic_paths,
+    markov_order_comparison,
     maze_exploration_summary,
     occupancy_fraction,
     path_efficiency_over_time,
@@ -19,8 +24,11 @@ from hm2p.maze.analysis import (
     segment_modes,
     sequence_entropy,
     simulate_random_walk,
+    stationary_distribution,
     transition_entropy,
+    transition_entropy_2nd_order,
     transition_matrix,
+    transition_matrix_2nd_order,
     turn_bias,
 )
 from hm2p.maze.topology import build_rose_maze
@@ -346,6 +354,145 @@ class TestCrossEntropy:
         tm = np.ones((3, 3)) / 3
         ce = cross_entropy(np.array([], dtype=np.int32), tm, 3)
         assert ce == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 2nd-order Markov model
+# ---------------------------------------------------------------------------
+
+
+class TestTransitionMatrix2ndOrder:
+    def test_shape(self):
+        seq = np.array([0, 1, 2, 0, 1, 2])
+        tm = transition_matrix_2nd_order(seq, 3)
+        assert tm.shape == (3, 3, 3)
+
+    def test_row_stochastic(self):
+        """Each [i, j, :] slice with observed transitions sums to 1."""
+        seq = np.array([0, 1, 2, 0, 1, 2, 1, 0, 2])
+        tm = transition_matrix_2nd_order(seq, 3)
+        for i in range(3):
+            for j in range(3):
+                s = tm[i, j, :].sum()
+                if s > 0:
+                    assert abs(s - 1.0) < 1e-10
+
+    def test_deterministic_triplets(self):
+        """Cyclic 0->1->2->0->1->2 should produce deterministic 2nd-order."""
+        seq = np.array([0, 1, 2, 0, 1, 2, 0, 1, 2])
+        tm = transition_matrix_2nd_order(seq, 3)
+        # After seeing (0, 1) the next is always 2
+        assert tm[0, 1, 2] == 1.0
+        # After seeing (1, 2) the next is always 0
+        assert tm[1, 2, 0] == 1.0
+        # After seeing (2, 0) the next is always 1
+        assert tm[2, 0, 1] == 1.0
+
+    def test_pseudocount_all_positive(self):
+        """With pseudocount, all entries should be > 0."""
+        seq = np.array([0, 1, 2, 0])
+        tm = transition_matrix_2nd_order(seq, 3, pseudocount=1.0)
+        assert np.all(tm > 0)
+
+    def test_short_sequence_zeros(self):
+        """Sequence shorter than 3 should return all zeros."""
+        seq = np.array([0, 1])
+        tm = transition_matrix_2nd_order(seq, 3)
+        np.testing.assert_array_equal(tm, 0)
+
+    @given(
+        seq=st.lists(
+            st.integers(min_value=0, max_value=4), min_size=5, max_size=100,
+        ).map(np.array),
+    )
+    @settings(max_examples=50, deadline=None)
+    def test_property_row_stochastic(self, seq):
+        """Random sequences always produce row-stochastic slices."""
+        tm = transition_matrix_2nd_order(seq, 5)
+        for i in range(5):
+            for j in range(5):
+                s = tm[i, j, :].sum()
+                if s > 0:
+                    assert abs(s - 1.0) < 1e-10
+
+
+class TestTransitionEntropy2ndOrder:
+    def test_deterministic_near_zero(self):
+        """Deterministic cyclic sequence should have near-zero entropy."""
+        seq = np.array([0, 1, 2] * 30)
+        tm = transition_matrix_2nd_order(seq, 3)
+        h = transition_entropy_2nd_order(tm, seq)
+        assert h < 0.01
+
+    def test_non_negative(self):
+        """Entropy should always be >= 0."""
+        rng = np.random.default_rng(42)
+        seq = rng.integers(0, 4, 200)
+        tm = transition_matrix_2nd_order(seq, 4)
+        h = transition_entropy_2nd_order(tm, seq)
+        assert h >= 0
+
+
+class TestCrossEntropy2ndOrder:
+    def test_matched_lower(self):
+        """Train=test cross-entropy should be lower than mismatched."""
+        train = np.array([0, 1, 2] * 50)
+        test_match = np.array([0, 1, 2] * 50)
+        test_mismatch = np.array([0, 2, 1] * 50)
+        tm = transition_matrix_2nd_order(train, 3, pseudocount=0.01)
+        ce_match = cross_entropy_2nd_order(test_match, tm, 3)
+        ce_mismatch = cross_entropy_2nd_order(test_mismatch, tm, 3)
+        assert ce_match < ce_mismatch
+
+    def test_penalty_for_unseen(self):
+        """Unseen triplet should incur high penalty (20-bit)."""
+        train = np.array([0, 1, 0, 1, 0, 1])
+        test = np.array([0, 1, 2])  # triplet (0,1,2) never in training
+        tm = transition_matrix_2nd_order(train, 3)  # no pseudocount
+        ce = cross_entropy_2nd_order(test, tm, 3)
+        assert ce >= 19.0  # Should be ~20 from penalty
+
+
+class TestStationaryDistribution:
+    def test_sums_to_one(self):
+        seq = np.array([0, 1, 2, 0, 1, 0, 2, 1] * 20)
+        tm = transition_matrix(seq, 3)
+        pi = stationary_distribution(tm)
+        assert abs(pi.sum() - 1.0) < 1e-10
+
+    def test_non_negative(self):
+        seq = np.array([0, 1, 2, 0, 1, 0, 2, 1] * 20)
+        tm = transition_matrix(seq, 3)
+        pi = stationary_distribution(tm)
+        assert np.all(pi >= 0)
+
+    def test_doubly_stochastic_uniform(self):
+        """Doubly stochastic matrix should give uniform distribution."""
+        # Circulant matrix: each row and column sums to 1
+        tm = np.array([
+            [0.0, 0.5, 0.5],
+            [0.5, 0.0, 0.5],
+            [0.5, 0.5, 0.0],
+        ])
+        pi = stationary_distribution(tm)
+        np.testing.assert_allclose(pi, 1.0 / 3, atol=1e-10)
+
+
+class TestMarkovOrderComparison:
+    def test_returns_expected_keys(self):
+        seq = np.array([0, 1, 2, 0, 1, 2, 1, 0] * 20)
+        result = markov_order_comparison(seq, 3)
+        assert "order_1" in result
+        assert "order_2" in result
+        assert "delta_aic" in result
+        assert "delta_bic" in result
+        assert "preferred_order" in result
+
+    def test_preferred_order_is_int(self):
+        seq = np.array([0, 1, 2, 0, 1, 2, 1, 0] * 20)
+        result = markov_order_comparison(seq, 3)
+        assert isinstance(result["preferred_order"], int)
+        assert result["preferred_order"] in (1, 2)
 
 
 # ---------------------------------------------------------------------------

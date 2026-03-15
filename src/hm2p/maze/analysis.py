@@ -594,6 +594,314 @@ def cross_entropy(
 
 
 # ---------------------------------------------------------------------------
+# Second-order Markov transition model (Rosenberg HigherOrderTransitions)
+# ---------------------------------------------------------------------------
+
+
+def transition_matrix_2nd_order(
+    cell_seq: np.ndarray,
+    n_cells: int,
+    pseudocount: float = 0.0,
+) -> np.ndarray:
+    """Compute second-order transition probability matrix.
+
+    T[i, j, k] = P(next=k | prev=i, current=j).
+
+    The second-order model captures path dependencies that a first-order
+    Markov model cannot — e.g. a mouse that entered a junction from the
+    left is more likely to continue rightward than reverse.
+
+    Inspired by Rosenberg et al. (2021) higher-order transition analysis.
+
+    Reference: Rosenberg, Zhang, Perona & Meister (2021). "Mice in a
+    labyrinth show rapid learning, sudden insight, and efficient
+    exploration." eLife 10, e66175. https://doi.org/10.7554/eLife.66175
+
+    Args:
+        cell_seq: (M,) int array of cell indices (no consecutive duplicates).
+        n_cells: total number of cells.
+        pseudocount: additive smoothing (0 = MLE, >0 = Laplace).
+
+    Returns:
+        (n_cells, n_cells, n_cells) float64 array. T[i, j, :] sums to 1
+        for each (i, j) pair with observed transitions. Returns all zeros
+        if len(cell_seq) < 3.
+    """
+    counts = np.full((n_cells, n_cells, n_cells), pseudocount)
+
+    if len(cell_seq) < 3:
+        return np.zeros((n_cells, n_cells, n_cells), dtype=np.float64)
+
+    for t in range(len(cell_seq) - 2):
+        a, b, c = cell_seq[t], cell_seq[t + 1], cell_seq[t + 2]
+        if 0 <= a < n_cells and 0 <= b < n_cells and 0 <= c < n_cells:
+            counts[a, b, c] += 1
+
+    # Normalize each [i, j, :] slice to sum to 1
+    for i in range(n_cells):
+        for j in range(n_cells):
+            row_sum = counts[i, j, :].sum()
+            if row_sum > 0:
+                counts[i, j, :] /= row_sum
+            # else: leave as zeros (no transitions from this pair)
+
+    return counts.astype(np.float64)
+
+
+def transition_entropy_2nd_order(
+    trans_mat_2nd: np.ndarray,
+    cell_seq: np.ndarray,
+) -> float:
+    """Compute average transition entropy for a second-order model.
+
+    H = -sum_{i,j} pi(i,j) * sum_k T[i,j,k] * log2(T[i,j,k])
+
+    where pi(i,j) is the empirical pair occupancy from cell_seq.
+
+    Inspired by Rosenberg et al. (2021) higher-order transition analysis.
+
+    Reference: Rosenberg, Zhang, Perona & Meister (2021). "Mice in a
+    labyrinth show rapid learning, sudden insight, and efficient
+    exploration." eLife 10, e66175. https://doi.org/10.7554/eLife.66175
+
+    Args:
+        trans_mat_2nd: (N, N, N) second-order transition matrix from
+            ``transition_matrix_2nd_order``.
+        cell_seq: (M,) cell sequence (for pair occupancy weighting).
+
+    Returns:
+        Average conditional entropy H(X_{t+1} | X_{t-1}, X_t) in bits.
+    """
+    n = trans_mat_2nd.shape[0]
+
+    if len(cell_seq) < 2:
+        return 0.0
+
+    # Empirical pair occupancy pi(i, j)
+    pair_counts = np.zeros((n, n), dtype=np.float64)
+    for t in range(len(cell_seq) - 1):
+        a, b = cell_seq[t], cell_seq[t + 1]
+        if 0 <= a < n and 0 <= b < n:
+            pair_counts[a, b] += 1
+
+    total_pairs = pair_counts.sum()
+    if total_pairs == 0:
+        return 0.0
+    pi = pair_counts / total_pairs
+
+    # Weighted entropy
+    h = 0.0
+    for i in range(n):
+        for j in range(n):
+            if pi[i, j] > 0:
+                for k in range(n):
+                    p = trans_mat_2nd[i, j, k]
+                    if p > 0:
+                        h -= pi[i, j] * p * np.log2(p)
+
+    return float(h)
+
+
+def cross_entropy_2nd_order(
+    cell_seq: np.ndarray,
+    trans_mat_2nd: np.ndarray,
+    n_cells: int,
+) -> float:
+    """Compute cross-entropy of a sequence under a second-order model.
+
+    Lower = better fit. Uses triplets (cell_seq[t-1], cell_seq[t],
+    cell_seq[t+1]) to evaluate the log-probability under the model.
+    Zero-probability transitions incur a +20 bit penalty (same convention
+    as ``cross_entropy``).
+
+    Inspired by Rosenberg et al. (2021) higher-order transition analysis.
+
+    Reference: Rosenberg, Zhang, Perona & Meister (2021). "Mice in a
+    labyrinth show rapid learning, sudden insight, and efficient
+    exploration." eLife 10, e66175. https://doi.org/10.7554/eLife.66175
+
+    Args:
+        cell_seq: (M,) test sequence.
+        trans_mat_2nd: (N, N, N) second-order transition matrix.
+        n_cells: total number of cells.
+
+    Returns:
+        Cross-entropy in bits per step.
+    """
+    log_prob = 0.0
+    n_transitions = 0
+
+    for t in range(len(cell_seq) - 2):
+        a, b, c = cell_seq[t], cell_seq[t + 1], cell_seq[t + 2]
+        if 0 <= a < n_cells and 0 <= b < n_cells and 0 <= c < n_cells:
+            p = trans_mat_2nd[a, b, c]
+            if p > 0:
+                log_prob -= np.log2(p)
+            else:
+                log_prob += 20  # Penalty for impossible transition
+            n_transitions += 1
+
+    return log_prob / n_transitions if n_transitions > 0 else 0.0
+
+
+# ---------------------------------------------------------------------------
+# Stationary distribution
+# ---------------------------------------------------------------------------
+
+
+def stationary_distribution(
+    trans_mat: np.ndarray,
+) -> np.ndarray:
+    """Compute the stationary distribution of a transition matrix.
+
+    Finds the left eigenvector corresponding to eigenvalue 1.0 of the
+    row-stochastic transition matrix — i.e. the long-run state
+    distribution under infinite random walks.
+
+    Inspired by Rosenberg et al. (2021) Markov chain analysis.
+
+    Reference: Rosenberg, Zhang, Perona & Meister (2021). "Mice in a
+    labyrinth show rapid learning, sudden insight, and efficient
+    exploration." eLife 10, e66175. https://doi.org/10.7554/eLife.66175
+
+    Args:
+        trans_mat: (N, N) row-stochastic transition matrix.
+
+    Returns:
+        (N,) float64 array summing to 1.0 — stationary distribution.
+        Returns uniform distribution if no eigenvalue is close to 1.
+    """
+    n = trans_mat.shape[0]
+    if n == 0:
+        return np.array([], dtype=np.float64)
+
+    # Left eigenvectors: solve pi @ T = pi  ⟺  T^T @ pi^T = pi^T
+    eigenvalues, eigenvectors = np.linalg.eig(trans_mat.T)
+
+    # Find eigenvalue closest to 1.0
+    idx = np.argmin(np.abs(eigenvalues - 1.0))
+
+    if np.abs(eigenvalues[idx] - 1.0) > 1e-6:
+        # No eigenvalue close to 1 — return uniform
+        return np.full(n, 1.0 / n, dtype=np.float64)
+
+    # Extract the corresponding eigenvector (real part)
+    pi = np.real(eigenvectors[:, idx])
+
+    # Ensure non-negative
+    pi = np.clip(pi, 0.0, None)
+
+    # Normalize
+    total = pi.sum()
+    if total == 0:
+        return np.full(n, 1.0 / n, dtype=np.float64)
+
+    return (pi / total).astype(np.float64)
+
+
+# ---------------------------------------------------------------------------
+# Markov order comparison (Rosenberg model selection)
+# ---------------------------------------------------------------------------
+
+
+def markov_order_comparison(
+    cell_seq: np.ndarray,
+    n_cells: int,
+    pseudocount: float = 0.01,
+) -> dict:
+    """Compare first-order and second-order Markov models via AIC and BIC.
+
+    Fits both models to the cell sequence and selects the preferred order
+    using Akaike (AIC) and Bayesian (BIC) information criteria. A lower
+    criterion indicates a better trade-off between fit and complexity.
+
+    Inspired by Rosenberg et al. (2021) model selection for navigation
+    behaviour.
+
+    Reference: Rosenberg, Zhang, Perona & Meister (2021). "Mice in a
+    labyrinth show rapid learning, sudden insight, and efficient
+    exploration." eLife 10, e66175. https://doi.org/10.7554/eLife.66175
+
+    Args:
+        cell_seq: (M,) int array of cell indices (no consecutive duplicates).
+        n_cells: total number of cells.
+        pseudocount: additive smoothing for both models (>0 recommended
+            to avoid zero-probability transitions in cross-entropy).
+
+    Returns:
+        Dict with keys:
+            "order_1": {"entropy": float, "cross_entropy": float,
+                        "aic": float, "bic": float, "k": int}
+            "order_2": {"entropy": float, "cross_entropy": float,
+                        "aic": float, "bic": float, "k": int}
+            "delta_aic": AIC_order1 - AIC_order2 (positive favours order 2)
+            "delta_bic": BIC_order1 - BIC_order2 (positive favours order 2)
+            "preferred_order": 1 or 2 (by BIC)
+    """
+    # First-order model
+    tm1 = transition_matrix(cell_seq, n_cells, pseudocount=pseudocount)
+    h1 = transition_entropy(tm1, cell_seq)
+    ce1 = cross_entropy(cell_seq, tm1, n_cells)
+
+    # Second-order model
+    tm2 = transition_matrix_2nd_order(cell_seq, n_cells, pseudocount=pseudocount)
+    h2 = transition_entropy_2nd_order(tm2, cell_seq)
+    ce2 = cross_entropy_2nd_order(cell_seq, tm2, n_cells)
+
+    # Number of transitions for each model
+    n_trans_1 = max(1, len(cell_seq) - 1)
+    n_trans_2 = max(1, len(cell_seq) - 2)
+
+    # Count observed states and pairs for free-parameter calculation
+    observed_states = len(set(int(c) for c in cell_seq if 0 <= c < n_cells))
+    observed_pairs = len(set(
+        (int(cell_seq[t]), int(cell_seq[t + 1]))
+        for t in range(len(cell_seq) - 1)
+        if 0 <= cell_seq[t] < n_cells and 0 <= cell_seq[t + 1] < n_cells
+    ))
+
+    # Free parameters: each observed row has (n_cells - 1) free probs
+    k1 = observed_states * (n_cells - 1)
+    k2 = observed_pairs * (n_cells - 1)
+
+    # Log-likelihood = -n_transitions * cross_entropy * log(2)
+    # (cross_entropy is in bits; convert to nats for AIC/BIC)
+    ll1 = -n_trans_1 * ce1 * np.log(2)
+    ll2 = -n_trans_2 * ce2 * np.log(2)
+
+    # AIC = 2*k - 2*log_likelihood
+    aic1 = 2 * k1 - 2 * ll1
+    aic2 = 2 * k2 - 2 * ll2
+
+    # BIC = k*log(n) - 2*log_likelihood
+    bic1 = k1 * np.log(n_trans_1) - 2 * ll1
+    bic2 = k2 * np.log(n_trans_2) - 2 * ll2
+
+    delta_aic = aic1 - aic2
+    delta_bic = bic1 - bic2
+
+    return {
+        "order_1": {
+            "entropy": h1,
+            "cross_entropy": ce1,
+            "aic": float(aic1),
+            "bic": float(bic1),
+            "k": k1,
+        },
+        "order_2": {
+            "entropy": h2,
+            "cross_entropy": ce2,
+            "aic": float(aic2),
+            "bic": float(bic2),
+            "k": k2,
+        },
+        "delta_aic": float(delta_aic),
+        "delta_bic": float(delta_bic),
+        "preferred_order": 2 if delta_bic > 0 else 1,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Dead-end analysis
 # ---------------------------------------------------------------------------
 

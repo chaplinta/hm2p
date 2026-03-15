@@ -27,11 +27,16 @@ from hm2p.maze.analysis import (
     cell_occupancy,
     dead_end_visits,
     exploration_efficiency,
+    markov_order_comparison,
     maze_exploration_summary,
     occupancy_fraction,
     per_junction_turn_bias,
     sequence_entropy,
+    stationary_distribution,
+    transition_entropy,
+    transition_entropy_2nd_order,
     transition_matrix,
+    transition_matrix_2nd_order,
     turn_bias,
 )
 from hm2p.maze.discretize import cell_sequence, discretize_position_fast, node_sequence
@@ -51,8 +56,8 @@ st.caption(
 maze = build_rose_maze()
 
 # --- Maze topology visualization ---
-tab_topo, tab_explore, tab_turns, tab_compare = st.tabs([
-    "Topology", "Exploration", "Turn Bias", "Cross-Session",
+tab_topo, tab_explore, tab_turns, tab_markov, tab_compare = st.tabs([
+    "Topology", "Exploration", "Turn Bias", "Markov", "Cross-Session",
 ])
 
 with tab_topo:
@@ -520,6 +525,247 @@ with tab_turns:
                 st.dataframe(df_junc, use_container_width=True)
         else:
             st.info("Insufficient trajectory data to compute turn bias.")
+
+
+# --- Markov Transition Analysis ---
+with tab_markov:
+    st.subheader("Markov Transition Analysis")
+
+    if not pos_sessions:
+        st.warning(
+            "No sessions with maze position data available. "
+            "This tab will populate when sync.h5 files contain x_maze / y_maze."
+        )
+    else:
+        st.markdown(
+            "First- and second-order Markov transition models of maze navigation. "
+            "Compares how well each order predicts the animal's next cell transition."
+        )
+
+        # ── Session selector for single-session heatmaps ─────────────
+        markov_exp_ids = [s.get("exp_id", "unknown") for s in pos_sessions]
+        selected_markov_session = st.selectbox(
+            "Session for transition heatmap",
+            markov_exp_ids,
+            key="maze_markov_session",
+        )
+
+        # Find the selected session
+        markov_session = None
+        for s in pos_sessions:
+            if s.get("exp_id", "unknown") == selected_markov_session:
+                markov_session = s
+                break
+
+        if markov_session is not None:
+            cell_idx_m = _discretize_session(markov_session)
+            cells_m, _ = cell_sequence(cell_idx_m)
+
+            if len(cells_m) > 5:
+                # ── 1st-order transition heatmap ─────────────────────
+                st.markdown("### First-Order Transition Matrix")
+                st.markdown(
+                    "P[i, j] = probability of moving to cell j given currently at cell i. "
+                    "Row-stochastic (each row sums to 1)."
+                )
+
+                tm1 = transition_matrix(cells_m, maze.n_cells)
+                cell_labels = [f"({c[0]},{c[1]})" for c in maze.cell_list]
+
+                fig_tm1 = go.Figure(data=go.Heatmap(
+                    z=tm1,
+                    x=cell_labels,
+                    y=cell_labels,
+                    colorscale="Blues",
+                    colorbar=dict(title="P(j|i)"),
+                    hovertemplate=(
+                        "From %{y} to %{x}<br>P = %{z:.3f}<extra></extra>"
+                    ),
+                ))
+                fig_tm1.update_layout(
+                    title=f"1st-Order Transitions — {selected_markov_session}",
+                    xaxis=dict(title="Next cell", tickangle=45),
+                    yaxis=dict(title="Current cell", autorange="reversed"),
+                    height=550,
+                    width=650,
+                )
+                st.plotly_chart(fig_tm1, use_container_width=True, key="maze_tm1_heatmap")
+
+                # ── Stationary distribution vs empirical occupancy ───
+                st.markdown("### Stationary Distribution vs Empirical Occupancy")
+                st.markdown(
+                    "The stationary distribution is the long-run state distribution "
+                    "under infinite random walks on the transition matrix. Comparing it "
+                    "with empirical occupancy reveals whether navigation is well-described "
+                    "by a first-order Markov chain."
+                )
+
+                pi_stat = stationary_distribution(tm1)
+                occ_emp = occupancy_fraction(cell_idx_m, maze.n_cells)
+
+                fig_stat = go.Figure()
+                fig_stat.add_trace(go.Bar(
+                    x=cell_labels,
+                    y=pi_stat,
+                    name="Stationary (Markov)",
+                    marker_color="steelblue",
+                    opacity=0.7,
+                ))
+                fig_stat.add_trace(go.Bar(
+                    x=cell_labels,
+                    y=occ_emp,
+                    name="Empirical occupancy",
+                    marker_color="tomato",
+                    opacity=0.7,
+                ))
+                fig_stat.update_layout(
+                    title=f"Stationary vs Empirical — {selected_markov_session}",
+                    xaxis=dict(title="Cell", tickangle=45),
+                    yaxis=dict(title="Probability"),
+                    barmode="group",
+                    height=400,
+                    legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+                )
+                st.plotly_chart(fig_stat, use_container_width=True, key="maze_stat_dist")
+
+                # Correlation between stationary and empirical
+                valid_mask = (pi_stat > 0) | (occ_emp > 0)
+                if valid_mask.sum() >= 2:
+                    r_stat = float(np.corrcoef(pi_stat[valid_mask], occ_emp[valid_mask])[0, 1])
+                    st.metric(
+                        "Pearson r (stationary vs empirical)",
+                        f"{r_stat:.3f}",
+                        help="High correlation suggests 1st-order Markov is a good model.",
+                    )
+            else:
+                st.info("Insufficient cell transitions for this session.")
+
+        # ── Per-session Markov order comparison ──────────────────────
+        st.markdown("### Markov Order Comparison (1st vs 2nd Order)")
+        st.markdown(
+            "Compares first-order and second-order Markov models using BIC "
+            "(Bayesian Information Criterion). A second-order model captures "
+            "path dependencies — e.g. a mouse entering a junction from the left "
+            "is more likely to continue rightward than reverse."
+        )
+
+        order_records = []
+        for s in pos_sessions:
+            cell_idx_o = _discretize_session(s)
+            cells_o, _ = cell_sequence(cell_idx_o)
+            ct = s.get("celltype", "unknown")
+            exp_id = s.get("exp_id", "unknown")
+
+            if len(cells_o) > 10:
+                comp = markov_order_comparison(cells_o, maze.n_cells)
+                order_records.append({
+                    "Session": exp_id,
+                    "Cell type": ct,
+                    "H1 (bits)": round(comp["order_1"]["entropy"], 3),
+                    "H2 (bits)": round(comp["order_2"]["entropy"], 3),
+                    "CE1 (bits)": round(comp["order_1"]["cross_entropy"], 3),
+                    "CE2 (bits)": round(comp["order_2"]["cross_entropy"], 3),
+                    "BIC1": round(comp["order_1"]["bic"], 1),
+                    "BIC2": round(comp["order_2"]["bic"], 1),
+                    "dBIC": round(comp["delta_bic"], 1),
+                    "Preferred": f"Order {comp['preferred_order']}",
+                })
+
+        if order_records:
+            df_order = pd.DataFrame(order_records)
+            st.dataframe(df_order, use_container_width=True)
+
+            # Summary: how many sessions prefer each order
+            n_order1 = sum(1 for r in order_records if r["Preferred"] == "Order 1")
+            n_order2 = sum(1 for r in order_records if r["Preferred"] == "Order 2")
+            c1, c2 = st.columns(2)
+            c1.metric("Sessions preferring Order 1", n_order1)
+            c2.metric("Sessions preferring Order 2", n_order2)
+
+            st.markdown(
+                "**Interpretation:** If most sessions prefer order 2, the animal's "
+                "next move depends on where it came from (not just where it is now). "
+                "This is expected — mice rarely U-turn in corridors."
+            )
+
+            # ── dBIC strip plot ──────────────────────────────────────
+            fig_dbic = px.strip(
+                df_order,
+                x="Cell type",
+                y="dBIC",
+                color="Cell type",
+                color_discrete_map=CELLTYPE_COLORS,
+                hover_data=["Session"],
+                title="Delta BIC (positive = 2nd order preferred)",
+            )
+            fig_dbic.add_hline(
+                y=0, line_dash="dash", line_color="gray",
+                annotation_text="No preference",
+            )
+            fig_dbic.update_layout(height=350, showlegend=False)
+            st.plotly_chart(fig_dbic, use_container_width=True, key="maze_dbic_strip")
+
+        # ── Transition entropy by celltype ───────────────────────────
+        st.markdown("### Transition Entropy by Cell Type")
+        st.markdown(
+            "First-order transition entropy measures the average unpredictability "
+            "of the animal's next cell transition. Lower entropy = more stereotyped "
+            "navigation patterns."
+        )
+
+        tent_records = []
+        for s in pos_sessions:
+            cell_idx_t = _discretize_session(s)
+            cells_t, _ = cell_sequence(cell_idx_t)
+            ct = s.get("celltype", "unknown")
+            exp_id = s.get("exp_id", "unknown")
+
+            if len(cells_t) > 5:
+                tm_t = transition_matrix(cells_t, maze.n_cells)
+                h_t = transition_entropy(tm_t, cells_t)
+                tent_records.append({
+                    "Session": exp_id,
+                    "Cell type": ct,
+                    "Transition entropy (bits)": round(h_t, 3),
+                })
+
+        if tent_records:
+            df_tent = pd.DataFrame(tent_records)
+
+            fig_tent = px.box(
+                df_tent,
+                x="Cell type",
+                y="Transition entropy (bits)",
+                color="Cell type",
+                color_discrete_map=CELLTYPE_COLORS,
+                points="all",
+                title="1st-Order Transition Entropy by Cell Type",
+            )
+            fig_tent.update_layout(height=350, showlegend=False)
+            st.plotly_chart(fig_tent, use_container_width=True, key="maze_tent_box")
+        else:
+            st.info("Insufficient data to compute transition entropy.")
+
+        # ── Methods & References ─────────────────────────────────────
+        with st.expander("Methods & References"):
+            st.markdown(
+                "**Markov transition analysis** adapted from:\n\n"
+                'Rosenberg, Zhang, Perona & Meister (2021). "Mice in a labyrinth show '
+                'rapid learning, sudden insight, and efficient exploration." '
+                "*eLife* 10, e66175. doi:10.7554/eLife.66175\n\n"
+                "**Models:**\n"
+                "- **1st-order Markov:** P(next | current) — memoryless transition model\n"
+                "- **2nd-order Markov:** P(next | previous, current) — captures path "
+                "dependencies (e.g. forward momentum, avoidance of U-turns)\n"
+                "- **Stationary distribution:** left eigenvector of P corresponding to "
+                "eigenvalue 1 — long-run state occupancy under the Markov model\n"
+                "- **Transition entropy:** H(X_{t+1} | X_t), weighted by empirical "
+                "state occupancy — lower = more predictable transitions\n"
+                "- **Model selection:** BIC (Bayesian Information Criterion) penalises "
+                "the 2nd-order model for its larger parameter space; positive delta BIC "
+                "favours the higher-order model\n\n"
+                "GitHub: https://github.com/MargrieLab/rosenberg-2021-elife"
+            )
 
 
 # --- Cross-Session Comparison ---
