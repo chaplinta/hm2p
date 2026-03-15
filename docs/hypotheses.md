@@ -14,6 +14,8 @@ cell type. The cluster permutation test (shuffling at animal level) handles
 the primary confound (cells nested within animals), but the following
 additional covariates must be checked for each significant result:
 
+### Biological / experimental confounds
+
 | Confound | Source | How to control |
 |----------|--------|---------------|
 | **Animal** | Cells from same mouse are not independent | Cluster permutation at animal level (primary test) |
@@ -23,6 +25,32 @@ additional covariates must be checked for each significant result:
 | **Imaging depth** | Deeper cells may have worse SNR | Report distribution; exclude if confounded |
 | **Session order** | Repeated sessions — habituation, learning | Include session number as covariate or use first session only |
 | **FOV quality** | Motion artefacts, expression level | Exclude low-quality sessions (existing QC pipeline) |
+
+### Signal quality confounds (calcium imaging)
+
+Any apparent cell-type difference in tuning, activity, or coding could be
+driven by differences in signal quality rather than true neural differences.
+For every significant result involving calcium or behavioural metrics, test
+whether the effect survives after controlling for these:
+
+| Confound | Why it matters | How to control |
+|----------|---------------|---------------|
+| **SNR** | Low-SNR cells have noisier tuning curves → lower MVL, worse decoding. If one group has systematically lower SNR (e.g. deeper cells, weaker expression), tuning differences are artefactual. | Compute per-ROI SNR (peak dF/F / baseline std). Report group distributions. Repeat analysis on SNR-matched subsets. Spearman correlation between SNR and key metrics. |
+| **Event rate** | Cells with very few events have unreliable tuning estimates. If one group fires less, tuning metrics are noisier (not necessarily weaker). | Report event rate distributions per group. Exclude cells below minimum event count (e.g. < 50 events). Repeat analysis on rate-matched subsets. |
+| **Peak dF/F₀** | GCaMP expression level affects dF/F amplitude. One group may have brighter cells (more virus, better expression) giving artificially higher event amplitudes. | Report peak dF/F₀ distributions. Spearman correlation with key metrics. Z-score dF/F within session before analysis. |
+| **Bleaching** | Fluorescence decays over the session. If light epochs are earlier than dark epochs (or vice versa), bleaching creates a systematic light/dark bias. | Compute per-ROI bleaching slope (linear fit to baseline F₀ over time). Report distribution. Exclude heavily bleached ROIs (slope < −X%/min). Check if bleaching rate differs between groups. |
+| **Neuropil contamination** | Shared neuropil signal inflates correlations and can create false tuning. If neuropil subtraction coefficient differs between groups, tuning comparisons are biased. | Report neuropil coefficient distribution. Repeat key analyses with FISSA subtraction if available. |
+| **Motion artefact** | Residual motion after Suite2p registration can create position-correlated fluorescence artefacts, mimicking place or HD tuning. | Check correlation between dF/F and x/y displacement (motion index). Exclude cells with high motion correlation. |
+
+**Procedure for each significant between-group result:**
+
+1. Compute Spearman correlation between the significant metric and each
+   confound variable (SNR, event rate, peak dF/F₀, bleaching slope).
+2. If any correlation |ρ| > 0.3, the result is potentially confounded.
+3. Repeat the between-group test on a **matched subset** (e.g. propensity
+   score matching on SNR) or **residualise** the metric against the confound
+   before testing.
+4. Report both the raw and confound-controlled results.
 
 **Metadata sources:**
 - `animals.csv`: animal_id, celltype, sex
