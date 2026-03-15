@@ -32,14 +32,11 @@ WORKDIR /app
 # initialised, even if jax[cuda12] ends up installed as a transitive dep.
 ENV JAX_PLATFORMS=cpu
 
-# Install CPU-only JAX first to prevent the CUDA plugin from being pulled in.
-# keypoint-MoSeq depends on JAX but doesn't need GPU — running on c5 CPU instance.
-RUN pip install --no-cache-dir "jax[cpu]"
-
-# Install keypoint-MoSeq and its dependencies in isolation.
-# Pin numpy to what kpms requires. Also need PyYAML for config patching.
+# Install keypoint-MoSeq and all its dependencies in one step.
+# kpms 0.6.8 pins jax~=0.6.2 and tensorflow-probability~=0.25.0 which must
+# stay in sync — do NOT upgrade JAX independently.
 RUN pip install --no-cache-dir \
-    "keypoint-moseq>=0.6" \
+    "keypoint-moseq>=0.6,<0.7" \
     "numpy<1.27" \
     "h5py>=3.0" \
     "boto3>=1.26" \
@@ -47,10 +44,10 @@ RUN pip install --no-cache-dir \
     "tables>=3.8" \
     "pyyaml>=6.0"
 
-# Remove CUDA JAX plugin if it got pulled in as a transitive dep.
-# This prevents noisy "Unable to load CUDA" errors on CPU instances.
-RUN pip uninstall -y jax-cuda12-plugin jax-cuda12-pjrt 2>/dev/null; \
-    pip install --no-cache-dir --force-reinstall "jax[cpu]"
+# Remove CUDA JAX plugins (pulled in by kpms as hard deps) — not needed on CPU.
+# Keep the kpms-compatible JAX version intact; do NOT force-reinstall jax[cpu]
+# which would upgrade to an incompatible version.
+RUN pip uninstall -y jax-cuda12-plugin jax-cuda12-pjrt 2>/dev/null || true
 
 # ── Pipeline code (only what kpms needs) ──────────────────────────────────
 COPY scripts/run_kpms.py scripts/run_kpms.py
