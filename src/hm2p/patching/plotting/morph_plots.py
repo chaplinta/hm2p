@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # ============================================================================
 
 #: Default processed directory (read-only bind mount).
-DEFAULT_PROCESSED_DIR = Path("/data/patching/patching/processed")
+DEFAULT_PROCESSED_DIR = Path("/data/patching/processed")
 
 #: Colour scheme for compartments.
 COMPARTMENT_COLOURS: dict[str, str] = {

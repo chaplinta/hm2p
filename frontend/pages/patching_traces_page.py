@@ -16,7 +16,7 @@ import plotly.graph_objects as go
 st.title("Patching Trace Viewer")
 st.caption("View raw electrophysiology traces from WaveSurfer recordings.")
 
-PATCHING_ROOT = Path("/data/patching/patching")
+PATCHING_ROOT = Path("/data/patching")
 EPHYS_DIR = PATCHING_ROOT / "ephys"
 CELLS_CSV = PATCHING_ROOT / "metadata" / "cells.csv"
 

@@ -1,0 +1,29 @@
+cell_index,animal_id,slice_id,cell_slice_id,ephys_id,cell_type,Trace-plot_id,hemisphere,depth_slice,depth_pial,depth_apical_tree,has_morph,good_morph,area,layer,quality,matching,Orientation,Axon
+1,CAA-1116161,S1,1,SW0001,penkpos,,,,,,0,,RSPd,L23,,,,
+2,CAA-1116161,S1,2,SW0002,penkpos,,,,,,0,,RSPd,L23,,,,
+3,CAA-1116161,S2,1,SW0003,penkpos,,,,,,0,,RSPd,L23,,,,
+4,CAA-1116161,S2,2,SW0004,penkpos,,,,,,0,,RSPd,L23,,,,
+5,CAA-1116160,S1,1,SW0003,penkpos,001-1-S1-1,L,25,116,361.721,1,1,RSPd,L23,Medium,yes ,58°  ,no
+6,CAA-1116160,S1,2,SW0001,penkpos,002-1-S1-2,L,43.5,151,265.88,1,1,RSPd,L23,Medium,yes ,0°,no
+7,CAA-1116160,S1,1,SW0002,penkpos,003-1-S1-1,R,30,157,193.071,1,1,RSPd,L23,Medium,yes ,0°,yes
+8,CAA-1116160,S2,1,SW0005,penkpos,004-1-S2-1,L,24,241,341.595,1,1,RSPd,L23,Good,yes ,0°,no
+9,CAA-1116160,S2,1,SW0004,penkpos,005-1-S2-1,R,13,156,233.939,1,1,RSPd,L23,Bad,yes ,0°,yes
+10,CAA-1116160,S3,1,SW0006,penkpos,006-1-S3-1,L,6.5,149,222.374,1,1,RSPd,L23,Bad,yes ,20°,no
+11,CAA-1116461,S1,1,SW0001,penkpos,007-2-S1-1,L,23,177,283.165,1,1,RSPd,L23,Bad,yes ,0°,no
+12,CAA-1116461,S1,2,SW0002,penkpos,008-2-S1-2,L,9,99,121.927,1,1,RSPd,L23,Very bad,yes ,50°,yes
+13,CAA-1116461,S1,3,SW0003,penkpos,X,L,5,108,218.201,0,0,RSPd,L23,Very bad,X,67°,no
+14,CAA-1116461,S2,1,SW0004,penkpos,010-2-S2-1,L,37.5,123,203.444,1,1,RSPd,L23,Medium,yes ,0°,yes
+15,CAA-1116461,S3,1,SW0005,penkpos,011-2-S3-1,L,36,171,244.743,1,1,RSPd,L23,Medium,yes ,20°,yes
+16,CAA-1116461,S4,1,SW0006,penkpos,012-2-S4-1,L,55.5,124,182.335,1,1,RSPd,L23,Very good,yes ,0°,yes
+17,CAA-1116459,S1,1,SW0002,penkpos,013-3-S1-1,L,46.5,193,309.853,1,1,RSPd,L23,Medium,yes ,0°,yes
+18,CAA-1116459,S1,1,SW0001,penkpos,014-3-S1-1,R,85.5,131,141.837,1,1,RSPd,L23,Good,yes ,-20°,yes
+19,CAA-1116459,S2,1,SW0003,penkpos,015-3-S2-1,L,31.5,137,265.312,1,1,RSPd,L23,Good,yes ,-60°,yes
+20,CAA-1116459,S3,1,SW0004,penkpos,016-3-S3-1,L,35,122,145.082,1,1,RSPd,L23,Medium,yes ,0°,no
+21,CAA-1116873,S1,1,SW0002,penkneg,,L,,,,0,0,,,,,,
+22,CAA-1116873,S1,1,SW0001,penkneg,,R,39,167.65,344.829,1,1,,,Good ,,37.9,yes
+23,CAA-1116873,S2,1,SW0004,penkneg,,L,89.5,179.05,190.02,1,1,,,Good ,,0,yes
+24,CAA-1116873,S2,1,SW0003,penkneg,,R,8.5,175.81,322.091,1,1,,,Medium,,0,yes 
+25,CAA-1116873,S3,1,SW0006,penkneg,,L,80.5,127.91,265.969,1,1,,,Medium,,15,yes
+26,CAA-1116873,S3,2,SW0007,penkneg,,L,75,123.65,335.35,1,1,,,Medium,,20,yes
+27,CAA-1116873,S3,3,SW0008,penkneg,,L,60,107.37,148.865,1,1,,,Medium,,20,yes
+28,CAA-1116873,S3,1,SW0005,penkneg,,R,7.5,162.53,198.919,1,1,,,Bad,,20,yes

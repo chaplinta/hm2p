@@ -36,15 +36,21 @@ ENV JAX_PLATFORMS=cpu
 # keypoint-MoSeq depends on JAX but doesn't need GPU — running on c5 CPU instance.
 RUN pip install --no-cache-dir "jax[cpu]"
 
-# Install keypoint-MoSeq and its dependencies in isolation
-# Pin numpy to what kpms requires
+# Install keypoint-MoSeq and its dependencies in isolation.
+# Pin numpy to what kpms requires. Also need PyYAML for config patching.
 RUN pip install --no-cache-dir \
     "keypoint-moseq>=0.6" \
     "numpy<1.27" \
     "h5py>=3.0" \
     "boto3>=1.26" \
     "pandas>=1.5" \
-    "tables>=3.8"
+    "tables>=3.8" \
+    "pyyaml>=6.0"
+
+# Remove CUDA JAX plugin if it got pulled in as a transitive dep.
+# This prevents noisy "Unable to load CUDA" errors on CPU instances.
+RUN pip uninstall -y jax-cuda12-plugin jax-cuda12-pjrt 2>/dev/null; \
+    pip install --no-cache-dir --force-reinstall "jax[cpu]"
 
 # ── Pipeline code (only what kpms needs) ──────────────────────────────────
 COPY scripts/run_kpms.py scripts/run_kpms.py

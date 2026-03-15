@@ -215,7 +215,25 @@ def fit_kpms(
         overwrite=True,
     )
 
-    # Update config with our parameters
+    # Update config with our parameters — must set anterior/posterior/skeleton
+    # BEFORE load_config, which validates against use_bodyparts.
+    # setup_project writes a default config.yml with placeholder BODYPART1/2/3
+    # that cause a ValueError on load_config. Patch the YAML first.
+    import yaml as _yaml
+
+    config_path = Path(project_dir) / "config.yml"
+    with open(config_path) as f:
+        raw_config = _yaml.safe_load(f)
+
+    raw_config["anterior_bodyparts"] = [bodyparts[0]]  # e.g. "nose"
+    raw_config["posterior_bodyparts"] = [bodyparts[-1]]  # e.g. "mid_backend2"
+    raw_config["skeleton"] = []  # no skeleton constraints
+    raw_config["use_bodyparts"] = bodyparts
+    raw_config["bodyparts"] = bodyparts
+
+    with open(config_path, "w") as f:
+        _yaml.safe_dump(raw_config, f)
+
     config = kpms.load_config(str(project_dir))
     config["kappa"] = kappa
     config["num_pcs"] = num_pcs

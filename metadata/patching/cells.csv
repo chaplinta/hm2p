@@ -1,0 +1,39 @@
+cell_index,animal_id,slice_id,cell_slice_id,ephys_id,cell_type,Trace-plot_id,hemisphere,depth_slice,depth_pial,depth_apical_tree,has_morph,good_morph,area,layer,Coordinates (z ; y ; x),quality,matching,Orientation,Axon
+1,CAA-1116161,S1,1,SW0001,penkpos,,,,,,0,,RSPd,L23,,,,,
+2,CAA-1116161,S1,2,SW0002,penkpos,,,,,,0,,RSPd,L23,,,,,
+3,CAA-1116161,S2,1,SW0003,penkpos,,,,,,0,,RSPd,L23,,,,,
+4,CAA-1116161,S2,2,SW0004,penkpos,,,,,,0,,RSPd,L23,,,,,
+5,CAA-1116160,S1,1,,penkpos,005-CAA-1116160-S1-1-01-plot,L,25,116,361.721,1,1,RSPd,L23,,Medium,yes ,58°  ,no
+6,CAA-1116160,S1,2,SW0002,penkpos,006-CAA-1116160-S1-2-01-plot,L,43.5,151,265.88,1,1,RSPd,L23,,Medium,yes ,0°,no
+7,CAA-1116160,S1,1,SW0003,penkpos,007-CAA-1116160-S1-1-01-plot,R,30,157,193.071,1,1,RSPd,L23,,Medium,yes ,0°,yes
+8,CAA-1116160,S1,2,SW0001,penkpos,X,R,,,,0,0,RSPd,L23,,,,,
+9,CAA-1116160,S2,1,SW0005,penkpos,009-CAA-1116160-S2-1-01-plot,L,24,241,341.595,1,1,RSPd,L23,,Good,yes ,0°,no
+10,CAA-1116160,S2,1,SW0004,penkpos,010-CAA-1116160-S2-1-01-plot,R,13,156,233.939,1,1,RSPd,L23,,Bad,yes ,0°,yes
+11,CAA-1116160,S3,1,SW0006,penkpos,011-CAA-1116160-S3-1-01-plot,L,6.5,149,222.374,1,1,RSPd,L23,,Bad,yes ,20°,no
+12,CAA-1116461,S1,1,SW0001,penkpos,012-CAA-1116461-S1-1-01-plot,L,23,177,283.165,1,1,RSPagl,L1,9.06 ; 0.39 ; 6.69,Bad,yes ,0°,no
+13,CAA-1116461,S1,2,SW0002,penkpos,013-CAA-1116461-S1-2-01-plot,L,9,99,121.927,1,1,RSPagl,L1,9.06 ; 0.36 ; 6.83,Very bad,yes ,50°,yes
+14,CAA-1116461,S1,3,SW0003,penkpos,X,L,5,108,218.201,0,0,RSPagl,L23,9.06 ; 0.46 ; 6.96,Very bad,X,67°,no
+15,CAA-1116461,S2,1,SW0004,penkpos,015-CAA-1116461-S2-1-01-plot,L,37.5,123,203.444,1,1,RSPd,L1,8.72 ; 0.29 ; 6.57,Medium,yes ,0°,yes
+16,CAA-1116461,S3,1,SW0005,penkpos,016-CAA-1116461-S3-1-01-plot,L,36,171,244.743,1,1,RSPd,L23,8.39 ; 0.36 ; 6.32,Medium,yes ,20°,yes
+17,CAA-1116461,S4,1,SW0006,penkpos,017-CAA-1116461-S4-1-01-plot,L,55.5,124,182.335,1,1,RSPd,L23,8.10 ; 0.33 ; 6.36,Very good,yes ,0°,yes
+18,CAA-1116459,S1,1,SW0002,penkpos,018-CAA-1116459-S1-1-01-plot,L,46.5,193,309.853,1,1,RSPd,L23,8.75 ; 0.51 ; 6.23,Medium,yes ,0°,yes
+19,CAA-1116459,S1,1,SW0001,penkpos,019-CAA-1116459-S1-1-01-plot,R,85.5,131,141.837,1,1,RSPd,L23,8.72 ; 0.62 ; 5.39,Good,yes ,-20°,yes
+20,CAA-1116459,S2,1,SW0003,penkpos,020-CAA-1116459-S2-1-01-plot,L,31.5,137,265.312,1,1,RSPd,L23,8.44 ; 0.31 ; 6.37,Good,yes ,-60°,yes
+21,CAA-1116459,S3,1,SW0004,penkpos,021-CAA-1116459-S3-1-01-plot,L,35,122,145.082,1,1,RSPd,L23,9.07 ; 0.57 ; 6.3,Medium,yes ,0°,no
+22,CAA-1116873,S1,1,SW0002,penkneg,X,L,,,,0,0,,,,,,,
+23,CAA-1116873,S1,1,SW0001,penkneg,023-CAA-1116873-S1-1-01-plot,R,39,167.65,344.829,1,1,RSPd,L23,7.42 ; 0.42 ; 5.31,Good ,,37.9,yes
+24,CAA-1116873,S2,1,SW0004,penkneg,024-CAA-1116873-S2-1-01-plot,L,89.5,179.05,190.02,1,1,RSPd,L23,7.08 ; 0.42 ; 6.23,Good ,,0,yes
+25,CAA-1116873,S2,1,SW0003,penkneg,025-CAA-1116873-S2-1-01-plot,R,8.5,175.81,322.091,1,1,RSPd,L23,7.09 ; 0.42 ; 5.30,Medium,,0,yes 
+26,CAA-1116873,S3,1,SW0006,penkneg,026-CAA-1116873-S3-1-01-plot,L,80.5,127.91,265.969,1,1,RSPd,L23,7.74 ; 0.32 ; 6.46,Medium,,15,yes
+27,CAA-1116873,S3,2,SW0007,penkneg,027-CAA-1116873-S3-2-01-plot,L,75,123.65,335.35,1,1,RSPd,L23,7.74 ; 0.32 ; 6.36,Medium,,20,yes
+28,CAA-1116873,S3,3,SW0008,penkneg,028-CAA-1116873-S3-3-01-plot,L,60,107.37,148.865,1,1,RSPd,L23,7.74 ; 0.30 ; 6.33,Medium,,20,yes
+29,CAA-1116873,S3,1,SW0005,penkneg,029-CAA-1116873-S3-1-01-plot,R,7.5,162.53,198.919,1,1,RSPd,L23,7.76 ; 0.37 ; 5.11,Bad,,20,yes
+30,CAA-1117044,S1,1,SW0004,penkneg,,R,48,210.45,368.246,1,1,,,,Good,,0,yes 
+31,CAA-1117044,S1,2,SW0003,penkneg,,R,,,,0,0,,,,,,,
+32,CAA-1117044,S1,2,SW0001,penkneg,,L,,,,0,0,,,,,,,
+33,CAA-1117044,S1,1,SW0002,penkpos,,L,72,175.54,213.028,1,1,,,,Good,,0,yes
+34,CAA-1117044,S2,1,SW0005,penkneg,,L,59,205.49,261.922,1,1,,,,Medium,,0,yes
+35,CAA-1117044,S2,2,SW0006,penkpos,,L,45,189.84,616.803,1,1,,,,Medium,,0,yes
+36,CAA-1117044,S2,3,SW0007,penkneg,,L,62.5,230.28,434.493,1,1,,,,Good,,0,no
+37,CAA-1117044,S3,1,SW0008,penkpos,,L,10,141.55,159.807,1,1,,,,Medium,,20,no
+38,CAA-1117044,S3,2,SW0009,penkneg,,L,10,128.35,185.57,0,0,,,,Bad,,0,no
