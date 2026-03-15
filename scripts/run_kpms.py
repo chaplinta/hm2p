@@ -247,12 +247,17 @@ def fit_kpms(
     log.info("Sessions loaded: %s", list(coordinates.keys()))
 
     # ── Format data ──────────────────────────────────────────────────────────
-    # kpms functions that accept project_dir load their own config internally.
-    # Do NOT pass **config() — it injects string bodypart names where the
-    # internals expect integer indices, causing TypeErrors in alignment.
     log.info("Formatting data...")
     cfg = config()
+    log.info("Config keys: %s", list(cfg.keys()))
+    log.info("anterior_bodyparts: %s", cfg.get("anterior_bodyparts"))
+    log.info("posterior_bodyparts: %s", cfg.get("posterior_bodyparts"))
+    log.info("anterior_idxs: %s", cfg.get("anterior_idxs"))
+    log.info("posterior_idxs: %s", cfg.get("posterior_idxs"))
+    log.info("use_bodyparts: %s", cfg.get("use_bodyparts"))
+    log.info("bodyparts: %s", cfg.get("bodyparts"))
     data, metadata = kpms.format_data(coordinates, confidences, **cfg)
+    log.info("data type: %s, keys: %s", type(data).__name__, list(data.keys()) if isinstance(data, dict) else "N/A")
 
     # noise_calibration is interactive (requires video frames for a Jupyter
     # widget) — skip it on headless EC2.  The default noise prior works fine
@@ -261,6 +266,15 @@ def fit_kpms(
     # ── PCA ────────────────────────────────────────────────────────────────
     log.info("Fitting PCA (num_pcs=%d)...", num_pcs)
     kpms.update_config(str(project_dir), num_pcs=num_pcs)
+
+    # fit_pca(project_dir, data) internally calls load_config(project_dir)
+    # which should set anterior_idxs/posterior_idxs. Debug what it produces.
+    _pca_cfg = kpms.load_config(str(project_dir))
+    log.info("PCA config anterior_idxs: %s (type: %s)",
+             _pca_cfg.get("anterior_idxs"), type(_pca_cfg.get("anterior_idxs")).__name__)
+    log.info("PCA config posterior_idxs: %s (type: %s)",
+             _pca_cfg.get("posterior_idxs"), type(_pca_cfg.get("posterior_idxs")).__name__)
+
     pca = kpms.fit_pca(str(project_dir), data)
 
     # ── AR-HMM fitting ─────────────────────────────────────────────────────
