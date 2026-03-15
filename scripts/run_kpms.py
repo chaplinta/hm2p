@@ -28,6 +28,7 @@ import json
 import logging
 import sys
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import os
@@ -289,17 +290,22 @@ def fit_kpms(
     cfg = config()
     model = kpms.init_model(data, pca=pca, **cfg)
 
+    model_name = "hm2p_kpms"
     model = kpms.fit_model(
         model=model,
         data=data,
         metadata=metadata,
         project_dir=str(project_dir),
+        model_name=model_name,
         num_iters=num_iters,
     )
 
     # ── Extract results ────────────────────────────────────────────────────
     log.info("Extracting syllable assignments...")
-    results = kpms.extract_results(model, metadata, str(project_dir))
+    log.info("Extracting results for model_name=%s...", model_name)
+    results = kpms.extract_results(
+        model, metadata, str(project_dir), model_name=model_name,
+    )
 
     # Clean up symlinks
     shutil.rmtree(link_dir, ignore_errors=True)
