@@ -132,7 +132,7 @@ with tab_rois:
         nonpenk_rois = sum(s["n_rois"] for s in session_data if s["celltype"] == "nonpenk")
 
         fig = go.Figure(data=[go.Pie(
-            labels=["Penk+", "Non-Penk CamKII+"],
+            labels=["Penk+", "Penk⁻CamKII+"],
             values=[penk_rois, nonpenk_rois],
             marker_colors=[HEX_PENK, HEX_NONPENK],
         )])

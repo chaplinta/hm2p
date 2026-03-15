@@ -36,7 +36,7 @@ def penk_session() -> Session:
 
 @pytest.fixture
 def nonpenk_session() -> Session:
-    """A non-Penk CamKII+ RSP session (virus 344, Cre-OFF, GCaMP7f)."""
+    """A Penk⁻CamKII+ RSP session (virus 344, Cre-OFF, GCaMP7f)."""
     return Session(
         session_id="20221015_10_00_00_1116663",
         animal_id="1116663",

@@ -2,7 +2,7 @@
 
 Loads ca.h5 data (Stage 4 output) for each session, runs Voigts & Harnett 2020
 event detection, characterizes each event (amplitude, duration, rise/decay time,
-AUC), and compares distributions between Penk+ vs non-Penk CamKII+ populations
+AUC), and compares distributions between Penk+ vs Penk⁻CamKII+ populations
 and between individual animals.
 
 Reference:
@@ -36,7 +36,7 @@ log = logging.getLogger("hm2p.frontend.event_dynamics")
 
 st.title("Event Dynamics")
 st.caption(
-    "Compare calcium transient properties between Penk+ and non-Penk CamKII+ "
+    "Compare calcium transient properties between Penk+ and Penk⁻CamKII+ "
     "populations, and between animals within each cell type. "
     "Method: Voigts & Harnett 2020 ([doi:10.1016/j.neuron.2019.10.016](https://doi.org/10.1016/j.neuron.2019.10.016))."
 )
@@ -258,7 +258,7 @@ with tab_overview:
 # ── Tab 2: Penk vs Non-Penk ────────────────────────────────────────────────
 
 with tab_celltype:
-    st.subheader("Penk+ vs Non-Penk CamKII+")
+    st.subheader("Penk+ vs Penk\u207bCamKII+")
 
     celltypes_present = df_active["celltype"].unique()
     if len(celltypes_present) < 2:
@@ -424,6 +424,6 @@ cell-type comparisons. No correction for multiple comparisons shown
 
 st.caption(
     "Event dynamics characterization compares calcium transient properties "
-    "between Penk+ and non-Penk CamKII+ RSP populations. "
+    "between Penk+ and Penk⁻CamKII+ RSP populations. "
     "Voigts & Harnett 2020, [doi:10.1016/j.neuron.2019.10.016](https://doi.org/10.1016/j.neuron.2019.10.016)."
 )

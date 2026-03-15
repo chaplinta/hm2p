@@ -551,7 +551,7 @@ with tab_lightdark:
     st.info(
         "In real data, visual cue removal (lights off) may cause HD tuning to drift "
         "or become less sharp. This is the key manipulation in the hm2p experiment: "
-        "testing whether Penk+ and non-Penk CamKII+ RSP neurons differ in their "
+        "testing whether Penk+ and Penk⁻CamKII+ RSP neurons differ in their "
         "reliance on visual vs path-integration cues."
     )
 

@@ -21,7 +21,7 @@ from frontend.data import (
 log = logging.getLogger("hm2p.frontend.home")
 
 st.title("hm2p Dashboard")
-st.caption("Head direction tuning in Penk+ vs CamKII+ RSP neurons — pipeline and analysis dashboard.")
+st.caption("Head direction tuning in Penk+ vs Penk⁻CamKII+ RSP neurons — pipeline and analysis dashboard.")
 
 # --- Pipeline overview ---
 experiments = load_experiments()
@@ -104,6 +104,6 @@ except ImportError:
 st.markdown("---")
 st.caption(
     "hm2p v2 — ground-up redesign of the head direction tuning pipeline. "
-    "RSP Penk+ (Cre-ON) vs CamKII+ (Cre-OFF) neurons. "
+    "RSP Penk+ (Cre-ON) vs Penk⁻CamKII+ (Cre-OFF) neurons. "
     "26 sessions, ~391 ROIs, freely-moving rose maze with 1-min light on/off cycles."
 )

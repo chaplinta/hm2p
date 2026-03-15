@@ -224,7 +224,7 @@ if has_inj_data:
         st.caption(
             "Publication-quality static renders of injection sites on the "
             "Allen CCFv3 atlas using brainrender. Shows RSP region "
-            "(green) with injection sites (blue = Penk+, red = CamKII+)."
+            "(green) with injection sites (blue = Penk+, red = Penk\u207bCamKII+)."
         )
 
         _BR_S3_PREFIX = "figures/brainrender/"
@@ -348,7 +348,7 @@ if has_inj_data:
                 ap = pd.to_numeric(ct_data["inj_ap"], errors="coerce")
                 ml = pd.to_numeric(ct_data["inj_ml"], errors="coerce")
                 dv = pd.to_numeric(ct_data["inj_dv"], errors="coerce")
-                ct_label = "Penk+" if celltype == "penk" else "CamKII+"
+                ct_label = "Penk+" if celltype == "penk" else "Penk\u207bCamKII+"
 
                 axes[0].scatter(ml, ap, c=color, marker=marker, s=80, alpha=0.7, label=ct_label)
                 axes[1].scatter(ap, dv, c=color, marker=marker, s=80, alpha=0.7, label=ct_label)
@@ -376,7 +376,7 @@ if has_inj_data:
         # ── Per-animal detail ────────────────────────────────────────────
         with st.expander("Per-animal injection details"):
             for _, row in inj_df.iterrows():
-                ct_label = "Penk+" if row.get("celltype") == "penk" else "CamKII+"
+                ct_label = "Penk+" if row.get("celltype") == "penk" else "Penk\u207bCamKII+"
                 st.markdown(
                     f"**{row['animal_id']}** ({ct_label}): "
                     f"AP={row.get('inj_ap', 0):.3f}, "

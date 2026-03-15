@@ -126,7 +126,7 @@ def _comparison_box(
         marker=dict(size=5, opacity=0.7),
     ))
     fig.add_trace(go.Box(
-        y=nonpenk, name="CamKII+", marker_color=HEX_NONPENK,
+        y=nonpenk, name="Penk\u207bCamKII+", marker_color=HEX_NONPENK,
         boxpoints="all", jitter=0.3, pointpos=-1.5,
         marker=dict(size=5, opacity=0.7),
     ))
@@ -195,7 +195,7 @@ n_with_morph = metrics[[c for c in metrics.columns if c.startswith("morph_")]].n
 c1, c2, c3, c4 = st.columns(4)
 c1.metric("Total cells", n_cells)
 c2.metric("Penk+", n_penk)
-c3.metric("CamKII+", n_nonpenk)
+c3.metric("Penk\u207bCamKII+", n_nonpenk)
 c4.metric("With morphology", n_with_morph)
 
 # --- Significant findings ---

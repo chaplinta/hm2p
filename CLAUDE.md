@@ -100,12 +100,12 @@ Do not pin to old versions without a documented compatibility reason.
 
 **Experiment:** freely-moving mouse in rose-maze / open field / linear track.
 **Brain region:** Retrosplenial cortex (RSP) and nearby cortex — HD cells. NOT subiculum or postsubiculum.
-**Cell types:** Two non-overlapping RSP populations — (1) **Penk+** (Penk-Cre mouse + ADD3 virus, Cre-ON); (2) **non-Penk CamKII+** (virus 344, Cre-OFF intersectional: Cre in Penk+ cells blocks expression). Column `celltype` in `animals.csv`: `"penk"` or `"nonpenk"`.
+**Cell types:** Two non-overlapping RSP populations — (1) **Penk+** (Penk-Cre mouse + ADD3 virus, Cre-ON); (2) **Penk⁻CamKII+** (virus 344, Cre-OFF intersectional: Cre in Penk+ cells blocks expression — labels only non-Penk CamKII+ cells). Column `celltype` in `animals.csv`: `"penk"` or `"nonpenk"`. Short labels: "Penk+" and "Penk⁻CamKII+".
 **Imaging:** Single plane per session — soma and dendrite ROIs coexist in one plane; classified post-hoc by shape. No second dendrite plane.
 **Lights:** Overhead room lights, 1 min on / 1 min off. Light off = **total darkness** = complete visual cue removal. Tests idiothetic vs visual HD anchoring. Tracked via TDMS timestamps → `light_on` bool in `kinematics.h5` and `sync.h5`.
 **Behavioural artefact:** Mice can get stuck on HM2P fibre/wires → artefactual immobility. Logged in `experiments.csv` as `bad_behav_times`; stored as `bad_behav` bool in HDF5. Must exclude these frames.
 **serial2p:** Whole-brain z-stack per animal for anatomical localisation. Not part of this pipeline (used manually).
-**Primary science goal:** Compare HD tuning, population HD decoding, and visual cue dependence between Penk+ and CamKII+ RSP neurons. Test whether each population anchors HD to visual vs path-integration cues.
+**Primary science goal:** Compare HD tuning, population HD decoding, and visual cue dependence between Penk+ and Penk⁻CamKII+ RSP neurons. Test whether each population anchors HD to visual vs path-integration cues.
 **Neural recording:** two-photon GCaMP calcium imaging (~9.6 Hz, single plane).
 **Behaviour:** overhead camera (~100 fps, Basler acA1300-200um), DAQ-synchronised to imaging.
 **Body parts tracked (SuperAnimal TopViewMouse names):** `left_ear`, `right_ear`, `mid_back`, `mouse_center`, `tail_base`.

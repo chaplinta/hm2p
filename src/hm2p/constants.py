@@ -52,7 +52,7 @@ CELLTYPE_HEX = {
 
 CELLTYPE_LABEL = {
     "penk": "Penk+",
-    "nonpenk": "CamKII+",
+    "nonpenk": "Penk\u207bCamKII+",
 }
 
 LIGHT_HEX = {

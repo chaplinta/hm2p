@@ -1,7 +1,7 @@
 """Standardized comparison plots.
 
 Two canonical comparison patterns used throughout the analysis:
-1. Between-group box plots (Penk+ vs CamKII+) with unpaired Wilcoxon (Mann-Whitney U)
+1. Between-group box plots (Penk+ vs Penk⁻CamKII+) with unpaired Wilcoxon (Mann-Whitney U)
 2. Within-cell scatter plots (2 conditions) with paired Wilcoxon signed-rank test
 """
 
@@ -49,7 +49,7 @@ def celltype_comparison_box(
     height: int = 500,
     width: int = 450,
 ) -> tuple[go.Figure, dict[str, Any]]:
-    """Between-group box plot comparing Penk+ vs CamKII+ for a single measure.
+    """Between-group box plot comparing Penk+ vs Penk⁻CamKII+ for a single measure.
 
     Creates a Plotly box plot with individual data points (jittered) and runs
     an unpaired two-sided Mann-Whitney U test.
@@ -59,7 +59,7 @@ def celltype_comparison_box(
     penk_values : array-like
         Values for the Penk+ group.
     nonpenk_values : array-like
-        Values for the CamKII+ group.
+        Values for the Penk⁻CamKII+ group.
     measure_name : str
         Label for the y-axis (the quantity being compared).
     title : str, optional
@@ -67,11 +67,11 @@ def celltype_comparison_box(
     penk_color : str
         Hex colour for the Penk+ group.
     nonpenk_color : str
-        Hex colour for the CamKII+ group.
+        Hex colour for the Penk⁻CamKII+ group.
     penk_label : str, optional
         Display label for the Penk+ group. Defaults to ``CELLTYPE_LABEL["penk"]``.
     nonpenk_label : str, optional
-        Display label for the CamKII+ group. Defaults to ``CELLTYPE_LABEL["nonpenk"]``.
+        Display label for the Penk⁻CamKII+ group. Defaults to ``CELLTYPE_LABEL["nonpenk"]``.
     height : int
         Figure height in pixels.
     width : int
