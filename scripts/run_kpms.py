@@ -246,13 +246,13 @@ def fit_kpms(
     log.info("Loaded bodyparts: %s", _bodyparts)
     log.info("Sessions loaded: %s", list(coordinates.keys()))
 
-    # ── Format data + noise calibration ────────────────────────────────────
-    log.info("Formatting data and calibrating noise...")
+    # ── Format data ──────────────────────────────────────────────────────────
+    log.info("Formatting data...")
     data, metadata = kpms.format_data(coordinates, confidences, **config())
 
-    kpms.noise_calibration(
-        str(project_dir), coordinates, confidences, **config(),
-    )
+    # noise_calibration is interactive (requires video frames for a Jupyter
+    # widget) — skip it on headless EC2.  The default noise prior works fine
+    # for DLC data with confidence scores.
 
     # ── PCA ────────────────────────────────────────────────────────────────
     log.info("Fitting PCA (num_pcs=%d)...", num_pcs)
