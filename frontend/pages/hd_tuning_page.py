@@ -9,6 +9,7 @@ Requires real sync.h5 data from S3.
 
 from __future__ import annotations
 
+import io
 import logging
 import sys
 from pathlib import Path
@@ -68,9 +69,75 @@ st.success(
     f"{sum(s['n_rois'] for s in real_sessions)} total cells"
 )
 
+# --- Load precomputed analysis.h5 results ---
+@st.cache_data(ttl=600)
+def _load_analysis_results():
+    """Load per-cell HD tuning results from analysis.h5 files on S3."""
+    import h5py as _h5py
+    from frontend.data import DERIVATIVES_BUCKET, download_s3_bytes
+
+    base = Path(__file__).resolve().parent.parent.parent / "metadata"
+    animals_df = pd.read_csv(base / "animals.csv")
+    animals_df["animal_id"] = animals_df["animal_id"].astype(str)
+    exps_df = pd.read_csv(base / "experiments.csv")
+    exps_df["animal_id"] = exps_df["exp_id"].str.split("_").str[-1]
+
+    rows = []
+    for _, exp in exps_df.iterrows():
+        if str(exp.get("exclude", "0")).strip() == "1":
+            continue
+        eid = exp["exp_id"]
+        aid = exp["animal_id"]
+        parts = eid.split("_")
+        sub = f"sub-{aid}"
+        ses = f"ses-{parts[0]}T{parts[1]}{parts[2]}{parts[3]}"
+
+        animal = animals_df[animals_df["animal_id"] == aid]
+        if animal.empty:
+            continue
+        celltype = str(animal.iloc[0].get("celltype", ""))
+
+        data = download_s3_bytes(DERIVATIVES_BUCKET, f"analysis/{sub}/{ses}/analysis.h5")
+        if data is None:
+            continue
+
+        try:
+            with _h5py.File(io.BytesIO(data), "r") as f:
+                if "dff/hd/all/mvl" not in f:
+                    continue
+                n = f["dff/hd/all/mvl"].shape[0]
+                for ri in range(n):
+                    row = {"exp_id": eid, "animal_id": aid, "celltype": celltype, "roi": ri}
+                    for cond in ("all", "light", "dark"):
+                        grp = f.get(f"dff/hd/{cond}")
+                        if grp:
+                            for k in ("mvl", "tuning_width", "preferred_direction", "significant", "p_value"):
+                                if k in grp:
+                                    v = grp[k][ri]
+                                    row[f"{cond}_{k}"] = bool(v) if k == "significant" else float(v)
+                    comp = f.get("dff/hd/comparison")
+                    if comp:
+                        for k in ("correlation", "pd_shift", "mvl_ratio"):
+                            if k in comp:
+                                row[f"comp_{k}"] = float(comp[k][ri])
+                    # ROI type
+                    sync_data = download_s3_bytes(DERIVATIVES_BUCKET, f"sync/{sub}/{ses}/sync.h5")
+                    if sync_data:
+                        with _h5py.File(io.BytesIO(sync_data), "r") as sf:
+                            if "roi_types" in sf:
+                                row["roi_type"] = int(sf["roi_types"][ri])
+                    rows.append(row)
+        except Exception:
+            continue
+
+    return pd.DataFrame(rows) if rows else None
+
+
+analysis_df = _load_analysis_results()
+
 # --- Tabs ---
-tab_single, tab_population, tab_significance = st.tabs([
-    "Single Cell", "Population", "Significance",
+tab_single, tab_population, tab_significance, tab_summary, tab_lightdark, tab_celltype = st.tabs([
+    "Single Cell", "Population", "Significance", "Tuning Summary", "Light vs Dark", "Penk+ vs Penk⁻CamKII+",
 ])
 
 # --- Single Cell ---
@@ -376,6 +443,224 @@ with tab_significance:
         st.metric("MVL half 1", f"{sh['mvl_half1']:.4f}")
         st.metric("MVL half 2", f"{sh['mvl_half2']:.4f}")
         st.metric("PD shift", f"{sh['pd_shift']:.1f}deg")
+
+
+# --- Tuning Summary (from analysis.h5) ---
+with tab_summary:
+    st.subheader("HD Tuning Summary")
+    if analysis_df is None or analysis_df.empty:
+        st.info("No precomputed analysis results. Run Stage 6 first.")
+    else:
+        # Filter to soma
+        soma_df = analysis_df[analysis_df.get("roi_type", 0) == 0] if "roi_type" in analysis_df.columns else analysis_df
+
+        n_total = len(soma_df)
+        n_sig_all = soma_df["all_significant"].sum() if "all_significant" in soma_df.columns else 0
+        n_sig_light = soma_df["light_significant"].sum() if "light_significant" in soma_df.columns else 0
+        n_sig_dark = soma_df["dark_significant"].sum() if "dark_significant" in soma_df.columns else 0
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total soma ROIs", n_total)
+        c2.metric("HD tuned (all)", f"{n_sig_all} ({100*n_sig_all/n_total:.1f}%)" if n_total else "0")
+        c3.metric("HD tuned (light)", f"{n_sig_light} ({100*n_sig_light/n_total:.1f}%)" if n_total else "0")
+        c4.metric("HD tuned (dark)", f"{n_sig_dark} ({100*n_sig_dark/n_total:.1f}%)" if n_total else "0")
+
+        # By celltype
+        st.subheader("By cell type")
+        for ct in ["penk", "nonpenk"]:
+            ct_df = soma_df[soma_df["celltype"] == ct]
+            n_ct = len(ct_df)
+            if n_ct == 0:
+                continue
+            label = "Penk+" if ct == "penk" else "Penk\u207bCamKII+"
+            n_sig = ct_df["all_significant"].sum() if "all_significant" in ct_df.columns else 0
+            mean_mvl = ct_df["all_mvl"].mean() if "all_mvl" in ct_df.columns else 0
+            st.markdown(
+                f"**{label}:** {n_ct} cells, {n_sig} HD tuned ({100*n_sig/n_ct:.1f}%), "
+                f"mean MVL = {mean_mvl:.3f}"
+            )
+
+        # MVL distribution by condition
+        if "all_mvl" in soma_df.columns:
+            st.subheader("MVL distributions")
+            fig = go.Figure()
+            for cond, color in [("all", "royalblue"), ("light", "orange"), ("dark", "gray")]:
+                col = f"{cond}_mvl"
+                if col in soma_df.columns:
+                    fig.add_trace(go.Histogram(
+                        x=soma_df[col].dropna(), nbinsx=20, opacity=0.6,
+                        marker_color=color, name=cond.capitalize(),
+                    ))
+            fig.update_layout(
+                barmode="overlay", height=350,
+                xaxis_title="MVL", yaxis_title="Count",
+                title="MVL distribution by condition",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+
+# --- Light vs Dark ---
+with tab_lightdark:
+    st.subheader("Light vs Dark HD Tuning")
+    if analysis_df is None or analysis_df.empty:
+        st.info("No precomputed analysis results.")
+    else:
+        soma_df = analysis_df[analysis_df.get("roi_type", 0) == 0] if "roi_type" in analysis_df.columns else analysis_df
+
+        if "light_mvl" in soma_df.columns and "dark_mvl" in soma_df.columns:
+            sub = soma_df[["light_mvl", "dark_mvl"]].dropna()
+
+            # Paired Wilcoxon
+            from scipy.stats import wilcoxon as _wilcoxon
+            diff = sub["light_mvl"].values - sub["dark_mvl"].values
+            nonzero = diff[diff != 0]
+            if len(nonzero) > 5:
+                _, p_mvl = _wilcoxon(nonzero, alternative="two-sided")
+            else:
+                p_mvl = np.nan
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Light MVL (mean)", f"{sub['light_mvl'].mean():.3f}")
+            c2.metric("Dark MVL (mean)", f"{sub['dark_mvl'].mean():.3f}")
+            c3.metric("Wilcoxon p", f"{p_mvl:.4f}" if not np.isnan(p_mvl) else "n/a")
+
+            # Scatter: light vs dark MVL
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=sub["light_mvl"], y=sub["dark_mvl"],
+                mode="markers", marker=dict(size=4, opacity=0.5, color="royalblue"),
+                name="Cells",
+            ))
+            max_val = max(sub["light_mvl"].max(), sub["dark_mvl"].max()) * 1.1
+            fig.add_trace(go.Scatter(
+                x=[0, max_val], y=[0, max_val],
+                mode="lines", line=dict(color="gray", dash="dash"),
+                name="Unity",
+            ))
+            fig.update_layout(
+                height=400, width=400,
+                xaxis_title="Light MVL", yaxis_title="Dark MVL",
+                title=f"Light vs Dark MVL (Wilcoxon p = {p_mvl:.4f})" if not np.isnan(p_mvl) else "Light vs Dark MVL",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        # PD shift distribution
+        if "comp_pd_shift" in soma_df.columns:
+            shifts = soma_df["comp_pd_shift"].dropna()
+            st.subheader("Preferred Direction Shift (light → dark)")
+            fig = go.Figure(data=[go.Histogram(x=shifts, nbinsx=36, marker_color="gray")])
+            fig.add_vline(x=0, line_color="red", line_dash="dash")
+            fig.update_layout(
+                height=300, xaxis_title="PD shift (deg)", yaxis_title="Count",
+                title=f"PD shift distribution (mean = {shifts.mean():.1f}°, N = {len(shifts)})",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Tuning correlation (light-dark)
+        if "comp_correlation" in soma_df.columns:
+            corrs = soma_df["comp_correlation"].dropna()
+            st.subheader("Tuning Curve Correlation (light vs dark)")
+            fig = go.Figure(data=[go.Histogram(x=corrs, nbinsx=20, marker_color="teal")])
+            fig.update_layout(
+                height=300, xaxis_title="Pearson r", yaxis_title="Count",
+                title=f"Light-dark tuning correlation (mean = {corrs.mean():.3f}, N = {len(corrs)})",
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+
+# --- Penk+ vs Penk⁻CamKII+ ---
+with tab_celltype:
+    st.subheader("Penk+ vs Penk\u207bCamKII+ HD Tuning")
+    if analysis_df is None or analysis_df.empty:
+        st.info("No precomputed analysis results.")
+    else:
+        from hm2p.constants import HEX_PENK, HEX_NONPENK
+
+        soma_df = analysis_df[analysis_df.get("roi_type", 0) == 0] if "roi_type" in analysis_df.columns else analysis_df
+
+        metrics_to_compare = [
+            ("all_mvl", "MVL (all)"),
+            ("light_mvl", "MVL (light)"),
+            ("dark_mvl", "MVL (dark)"),
+            ("all_tuning_width", "Tuning width (all)"),
+            ("comp_mvl_ratio", "MVL ratio (dark/light)"),
+            ("comp_pd_shift", "PD shift (deg)"),
+            ("comp_correlation", "Light-dark correlation"),
+        ]
+
+        # Animal-level + cluster permutation for each metric
+        from scipy.stats import mannwhitneyu as _mwu
+
+        st.markdown("**Between-group tests (animal-level Mann-Whitney U):**")
+        summary_rows = []
+        for col, label in metrics_to_compare:
+            if col not in soma_df.columns:
+                continue
+            # Animal-level summary
+            sub = soma_df[["animal_id", "celltype", col]].dropna()
+            animal_means = sub.groupby(["animal_id", "celltype"])[col].mean().reset_index()
+            penk_vals = animal_means.loc[animal_means["celltype"] == "penk", col].values
+            nonpenk_vals = animal_means.loc[animal_means["celltype"] == "nonpenk", col].values
+
+            if len(penk_vals) >= 2 and len(nonpenk_vals) >= 2:
+                stat, p = _mwu(penk_vals, nonpenk_vals, alternative="two-sided")
+                sig = " *" if p < 0.05 else ""
+            else:
+                p = np.nan
+                sig = ""
+
+            summary_rows.append({
+                "Metric": label,
+                "Penk+ (mean)": f"{penk_vals.mean():.3f}" if len(penk_vals) > 0 else "n/a",
+                "Penk⁻CamKII+ (mean)": f"{nonpenk_vals.mean():.3f}" if len(nonpenk_vals) > 0 else "n/a",
+                "N animals": f"{len(penk_vals)} vs {len(nonpenk_vals)}",
+                "p": f"{p:.4f}{sig}" if not np.isnan(p) else "n/a",
+            })
+
+        if summary_rows:
+            st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+
+        # Box plots
+        st.subheader("Distributions by cell type")
+        n_cols = 3
+        metrics_avail = [(c, l) for c, l in metrics_to_compare if c in soma_df.columns]
+        for i in range(0, len(metrics_avail), n_cols):
+            batch = metrics_avail[i:i + n_cols]
+            cols = st.columns(n_cols)
+            for j, (col, label) in enumerate(batch):
+                with cols[j]:
+                    fig = go.Figure()
+                    for ct, color, name in [
+                        ("penk", HEX_PENK, "Penk+"),
+                        ("nonpenk", HEX_NONPENK, "Penk\u207bCamKII+"),
+                    ]:
+                        vals = soma_df.loc[soma_df["celltype"] == ct, col].dropna()
+                        fig.add_trace(go.Box(
+                            y=vals, name=name, marker_color=color,
+                            boxpoints="all", jitter=0.3, pointpos=-1.5,
+                            marker=dict(size=3, opacity=0.5),
+                        ))
+                    fig.update_layout(
+                        height=300, showlegend=False,
+                        title=dict(text=label, font_size=12),
+                        yaxis_title=label,
+                        margin=dict(t=40, b=30),
+                    )
+                    st.plotly_chart(fig, use_container_width=True, key=f"ct_box_{col}")
+
+        # Fraction tuned by celltype
+        st.subheader("Fraction HD tuned")
+        if "all_significant" in soma_df.columns:
+            for ct in ["penk", "nonpenk"]:
+                ct_df = soma_df[soma_df["celltype"] == ct]
+                label = "Penk+" if ct == "penk" else "Penk\u207bCamKII+"
+                n_ct = len(ct_df)
+                for cond in ["all", "light", "dark"]:
+                    sig_col = f"{cond}_significant"
+                    if sig_col in ct_df.columns:
+                        n_sig = ct_df[sig_col].sum()
+                        pct = 100 * n_sig / n_ct if n_ct > 0 else 0
+                        st.markdown(f"- **{label}** ({cond}): {n_sig}/{n_ct} ({pct:.1f}%)")
 
 
 # --- Footer ---
