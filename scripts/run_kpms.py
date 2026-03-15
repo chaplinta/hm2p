@@ -205,7 +205,7 @@ def fit_kpms(
                 child.unlink()
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    # Initialize project config
+    # ── Setup project ──────────────────────────────────────────────────────
     log.info("Setting up kpms project (bodyparts=%s)...", bodyparts)
     kpms.setup_project(
         project_dir=str(project_dir),
@@ -215,58 +215,71 @@ def fit_kpms(
         overwrite=True,
     )
 
-    # Update config with our parameters — must set anterior/posterior/skeleton
-    # BEFORE load_config, which validates against use_bodyparts.
-    # setup_project writes a default config.yml with placeholder BODYPART1/2/3
-    # that cause a ValueError on load_config. Patch the YAML first.
-    import yaml as _yaml
-
-    config_path = Path(project_dir) / "config.yml"
-    with open(config_path) as f:
-        raw_config = _yaml.safe_load(f)
-
-    raw_config["anterior_bodyparts"] = [bodyparts[0]]  # e.g. "nose"
-    raw_config["posterior_bodyparts"] = [bodyparts[-1]]  # e.g. "mid_backend2"
-    raw_config["skeleton"] = []  # no skeleton constraints
-    raw_config["use_bodyparts"] = bodyparts
-    raw_config["bodyparts"] = bodyparts
-
-    with open(config_path, "w") as f:
-        _yaml.safe_dump(raw_config, f)
-
-    config = kpms.load_config(str(project_dir))
-    config["kappa"] = kappa
-    config["num_pcs"] = num_pcs
-
-    # Load DLC data
-    log.info("Loading %d DLC files...", len(dlc_files))
-    coordinates, confidences = kpms.load_deeplabcut_results(
-        dlc_results={sid: str(p) for sid, p in dlc_files.items()},
-        **config,
+    # Patch config.yml: setup_project writes placeholder BODYPART1/2/3 in
+    # skeleton and anterior/posterior that cause load_config to crash.
+    kpms.update_config(
+        str(project_dir),
+        anterior_bodyparts=[bodyparts[0]],     # e.g. "nose"
+        posterior_bodyparts=[bodyparts[-1]],    # e.g. "mid_backend2"
+        use_bodyparts=bodyparts,
+        skeleton=[],
     )
 
-    # PCA fitting
+    # Helper to load config as a dict
+    def config():
+        return kpms.load_config(str(project_dir))
+
+    # ── Load DLC data (kpms 0.6+ API) ─────────────────────────────────────
+    # load_keypoints expects individual file paths — build a temporary dir
+    # with symlinks so we can point it at a directory pattern.
+    import tempfile
+    link_dir = Path(tempfile.mkdtemp(prefix="kpms_links_"))
+    for sid, h5_path in dlc_files.items():
+        # kpms uses the filename (minus extension) as session key
+        link = link_dir / f"{sid}.h5"
+        link.symlink_to(h5_path.resolve())
+
+    log.info("Loading %d DLC files via load_keypoints...", len(dlc_files))
+    coordinates, confidences, _bodyparts = kpms.load_keypoints(
+        str(link_dir), "deeplabcut",
+    )
+    log.info("Loaded bodyparts: %s", _bodyparts)
+    log.info("Sessions loaded: %s", list(coordinates.keys()))
+
+    # ── Format data + noise calibration ────────────────────────────────────
+    log.info("Formatting data and calibrating noise...")
+    data, metadata = kpms.format_data(coordinates, confidences, **config())
+
+    kpms.noise_calibration(
+        str(project_dir), coordinates, confidences, **config(),
+    )
+
+    # ── PCA ────────────────────────────────────────────────────────────────
     log.info("Fitting PCA (num_pcs=%d)...", num_pcs)
-    pca = kpms.fit_pca(
-        coordinates=coordinates,
-        confidences=confidences,
-        **config,
-    )
+    kpms.update_config(str(project_dir), num_pcs=num_pcs)
+    pca = kpms.fit_pca(str(project_dir), data, **config())
 
-    # AR-HMM fitting
+    # ── AR-HMM fitting ─────────────────────────────────────────────────────
     log.info("Fitting AR-HMM (kappa=%.0e, n_iters=%d)...", kappa, num_iters)
+    kpms.update_config(str(project_dir), kappa=kappa)
+
+    model = kpms.init_model(data, pca=pca, **config())
+
     model = kpms.fit_model(
-        pca=pca,
-        coordinates=coordinates,
-        confidences=confidences,
+        model=model,
+        data=data,
+        metadata=metadata,
         project_dir=str(project_dir),
         num_iters=num_iters,
-        **config,
+        **config(),
     )
 
-    # Extract results
+    # ── Extract results ────────────────────────────────────────────────────
     log.info("Extracting syllable assignments...")
-    results = kpms.extract_results(model, project_dir=str(project_dir), **config)
+    results = kpms.extract_results(model, metadata, str(project_dir))
+
+    # Clean up symlinks
+    shutil.rmtree(link_dir, ignore_errors=True)
 
     # Build output dict
     output = {}
