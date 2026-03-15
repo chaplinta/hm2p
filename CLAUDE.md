@@ -28,6 +28,13 @@ frontend pages, not in scripts, not in demos. Frontend pages must load real data
 and show a clear message if no data is available yet. The ONLY exception is unit tests
 in `tests/`, which must use small synthetic arrays (never real data files).
 
+**Non-parametric tests only:** ALL statistical tests must be non-parametric. Never use
+t-tests, ANOVA, Pearson correlation for hypothesis testing, or other parametric tests.
+Use Mann-Whitney U (unpaired), Wilcoxon signed-rank (paired), Spearman rank (correlation),
+Kruskal-Wallis (multiple groups), and permutation/bootstrap tests. LMM is acceptable only
+as a supplementary check (for ICC reporting), never as the primary test. See
+[docs/stats-strategy.md](docs/stats-strategy.md) for the full framework.
+
 **Citation policy:** Any analysis method or algorithm taken from a paper **must** be cited
 in three places:
 

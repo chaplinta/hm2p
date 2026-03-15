@@ -83,10 +83,12 @@ light/dark gain, decoder accuracy, etc.
 
 ---
 
-### Approach 2: Linear Mixed Model (LMM, Primary for Publication)
+### Approach 2: Linear Mixed Model (LMM, Supplementary Only)
 
-**The standard approach for nested data in neuroscience.** Fits a regression
-with animal as a random intercept.
+**Parametric — use only as a supplementary check, never as the primary test.**
+All primary tests must be non-parametric (Approaches 1 and 3). LMM is included
+for completeness and because reviewers may expect it, but it assumes normality
+of residuals which neural data rarely satisfies.
 
 ```
 metric ~ celltype + (1 | animal_id)
@@ -165,7 +167,7 @@ def lmm_celltype_test(
 
 ---
 
-### Approach 3: Cluster Bootstrap Permutation Test (Robust, Confirmatory)
+### Approach 3: Cluster Bootstrap Permutation Test (Primary for Nested Data)
 
 **Non-parametric and assumption-free.** Resample at the animal level to
 build a null distribution.
@@ -235,17 +237,21 @@ def cluster_permutation_test(
 
 For each between-celltype comparison, report all three:
 
-| Level | Test | What it tells you |
+| Level | Test | Role |
 |---|---|---|
 | Cell-level (naive) | Mann-Whitney U | Descriptive — "are the distributions different if we ignore nesting?" |
-| Animal-level | Animal-mean Mann-Whitney | Conservative — "are animal averages different?" |
-| Mixed model | LMM with animal random intercept | Primary — "is there a celltype effect after accounting for animal?" |
-| Cluster permutation | Permutation at animal level | Confirmatory — "is the effect robust to non-parametric resampling?" |
+| Animal-level | Animal-mean Mann-Whitney | **Primary (simple)** — "are animal averages different?" |
+| Cluster permutation | Permutation at animal level | **Primary (nested)** — "is the effect robust to non-parametric resampling?" |
+| Mixed model | LMM with animal random intercept | Supplementary — parametric check, reports ICC |
+
+**All primary tests must be non-parametric.** LMM is supplementary only.
 
 **Decision rule:** A result is considered robust if:
-- LMM p < 0.05 (FDR-corrected across metrics), **AND**
-- Cluster permutation p < 0.05, **AND**
+- Cluster permutation p < 0.05 (FDR-corrected across metrics), **AND**
 - Animal-level summary test shows the same direction of effect
+
+LMM results are reported alongside for completeness (ICC is informative)
+but do not determine significance.
 
 If only the naive (cell-level) test is significant, the result is flagged as
 **potentially confounded by animal** and reported as exploratory.
