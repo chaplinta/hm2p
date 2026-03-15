@@ -291,7 +291,8 @@ def fit_kpms(
     model = kpms.init_model(data, pca=pca, **cfg)
 
     model_name = "hm2p_kpms"
-    model = kpms.fit_model(
+    # fit_model returns (model_dict, model_name_str) tuple
+    fit_result = kpms.fit_model(
         model=model,
         data=data,
         metadata=metadata,
@@ -299,10 +300,16 @@ def fit_kpms(
         model_name=model_name,
         num_iters=num_iters,
     )
+    # Unpack: fit_model returns (model, model_name) tuple
+    if isinstance(fit_result, tuple):
+        model, model_name = fit_result
+    else:
+        model = fit_result
 
     # ── Extract results ────────────────────────────────────────────────────
-    log.info("Extracting syllable assignments...")
     log.info("Extracting results for model_name=%s...", model_name)
+    log.info("model type: %s, keys: %s", type(model).__name__,
+             list(model.keys()) if isinstance(model, dict) else "N/A")
     results = kpms.extract_results(
         model, metadata, str(project_dir), model_name=model_name,
     )
