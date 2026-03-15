@@ -11,12 +11,14 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
+from hm2p.constants import SPEED_ACTIVE_THRESHOLD
+
 
 def split_conditions(
     speed: npt.NDArray[np.floating],
     light_on: npt.NDArray[np.bool_],
     active_mask: npt.NDArray[np.bool_],
-    speed_threshold: float = 2.5,
+    speed_threshold: float = SPEED_ACTIVE_THRESHOLD,
 ) -> dict[str, npt.NDArray[np.bool_]]:
     """Split frames into four conditions based on movement and illumination.
 
@@ -29,7 +31,8 @@ def split_conditions(
     active_mask : (n_frames,) bool array
         True for frames to include (e.g. not bad_behav).
     speed_threshold : float
-        Speed >= this value counts as moving. Default 2.5 cm/s.
+        Speed >= this value counts as moving. Default from
+        ``hm2p.constants.SPEED_ACTIVE_THRESHOLD`` (0.5 cm/s).
 
     Returns
     -------
@@ -170,7 +173,7 @@ def compute_cell_activity(
     light_on: npt.NDArray[np.bool_],
     active_mask: npt.NDArray[np.bool_],
     fps: float,
-    speed_threshold: float = 2.5,
+    speed_threshold: float = SPEED_ACTIVE_THRESHOLD,
 ) -> dict[str, float]:
     """Compute all condition-split activity metrics for one cell.
 
@@ -244,7 +247,7 @@ def compute_batch_activity(
     light_on: npt.NDArray[np.bool_],
     active_mask: npt.NDArray[np.bool_],
     fps: float,
-    speed_threshold: float = 2.5,
+    speed_threshold: float = SPEED_ACTIVE_THRESHOLD,
 ) -> list[dict[str, float]]:
     """Compute condition-split activity for every ROI.
 

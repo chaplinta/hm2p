@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from hm2p.constants import SPEED_ACTIVE_THRESHOLD
+
 if TYPE_CHECKING:
     import xarray as xr
 
@@ -580,7 +582,7 @@ def run(
     output_path: Path,
     confidence_threshold: float = 0.9,
     gap_fill_frames: int = 5,
-    speed_active_threshold: float = 0.5,
+    speed_active_threshold: float = SPEED_ACTIVE_THRESHOLD,
 ) -> None:
     """End-to-end Stage 3: pose file → kinematics.h5.
 

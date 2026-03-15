@@ -50,6 +50,9 @@ CELLTYPE_HEX = {
     "nonpenk": HEX_NONPENK,
 }
 
+# ── Behavioural thresholds ─────────────────────────────────────────────
+SPEED_ACTIVE_THRESHOLD = 0.5  # cm/s — active vs inactive movement state
+
 CELLTYPE_LABEL = {
     "penk": "Penk+",
     "nonpenk": "Penk\u207bCamKII+",

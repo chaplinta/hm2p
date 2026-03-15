@@ -115,8 +115,8 @@ def _list_completed_sessions(stage_prefix: str) -> list[str]:
             )
             if resp.get("KeyCount", 0) > 0:
                 completed.append(f"{sub}/{ses}")
-        except Exception:
-            pass
+        except Exception as e:
+            st.warning(f"Could not check S3 for {exp_id}: {e}")
     return completed
 
 

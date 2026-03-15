@@ -144,8 +144,8 @@ def _list_pose_sessions():
             resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=prefix, MaxKeys=1)
             if resp.get("KeyCount", 0) > 0:
                 sessions.append(f"{sub}/{ses}")
-        except Exception:
-            pass
+        except Exception as e:
+            st.warning(f"Could not check pose data for {exp_id}: {e}")
     return sessions
 
 

@@ -60,10 +60,10 @@ def get_suite2p_session_summary() -> list[dict]:
                     iscell_data = np.load(_io.BytesIO(obj["Body"].read()), allow_pickle=False)
                     info["n_rois"] = len(iscell_data)
                     info["n_cells"] = int(iscell_data[:, 0].sum())
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                except Exception as e:
+                    st.warning(f"Could not load iscell.npy for {exp_id}: {e}")
+        except Exception as e:
+            st.warning(f"Could not check S3 for {exp_id}: {e}")
         results.append(info)
     return results
 

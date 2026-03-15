@@ -238,9 +238,9 @@ with tab_stats:
     nonpenk_lmi = df_filtered[df_filtered["celltype"] == "nonpenk"]["lmi_dff"].values
 
     if len(penk_lmi) > 0 and len(nonpenk_lmi) > 0:
-        from scipy.stats import mannwhitneyu, ks_2samp
+        from scipy.stats import mannwhitneyu
 
-        # Mann-Whitney U
+        # Mann-Whitney U — dF/F0 LMI between cell types
         stat_mw, pval_mw = mannwhitneyu(penk_lmi, nonpenk_lmi, alternative="two-sided")
         st.markdown(
             f"**Mann-Whitney U (LMI dF/F0):** "
@@ -248,13 +248,6 @@ with tab_stats:
             f"Non-Penk median = {np.median(nonpenk_lmi):.4f}, "
             f"U = {stat_mw:.0f}, p = {pval_mw:.4f} "
             f"{'**(significant)**' if pval_mw < 0.05 else '(not significant)'}"
-        )
-
-        # KS test
-        stat_ks, pval_ks = ks_2samp(penk_lmi, nonpenk_lmi)
-        st.markdown(
-            f"**Kolmogorov-Smirnov:** D = {stat_ks:.4f}, p = {pval_ks:.4f} "
-            f"{'**(significant)**' if pval_ks < 0.05 else '(not significant)'}"
         )
 
         # Within-cell type: are cells modulated?
@@ -270,8 +263,8 @@ with tab_stats:
                         f"p = {pval_w:.4f} "
                         f"{'**(significant)**' if pval_w < 0.05 else '(not significant)'}"
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    st.warning(f"Statistical test failed: {e}")
 
     # Event rate comparison
     if "lmi_events" in df_filtered.columns:

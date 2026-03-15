@@ -182,9 +182,8 @@ def decode_hd(
     # Confidence = resultant vector length (normalize by sum of weights)
     R = np.sqrt(C**2 + S**2)
     w_sum = np.sum(weights, axis=0)
-    w_sum = np.where(w_sum < 1e-10, 1.0, w_sum)
-    confidence = R / w_sum
-    confidence = np.clip(confidence, 0.0, 1.0)
+    # No signal → no confidence (avoid dividing by near-zero sum)
+    confidence = np.where(w_sum < 1e-10, 0.0, np.clip(R / w_sum, 0.0, 1.0))
 
     return decoded_deg, confidence
 
@@ -280,8 +279,8 @@ def pva_decode(
     dec = np.rad2deg(np.arctan2(S, C)) % 360.0
     R = np.sqrt(C**2 + S**2)
     w_sum = np.sum(z, axis=0)
-    w_sum = np.where(w_sum < 1e-10, 1.0, w_sum)
-    conf = np.clip(R / w_sum, 0.0, 1.0)
+    # No signal → no confidence (avoid dividing by near-zero sum)
+    conf = np.where(w_sum < 1e-10, 0.0, np.clip(R / w_sum, 0.0, 1.0))
 
     decoded_deg[valid_idx] = dec
     confidence[valid_idx] = conf

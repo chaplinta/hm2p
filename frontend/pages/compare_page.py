@@ -315,8 +315,8 @@ with tab_celltypes:
                         "MWU p": f"{pval:.4f}",
                         "Significant": "Y" if pval < 0.05 else "-",
                     })
-                except Exception:
-                    pass
+                except Exception as e:
+                    st.info(f"Statistical test failed for {metric_name}: {e}")
 
         if summary:
             st.dataframe(pd.DataFrame(summary), use_container_width=True, hide_index=True)

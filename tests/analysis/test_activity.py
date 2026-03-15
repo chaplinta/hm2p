@@ -54,7 +54,7 @@ class TestSplitConditions:
 
     def test_active_mask_excludes_frames(self):
         """Frames where active_mask is False are excluded from all conditions."""
-        speed = np.array([3.0, 3.0, 1.0, 1.0])
+        speed = np.array([3.0, 3.0, 0.1, 0.1])
         light_on = np.array([True, True, True, True])
         active = np.array([True, False, True, False])
 

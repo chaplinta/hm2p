@@ -44,8 +44,8 @@ def _try_load_real():
         if all_data["n_sessions"] > 0:
             sessions = session_filter_sidebar(all_data["sessions"])
             return sessions, True
-    except Exception:
-        pass
+    except Exception as e:
+        st.warning(f"Could not load sync data: {e}")
     return None, False
 
 
