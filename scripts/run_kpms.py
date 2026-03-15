@@ -264,18 +264,23 @@ def fit_kpms(
     # for DLC data with confidence scores.
 
     # ── PCA ────────────────────────────────────────────────────────────────
+    # kpms.fit_pca is jax_moseq.models.keypoint_slds.fit_pca which takes:
+    #   fit_pca(Y, mask, anterior_idxs, posterior_idxs, conf, ...)
+    # NOT fit_pca(project_dir, data). We must unpack data and config.
     log.info("Fitting PCA (num_pcs=%d)...", num_pcs)
     kpms.update_config(str(project_dir), num_pcs=num_pcs)
+    cfg = config()
+    log.info("anterior_idxs: %s, posterior_idxs: %s",
+             cfg.get("anterior_idxs"), cfg.get("posterior_idxs"))
 
-    # fit_pca(project_dir, data) internally calls load_config(project_dir)
-    # which should set anterior_idxs/posterior_idxs. Debug what it produces.
-    _pca_cfg = kpms.load_config(str(project_dir))
-    log.info("PCA config anterior_idxs: %s (type: %s)",
-             _pca_cfg.get("anterior_idxs"), type(_pca_cfg.get("anterior_idxs")).__name__)
-    log.info("PCA config posterior_idxs: %s (type: %s)",
-             _pca_cfg.get("posterior_idxs"), type(_pca_cfg.get("posterior_idxs")).__name__)
-
-    pca = kpms.fit_pca(str(project_dir), data)
+    pca = kpms.fit_pca(
+        data["Y"],
+        data["mask"],
+        anterior_idxs=cfg.get("anterior_idxs"),
+        posterior_idxs=cfg.get("posterior_idxs"),
+        conf=data.get("conf"),
+        PCA_fitting_num_frames=cfg.get("PCA_fitting_num_frames", 1000000),
+    )
 
     # ── AR-HMM fitting ─────────────────────────────────────────────────────
     log.info("Fitting AR-HMM (kappa=%.0e, n_iters=%d)...", kappa, num_iters)
