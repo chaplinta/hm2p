@@ -247,8 +247,12 @@ def fit_kpms(
     log.info("Sessions loaded: %s", list(coordinates.keys()))
 
     # ── Format data ──────────────────────────────────────────────────────────
+    # kpms functions that accept project_dir load their own config internally.
+    # Do NOT pass **config() — it injects string bodypart names where the
+    # internals expect integer indices, causing TypeErrors in alignment.
     log.info("Formatting data...")
-    data, metadata = kpms.format_data(coordinates, confidences, **config())
+    cfg = config()
+    data, metadata = kpms.format_data(coordinates, confidences, **cfg)
 
     # noise_calibration is interactive (requires video frames for a Jupyter
     # widget) — skip it on headless EC2.  The default noise prior works fine
@@ -257,13 +261,14 @@ def fit_kpms(
     # ── PCA ────────────────────────────────────────────────────────────────
     log.info("Fitting PCA (num_pcs=%d)...", num_pcs)
     kpms.update_config(str(project_dir), num_pcs=num_pcs)
-    pca = kpms.fit_pca(str(project_dir), data, **config())
+    pca = kpms.fit_pca(str(project_dir), data)
 
     # ── AR-HMM fitting ─────────────────────────────────────────────────────
     log.info("Fitting AR-HMM (kappa=%.0e, n_iters=%d)...", kappa, num_iters)
     kpms.update_config(str(project_dir), kappa=kappa)
 
-    model = kpms.init_model(data, pca=pca, **config())
+    cfg = config()
+    model = kpms.init_model(data, pca=pca, **cfg)
 
     model = kpms.fit_model(
         model=model,
@@ -271,7 +276,6 @@ def fit_kpms(
         metadata=metadata,
         project_dir=str(project_dir),
         num_iters=num_iters,
-        **config(),
     )
 
     # ── Extract results ────────────────────────────────────────────────────
