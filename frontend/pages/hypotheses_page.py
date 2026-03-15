@@ -79,13 +79,35 @@ st.caption(
     "See docs/stats-strategy.md for methodology."
 )
 
+# --- Run tests button ---
+col_btn, col_signal, col_perms = st.columns([2, 2, 2])
+with col_signal:
+    signal_choice = st.selectbox("Signal", ["dff", "events"], index=0, key="hyp_signal")
+with col_perms:
+    n_perms_choice = st.selectbox("Permutations", [500, 1000, 5000, 10000], index=0, key="hyp_perms")
+with col_btn:
+    run_clicked = st.button("Run hypothesis tests", type="primary", key="run_hyp")
+
+if run_clicked:
+    with st.spinner(f"Running tests ({signal_choice}, {n_perms_choice} perms)..."):
+        import subprocess
+        cmd = [
+            sys.executable, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "test_hypotheses.py"),
+            "--signal", signal_choice,
+            "--n-perms", str(n_perms_choice),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if result.returncode == 0:
+            st.success("Tests complete. Refreshing...")
+            st.cache_data.clear()
+            st.rerun()
+        else:
+            st.error(f"Tests failed:\n```\n{result.stderr[-1000:]}\n```")
+
 results_df, report_md = _load_results()
 
 if results_df is None:
-    st.warning(
-        "No hypothesis results found. Run:\n\n"
-        "```bash\npython scripts/test_hypotheses.py\n```"
-    )
+    st.info("No results yet. Click **Run hypothesis tests** above.")
     st.stop()
 
 # --- Summary metrics ---
