@@ -37,6 +37,7 @@ EC2_PRICING = {
     "g5.2xlarge": {"on_demand": 1.69, "spot_approx": 0.51, "gpu": "A10G 24GB"},
     "p3.2xlarge": {"on_demand": 4.234, "spot_approx": 1.27, "gpu": "V100 16GB"},
     "c5.xlarge": {"on_demand": 0.226, "spot_approx": 0.07, "gpu": "None (CPU)"},
+    "c5.4xlarge": {"on_demand": 0.904, "spot_approx": 0.27, "gpu": "None (CPU, 16 vCPU)"},
 }
 
 # ── Compute all costs before display ─────────────────────────────────────────
@@ -68,23 +69,40 @@ except Exception:
 
 s3_monthly = raw_monthly + deriv_monthly
 
-# EC2 completed jobs
+# EC2 completed jobs — all pipeline compute that has run
 completed_jobs = [
     {
-        "stage": "Stage 1 — Suite2p",
+        "stage": "Stage 1 — Suite2p (26 sessions)",
         "instance": "g4dn.xlarge",
         "hours": 52,
         "spot": True,
         "sessions": 26,
-        "note": "Completed 26/26 sessions",
+        "note": "Completed 26/26 sessions (Mar 6-7)",
     },
     {
-        "stage": "Stage 2 — DLC (sequential, 7 sessions)",
+        "stage": "Stage 2 — DLC sequential (7 sessions)",
         "instance": "g4dn.xlarge",
         "hours": 19,
         "spot": False,
         "sessions": 7,
         "note": "7/26 sessions on T4 On-Demand (~2.7h each, Mar 7-8)",
+    },
+    {
+        "stage": "Stage 2 — DLC parallel (19 sessions)",
+        "instance": "g4dn.xlarge",
+        "hours": 48,
+        "n_instances": 3,
+        "spot": False,
+        "sessions": 19,
+        "note": "19/26 sessions across 3 instances (Mar 9-10)",
+    },
+    {
+        "stage": "MoSeq — keypoint-MoSeq attempts",
+        "instance": "c5.4xlarge",
+        "hours": 8,
+        "spot": False,
+        "sessions": 0,
+        "note": "Multiple debug runs (Mar 14-15), self-terminated",
     },
 ]
 
@@ -104,7 +122,7 @@ try:
     ec2_client = boto3.client("ec2", region_name=REGION)
     resp = ec2_client.describe_instances(
         Filters=[
-            {"Name": "tag:Project", "Values": ["hm2p-dlc", "hm2p"]},
+            {"Name": "tag:Project", "Values": ["hm2p-dlc", "hm2p", "hm2p-kpms"]},
             {"Name": "instance-state-name", "Values": ["running", "stopped", "stopping"]},
         ]
     )
