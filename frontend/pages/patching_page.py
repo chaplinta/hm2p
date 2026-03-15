@@ -212,7 +212,12 @@ if mannwhitney is not None:
                 f"q = {_format_p(row['p_fdr'])}"
             )
 
-# --- Animal confound (LMM) ---
+# --- Animal confound ---
+# With only 5 Penk+ and 2 Penk⁻CamKII+ animals, cell-type effects are
+# hard to separate from between-animal variability.  We report ICC from
+# the (parametric) LMM as a descriptive measure of animal variance, but
+# significance should be assessed via non-parametric animal-level tests
+# or cluster permutation (see docs/stats-strategy.md).
 if lmm is not None:
     lmm_sig = lmm[lmm["significant"] == True]  # noqa: E712
     if mannwhitney is not None and len(sig) > 0:
@@ -222,24 +227,21 @@ if lmm is not None:
         if lost:
             st.warning(
                 f"**Animal confound:** {len(lost)} of {len(mw_sig_set)} Mann-Whitney "
-                f"result(s) lose significance when accounting for animal "
-                f"(linear mixed model with animal as random intercept)."
+                f"result(s) may be driven by between-animal variability rather than "
+                f"cell-type differences (only 5 Penk+ and 2 Penk\u207bCamKII+ animals). "
+                f"ICC values below show how much variance is animal-level."
             )
             for m in sorted(lost):
                 r = lmm[lmm["metric"] == m].iloc[0]
                 label = _label(m)
                 icc_str = f"{r['icc']:.0%}" if pd.notna(r["icc"]) else "n/a"
                 st.markdown(
-                    f"- **{label}**: LMM p = {_format_p(r['p_value'])}, "
-                    f"ICC = {icc_str}"
+                    f"- **{label}**: ICC = {icc_str}"
                 )
             st.caption(
                 "ICC (intraclass correlation) = fraction of variance explained by animal. "
-                "High ICC means the metric varies more between animals than between cell types."
-            )
-        elif len(lmm_sig) > 0:
-            st.success(
-                f"**{len(lmm_sig)} difference(s) survive** animal correction (LMM q < 0.05)."
+                "High ICC means the metric varies more between animals than between cell types. "
+                "Robust conclusions require animal-level summary tests or cluster permutation."
             )
 
     # Show high-ICC metrics regardless
