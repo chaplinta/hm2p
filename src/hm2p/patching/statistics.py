@@ -169,6 +169,126 @@ def mann_whitney_comparison(
 
 
 # ============================================================================
+# Mixed model — account for animal as random effect
+# ============================================================================
+
+
+def mixed_model_comparison(
+    df: pd.DataFrame,
+    metric_cols: list[str],
+    group_col: str = "cell_type",
+    random_col: str = "animal_id",
+) -> pd.DataFrame:
+    """Test cell-type effect with animal as random intercept (LMM).
+
+    For each metric, fits::
+
+        metric ~ cell_type + (1 | animal_id)
+
+    using restricted maximum likelihood (REML).  This disentangles true
+    cell-type differences from animal-to-animal variability (e.g. prep
+    quality, fill quality, slice health).
+
+    Parameters
+    ----------
+    df : DataFrame
+        Must contain *group_col*, *random_col*, and metric columns.
+    metric_cols : list of str
+        Numeric columns to test.
+    group_col : str
+        Fixed effect column (default ``"cell_type"``).
+    random_col : str
+        Random intercept grouping (default ``"animal_id"``).
+
+    Returns
+    -------
+    DataFrame
+        Columns: ``metric``, ``beta`` (fixed-effect coefficient for group),
+        ``se``, ``z``, ``p_value``, ``p_fdr``, ``significant``,
+        ``icc`` (intraclass correlation — proportion of variance due to animal),
+        ``n_groups`` (number of animals), ``converged``.
+    """
+    import warnings
+
+    import statsmodels.formula.api as smf
+
+    rows: list[dict[str, object]] = []
+
+    for metric in metric_cols:
+        sub = df[[metric, group_col, random_col]].dropna()
+        groups = sub[group_col].unique()
+        n_random = sub[random_col].nunique()
+
+        # Need ≥2 cell types and ≥2 animals to fit a mixed model
+        if len(groups) < 2 or n_random < 2 or len(sub) < 5:
+            rows.append({
+                "metric": metric, "beta": np.nan, "se": np.nan,
+                "z": np.nan, "p_value": np.nan, "icc": np.nan,
+                "n_groups": n_random, "converged": False,
+            })
+            continue
+
+        # Rename metric to safe formula name
+        safe = "y"
+        tmp = sub.rename(columns={metric: safe})
+
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                model = smf.mixedlm(
+                    f"{safe} ~ C({group_col})",
+                    data=tmp,
+                    groups=tmp[random_col],
+                )
+                result = model.fit(reml=True, method="lbfgs")
+
+            # Extract fixed effect for cell_type (the non-intercept term)
+            fe_names = [n for n in result.fe_params.index if n != "Intercept"]
+            if fe_names:
+                beta = float(result.fe_params[fe_names[0]])
+                se = float(result.bse_fe[fe_names[0]])
+                z = float(result.tvalues[fe_names[0]])
+                p = float(result.pvalues[fe_names[0]])
+            else:
+                beta = se = z = p = np.nan
+
+            # ICC = var(animal) / (var(animal) + var(residual))
+            var_animal = float(result.cov_re.iloc[0, 0])
+            var_resid = float(result.scale)
+            icc = var_animal / (var_animal + var_resid) if (var_animal + var_resid) > 0 else 0.0
+
+            rows.append({
+                "metric": metric, "beta": beta, "se": se, "z": z,
+                "p_value": p, "icc": icc, "n_groups": n_random,
+                "converged": result.converged,
+            })
+        except Exception:
+            rows.append({
+                "metric": metric, "beta": np.nan, "se": np.nan,
+                "z": np.nan, "p_value": np.nan, "icc": np.nan,
+                "n_groups": n_random, "converged": False,
+            })
+
+    result_df = pd.DataFrame(rows)
+
+    # FDR correction
+    p_vals = result_df["p_value"].values.astype(float)
+    valid = ~np.isnan(p_vals)
+    p_fdr = np.full(len(p_vals), np.nan)
+    sig = np.full(len(p_vals), False)
+    if valid.any():
+        reject, corrected, _, _ = multipletests(
+            p_vals[valid], alpha=0.05, method="fdr_bh"
+        )
+        p_fdr[valid] = corrected
+        sig[valid] = reject
+    result_df["p_fdr"] = p_fdr
+    result_df["significant"] = sig
+
+    return result_df
+
+
+# ============================================================================
 # Correlation
 # ============================================================================
 

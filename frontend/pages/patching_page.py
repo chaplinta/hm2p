@@ -184,6 +184,7 @@ if metrics is None:
 
 mannwhitney = _load_csv("mannwhitney.csv")
 summary = _load_csv("summary_stats.csv")
+lmm = _load_csv("lmm_animal.csv")
 
 # --- Overview ---
 n_cells = len(metrics)
@@ -202,7 +203,7 @@ c4.metric("With morphology", n_with_morph)
 if mannwhitney is not None:
     sig = mannwhitney[mannwhitney["significant"] == True].sort_values("p_fdr")  # noqa: E712
     if len(sig) > 0:
-        st.success(f"**{len(sig)} significant difference(s)** (FDR q < 0.05)")
+        st.success(f"**{len(sig)} significant difference(s)** by Mann-Whitney U (FDR q < 0.05)")
         for _, row in sig.iterrows():
             label = _label(row["metric"])
             st.markdown(
@@ -210,6 +211,47 @@ if mannwhitney is not None:
                 f"p = {_format_p(row['p_value'])}, "
                 f"q = {_format_p(row['p_fdr'])}"
             )
+
+# --- Animal confound (LMM) ---
+if lmm is not None:
+    lmm_sig = lmm[lmm["significant"] == True]  # noqa: E712
+    if mannwhitney is not None and len(sig) > 0:
+        mw_sig_set = set(sig["metric"])
+        lmm_sig_set = set(lmm_sig["metric"]) if len(lmm_sig) > 0 else set()
+        lost = mw_sig_set - lmm_sig_set
+        if lost:
+            st.warning(
+                f"**Animal confound:** {len(lost)} of {len(mw_sig_set)} Mann-Whitney "
+                f"result(s) lose significance when accounting for animal "
+                f"(linear mixed model with animal as random intercept)."
+            )
+            for m in sorted(lost):
+                r = lmm[lmm["metric"] == m].iloc[0]
+                label = _label(m)
+                icc_str = f"{r['icc']:.0%}" if pd.notna(r["icc"]) else "n/a"
+                st.markdown(
+                    f"- **{label}**: LMM p = {_format_p(r['p_value'])}, "
+                    f"ICC = {icc_str}"
+                )
+            st.caption(
+                "ICC (intraclass correlation) = fraction of variance explained by animal. "
+                "High ICC means the metric varies more between animals than between cell types."
+            )
+        elif len(lmm_sig) > 0:
+            st.success(
+                f"**{len(lmm_sig)} difference(s) survive** animal correction (LMM q < 0.05)."
+            )
+
+    # Show high-ICC metrics regardless
+    high_icc = lmm[lmm["icc"] > 0.3].sort_values("icc", ascending=False)
+    if len(high_icc) > 0:
+        with st.expander(f"Metrics with high animal variance (ICC > 30%): {len(high_icc)}"):
+            for _, row in high_icc.iterrows():
+                label = _label(row["metric"])
+                st.markdown(
+                    f"- **{label}**: ICC = {row['icc']:.0%}, "
+                    f"LMM p = {_format_p(row['p_value'])}"
+                )
 
 # --- Tabs ---
 tab_passive, tab_active, tab_morph_api, tab_morph_bas, tab_data, tab_refs = st.tabs([
@@ -273,8 +315,20 @@ with tab_data:
         mw_display = mw_display.sort_values("p_value")
         st.dataframe(mw_display, use_container_width=True, hide_index=True)
 
+    if lmm is not None:
+        st.header("Linear Mixed Model (animal correction)")
+        st.caption(
+            "LMM: metric ~ cell_type + (1|animal_id). Tests whether cell-type "
+            "differences survive after accounting for between-animal variability."
+        )
+        lmm_display = lmm[lmm["p_value"].notna()].copy()
+        lmm_display["metric"] = lmm_display["metric"].apply(_label)
+        lmm_display["icc"] = lmm_display["icc"].apply(lambda x: f"{x:.0%}" if pd.notna(x) else "")
+        lmm_display = lmm_display.sort_values("p_value")
+        st.dataframe(lmm_display, use_container_width=True, hide_index=True)
+
     st.header("Download")
-    col_a, col_b = st.columns(2)
+    col_a, col_b, col_c = st.columns(3)
     with col_a:
         st.download_button(
             "Download metrics.csv",
@@ -288,6 +342,14 @@ with tab_data:
                 "Download Mann-Whitney results",
                 mannwhitney.to_csv(index=False).encode(),
                 file_name="patching_mannwhitney.csv",
+                mime="text/csv",
+            )
+    with col_c:
+        if lmm is not None:
+            st.download_button(
+                "Download LMM results",
+                lmm.to_csv(index=False).encode(),
+                file_name="patching_lmm_animal.csv",
                 mime="text/csv",
             )
 
@@ -304,6 +366,12 @@ waveform analysis (peak, trough, half-width, AHP, max dV/dt).
 
 **Statistical comparison:** Mann-Whitney U test (two-sided, unpaired) with
 Benjamini-Hochberg FDR correction (q < 0.05).
+
+**Animal confound control:** Linear mixed model (LMM) with cell type as fixed
+effect and animal as random intercept: `metric ~ cell_type + (1|animal_id)`.
+ICC (intraclass correlation) quantifies the fraction of total variance due to
+between-animal differences. With only 5 Penk+ and 2 Penk⁻CamKII+ animals,
+cell-type effects are hard to separate from animal effects.
 """)
     with st.expander("Morphology"):
         st.markdown("""
