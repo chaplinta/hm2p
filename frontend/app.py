@@ -124,6 +124,7 @@ stats_page = st.Page(str(_app_dir / "pages/stats_page.py"), title="Pub Stats", i
 explorer_page = st.Page(str(_app_dir / "pages/explorer_page.py"), title="Explorer", icon=":material/explore:")
 timeline_page = st.Page(str(_app_dir / "pages/timeline_page.py"), title="Timeline", icon=":material/timeline:")
 gallery_page = st.Page(str(_app_dir / "pages/gallery_page.py"), title="ROI Gallery", icon=":material/grid_view:")
+roi_viewer_page = st.Page(str(_app_dir / "pages/roi_viewer_page.py"), title="ROI Viewer", icon=":material/visibility:")
 events_page = st.Page(str(_app_dir / "pages/events_page.py"), title="Events", icon=":material/electric_bolt:")
 event_dynamics_page = st.Page(str(_app_dir / "pages/event_dynamics_page.py"), title="Event Dynamics", icon=":material/show_chart:")
 correlations_page = st.Page(str(_app_dir / "pages/correlations_page.py"), title="Correlations", icon=":material/hub:")
@@ -160,7 +161,7 @@ aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":mate
 pg = st.navigation({
     "Overview": [home_page, sessions_page, animals_page, pipeline_page, summary_page],
     "Pipeline": [suite2p_page, calcium_page, dlc_page, tracking_quality_page, sync_page, zdrift_page, anatomy_page, moseq_page],
-    "Explore": [explorer_page, timeline_page, gallery_page, events_page, event_dynamics_page, correlations_page, trace_compare_page, moseq_explore_page, behaviour_page],
+    "Explore": [explorer_page, timeline_page, gallery_page, roi_viewer_page, events_page, event_dynamics_page, correlations_page, trace_compare_page, moseq_explore_page, behaviour_page],
     "Analysis": [hypotheses_page, analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, place_tuning_page, decoder_page, stability_page, drift_page, gain_page, anchoring_page, speed_mod_page, pop_dynamics_page, ahv_page, info_theory_page, classify_page, signal_quality_page, qc_page, patching_page, patching_traces_page, patching_morph_page],
     "System": [aws_page, cost_page, changelog_page],
 })
