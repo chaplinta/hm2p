@@ -161,105 +161,41 @@ _CLASSIFIER_DIR = Path(__file__).resolve().parent.parent.parent.parent / "source
 
 def classify_roi_types(
     stat: list[dict],  # type: ignore[type-arg]
-    classifier_soma_path: Path | None = None,
-    classifier_dend_path: Path | None = None,
 ) -> list[str]:
     """Classify each ROI as 'soma', 'dend', or 'artefact'.
 
-    Uses Suite2p's built-in ``classify()`` with pre-trained classifiers
-    (classifier_soma.npy, classifier_dend.npy) that classify on
-    [skew, compact, npix_norm] features. If no classifier paths are
-    provided, looks in ``sourcedata/trackers/suite2p/``. Falls back to
-    a simple heuristic if classifiers are not found.
+    Uses a shape-feature heuristic from the legacy pipeline
+    (old-pipeline/utils/classify.py):
 
-    Logic when classifiers are available:
-        - ``classifier_soma`` positive AND ``classifier_dend`` negative → soma
-        - ``classifier_dend`` positive → dend
-        - Neither positive → artefact
+    1. ``radius < 2.0`` or ``compact < 0.1`` → artefact (too small or diffuse)
+    2. ``aspect_ratio > 2.5`` → dendrite (elongated)
+    3. Otherwise → soma
+
+    These thresholds were hand-tuned for single-plane RSP imaging and
+    match the classification used in the original hm2p-analysis pipeline.
 
     Args:
-        stat: List of per-ROI stat dicts loaded from stat.npy.
-        classifier_soma_path: Path to classifier_soma.npy. If None, uses
-            ``sourcedata/trackers/suite2p/classifier_soma.npy``.
-        classifier_dend_path: Path to classifier_dend.npy. If None, uses
-            ``sourcedata/trackers/suite2p/classifier_dend.npy``.
+        stat: List of per-ROI stat dicts loaded from Suite2p stat.npy.
+            Each dict must contain 'radius', 'compact', 'aspect_ratio'.
 
     Returns:
         List of strings ('soma', 'dend', 'artefact'), one per ROI.
     """
-    import logging
-
-    log = logging.getLogger(__name__)
-
-    # Resolve classifier paths
-    if classifier_soma_path is None:
-        classifier_soma_path = _CLASSIFIER_DIR / "classifier_soma.npy"
-    if classifier_dend_path is None:
-        classifier_dend_path = _CLASSIFIER_DIR / "classifier_dend.npy"
-
-    if not classifier_soma_path.exists():
-        raise FileNotFoundError(
-            f"classifier_soma.npy not found: {classifier_soma_path}"
-        )
-    if not classifier_dend_path.exists():
-        raise FileNotFoundError(
-            f"classifier_dend.npy not found: {classifier_dend_path}"
-        )
-
-    return _classify_with_suite2p(stat, classifier_soma_path, classifier_dend_path)
-
-
-def _classify_with_suite2p(
-    stat: list[dict],  # type: ignore[type-arg]
-    classifier_soma_path: Path,
-    classifier_dend_path: Path,
-) -> list[str]:
-    """Classify ROIs using Suite2p's trained classifiers.
-
-    Suite2p ``classify()`` returns ``(n_rois, 2)`` where col 0 is binary
-    (cell/not-cell) and col 1 is probability. We run both soma and dend
-    classifiers to get a 3-way classification.
-    """
-    from suite2p.classification.classify import classify
-
-    stat_arr = np.array(stat)
-
-    soma_result = classify(stat_arr, str(classifier_soma_path))  # (N, 2)
-    dend_result = classify(stat_arr, str(classifier_dend_path))  # (N, 2)
-
-    is_soma = soma_result[:, 0].astype(bool)
-    is_dend = dend_result[:, 0].astype(bool)
-
-    labels: list[str] = []
-    for i in range(len(stat)):
-        if is_dend[i] and not is_soma[i]:
-            labels.append("dend")
-        elif is_soma[i]:
-            labels.append("soma")
-        else:
-            labels.append("artefact")
-
-    return labels
-
-
-def _classify_heuristic(stat: list[dict]) -> list[str]:  # type: ignore[type-arg]
-    """Fallback heuristic classification when classifiers are unavailable.
-
-    Rules:
-        - radius < 2.0 or compact < 0.1 → artefact
-        - aspect_ratio > 2.5 → dend
-        - Otherwise → soma
-    """
     labels: list[str] = []
     for s in stat:
-        ar = s.get("aspect_ratio", 1.0)
-        radius = s.get("radius", 5.0)
-        compact = s.get("compact", 1.0)
+        radius = float(s.get("radius", 5.0))
+        compact = float(s.get("compact", 0.5))
+        aspect_ratio = float(s.get("aspect_ratio", 1.0))
 
         if radius < 2.0 or compact < 0.1:
             labels.append("artefact")
-        elif ar > 2.5:
+        elif aspect_ratio > 2.5:
             labels.append("dend")
         else:
             labels.append("soma")
+
     return labels
+
+
+# Legacy alias — classify_roi_types IS the heuristic now.
+_classify_heuristic = classify_roi_types

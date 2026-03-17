@@ -246,58 +246,42 @@ class TestClassifyHeuristic:
         assert labels[0] == "soma"
 
 
-@pytest.mark.skipif(not _suite2p_available, reason="suite2p not installed")
 class TestClassifyRoiTypes:
-    """Tests for classify_roi_types using Suite2p trained classifiers."""
+    """Tests for classify_roi_types (heuristic-based classification)."""
 
-    def test_uses_suite2p_classifiers(self) -> None:
-        """Classifiers produce valid labels for all ROIs."""
-        stat = [{
-            "aspect_ratio": 1.2, "radius": 5.0, "compact": 0.8,
-            "skew": 3.0, "npix_norm": 1.5, "npix": 200,
-        }]
-        labels = classify_roi_types(stat)
-        assert len(labels) == 1
-        assert labels[0] in ("soma", "dend", "artefact")
+    def test_soma(self) -> None:
+        stat = [{"aspect_ratio": 1.2, "radius": 5.0, "compact": 0.8}]
+        assert classify_roi_types(stat) == ["soma"]
+
+    def test_dend(self) -> None:
+        stat = [{"aspect_ratio": 4.0, "radius": 4.0, "compact": 0.25}]
+        assert classify_roi_types(stat) == ["dend"]
+
+    def test_artefact_small_radius(self) -> None:
+        stat = [{"aspect_ratio": 1.0, "radius": 1.0, "compact": 1.0}]
+        assert classify_roi_types(stat) == ["artefact"]
+
+    def test_artefact_low_compact(self) -> None:
+        stat = [{"aspect_ratio": 1.0, "radius": 5.0, "compact": 0.05}]
+        assert classify_roi_types(stat) == ["artefact"]
 
     def test_valid_labels_only(self) -> None:
-        """All labels must be one of the three valid types."""
         rng = np.random.default_rng(7)
-        stat = []
-        for _ in range(20):
-            stat.append({
+        stat = [
+            {
                 "aspect_ratio": rng.uniform(0.5, 8.0),
                 "radius": rng.uniform(1.0, 15.0),
                 "compact": rng.uniform(0.05, 1.0),
-                "skew": rng.uniform(0.1, 5.0),
-                "npix_norm": rng.uniform(0.3, 4.0),
-                "npix": int(rng.integers(20, 500)),
-            })
+            }
+            for _ in range(20)
+        ]
         labels = classify_roi_types(stat)
         assert all(label in ("soma", "dend", "artefact") for label in labels)
 
-    def test_missing_classifier_raises(self, tmp_path: Path) -> None:
-        """Raises FileNotFoundError when classifiers are missing."""
-        stat = [{"aspect_ratio": 1.0, "radius": 5.0, "compact": 0.8}]
-        with pytest.raises(FileNotFoundError, match="classifier_soma"):
-            classify_roi_types(
-                stat,
-                classifier_soma_path=tmp_path / "classifier_soma.npy",
-                classifier_dend_path=tmp_path / "classifier_dend.npy",
-            )
+    def test_missing_keys_defaults_to_soma(self) -> None:
+        assert classify_roi_types([{}]) == ["soma"]
 
-    def test_dend_only_if_not_soma(self) -> None:
-        """ROI classified as dend only if dend=True AND soma=False."""
-        from unittest.mock import patch
-
-        # Mock classify to return soma=True, dend=True → should be soma
-        def mock_classify(stat_arr, classfile):
-            n = len(stat_arr)
-            return np.column_stack([np.ones(n), np.ones(n)])
-
-        with patch(
-            "suite2p.classification.classify.classify", mock_classify
-        ):
-            stat = [{"skew": 2.0, "compact": 0.5, "npix_norm": 1.0}]
-            labels = classify_roi_types(stat)
-            assert labels[0] == "soma"
+    def test_artefact_takes_priority_over_dend(self) -> None:
+        """Tiny elongated ROI → artefact, not dendrite."""
+        stat = [{"aspect_ratio": 5.0, "radius": 1.0, "compact": 0.5}]
+        assert classify_roi_types(stat) == ["artefact"]
