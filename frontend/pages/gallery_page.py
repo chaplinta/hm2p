@@ -70,22 +70,25 @@ exp_ids = sorted(set(s["exp_id"] for s in all_sessions))
 
 ROI_TYPE_NAMES = {0: "soma", 1: "dend", 2: "artefact"}
 
-with st.sidebar:
-    st.header("Filters")
-    sel_celltypes = st.multiselect("Cell type", celltypes, default=celltypes, key="gal_ct")
-    sel_animals = st.multiselect("Animal", animal_ids, default=animal_ids, key="gal_animal")
-    sel_sessions = st.multiselect("Session", exp_ids, default=exp_ids, key="gal_session")
-    roi_type_filter = st.radio(
-        "ROI type", ["Soma only", "Dendrite only", "All ROIs"],
-        index=0, key="gal_roi_type",
-    )
-    min_snr = st.slider("Min SNR", 0.0, 15.0, 0.0, 0.5, key="gal_snr")
-    sort_by = st.selectbox(
-        "Sort by", ["Session + ROI index", "SNR (high first)", "Event rate", "Max dF/F0", "Aspect ratio"],
-        key="gal_sort",
-    )
-    n_cols = st.selectbox("Grid columns", [3, 4, 5, 6], index=1, key="gal_cols")
-    max_rois = st.selectbox("Max ROIs shown", [12, 24, 48, 96, 200], index=2, key="gal_max")
+with st.expander("Filters", expanded=False):
+    fc1, fc2, fc3 = st.columns(3)
+    with fc1:
+        sel_celltypes = st.multiselect("Cell type", celltypes, default=celltypes, key="gal_ct")
+        sel_animals = st.multiselect("Animal", animal_ids, default=animal_ids, key="gal_animal")
+    with fc2:
+        sel_sessions = st.multiselect("Session", exp_ids, default=exp_ids, key="gal_session")
+        roi_type_filter = st.radio(
+            "ROI type", ["Soma only", "Dendrite only", "All ROIs"],
+            index=0, key="gal_roi_type",
+        )
+    with fc3:
+        min_snr = st.slider("Min SNR", 0.0, 15.0, 0.0, 0.5, key="gal_snr")
+        sort_by = st.selectbox(
+            "Sort by", ["Session + ROI index", "SNR (high first)", "Event rate", "Max dF/F0", "Aspect ratio"],
+            key="gal_sort",
+        )
+        n_cols = st.selectbox("Grid columns", [3, 4, 5, 6], index=1, key="gal_cols")
+        max_rois = st.selectbox("Max ROIs shown", [12, 24, 48, 96, 200], index=2, key="gal_max")
 
 # Apply filters
 sessions = [

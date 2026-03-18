@@ -41,9 +41,9 @@ if not sessions:
     st.warning("No sessions match the current filters.")
     st.stop()
 
-# Optional session selector (default = all sessions pooled)
+# Session selector
 session_labels = ["All sessions (pooled)"] + [s["exp_id"] for s in sessions]
-sel_session_label = st.sidebar.selectbox(
+sel_session_label = st.selectbox(
     "Session", session_labels, index=0, key="analysis_session_select",
 )
 
@@ -52,27 +52,24 @@ if sel_session_label == "All sessions (pooled)":
 else:
     active_sessions = [s for s in sessions if s["exp_id"] == sel_session_label]
 
-# ---------------------------------------------------------------------------
 # Parameters
-# ---------------------------------------------------------------------------
-
-st.sidebar.header("Parameters")
-speed_threshold = st.sidebar.slider("Speed threshold (cm/s)", 0.0, 10.0, 2.5, 0.5)
-
-st.sidebar.subheader("HD Tuning")
-hd_n_bins = st.sidebar.select_slider("HD bins", [12, 18, 24, 36, 72], value=36)
-hd_sigma = st.sidebar.slider("HD smoothing (deg)", 0.0, 20.0, 6.0, 1.0)
-
-st.sidebar.subheader("Place Tuning")
-place_bin = st.sidebar.slider("Place bin size (cm)", 1.0, 10.0, 2.5, 0.5)
-place_sigma = st.sidebar.slider("Place smoothing (cm)", 0.0, 10.0, 3.0, 0.5)
-
-n_shuffles = st.sidebar.number_input("Bootstrap shuffles", 100, 2000, 500, 100)
+with st.expander("Parameters", expanded=False):
+    pc1, pc2, pc3, pc4 = st.columns(4)
+    with pc1:
+        speed_threshold = st.slider("Speed threshold (cm/s)", 0.0, 10.0, 2.5, 0.5)
+    with pc2:
+        hd_n_bins = st.select_slider("HD bins", [12, 18, 24, 36, 72], value=36)
+        hd_sigma = st.slider("HD smoothing (deg)", 0.0, 20.0, 6.0, 1.0)
+    with pc3:
+        place_bin = st.slider("Place bin size (cm)", 1.0, 10.0, 2.5, 0.5)
+        place_sigma = st.slider("Place smoothing (cm)", 0.0, 10.0, 3.0, 0.5)
+    with pc4:
+        n_shuffles = st.number_input("Bootstrap shuffles", 100, 2000, 500, 100)
 
 # Summary
 total_rois = sum(s["n_rois"] for s in active_sessions)
 total_frames = sum(s["n_frames"] for s in active_sessions)
-st.sidebar.markdown(
+st.markdown(
     f"**Sessions:** {len(active_sessions)} | "
     f"**ROIs:** {total_rois} | "
     f"**Total frames:** {total_frames}"

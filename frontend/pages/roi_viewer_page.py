@@ -75,17 +75,16 @@ if not ca_sessions:
 
 # ── Sidebar filters ──────────────────────────────────────────────────────
 
-with st.sidebar:
-    st.header("Filters")
-
+fc1, fc2 = st.columns(2)
+with fc1:
     roi_filter = st.radio(
         "ROI type", ["Soma only", "Non-soma only", "All"],
-        index=0, key="rv_type",
+        index=0, key="rv_type", horizontal=True,
     )
-
+with fc2:
     session_filter = st.radio(
         "Sessions", ["Primary (non-excluded)", "All sessions"],
-        index=0, key="rv_ses_filter",
+        index=0, key="rv_ses_filter", horizontal=True,
     )
 
 

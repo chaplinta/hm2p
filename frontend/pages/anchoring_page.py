@@ -46,7 +46,7 @@ if not sessions:
 
 # Session selector
 session_labels = [f"{s['exp_id']} ({s['celltype']}, {s['n_rois']} ROIs)" for s in sessions]
-sel_idx = st.sidebar.selectbox("Session", range(len(sessions)),
+sel_idx = st.selectbox("Session", range(len(sessions)),
                                 format_func=lambda i: session_labels[i], key="anch_ses")
 sess = sessions[sel_idx]
 
@@ -62,7 +62,7 @@ if n_cells == 0:
     st.stop()
 
 # Cell selector in sidebar
-cell_main = st.sidebar.selectbox("Primary cell", range(n_cells),
+cell_main = st.selectbox("Primary cell", range(n_cells),
                                   format_func=lambda x: f"Cell {x+1}", key="anch_main_cell")
 
 signal = signals[cell_main]

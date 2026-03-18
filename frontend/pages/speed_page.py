@@ -46,7 +46,7 @@ if not sessions:
 
 # Session selector
 session_labels = [f"{s['exp_id']} ({s['celltype']}, {s['n_rois']} ROIs)" for s in sessions]
-sel_idx = st.sidebar.selectbox("Session", range(len(sessions)),
+sel_idx = st.selectbox("Session", range(len(sessions)),
                                 format_func=lambda i: session_labels[i], key="spd_ses")
 sess = sessions[sel_idx]
 

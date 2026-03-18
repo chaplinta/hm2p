@@ -553,43 +553,48 @@ def session_filter_sidebar(
     celltypes = sorted(set(s["celltype"] for s in sessions))
     animals = sorted(set(s["animal_id"] for s in sessions))
 
-    with st.sidebar:
-        st.header("Filters")
+    # Filters in main page body (not sidebar) — collapsible expander
+    with st.expander("Filters", expanded=False):
+        fc1, fc2, fc3, fc4 = st.columns(4)
 
         # Session inclusion filters
         has_exclude_info = any("exclude" in s for s in sessions)
         if has_exclude_info:
-            include_excluded = st.checkbox(
-                "Include excluded sessions",
-                value=False,
-                key=f"{key_prefix}_include_excluded",
-            )
-            primary_only = st.checkbox(
-                "Primary experiments only",
-                value=True,
-                key=f"{key_prefix}_primary_only",
-            )
+            with fc1:
+                include_excluded = st.checkbox(
+                    "Include excluded",
+                    value=False,
+                    key=f"{key_prefix}_include_excluded",
+                )
+                primary_only = st.checkbox(
+                    "Primary only",
+                    value=True,
+                    key=f"{key_prefix}_primary_only",
+                )
         else:
             include_excluded = True
             primary_only = False
 
-        sel_celltypes = st.multiselect(
-            "Cell type", celltypes, default=celltypes,
-            key=f"{key_prefix}_celltype",
-        )
-        sel_animals = st.multiselect(
-            "Animal", animals, default=animals,
-            key=f"{key_prefix}_animal",
-        )
-        if show_roi_filter:
-            roi_filter = st.radio(
-                "ROI type",
-                ["Soma only", "Dendrite only", "All ROIs"],
-                index=0,
-                key=f"{key_prefix}_roi_type",
+        with fc2:
+            sel_celltypes = st.multiselect(
+                "Cell type", celltypes, default=celltypes,
+                key=f"{key_prefix}_celltype",
             )
-        else:
-            roi_filter = "All ROIs"
+        with fc3:
+            sel_animals = st.multiselect(
+                "Animal", animals, default=animals,
+                key=f"{key_prefix}_animal",
+            )
+        with fc4:
+            if show_roi_filter:
+                roi_filter = st.radio(
+                    "ROI type",
+                    ["Soma only", "Dendrite only", "All ROIs"],
+                    index=0,
+                    key=f"{key_prefix}_roi_type",
+                )
+            else:
+                roi_filter = "All ROIs"
 
     filtered = []
     for s in sessions:

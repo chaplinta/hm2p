@@ -60,13 +60,13 @@ if not has_real or not real_sessions:
     )
     st.stop()
 
-st.sidebar.header("Thresholds")
-mvl_thresh = st.sidebar.slider("MVL threshold", 0.05, 0.5, 0.15, 0.01, key="cls_mvl")
-p_thresh = st.sidebar.slider("p-value threshold", 0.001, 0.1, 0.05, 0.005,
+st.header("Thresholds")
+mvl_thresh = st.slider("MVL threshold", 0.05, 0.5, 0.15, 0.01, key="cls_mvl")
+p_thresh = st.slider("p-value threshold", 0.001, 0.1, 0.05, 0.005,
                               key="cls_p", format="%.3f")
-rel_thresh = st.sidebar.slider("Reliability threshold", 0.1, 0.9, 0.5, 0.05,
+rel_thresh = st.slider("Reliability threshold", 0.1, 0.9, 0.5, 0.05,
                                 key="cls_rel")
-n_shuffles = st.sidebar.slider("Shuffles", 100, 1000, 300, 50, key="cls_shuf")
+n_shuffles = st.slider("Shuffles", 100, 1000, 300, 50, key="cls_shuf")
 
 
 # ── Run classification ──────────────────────────────────────────────────────

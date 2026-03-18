@@ -59,20 +59,23 @@ if not all_sessions:
 celltypes = sorted(set(s["celltype"] for s in all_sessions))
 animals = sorted(set(s["animal_id"] for s in all_sessions))
 
-with st.sidebar:
-    st.header("Filters")
-    sel_celltypes = st.multiselect(
-        "Cell type", celltypes, default=celltypes, key="ed_filter_ct",
-    )
-    sel_animals = st.multiselect(
-        "Animal", animals, default=animals, key="ed_filter_animal",
-    )
-    roi_filter = st.radio(
-        "ROI type",
-        ["Soma only", "Dendrite only", "All ROIs"],
-        index=0,
-        key="ed_filter_roi",
-    )
+with st.expander("Filters", expanded=False):
+    fc1, fc2, fc3 = st.columns(3)
+    with fc1:
+        sel_celltypes = st.multiselect(
+            "Cell type", celltypes, default=celltypes, key="ed_filter_ct",
+        )
+    with fc2:
+        sel_animals = st.multiselect(
+            "Animal", animals, default=animals, key="ed_filter_animal",
+        )
+    with fc3:
+        roi_filter = st.radio(
+            "ROI type",
+            ["Soma only", "Dendrite only", "All ROIs"],
+            index=0,
+            key="ed_filter_roi",
+        )
 
 # Apply filters
 sessions = [

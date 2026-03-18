@@ -240,7 +240,7 @@ with tab_overview:
 session_labels = [
     f"{s['exp_id']} ({s['celltype']}, {s['n_rois']} ROIs)" for s in sessions
 ]
-sel_idx = st.sidebar.selectbox(
+sel_idx = st.selectbox(
     "Session", range(len(sessions)),
     format_func=lambda i: session_labels[i], key="drift_ses",
 )
@@ -259,7 +259,7 @@ if n_cells == 0:
     st.stop()
 
 # Cell selector in sidebar
-cell_main = st.sidebar.selectbox(
+cell_main = st.selectbox(
     "Primary cell", range(n_cells),
     format_func=lambda x: f"Cell {x+1}", key="drift_main_cell",
 )
