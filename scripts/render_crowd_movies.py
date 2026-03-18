@@ -186,12 +186,34 @@ def save_crowd_movie_mp4(
 
     Uses mp4v codec. Plays at a slower fps (10) so syllable motion is visible.
     """
+    import shutil
+    import subprocess
+
     h, w = frames.shape[1], frames.shape[2]
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-    writer = cv2.VideoWriter(str(output_path), fourcc, fps, (w, h))
+
+    # Write with cv2 first (mp4v), then re-encode to H.264 for browser playback
+    raw_path = output_path.with_suffix(".raw.mp4")
+    writer = cv2.VideoWriter(str(raw_path), fourcc, fps, (w, h))
     for frame in frames:
         writer.write(frame)
     writer.release()
+
+    if shutil.which("ffmpeg"):
+        result = subprocess.run(
+            ["ffmpeg", "-y", "-i", str(raw_path),
+             "-c:v", "libx264", "-crf", "23", "-preset", "fast",
+             "-movflags", "+faststart", "-pix_fmt", "yuv420p",
+             str(output_path)],
+            capture_output=True, text=True,
+        )
+        raw_path.unlink(missing_ok=True)
+        if result.returncode != 0:
+            log.warning("ffmpeg failed for %s, falling back to mp4v", output_path.name)
+            raw_path = output_path  # already deleted, need to re-write
+    else:
+        raw_path.rename(output_path)
+
     log.info("Saved %s (%d frames, %dx%d)", output_path.name, len(frames), w, h)
 
 
