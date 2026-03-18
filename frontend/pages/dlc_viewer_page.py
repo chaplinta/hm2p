@@ -9,7 +9,6 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -44,13 +43,25 @@ def dl_video(sub: str, ses: str) -> bytes | None:
 
 
 @st.cache_data(ttl=3600, show_spinner="Downloading DLC .h5...")
-def dl_dlc(sub: str, ses: str) -> pd.DataFrame | None:
+def dl_dlc(sub: str, ses: str) -> dict | None:
+    """Download DLC .h5 from S3 and load via movement.
+
+    Returns a dict with keys:
+        - position: np.ndarray (time, space, keypoints) — x/y coordinates
+        - confidence: np.ndarray (time, keypoints) — likelihood values
+        - keypoints: list[str] — bodypart names
+        - n_frames: int — number of frames
+    Or None if no DLC data found.
+    """
     import boto3
+
     s3 = boto3.client("s3", region_name="ap-southeast-2")
     prefix = f"pose/{sub}/{ses}/"
     h5_key = None
     try:
-        for page in s3.get_paginator("list_objects_v2").paginate(Bucket=DERIVATIVES_BUCKET, Prefix=prefix):
+        for page in s3.get_paginator("list_objects_v2").paginate(
+            Bucket=DERIVATIVES_BUCKET, Prefix=prefix
+        ):
             for obj in page.get("Contents", []):
                 k = obj["Key"]
                 nm = k.split("/")[-1]
@@ -64,52 +75,112 @@ def dl_dlc(sub: str, ses: str) -> pd.DataFrame | None:
     data = download_s3_bytes(DERIVATIVES_BUCKET, h5_key)
     if data is None:
         return None
+
+    # Write to temp file and load with movement
+    from movement.io import load_poses
+
     with tempfile.NamedTemporaryFile(suffix=".h5", delete=True) as tmp:
         tmp.write(data)
         tmp.flush()
-        df = pd.read_hdf(tmp.name)
-    if not isinstance(df.columns, pd.MultiIndex) or df.columns.nlevels == 3:
-        return df
-    if df.columns.nlevels != 4:
+        ds = load_poses.from_file(
+            file=Path(tmp.name), source_software="DeepLabCut", fps=VIDEO_FPS,
+        )
+
+    # For multi-animal DLC, pick best individual per frame (highest mean confidence)
+    individuals = ds.position.coords["individuals"].values.tolist()
+    keypoints = ds.position.coords["keypoints"].values.tolist()
+    n_time = ds.sizes["time"]
+
+    if len(individuals) > 1:
+        # confidence: (time, keypoints, individuals)
+        conf = ds.confidence.values  # (time, keypoints, individuals)
+        # Mean confidence per individual per frame: (time, individuals)
+        mean_conf = np.nanmean(conf, axis=1)
+        best_ind = np.argmax(mean_conf, axis=1)  # (time,)
+
+        # position: (time, space, keypoints, individuals)
+        pos = ds.position.values  # (time, space, keypoints, individuals)
+        # Select best individual per frame
+        pos_best = np.empty((n_time, 2, len(keypoints)), dtype=np.float64)
+        conf_best = np.empty((n_time, len(keypoints)), dtype=np.float64)
+        for t in range(n_time):
+            j = best_ind[t]
+            pos_best[t] = pos[t, :, :, j]
+            conf_best[t] = conf[t, :, j]
+    else:
+        # Single individual — squeeze out individuals dim
+        pos_best = ds.position.isel(individuals=0).values  # (time, space, keypoints)
+        conf_best = ds.confidence.isel(individuals=0).values  # (time, keypoints)
+
+    # Filter keypoints to known bodyparts (keep order)
+    bp_avail = [b for b in BODYPARTS if b in keypoints]
+    if not bp_avail:
+        bp_avail = keypoints
+    bp_indices = [keypoints.index(b) for b in bp_avail]
+
+    return {
+        "position": pos_best[:, :, bp_indices],  # (time, space=[x,y], keypoints)
+        "confidence": conf_best[:, bp_indices],    # (time, keypoints)
+        "keypoints": bp_avail,
+        "n_frames": n_time,
+        "ds": ds,  # Keep full Dataset for filtering
+    }
+
+
+@st.cache_data(ttl=3600, show_spinner="Applying movement median filter...")
+def get_median_filtered(sub: str, ses: str) -> dict | None:
+    """Apply movement's rolling median filter to DLC data.
+
+    Returns same dict structure as dl_dlc() but with filtered positions,
+    or None if DLC data unavailable.
+    """
+    dlc = dl_dlc(sub, ses)
+    if dlc is None:
         return None
-    return _convert_madlc(df)
 
+    from movement.filtering import filter_by_confidence, rolling_filter
 
-def _convert_madlc(df: pd.DataFrame) -> pd.DataFrame:
-    scorer = df.columns.get_level_values("scorer")[0]
-    individuals = df.columns.get_level_values("individuals").unique().tolist()
-    avail = df.columns.get_level_values("bodyparts").unique().tolist()
-    bps = [b for b in BODYPARTS if b in avail]
-    if not bps:
-        bps = avail
-    n = len(df)
-    scores = np.full((n, len(individuals)), -1.0)
-    for j, ind in enumerate(individuals):
-        lk = []
-        for bp in bps:
-            try:
-                lk.append(df[(scorer, ind, bp, "likelihood")].values)
-            except KeyError:
-                pass
-        if lk:
-            scores[:, j] = np.nanmean(np.column_stack(lk), axis=1)
-    best = np.argmax(scores, axis=1)
-    cols = pd.MultiIndex.from_tuples(
-        [(scorer, bp, c) for bp in bps for c in ("x", "y", "likelihood")],
-        names=["scorer", "bodyparts", "coords"],
+    ds = dlc["ds"]
+    # Filter low-confidence detections (set to NaN)
+    filtered_pos = filter_by_confidence(
+        data=ds.position, confidence=ds.confidence, threshold=0.5,
     )
-    out = np.empty((n, len(bps) * 3))
-    for i, bp in enumerate(bps):
-        for k, coord in enumerate(("x", "y", "likelihood")):
-            ci = i * 3 + k
-            for j, ind in enumerate(individuals):
-                m = best == j
-                if m.any():
-                    try:
-                        out[m, ci] = df.loc[df.index[m], (scorer, ind, bp, coord)].values
-                    except KeyError:
-                        out[m, ci] = np.nan
-    return pd.DataFrame(out, index=df.index, columns=cols)
+    # Apply rolling median filter (window=5, matching pipeline)
+    filtered_pos = rolling_filter(data=filtered_pos, window=5, statistic="median")
+
+    # Extract same way as dl_dlc
+    individuals = ds.position.coords["individuals"].values.tolist()
+    keypoints = ds.position.coords["keypoints"].values.tolist()
+    n_time = ds.sizes["time"]
+
+    if len(individuals) > 1:
+        conf = ds.confidence.values
+        mean_conf = np.nanmean(conf, axis=1)
+        best_ind = np.argmax(mean_conf, axis=1)
+
+        pos = filtered_pos.values
+        conf_vals = ds.confidence.values
+        pos_best = np.empty((n_time, 2, len(keypoints)), dtype=np.float64)
+        conf_best = np.empty((n_time, len(keypoints)), dtype=np.float64)
+        for t in range(n_time):
+            j = best_ind[t]
+            pos_best[t] = pos[t, :, :, j]
+            conf_best[t] = conf_vals[t, :, j]
+    else:
+        pos_best = filtered_pos.isel(individuals=0).values
+        conf_best = ds.confidence.isel(individuals=0).values
+
+    bp_avail = [b for b in BODYPARTS if b in keypoints]
+    if not bp_avail:
+        bp_avail = keypoints
+    bp_indices = [keypoints.index(b) for b in bp_avail]
+
+    return {
+        "position": pos_best[:, :, bp_indices],
+        "confidence": conf_best[:, bp_indices],
+        "keypoints": bp_avail,
+        "n_frames": n_time,
+    }
 
 
 @st.cache_data(ttl=3600, show_spinner="Loading kinematics...")
@@ -143,16 +214,16 @@ def extract_frame(vbytes: bytes, idx: int):
         Path(p).unlink(missing_ok=True)
 
 
-def get_xy(dlc_df: pd.DataFrame, bp: str):
-    """Extract x, y arrays for a bodypart from single-animal DLC DataFrame."""
-    scorer = dlc_df.columns.get_level_values("scorer")[0]
-    try:
-        x = dlc_df[(scorer, bp, "x")].values
-        y = dlc_df[(scorer, bp, "y")].values
-        lk = dlc_df[(scorer, bp, "likelihood")].values
-        return x, y, lk
-    except KeyError:
+def get_xy(dlc_data: dict, bp: str):
+    """Extract x, y, confidence arrays for a bodypart from movement-loaded data."""
+    keypoints = dlc_data["keypoints"]
+    if bp not in keypoints:
         return None, None, None
+    ki = keypoints.index(bp)
+    x = dlc_data["position"][:, 0, ki]  # (time,) — space dim 0 = x
+    y = dlc_data["position"][:, 1, ki]  # (time,) — space dim 1 = y
+    lk = dlc_data["confidence"][:, ki]   # (time,)
+    return x, y, lk
 
 
 # ── Sidebar ──────────────────────────────────────────────────────────────
@@ -182,9 +253,11 @@ with st.sidebar:
     conf_thr = st.slider("Confidence threshold", 0.0, 1.0, 0.5, 0.05, key="dlcv_c")
     pos_source = st.radio(
         "Position data",
-        ["DLC raw", "Pipeline filtered (sync.h5)"],
+        ["DLC raw", "DLC median filtered", "Pipeline filtered (sync.h5)"],
         index=0, key="dlcv_pos",
-        help="DLC raw = unfiltered keypoint coords from DLC .h5. "
+        help="DLC raw = unfiltered keypoint coords from DLC .h5 via movement. "
+             "DLC median filtered = confidence-gated + rolling median (window=5) "
+             "applied on-the-fly via movement.filtering. "
              "Pipeline filtered = median-filtered, confidence-gated, "
              "interpolated positions from the kinematics pipeline.",
     )
@@ -195,45 +268,36 @@ sub, ses = parse_session_id(eid)
 # ── Load data ────────────────────────────────────────────────────────────
 
 vbytes = dl_video(sub, ses)
-dlc_df = dl_dlc(sub, ses)
+dlc_data = dl_dlc(sub, ses)
+dlc_filtered = (
+    get_median_filtered(sub, ses)
+    if pos_source == "DLC median filtered"
+    else None
+)
 kin = dl_kinematics(sub, ses) if pos_source == "Pipeline filtered (sync.h5)" else None
 
-n_dlc = len(dlc_df) if dlc_df is not None else 0
+# Choose which DLC data dict to use for position display
+active_dlc = dlc_filtered if dlc_filtered is not None else dlc_data
+
+n_dlc = dlc_data["n_frames"] if dlc_data is not None else 0
 
 # ── Time series builder ──────────────────────────────────────────────────
 
 
-def make_ts_fig(vline_frame=None, ds=50):
+def make_ts_fig(vline_frame=None, ds_step=50):
     """Build position + confidence time series."""
     fig = go.Figure()
-    if dlc_df is None:
+    if dlc_data is None:
         return fig
 
     n = n_dlc
-    step = max(1, ds)
+    step = max(1, ds_step)
     idx = np.arange(0, n, step)
     t = idx / VIDEO_FPS
 
     # Position traces
-    if pos_source == "DLC raw" or kin is None:
-        # Raw DLC positions
-        for bp in BODYPARTS:
-            x, y, lk = get_xy(dlc_df, bp)
-            if x is None:
-                continue
-            fig.add_trace(go.Scattergl(
-                x=t, y=x[idx], mode="lines",
-                line=dict(color=BP_HEX.get(bp, "gray"), width=1),
-                name=f"{bp} x", legendgroup=bp, visible="legendonly" if bp != "nose" else True,
-            ))
-            fig.add_trace(go.Scattergl(
-                x=t, y=y[idx], mode="lines",
-                line=dict(color=BP_HEX.get(bp, "gray"), width=1, dash="dot"),
-                name=f"{bp} y", legendgroup=bp, visible="legendonly" if bp != "nose" else True,
-            ))
-    else:
+    if pos_source == "Pipeline filtered (sync.h5)" and kin is not None:
         # Pipeline-filtered positions (from sync.h5, at imaging rate ~9.6Hz)
-        # These are at a different frame rate — resample to 30fps for alignment
         sync_t = kin.get("frame_times")
         dlc_t = np.arange(n) / VIDEO_FPS
         for key, label, color in [
@@ -242,25 +306,36 @@ def make_ts_fig(vline_frame=None, ds=50):
         ]:
             vals = kin.get(key)
             if vals is not None and sync_t is not None:
-                # Interpolate sync rate → DLC rate for display
                 interp = np.interp(dlc_t, sync_t - sync_t[0], vals)
                 fig.add_trace(go.Scattergl(
                     x=t, y=interp[idx], mode="lines",
                     line=dict(color=color, width=1.5),
                     name=label,
                 ))
+    else:
+        # DLC raw or DLC median filtered — use active_dlc
+        src = active_dlc if active_dlc is not None else dlc_data
+        if src is not None:
+            for bp in src["keypoints"]:
+                x, y, lk = get_xy(src, bp)
+                if x is None:
+                    continue
+                fig.add_trace(go.Scattergl(
+                    x=t, y=x[idx], mode="lines",
+                    line=dict(color=BP_HEX.get(bp, "gray"), width=1),
+                    name=f"{bp} x", legendgroup=bp,
+                    visible="legendonly" if bp != "nose" else True,
+                ))
+                fig.add_trace(go.Scattergl(
+                    x=t, y=y[idx], mode="lines",
+                    line=dict(color=BP_HEX.get(bp, "gray"), width=1, dash="dot"),
+                    name=f"{bp} y", legendgroup=bp,
+                    visible="legendonly" if bp != "nose" else True,
+                ))
 
-    # Mean confidence
-    scorer = dlc_df.columns.get_level_values("scorer")[0]
-    bps_avail = dlc_df.columns.get_level_values("bodyparts").unique().tolist()
-    lk_cols = []
-    for bp in [b for b in BODYPARTS if b in bps_avail]:
-        try:
-            lk_cols.append(dlc_df[(scorer, bp, "likelihood")].values)
-        except KeyError:
-            pass
-    if lk_cols:
-        mean_lk = np.nanmean(np.column_stack(lk_cols), axis=1)
+    # Mean confidence (always from raw DLC data)
+    if dlc_data is not None:
+        mean_lk = np.nanmean(dlc_data["confidence"], axis=1)  # (time,)
         fig.add_trace(go.Scattergl(
             x=t, y=mean_lk[idx] * 100, mode="lines",
             line=dict(color="white", width=2),
@@ -274,10 +349,16 @@ def make_ts_fig(vline_frame=None, ds=50):
         vt = vline_frame / VIDEO_FPS
         fig.add_vline(x=vt, line_color="lime", line_width=2)
 
+    pos_label = "Position (px)"
+    if pos_source == "Pipeline filtered (sync.h5)":
+        pos_label = "Position (mm)"
+    elif pos_source == "DLC median filtered":
+        pos_label = "Position (px, filtered)"
+
     fig.update_layout(
         height=400,
         xaxis_title="Time (s)",
-        yaxis_title="Position (px)" if pos_source == "DLC raw" else "Position (mm)",
+        yaxis_title=pos_label,
         yaxis2=dict(
             title="Confidence (%)", overlaying="y", side="right",
             range=[0, 105], showgrid=False,
@@ -298,24 +379,15 @@ if mode == "Playback":
         st.warning("No labelled video. Run `scripts/render_dlc_videos.py` first.")
 
     st.subheader("Position + Confidence")
-    fig = make_ts_fig(ds=50)
+    fig = make_ts_fig(ds_step=50)
     st.plotly_chart(fig, use_container_width=True, key="dlcv_ts_play")
 
-    if n_dlc > 0 and dlc_df is not None:
-        scorer = dlc_df.columns.get_level_values("scorer")[0]
-        bps_a = dlc_df.columns.get_level_values("bodyparts").unique().tolist()
-        lk_all = []
-        for bp in [b for b in BODYPARTS if b in bps_a]:
-            try:
-                lk_all.append(dlc_df[(scorer, bp, "likelihood")].values)
-            except KeyError:
-                pass
-        if lk_all:
-            mean_c = np.nanmean(np.column_stack(lk_all), axis=1)
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Mean confidence", f"{np.mean(mean_c):.3f}")
-            c2.metric("Below threshold", f"{(mean_c < conf_thr).mean()*100:.1f}%")
-            c3.metric("Frames", f"{n_dlc:,}")
+    if n_dlc > 0 and dlc_data is not None:
+        mean_c = np.nanmean(dlc_data["confidence"], axis=1)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Mean confidence", f"{np.mean(mean_c):.3f}")
+        c2.metric("Below threshold", f"{(mean_c < conf_thr).mean()*100:.1f}%")
+        c3.metric("Frames", f"{n_dlc:,}")
 
 # ── Inspect mode ─────────────────────────────────────────────────────────
 
@@ -330,7 +402,7 @@ if mode == "Inspect":
         st.stop()
 
     fi = st.number_input(
-        f"Frame (0–{n_frames-1})", 0, n_frames - 1, 0, 1,
+        f"Frame (0-{n_frames-1})", 0, n_frames - 1, 0, 1,
         key="dlcv_f", help="Arrow keys to step",
     )
     st.caption(f"Frame {fi} | t = {fi/VIDEO_FPS:.2f}s | {fi/n_frames*100:.1f}%")
@@ -341,31 +413,33 @@ if mode == "Inspect":
         if rgb is not None:
             st.image(rgb, caption=f"Frame {fi}", use_container_width=True)
 
-    # Keypoint table
-    if dlc_df is not None and fi < len(dlc_df):
-        scorer = dlc_df.columns.get_level_values("scorer")[0]
-        bps_a = dlc_df.columns.get_level_values("bodyparts").unique().tolist()
+    # Keypoint table (always from raw DLC data for QC)
+    if dlc_data is not None and fi < dlc_data["n_frames"]:
+        import pandas as pd
+
         rows = []
-        for bp in [b for b in BODYPARTS if b in bps_a]:
-            try:
-                x = float(dlc_df.iloc[fi][(scorer, bp, "x")])
-                y = float(dlc_df.iloc[fi][(scorer, bp, "y")])
-                lk = float(dlc_df.iloc[fi][(scorer, bp, "likelihood")])
-            except (KeyError, IndexError):
-                x, y, lk = np.nan, np.nan, np.nan
-            flag = "LOW" if (not np.isnan(lk) and lk < conf_thr) else ""
-            rows.append({"bodypart": bp, "x": round(x, 1), "y": round(y, 1),
-                         "likelihood": round(lk, 4), "flag": flag})
+        for bp in dlc_data["keypoints"]:
+            x, y, lk = get_xy(dlc_data, bp)
+            if x is None:
+                continue
+            xv = float(x[fi])
+            yv = float(y[fi])
+            lkv = float(lk[fi])
+            flag = "LOW" if (not np.isnan(lkv) and lkv < conf_thr) else ""
+            rows.append({
+                "bodypart": bp, "x": round(xv, 1), "y": round(yv, 1),
+                "likelihood": round(lkv, 4), "flag": flag,
+            })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     # Time series with vertical line
     st.subheader("Position + Confidence")
-    fig = make_ts_fig(vline_frame=fi, ds=50)
+    fig = make_ts_fig(vline_frame=fi, ds_step=50)
     st.plotly_chart(fig, use_container_width=True, key="dlcv_ts_insp")
 
 # Footer
 st.divider()
 st.caption(
     "Playback: native video controls. Inspect: arrow keys on frame input. "
-    "Toggle DLC raw vs pipeline filtered positions in sidebar."
+    "Toggle DLC raw / DLC median filtered / pipeline filtered positions in sidebar."
 )

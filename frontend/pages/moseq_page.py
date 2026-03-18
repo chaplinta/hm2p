@@ -1,7 +1,7 @@
 """keypoint-MoSeq — Behavioural syllable discovery pipeline status.
 
-Shows the status of the keypoint-MoSeq EC2 job, syllable outputs on S3,
-and syllable statistics when available.
+Shows completion status, summary statistics, and parameters for the
+keypoint-MoSeq pipeline across all 26 sessions.
 
 Reference:
     Weinreb et al. 2024. "Keypoint-MoSeq: parsing behavior by linking point
@@ -12,17 +12,16 @@ Reference:
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-import json
-import logging
-
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import streamlit as st
 
 log = logging.getLogger(__name__)
@@ -40,9 +39,11 @@ try:
         DERIVATIVES_BUCKET,
         PIPELINE_STAGES,
         REGION,
-        download_s3_bytes,
-        get_s3_client,
+        list_syllable_sessions,
+        load_all_syllable_data,
+        load_animals,
         load_experiments,
+        load_kpms_summary,
         sanitize_error,
     )
 except ImportError as _imp_err:
@@ -54,212 +55,188 @@ TOTAL_SESSIONS = PIPELINE_STAGES["kpms"]["expected"]
 if st.button("Refresh", key="refresh_moseq"):
     st.cache_data.clear()
 
-# ── Section 1: EC2 Instance Status ──────────────────────────────────────
+# ── Section 1: Completion Status ─────────────────────────────────────────
 
-st.header("EC2 Instance")
+st.header("Completion Status")
 
-try:
-    import boto3
+syllable_sessions = list_syllable_sessions()
+n_done = len(syllable_sessions)
 
-    ec2 = boto3.client("ec2", region_name=REGION)
-    resp = ec2.describe_instances(
-        Filters=[
-            {"Name": "tag:Name", "Values": ["hm2p-kpms"]},
-        ]
-    )
-    instances = []
-    for res in resp["Reservations"]:
-        for inst in res["Instances"]:
-            state = inst["State"]["Name"]
-            if state == "terminated":
-                continue
-            instances.append({
-                "Instance ID": inst["InstanceId"],
-                "State": state,
-                "Type": inst.get("InstanceType", "—"),
-                "IP": inst.get("PublicIpAddress", "—"),
-                "Launch": str(inst.get("LaunchTime", "—"))[:19],
-            })
+col1, col2, col3 = st.columns(3)
+col1.metric("Sessions with syllables.npz", f"{n_done} / {TOTAL_SESSIONS}")
+pct = n_done / TOTAL_SESSIONS * 100 if TOTAL_SESSIONS > 0 else 0
+col2.metric("Progress", f"{pct:.0f}%")
 
-    if instances:
-        for inst in instances:
-            state = inst["State"]
-            if state == "running":
-                st.success(f"Instance **{inst['Instance ID']}** is **running** at `{inst['IP']}`")
-                st.code(
-                    f"ssh -i ~/.ssh/hm2p-suite2p.pem ubuntu@{inst['IP']} "
-                    "'tail -f /var/log/kpms-setup.log'",
-                    language="bash",
-                )
-            elif state == "stopped":
-                st.warning(f"Instance **{inst['Instance ID']}** is **stopped**")
-            else:
-                st.info(f"Instance **{inst['Instance ID']}** is **{state}**")
+if n_done >= TOTAL_SESSIONS:
+    st.success(f"All {TOTAL_SESSIONS} sessions complete.")
+elif n_done > 0:
+    st.info(f"{n_done}/{TOTAL_SESSIONS} sessions have syllable data.")
+else:
+    st.warning("No syllable outputs found on S3 yet.")
 
-        st.dataframe(pd.DataFrame(instances), use_container_width=True)
-    else:
-        st.info("No kpms EC2 instances found (may have self-terminated after completion).")
+# Show per-session table
+if syllable_sessions:
+    animals = load_animals()
+    animal_map = {a["animal_id"]: a for a in animals}
+    file_info = []
+    for ss in sorted(syllable_sessions, key=lambda x: x["key"]):
+        animal_id = ss["sub"].replace("sub-", "")
+        celltype = animal_map.get(animal_id, {}).get("celltype", "?")
+        file_info.append({
+            "Subject": ss["sub"],
+            "Session": ss["ses"],
+            "Cell type": celltype,
+            "Size (KB)": f"{ss['size'] / 1024:.0f}",
+        })
 
-except Exception as e:
-    st.warning(f"Could not check EC2: {sanitize_error(e)}")
-
-# ── Section 2: Job Completion Status ────────────────────────────────────
-
-st.header("Job Status")
-
-try:
-    s3 = get_s3_client()
-
-    # Check completion marker
-    try:
-        obj = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key="kinematics/kpms_status.json")
-        status_data = json.loads(obj["Body"].read().decode())
-        if status_data.get("status") == "complete":
-            st.success("keypoint-MoSeq job completed successfully.")
-        else:
-            st.info(f"Job status: {status_data.get('status', 'unknown')}")
-    except s3.exceptions.NoSuchKey:
-        st.warning("Job not yet complete (no status marker on S3).")
-    except Exception:
-        st.warning("Job not yet complete (no status marker on S3).")
-
-    # Count syllable outputs
-    resp = s3.list_objects_v2(
-        Bucket=DERIVATIVES_BUCKET,
-        Prefix="kinematics/",
-    )
-    all_keys = [obj["Key"] for obj in resp.get("Contents", [])]
-    npz_files = [k for k in all_keys if k.endswith("syllables.npz")]
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Sessions complete", f"{len(npz_files)} / {TOTAL_SESSIONS}")
-    col2.metric("Progress", f"{len(npz_files) / TOTAL_SESSIONS * 100:.0f}%")
-
-    # Check for summary JSON
-    summary_keys = [k for k in all_keys if k.endswith("kpms_summary.json")]
-    col3.metric("Summary files", len(summary_keys))
-
-    if npz_files:
-        st.subheader("Syllable Outputs on S3")
-
-        file_info = []
-        for key in sorted(npz_files):
-            parts = key.split("/")
-            # kinematics/sub-XXXX/ses-XXXX/syllables.npz
-            sub = parts[1] if len(parts) > 1 else "—"
-            ses = parts[2] if len(parts) > 2 else "—"
-            file_info.append({"Subject": sub, "Session": ses, "S3 Key": key})
-
+    with st.expander(f"Per-session files ({n_done} sessions)"):
         st.dataframe(pd.DataFrame(file_info), use_container_width=True)
 
-        # ── Section 3: Syllable Statistics ──────────────────────────────
-        st.header("Syllable Statistics")
+# ── Section 2: Summary from kpms_summary.json ───────────────────────────
 
-        @st.cache_data(ttl=600)
-        def _load_syllable_stats(key: str) -> dict | None:
-            """Load a syllable .npz and compute basic stats."""
-            try:
-                data = download_s3_bytes(DERIVATIVES_BUCKET, key)
-                if data is None:
-                    return None
-                import io
-                npz = np.load(io.BytesIO(data))
-                syl_ids = npz.get("syllable_id", npz.get("syllable_ids", None))
-                if syl_ids is None:
-                    return None
-                unique, counts = np.unique(syl_ids, return_counts=True)
-                return {
-                    "n_frames": len(syl_ids),
-                    "n_syllables": len(unique),
-                    "syllable_ids": unique.tolist(),
-                    "syllable_counts": counts.tolist(),
-                    "most_common": int(unique[np.argmax(counts)]),
-                    "most_common_frac": float(counts.max() / counts.sum()),
-                }
-            except Exception as e:
-                log.warning("Failed to load syllable stats: %s", e)
-                return None
+st.header("Summary Statistics")
 
-        # Load stats for all available sessions
-        all_stats = []
-        for fi in file_info:
-            stats = _load_syllable_stats(fi["S3 Key"])
-            if stats:
-                all_stats.append({**fi, **stats})
+summary = load_kpms_summary()
 
-        if all_stats:
-            stats_df = pd.DataFrame(all_stats)
-            display_cols = ["Subject", "Session", "n_frames", "n_syllables",
-                            "most_common", "most_common_frac"]
-            display_cols = [c for c in display_cols if c in stats_df.columns]
-            st.dataframe(
-                stats_df[display_cols].style.format(
-                    {"most_common_frac": "{:.1%}"}, na_rep="—"
-                ),
-                use_container_width=True,
+if summary is not None:
+    # kpms_summary.json structure: per-session frame counts & syllable counts
+    # plus global stats
+    sessions_info = summary.get("sessions", [])
+    global_info = summary.get("global", {})
+
+    if global_info:
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Total unique syllables", global_info.get("n_syllables", "?"))
+        col2.metric("Total frames", f"{global_info.get('total_frames', 0):,}")
+        col3.metric("Mean syllables/session", f"{global_info.get('mean_syllables_per_session', 0):.1f}")
+        col4.metric("Median bout length", f"{global_info.get('median_bout_frames', '?')}")
+
+    if sessions_info:
+        sum_df = pd.DataFrame(sessions_info)
+        display_cols = [c for c in ["session", "sub", "ses", "n_frames", "n_syllables"] if c in sum_df.columns]
+        if display_cols:
+            with st.expander("Per-session summary (from kpms_summary.json)"):
+                st.dataframe(sum_df[display_cols], use_container_width=True)
+else:
+    # Fall back to computing stats from the actual npz files
+    st.info("kpms_summary.json not found on S3. Computing stats from syllables.npz files...")
+
+    syl_data = load_all_syllable_data()
+    syl_sessions = syl_data["sessions"]
+
+    if syl_sessions:
+        all_unique = set()
+        total_frames = 0
+        stats_rows = []
+        for s in syl_sessions:
+            unique_ids = np.unique(s["syllable_id"])
+            all_unique.update(unique_ids.tolist())
+            total_frames += s["n_frames"]
+            stats_rows.append({
+                "Subject": s["sub"],
+                "Session": s["ses"],
+                "Cell type": s["celltype"],
+                "Frames": s["n_frames"],
+                "Syllable types": s["n_syllables"],
+            })
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total unique syllables", len(all_unique))
+        col2.metric("Total frames", f"{total_frames:,}")
+        mean_per_ses = np.mean([s["n_syllables"] for s in syl_sessions])
+        col3.metric("Mean syllables/session", f"{mean_per_ses:.1f}")
+
+        st.dataframe(pd.DataFrame(stats_rows), use_container_width=True)
+
+        # Pooled syllable usage histogram
+        pooled_counts: dict[int, int] = {}
+        for s in syl_sessions:
+            unique, counts = np.unique(s["syllable_id"], return_counts=True)
+            for sid, cnt in zip(unique, counts):
+                pooled_counts[int(sid)] = pooled_counts.get(int(sid), 0) + int(cnt)
+
+        if pooled_counts:
+            sorted_ids = sorted(pooled_counts.keys(),
+                                key=lambda x: pooled_counts[x], reverse=True)
+            fig = go.Figure(data=[go.Bar(
+                x=[str(s) for s in sorted_ids],
+                y=[pooled_counts[s] for s in sorted_ids],
+                marker_color="steelblue",
+            )])
+            fig.update_layout(
+                title="Syllable Usage (pooled across all sessions)",
+                xaxis_title="Syllable ID",
+                yaxis_title="Frame count",
+                height=350,
             )
-
-            # Aggregate stats
-            total_syllables = stats_df["n_syllables"].max()
-            total_frames = stats_df["n_frames"].sum()
-
-            col1, col2 = st.columns(2)
-            col1.metric("Total syllable types", int(total_syllables))
-            col2.metric("Total frames analysed", f"{total_frames:,}")
-
-            # Syllable usage distribution (pooled)
-            import plotly.graph_objects as go
-
-            pooled_counts: dict[int, int] = {}
-            for row in all_stats:
-                for sid, cnt in zip(row["syllable_ids"], row["syllable_counts"]):
-                    pooled_counts[sid] = pooled_counts.get(sid, 0) + cnt
-
-            if pooled_counts:
-                sorted_ids = sorted(pooled_counts.keys(),
-                                     key=lambda x: pooled_counts[x], reverse=True)
-                fig = go.Figure(data=[go.Bar(
-                    x=[str(s) for s in sorted_ids],
-                    y=[pooled_counts[s] for s in sorted_ids],
-                    marker_color="steelblue",
-                )])
-                fig.update_layout(
-                    title="Syllable Usage (pooled across sessions)",
-                    xaxis_title="Syllable ID",
-                    yaxis_title="Frame count",
-                    height=350,
-                )
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Could not load syllable statistics from .npz files.")
+            st.plotly_chart(fig, use_container_width=True)
     else:
-        st.info("No syllable outputs on S3 yet. Job may still be running.")
+        st.warning("Could not load syllable data from S3.")
 
-except Exception as e:
-    st.warning(f"Could not check S3: {sanitize_error(e)}")
+# ── Section 3: EC2 Instance Status ──────────────────────────────────────
+
+with st.expander("EC2 Instance Status"):
+    try:
+        import boto3
+
+        ec2 = boto3.client("ec2", region_name=REGION)
+        resp = ec2.describe_instances(
+            Filters=[
+                {"Name": "tag:Name", "Values": ["hm2p-kpms"]},
+            ]
+        )
+        instances = []
+        for res in resp["Reservations"]:
+            for inst in res["Instances"]:
+                state = inst["State"]["Name"]
+                if state == "terminated":
+                    continue
+                instances.append({
+                    "Instance ID": inst["InstanceId"],
+                    "State": state,
+                    "Type": inst.get("InstanceType", "---"),
+                    "IP": inst.get("PublicIpAddress", "---"),
+                    "Launch": str(inst.get("LaunchTime", "---"))[:19],
+                })
+
+        if instances:
+            for inst in instances:
+                state = inst["State"]
+                if state == "running":
+                    st.success(f"Instance **{inst['Instance ID']}** is **running** at `{inst['IP']}`")
+                elif state == "stopped":
+                    st.warning(f"Instance **{inst['Instance ID']}** is **stopped**")
+                else:
+                    st.info(f"Instance **{inst['Instance ID']}** is **{state}**")
+            st.dataframe(pd.DataFrame(instances), use_container_width=True)
+        else:
+            st.info("No kpms EC2 instances found (may have self-terminated after completion).")
+
+    except Exception as e:
+        st.warning(f"Could not check EC2: {sanitize_error(e)}")
 
 # ── Section 4: Configuration ────────────────────────────────────────────
 
-with st.expander("Pipeline Configuration"):
+with st.expander("Pipeline Parameters"):
     st.markdown("""
     | Parameter | Value |
     |-----------|-------|
-    | Instance type | c5.2xlarge (8 vCPU, 16 GB, CPU-only) |
-    | Input | DLC `.h5` files from S3 `pose/` |
-    | Output | `syllables.npz` → S3 `kinematics/{sub}/{ses}/` |
-    | AR-HMM kappa | 1,000,000 |
-    | Num PCs | 10 |
-    | Num iterations | 50 |
-    | Docker | `hm2p-kpms` (isolated numpy<1.27 environment) |
-    | Bodyparts | nose, left_ear, right_ear, neck, mid_back, mouse_center, mid_backend, mid_backend2 |
+    | **AR-HMM kappa** | 1,000,000 |
+    | **Num PCs** | 10 |
+    | **Num iterations** | 50 |
+    | **Bodyparts** | nose, left_ear, right_ear, neck, mid_back, mouse_center, mid_backend, mid_backend2 |
+    | **Input** | DLC `.h5` files from S3 `pose/` (30 fps subsampled) |
+    | **Output** | `syllables.npz` per session in S3 `kinematics/{sub}/{ses}/` |
+    | **Instance type** | c5.2xlarge (8 vCPU, 16 GB, CPU-only) |
+    | **Docker image** | `hm2p-kpms` (isolated numpy<1.27 environment) |
     """)
 
 # ── Methods & References ────────────────────────────────────────────────
 
 with st.expander("Methods & References"):
     st.markdown("""
-    **keypoint-MoSeq** discovers behavioural syllables — brief, reused motifs
-    of movement — from pose tracking data without any manual labeling.
+    **keypoint-MoSeq** discovers behavioural syllables --- brief, reused motifs
+    of movement --- from pose tracking data without any manual labeling.
     It fits an autoregressive hidden Markov model (AR-HMM) to keypoint
     trajectories, segmenting continuous behaviour into discrete states.
 

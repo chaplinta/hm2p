@@ -79,10 +79,11 @@ _BODY_KEYPOINTS: tuple[str, ...] = ("mid_back", "mouse_center", "tail_base")
 
 
 def _median_filter_1d(arr: np.ndarray, win: int = 5) -> np.ndarray:
-    """Apply rolling median filter, preserving NaN positions.
+    """Apply rolling median filter to a 1D numpy signal, preserving NaN.
 
-    Matches the legacy pipeline's 5-frame rolling median on keypoint
-    coordinates and HD.
+    Used only for post-HD-unwrap smoothing (a scalar 1D signal that
+    movement's xarray-based rolling_filter cannot handle). For position
+    data, use ``movement.filtering.rolling_filter`` on the Dataset instead.
 
     Args:
         arr: (N,) input signal (may contain NaN).
@@ -108,6 +109,30 @@ def _median_filter_1d(arr: np.ndarray, win: int = 5) -> np.ndarray:
     return out
 
 
+def median_filter_dataset(ds: xr.Dataset, window: int = 5) -> xr.Dataset:
+    """Apply movement's rolling median filter to the position DataArray.
+
+    This replaces per-coordinate ``_median_filter_1d`` calls with
+    movement's native xarray-based filter for all keypoints at once.
+
+    Args:
+        ds: movement Dataset with a ``position`` DataArray.
+        window: Rolling window size (default 5, matching legacy pipeline).
+
+    Returns:
+        Dataset with median-filtered positions.
+    """
+    from movement.filtering import rolling_filter
+
+    try:
+        filtered = rolling_filter(ds.position, window=window, statistic="median")
+        if filtered.shape == ds.position.shape:
+            ds["position"].values[:] = filtered.values
+    except Exception:
+        pass  # If filter fails (e.g. all-NaN data), keep unfiltered
+    return ds
+
+
 def _compute_hd_deg(
     ear_left_x: np.ndarray,
     ear_left_y: np.ndarray,
@@ -119,32 +144,22 @@ def _compute_hd_deg(
 
     Formula: arctan2(left_x - right_x, left_y - right_y) → 180 + degrees.
 
-    Applies a rolling median filter (default window=5) to ear coordinates
-    before computing HD, and to the unwrapped HD signal after computation,
-    matching the legacy pipeline's smoothing.
-
-    NaN frames are temporarily filled by interpolation so that np.unwrap
-    sees a continuous signal; NaN is restored afterward.
+    Ear positions should already be median-filtered via
+    ``median_filter_dataset()`` (movement's rolling_filter) before calling
+    this function. A post-unwrap median filter is applied to the HD signal
+    to smooth angle jitter (1D scalar, not covered by movement).
 
     Args:
-        ear_left_x: (N,) x coordinate of ear-left keypoint.
-        ear_left_y: (N,) y coordinate of ear-left keypoint.
-        ear_right_x: (N,) x coordinate of ear-right keypoint.
-        ear_right_y: (N,) y coordinate of ear-right keypoint.
-        median_filter_win: Rolling median window size for smoothing
-            ear positions and HD (default 5, matching legacy pipeline).
-            Set to 0 or 1 to disable.
+        ear_left_x: (N,) x coordinate of ear-left keypoint (pre-filtered).
+        ear_left_y: (N,) y coordinate of ear-left keypoint (pre-filtered).
+        ear_right_x: (N,) x coordinate of ear-right keypoint (pre-filtered).
+        ear_right_y: (N,) y coordinate of ear-right keypoint (pre-filtered).
+        median_filter_win: Window for post-unwrap HD smoothing (default 5).
 
     Returns:
         (N,) float32 — HD in degrees, unwrapped.
     """
-    # Median-filter ear positions (matching legacy pipeline)
-    lx = _median_filter_1d(ear_left_x, median_filter_win)
-    ly = _median_filter_1d(ear_left_y, median_filter_win)
-    rx = _median_filter_1d(ear_right_x, median_filter_win)
-    ry = _median_filter_1d(ear_right_y, median_filter_win)
-
-    angle_rad = np.arctan2(lx - rx, ly - ry)
+    angle_rad = np.arctan2(ear_left_x - ear_right_x, ear_left_y - ear_right_y)
     angle_deg = 180.0 + np.degrees(angle_rad)
 
     nan_mask = np.isnan(angle_deg)
@@ -161,7 +176,8 @@ def _compute_hd_deg(
     rad_unwrapped = np.unwrap(np.deg2rad(angle_filled), discont=np.pi)
     deg_unwrapped = np.degrees(rad_unwrapped)
 
-    # Median-filter the unwrapped HD (matching legacy pipeline)
+    # Post-unwrap median filter on the 1D HD signal (movement doesn't
+    # cover scalar 1D filtering — this is the only remaining scipy call).
     deg_unwrapped = _median_filter_1d(deg_unwrapped, median_filter_win)
 
     deg_unwrapped[nan_mask] = np.nan
@@ -620,6 +636,7 @@ def run(
     ds = apply_orientation_rotation(ds, orientation_deg)
     ds = filter_low_confidence(ds, threshold=confidence_threshold)
     ds = interpolate_gaps(ds, max_gap_frames=gap_fill_frames)
+    ds = median_filter_dataset(ds, window=5)  # movement rolling median
 
     # --- Kinematics ---
     hd_deg = compute_head_direction(ds)  # (N,) float32

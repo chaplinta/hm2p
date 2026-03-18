@@ -775,3 +775,119 @@ def _fetch_all_suite2p_spatial() -> dict[str, dict]:
         }
 
     return result
+
+
+# ── MoSeq data loaders ──────────────────────────────────────────────────
+
+
+@st.cache_data(ttl=1800)
+def load_kpms_summary() -> dict | None:
+    """Load kpms_summary.json from S3."""
+    data = download_s3_bytes(DERIVATIVES_BUCKET, "kinematics/kpms_summary.json")
+    if data is None:
+        return None
+    try:
+        return json.loads(data.decode())
+    except Exception:
+        log.exception("Error parsing kpms_summary.json")
+        return None
+
+
+@st.cache_data(ttl=300)
+def list_syllable_sessions() -> list[dict]:
+    """List sessions that have syllables.npz on S3.
+
+    Returns list of dicts with keys: sub, ses, key, size.
+    Uses paginator to handle >1000 objects.
+    """
+    try:
+        s3 = get_s3_client()
+        results = []
+        paginator = s3.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix="kinematics/"):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if key.endswith("syllables.npz"):
+                    parts = key.split("/")
+                    sub = parts[1] if len(parts) > 1 else "---"
+                    ses = parts[2] if len(parts) > 2 else "---"
+                    results.append({"sub": sub, "ses": ses, "key": key, "size": obj["Size"]})
+        return results
+    except Exception as e:
+        log.warning("Failed to list syllable sessions: %s", e)
+        return []
+
+
+@st.cache_data(ttl=1800)
+def load_syllable_npz(s3_key: str) -> dict | None:
+    """Load a syllables.npz from S3 and return numpy arrays as a dict.
+
+    Returns dict with keys like 'syllable_id', 'syllable_prob'.
+    """
+    import numpy as np
+
+    data = download_s3_bytes(DERIVATIVES_BUCKET, s3_key)
+    if data is None:
+        return None
+    try:
+        npz = np.load(io.BytesIO(data))
+        return {k: npz[k] for k in npz.files}
+    except Exception as e:
+        log.warning("Failed to load syllable data from %s: %s", s3_key, e)
+        return None
+
+
+def load_all_syllable_data() -> dict:
+    """Load syllable data for ALL sessions. Cached in session state.
+
+    Returns dict with:
+        ``"sessions"`` -- list of dicts with: sub, ses, key, animal_id,
+            celltype, syllable_id, n_frames, n_syllables
+        ``"n_sessions"`` -- number of sessions loaded
+    """
+    cache_key = _session_state_key("syllable_data")
+    if cache_key in st.session_state:
+        return st.session_state[cache_key]
+
+    result = _fetch_all_syllable_data()
+    st.session_state[cache_key] = result
+    return result
+
+
+@st.cache_data(ttl=1800)
+def _fetch_all_syllable_data() -> dict:
+    """Internal: download and parse all syllables.npz from S3."""
+    import numpy as np
+
+    syl_sessions = list_syllable_sessions()
+    animals = load_animals()
+    animal_map = {a["animal_id"]: a for a in animals}
+
+    sessions = []
+    for ss in syl_sessions:
+        npz = load_syllable_npz(ss["key"])
+        if npz is None:
+            continue
+        syl_ids = npz.get("syllable_id", npz.get("syllable_ids"))
+        if syl_ids is None:
+            continue
+        syl_ids = syl_ids.astype(int)
+        animal_id = ss["sub"].replace("sub-", "")
+        animal_info = animal_map.get(animal_id, {})
+        unique_syls = np.unique(syl_ids)
+
+        sessions.append({
+            "sub": ss["sub"],
+            "ses": ss["ses"],
+            "key": ss["key"],
+            "animal_id": animal_id,
+            "celltype": animal_info.get("celltype", "unknown"),
+            "syllable_id": syl_ids,
+            "n_frames": len(syl_ids),
+            "n_syllables": len(unique_syls),
+        })
+
+    return {
+        "sessions": sessions,
+        "n_sessions": len(sessions),
+    }
