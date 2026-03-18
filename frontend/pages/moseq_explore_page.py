@@ -86,12 +86,13 @@ syl_to_global_idx = {s: i for i, s in enumerate(all_syl_sorted)}
 
 # ── Tab layout ──────────────────────────────────────────────────────────
 
-tab_usage, tab_per_session, tab_transitions, tab_celltype, tab_ethogram = st.tabs([
+tab_usage, tab_per_session, tab_transitions, tab_celltype, tab_ethogram, tab_crowd = st.tabs([
     "Syllable Usage",
     "Per-Session Distribution",
     "Transition Matrix",
     "Celltype Comparison",
     "Ethogram",
+    "Crowd Movies",
 ])
 
 # ════════════════════════════════════════════════════════════════════════
@@ -579,6 +580,75 @@ with tab_ethogram:
                     c1, c2 = st.columns(2)
                     c1.metric("Mean entropy", f"{entropy.mean():.2f} bits")
                     c2.metric("Max possible", f"{np.log2(syl_prob.shape[1]):.2f} bits")
+
+# ════════════════════════════════════════════════════════════════════════
+# TAB 6: Crowd Movies
+# ════════════════════════════════════════════════════════════════════════
+
+with tab_crowd:
+    st.subheader("Crowd Movies")
+    st.caption(
+        "Averaged video clips showing what each behavioural syllable looks like. "
+        "Each clip is the mean of many aligned bouts of the same syllable across sessions."
+    )
+
+    # Load crowd movie summary from S3
+    @st.cache_data(ttl=600)
+    def _load_crowd_summary() -> list[dict] | None:
+        import json as _json
+        raw = download_s3_bytes(
+            DERIVATIVES_BUCKET, "kinematics/crowd_movies/summary.json"
+        )
+        if raw is None:
+            return None
+        try:
+            return _json.loads(raw.decode())
+        except Exception:
+            return None
+
+    crowd_summary = _load_crowd_summary()
+
+    if crowd_summary is None or len(crowd_summary) == 0:
+        st.warning(
+            "No crowd movies found on S3 yet. "
+            "Run `python scripts/render_crowd_movies.py` to generate them."
+        )
+    else:
+        st.info(f"Found **{len(crowd_summary)}** crowd movies.")
+
+        # Sort by usage (most common first)
+        crowd_summary_sorted = sorted(
+            crowd_summary, key=lambda x: x.get("usage_frames", 0), reverse=True
+        )
+
+        # Display in a 4-column grid
+        n_cols = 4
+        for row_start in range(0, len(crowd_summary_sorted), n_cols):
+            cols = st.columns(n_cols)
+            for col_idx in range(n_cols):
+                item_idx = row_start + col_idx
+                if item_idx >= len(crowd_summary_sorted):
+                    break
+                item = crowd_summary_sorted[item_idx]
+                syl_id = item["syllable_id"]
+                usage = item.get("usage_frames", 0)
+                n_clips = item.get("n_clips_averaged", 0)
+                s3_key = item.get("s3_key", f"kinematics/crowd_movies/syllable_{syl_id}.mp4")
+
+                with cols[col_idx]:
+                    st.markdown(f"**Syllable {syl_id}**")
+
+                    # Download the video bytes
+                    video_bytes = download_s3_bytes(DERIVATIVES_BUCKET, s3_key)
+                    if video_bytes is not None:
+                        st.video(video_bytes, format="video/mp4", loop=True, autoplay=True)
+                    else:
+                        st.warning(f"Video not available for syllable {syl_id}")
+
+                    st.caption(
+                        f"Usage: {usage:,} frames | "
+                        f"Averaged from {n_clips} bouts"
+                    )
 
 # ── Methods & References ────────────────────────────────────────────────
 
