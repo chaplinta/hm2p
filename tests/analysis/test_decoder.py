@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+from hypothesis.extra.numpy import arrays
 
 from hm2p.analysis.decoder import (
     build_decoder,
@@ -455,3 +458,70 @@ class TestCrossValidatedDecode:
                                      rng=np.random.default_rng(42))
         np.testing.assert_array_equal(r1["decoded_deg"], r2["decoded_deg"])
         np.testing.assert_array_equal(r1["confidence"], r2["confidence"])
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis property-based tests
+# ---------------------------------------------------------------------------
+
+
+class TestHypothesisDecoder:
+    @given(
+        n_cells=st.integers(min_value=4, max_value=15),
+        n_frames=st.integers(min_value=200, max_value=800),
+        kappa=st.floats(min_value=1.0, max_value=6.0),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_decode_hd_angles_in_range(self, n_cells, n_frames, kappa):
+        """decode_hd output angles always in [0, 360)."""
+        signals, hd, mask = _make_population(
+            n_cells=n_cells, n_frames=n_frames, kappa=kappa, noise=0.1,
+        )
+        dec = build_decoder(signals, hd, mask)
+        decoded, _ = decode_hd(signals, dec)
+        assert np.all(decoded >= 0), f"Min decoded angle: {decoded.min()}"
+        assert np.all(decoded < 360), f"Max decoded angle: {decoded.max()}"
+
+    @given(
+        n_cells=st.integers(min_value=4, max_value=15),
+        n_frames=st.integers(min_value=200, max_value=800),
+        noise=st.floats(min_value=0.01, max_value=1.0),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_decode_hd_confidence_in_unit_interval(self, n_cells, n_frames, noise):
+        """decode_hd confidence always in [0, 1]."""
+        signals, hd, mask = _make_population(
+            n_cells=n_cells, n_frames=n_frames, kappa=3.0, noise=noise,
+        )
+        dec = build_decoder(signals, hd, mask)
+        _, confidence = decode_hd(signals, dec)
+        assert np.all(confidence >= 0), f"Min confidence: {confidence.min()}"
+        assert np.all(confidence <= 1.0 + 1e-10), f"Max confidence: {confidence.max()}"
+
+    @given(
+        n_cells=st.integers(min_value=5, max_value=12),
+        n_frames=st.integers(min_value=300, max_value=600),
+        n_folds=st.integers(min_value=2, max_value=5),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_cross_validated_decode_valid_errors(self, n_cells, n_frames, n_folds):
+        """cross_validated_decode returns valid error metrics."""
+        signals, hd, mask = _make_population(
+            n_cells=n_cells, n_frames=n_frames, kappa=3.0, noise=0.1,
+        )
+        result = cross_validated_decode(
+            signals, hd, mask, n_folds=n_folds,
+            rng=np.random.default_rng(42),
+        )
+        errs = result["errors"]
+        # Absolute errors should be non-negative
+        assert errs["mean_abs_error"] >= 0
+        assert errs["median_abs_error"] >= 0
+        # Absolute errors bounded by 180 (max circular distance)
+        assert errs["mean_abs_error"] <= 180.0
+        assert errs["median_abs_error"] <= 180.0
+        # Circular std should be non-negative
+        assert errs["circular_std_error"] >= 0
+        # Confidence should be in [0, 1]
+        assert np.all(result["confidence"] >= 0)
+        assert np.all(result["confidence"] <= 1.0 + 1e-10)

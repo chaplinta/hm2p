@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+from hypothesis.extra.numpy import arrays
 
 from hm2p.analysis.ahv import (
     ahv_modulation_index,
@@ -151,3 +154,47 @@ class TestAnticipatoryTimeDelay:
         assert np.all(result["mvls"] >= 0)
         assert np.all(result["mvls"] <= 1)
         assert len(result["lags_ms"]) == 7  # -3 to +3
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis property-based tests
+# ---------------------------------------------------------------------------
+
+
+class TestHypothesisAHV:
+    @given(
+        n=st.integers(min_value=10, max_value=2000),
+        fps=st.floats(min_value=1.0, max_value=100.0),
+    )
+    @settings(max_examples=50, deadline=None)
+    def test_ahv_handles_wraparound(self, n, fps):
+        """AHV should handle 0/360 boundary without huge spikes.
+
+        A smoothly increasing HD that wraps from 359 -> 0 should not produce
+        AHV values much larger than the true rotation rate.
+        """
+        # Create HD that wraps smoothly: 5 deg/frame at given fps
+        step = 5.0
+        hd = np.arange(n, dtype=np.float64) * step % 360.0
+        ahv = compute_ahv(hd, fps=fps, smoothing_frames=1)
+        # True AHV should be ~step * fps everywhere (except edges)
+        expected = step * fps
+        # Allow some tolerance for edge frames and small numerical drift
+        # Key property: no huge spikes from wrapping
+        inner = ahv[1:-1]
+        if len(inner) > 0:
+            assert np.all(np.abs(inner) < expected * 3), (
+                f"AHV spike detected: max={np.abs(inner).max():.1f}, "
+                f"expected ~{expected:.1f}"
+            )
+
+    @given(
+        n=st.integers(min_value=5, max_value=1000),
+    )
+    @settings(max_examples=50, deadline=None)
+    def test_ahv_output_shape_matches_input(self, n):
+        """compute_ahv output length always matches input length."""
+        rng = np.random.default_rng(42)
+        hd = rng.uniform(0, 360, n)
+        ahv = compute_ahv(hd, fps=30.0, smoothing_frames=1)
+        assert ahv.shape == (n,), f"Expected shape ({n},), got {ahv.shape}"

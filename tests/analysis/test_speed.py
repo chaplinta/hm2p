@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
+from hypothesis.extra.numpy import arrays
 
 from hm2p.analysis.speed import (
     hd_tuning_by_speed,
@@ -123,3 +126,40 @@ class TestHDTuningBySpeed:
         result = hd_tuning_by_speed(signal, hd, speed, mask,
                                     speed_quantiles=(0.25, 0.5, 0.75))
         assert len(result["tuning_curves"]) == 4  # 4 groups from 3 quantiles
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis property-based tests
+# ---------------------------------------------------------------------------
+
+
+class TestHypothesisSpeed:
+    @given(
+        n=st.integers(min_value=50, max_value=2000),
+        speed_gain=st.floats(min_value=-1.0, max_value=2.0),
+    )
+    @settings(max_examples=50, deadline=None)
+    def test_speed_correlation_in_range(self, n, speed_gain):
+        """speed_correlation (Pearson r) always in [-1, 1]."""
+        signal, _, speed, mask = _make_speed_cell(
+            n=n, speed_gain=speed_gain, seed=42,
+        )
+        result = speed_modulation_index(signal, speed, mask)
+        rho = result["speed_correlation"]
+        assert -1.0 - 1e-10 <= rho <= 1.0 + 1e-10, f"rho={rho} out of range"
+
+    @given(
+        speed_vals=arrays(
+            dtype=np.float64,
+            shape=st.integers(min_value=20, max_value=500),
+            elements=st.floats(min_value=0.0, max_value=100.0, allow_nan=False),
+        ),
+    )
+    @settings(max_examples=50, deadline=None)
+    def test_speed_always_non_negative(self, speed_vals):
+        """Speed values used in analysis are always non-negative."""
+        # This tests that speed_tuning_curve bin centres are non-negative
+        signal = np.ones_like(speed_vals)
+        mask = np.ones(len(speed_vals), dtype=bool)
+        tc, bin_centers = speed_tuning_curve(signal, speed_vals, mask, n_bins=10)
+        assert np.all(bin_centers >= 0), f"Negative bin center: {bin_centers.min()}"

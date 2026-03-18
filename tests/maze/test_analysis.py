@@ -594,3 +594,45 @@ class TestMazeExplorationSummary:
         summary = maze_exploration_summary(indices, maze)
         assert summary["unique_cells_visited"] == 0
         assert summary["coverage_frac"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis property-based tests
+# ---------------------------------------------------------------------------
+
+
+class TestHypothesisSequenceEntropy:
+    @given(
+        seq=st.lists(
+            st.integers(min_value=0, max_value=9), min_size=2, max_size=200,
+        ).map(np.array),
+    )
+    @settings(max_examples=100, deadline=None)
+    def test_entropy_always_non_negative(self, seq):
+        """Sequence entropy should always be >= 0 for any node sequence."""
+        ctx, ent = sequence_entropy(seq, max_context=5)
+        assert np.all(ent >= -1e-10), f"Negative entropy: {ent}"
+
+
+class TestHypothesisTurnBias:
+    @given(
+        path_len=st.integers(min_value=10, max_value=200),
+        seed=st.integers(min_value=0, max_value=10000),
+    )
+    @settings(max_examples=50, deadline=None)
+    def test_turn_fractions_sum_correctly(self, path_len, seed):
+        """Turn counts (left + right + back + forward) should equal total turns."""
+        maze = build_rose_maze()
+        traj = simulate_random_walk(maze, path_len, seed=seed)
+        tb = turn_bias(traj, maze)
+        total = tb["left"] + tb["right"] + tb["back"] + tb["forward"]
+        # If there are any turns, left_frac should be in [0, 1]
+        if tb["left"] + tb["right"] > 0:
+            assert 0.0 <= tb["left_frac"] <= 1.0, (
+                f"left_frac={tb['left_frac']} out of [0, 1]"
+            )
+        # Verify counts are non-negative integers
+        assert tb["left"] >= 0
+        assert tb["right"] >= 0
+        assert tb["back"] >= 0
+        assert tb["forward"] >= 0

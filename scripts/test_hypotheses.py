@@ -3,8 +3,8 @@
 
 Loads analysis.h5 + sync.h5 + metadata, pools cells with animal/session
 metadata, runs non-parametric tests (animal-level Mann-Whitney, cluster
-permutation), checks signal quality confounds, and outputs a structured
-markdown + CSV report.
+permutation), checks signal quality confounds, applies FDR correction,
+and outputs a structured markdown + CSV report.
 
 Usage:
     python scripts/test_hypotheses.py                  # full report
@@ -28,6 +28,16 @@ import pandas as pd
 from scipy import stats
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from hm2p.analysis.mixed_stats import (
+    animal_summary_test,
+    cluster_permutation_test,
+    confound_check,
+    fdr_correct,
+    interaction_contrast,
+    run_between_group_test,
+    within_cell_test,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 log = logging.getLogger("hypotheses")
@@ -79,14 +89,19 @@ def load_all_analysis(
     animals: pd.DataFrame,
     exps: pd.DataFrame,
     signal: str = "dff",
-) -> pd.DataFrame:
-    """Load all analysis.h5 files and build a per-cell DataFrame.
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load all analysis.h5 + sync.h5 files and build per-cell + per-session DataFrames.
 
-    Returns a DataFrame with one row per (session, roi) containing all
-    analysis metrics plus metadata (animal_id, celltype, sex, etc.).
+    Returns
+    -------
+    cell_df : DataFrame
+        One row per (session, roi) with analysis metrics + metadata.
+    session_df : DataFrame
+        One row per session with behavioural metrics (speed, active, light/dark).
     """
     s3 = _s3()
-    rows: list[dict] = []
+    cell_rows: list[dict] = []
+    session_rows: list[dict] = []
 
     valid_exps = exps[exps["exclude"].astype(str).str.strip() != "1"]
     log.info("Loading %d sessions...", len(valid_exps))
@@ -102,12 +117,28 @@ def load_all_analysis(
         if animal_row.empty:
             continue
         animal_info = animal_row.iloc[0]
+        celltype = str(animal_info.get("celltype", ""))
+
+        # Load sync.h5
+        sync_key = f"sync/{sub}/{ses}/sync.h5"
+        sync_f = _download_h5(sync_key)
+        dff_data = None
+        if sync_f is not None and "dff" in sync_f:
+            dff_data = sync_f["dff"][:]
+
+        # --- Extract session-level behavioural metrics from sync.h5 ---
+        if sync_f is not None:
+            _extract_session_behav(
+                sync_f, session_rows, exp_id, animal_id, celltype, sub, ses, exp,
+            )
 
         # Load analysis.h5
         key = f"analysis/{sub}/{ses}/analysis.h5"
         f = _download_h5(key)
         if f is None:
             log.warning("Missing: %s", key)
+            if sync_f is not None:
+                sync_f.close()
             continue
 
         try:
@@ -120,13 +151,6 @@ def load_all_analysis(
             if n_rois == 0:
                 continue
 
-            # Load sync.h5 for SNR/confound metrics
-            sync_key = f"sync/{sub}/{ses}/sync.h5"
-            sync_f = _download_h5(sync_key)
-            dff_data = None
-            if sync_f is not None and "dff" in sync_f:
-                dff_data = sync_f["dff"][:]
-
             for roi in range(n_rois):
                 row: dict = {
                     "exp_id": exp_id,
@@ -134,7 +158,7 @@ def load_all_analysis(
                     "sub": sub,
                     "ses": ses,
                     "roi_idx": roi,
-                    "celltype": str(animal_info.get("celltype", "")),
+                    "celltype": celltype,
                     "sex": str(animal_info.get("sex", "")),
                     "hemisphere": str(animal_info.get("hemisphere", "")),
                     "inj_ap": float(animal_info.get("inj_ap", np.nan)),
@@ -208,166 +232,91 @@ def load_all_analysis(
                             slope, _, _, _, _ = stats.linregress(x, y)
                             row["bleaching_slope"] = float(slope)
 
-                rows.append(row)
+                cell_rows.append(row)
 
             if sync_f is not None:
                 sync_f.close()
         finally:
             f.close()
 
-    df = pd.DataFrame(rows)
-    log.info("Loaded %d cells from %d sessions", len(df), df["exp_id"].nunique())
-    return df
+    cell_df = pd.DataFrame(cell_rows)
+    session_df = pd.DataFrame(session_rows)
+    log.info(
+        "Loaded %d cells from %d sessions, %d sessions with behaviour",
+        len(cell_df),
+        cell_df["exp_id"].nunique() if not cell_df.empty else 0,
+        len(session_df),
+    )
+    return cell_df, session_df
 
 
-# ---------------------------------------------------------------------------
-# Statistical tests
-# ---------------------------------------------------------------------------
+def _extract_session_behav(
+    sync_f: h5py.File,
+    session_rows: list[dict],
+    exp_id: str,
+    animal_id: str,
+    celltype: str,
+    sub: str,
+    ses: str,
+    exp: pd.Series,
+) -> None:
+    """Extract session-level behavioural metrics from an open sync.h5 file."""
+    has_speed = "speed_cm_s" in sync_f
+    has_active = "active" in sync_f
+    has_light = "light_on" in sync_f
+    has_bad = "bad_behav" in sync_f
 
+    if not has_speed and not has_active:
+        return
 
-def animal_summary_test(
-    df: pd.DataFrame,
-    metric_col: str,
-    group_col: str = "celltype",
-    animal_col: str = "animal_id",
-) -> dict:
-    """Collapse to animal means, then Mann-Whitney U."""
-    sub = df[[animal_col, group_col, metric_col]].dropna()
-    if sub.empty:
-        return {"test": "animal_summary", "metric": metric_col,
-                "statistic": np.nan, "p_value": np.nan,
-                "n_penk": 0, "n_nonpenk": 0, "effect_size": np.nan}
+    speed = sync_f["speed_cm_s"][:] if has_speed else None
+    active = sync_f["active"][:].astype(bool) if has_active else None
+    light_on = sync_f["light_on"][:].astype(bool) if has_light else None
+    bad_behav = sync_f["bad_behav"][:].astype(bool) if has_bad else None
 
-    animal_means = sub.groupby([animal_col, group_col])[metric_col].mean().reset_index()
-    penk = animal_means.loc[animal_means[group_col] == "penk", metric_col].values
-    nonpenk = animal_means.loc[animal_means[group_col] == "nonpenk", metric_col].values
+    # Build valid mask: not bad_behav
+    valid = ~bad_behav if bad_behav is not None else np.ones(len(speed if speed is not None else active), dtype=bool)
 
-    if len(penk) < 2 or len(nonpenk) < 2:
-        return {"test": "animal_summary", "metric": metric_col,
-                "statistic": np.nan, "p_value": np.nan,
-                "n_penk": len(penk), "n_nonpenk": len(nonpenk),
-                "effect_size": np.nan}
-
-    stat, p = stats.mannwhitneyu(penk, nonpenk, alternative="two-sided")
-    # Common language effect size
-    cles = stat / (len(penk) * len(nonpenk))
-    return {
-        "test": "animal_summary",
-        "metric": metric_col,
-        "statistic": float(stat),
-        "p_value": float(p),
-        "n_penk": len(penk),
-        "n_nonpenk": len(nonpenk),
-        "penk_mean": float(np.mean(penk)),
-        "nonpenk_mean": float(np.mean(nonpenk)),
-        "effect_size": float(cles),
+    srow: dict = {
+        "exp_id": exp_id,
+        "animal_id": animal_id,
+        "celltype": celltype,
+        "sub": sub,
+        "ses": ses,
     }
 
+    # Overall metrics
+    if active is not None:
+        srow["frac_active"] = float(np.mean(active[valid])) if valid.sum() > 0 else np.nan
 
-def cluster_permutation_test(
-    df: pd.DataFrame,
-    metric_col: str,
-    group_col: str = "celltype",
-    cluster_col: str = "animal_id",
-    n_perms: int = 10000,
-) -> dict:
-    """Permutation test shuffling group labels at the cluster (animal) level."""
-    sub = df[[cluster_col, group_col, metric_col]].dropna()
-    if sub.empty:
-        return {"test": "cluster_perm", "metric": metric_col,
-                "p_value": np.nan, "observed": np.nan}
+    if speed is not None and active is not None:
+        active_valid = active & valid
+        if active_valid.sum() > 0:
+            srow["mean_speed"] = float(np.mean(speed[active_valid]))
+        else:
+            srow["mean_speed"] = np.nan
+    elif speed is not None:
+        srow["mean_speed"] = float(np.mean(speed[valid])) if valid.sum() > 0 else np.nan
 
-    penk_vals = sub.loc[sub[group_col] == "penk", metric_col].values
-    nonpenk_vals = sub.loc[sub[group_col] == "nonpenk", metric_col].values
+    # Light vs dark behavioural metrics
+    if light_on is not None:
+        light_valid = valid & light_on
+        dark_valid = valid & ~light_on
 
-    if len(penk_vals) < 1 or len(nonpenk_vals) < 1:
-        return {"test": "cluster_perm", "metric": metric_col,
-                "p_value": np.nan, "observed": np.nan}
+        if active is not None:
+            srow["frac_active_light"] = float(np.mean(active[light_valid])) if light_valid.sum() > 0 else np.nan
+            srow["frac_active_dark"] = float(np.mean(active[dark_valid])) if dark_valid.sum() > 0 else np.nan
 
-    observed = float(np.mean(penk_vals) - np.mean(nonpenk_vals))
+        if speed is not None and active is not None:
+            active_light = active & light_valid
+            active_dark = active & dark_valid
+            srow["mean_speed_light"] = float(np.mean(speed[active_light])) if active_light.sum() > 0 else np.nan
+            srow["mean_speed_dark"] = float(np.mean(speed[active_dark])) if active_dark.sum() > 0 else np.nan
+        elif speed is not None:
+            srow["mean_speed_light"] = float(np.mean(speed[light_valid])) if light_valid.sum() > 0 else np.nan
+            srow["mean_speed_dark"] = float(np.mean(speed[dark_valid])) if dark_valid.sum() > 0 else np.nan
 
-    # Get cluster-level group assignments
-    cluster_groups = sub.groupby(cluster_col)[group_col].first()
-    cluster_ids = cluster_groups.index.values
-    n_nonpenk_clusters = (cluster_groups == "nonpenk").sum()
-
-    rng = np.random.default_rng(42)
-    null_stats = np.empty(n_perms)
-
-    for i in range(n_perms):
-        perm_nonpenk = rng.choice(cluster_ids, size=n_nonpenk_clusters, replace=False)
-        perm_penk = np.setdiff1d(cluster_ids, perm_nonpenk)
-
-        a = sub.loc[sub[cluster_col].isin(perm_penk), metric_col].values
-        b = sub.loc[sub[cluster_col].isin(perm_nonpenk), metric_col].values
-
-        null_stats[i] = np.mean(a) - np.mean(b) if len(a) > 0 and len(b) > 0 else 0.0
-
-    p_value = float((np.sum(np.abs(null_stats) >= np.abs(observed)) + 1) / (n_perms + 1))
-
-    return {
-        "test": "cluster_perm",
-        "metric": metric_col,
-        "observed": observed,
-        "p_value": p_value,
-        "null_mean": float(np.mean(null_stats)),
-        "null_std": float(np.std(null_stats)),
-    }
-
-
-def within_cell_test(
-    df: pd.DataFrame,
-    col_a: str,
-    col_b: str,
-    name: str,
-) -> dict:
-    """Paired Wilcoxon signed-rank test across all cells."""
-    sub = df[[col_a, col_b]].dropna()
-    if len(sub) < 5:
-        return {"test": "wilcoxon", "hypothesis": name,
-                "p_value": np.nan, "n_cells": len(sub)}
-
-    diff = sub[col_a].values - sub[col_b].values
-    diff = diff[diff != 0]  # Wilcoxon excludes ties at 0
-    if len(diff) < 5:
-        return {"test": "wilcoxon", "hypothesis": name,
-                "p_value": np.nan, "n_cells": len(sub)}
-
-    stat, p = stats.wilcoxon(diff, alternative="two-sided")
-    return {
-        "test": "wilcoxon",
-        "hypothesis": name,
-        "statistic": float(stat),
-        "p_value": float(p),
-        "n_cells": len(sub),
-        "mean_diff": float(np.mean(sub[col_a].values - sub[col_b].values)),
-        "median_diff": float(np.median(sub[col_a].values - sub[col_b].values)),
-    }
-
-
-def confound_check(
-    df: pd.DataFrame,
-    metric_col: str,
-    confound_cols: list[str],
-) -> list[dict]:
-    """Spearman correlation between metric and each confound."""
-    results = []
-    for conf in confound_cols:
-        sub = df[[metric_col, conf]].dropna()
-        if len(sub) < 5:
-            results.append({"metric": metric_col, "confound": conf,
-                            "rho": np.nan, "p_value": np.nan, "n": len(sub)})
-            continue
-        rho, p = stats.spearmanr(sub[metric_col], sub[conf])
-        results.append({
-            "metric": metric_col,
-            "confound": conf,
-            "rho": float(rho),
-            "p_value": float(p),
-            "n": len(sub),
-            "flagged": abs(rho) > 0.3,
-        })
-    return results
+    session_rows.append(srow)
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +369,20 @@ def define_hypotheses() -> list[dict]:
     h.append({"id": "H3.5", "name": "Light modulation differs",
               "type": "between_group", "metric": "light_modulation"})
 
+    # --- H4: Behavioural differences (session-level, from sync.h5) ---
+    h.append({"id": "H4.1a", "name": "Movement speed differs between types",
+              "type": "between_group_session", "metric": "mean_speed"})
+    h.append({"id": "H4.1b", "name": "Fraction active differs between types",
+              "type": "between_group_session", "metric": "frac_active"})
+    h.append({"id": "H4.3", "name": "Speed changes in darkness (within session)",
+              "type": "within_session",
+              "col_a": "mean_speed_light", "col_b": "mean_speed_dark"})
+    h.append({"id": "H4.4", "name": "Activity fraction changes in darkness (within session)",
+              "type": "within_session",
+              "col_a": "frac_active_light", "col_b": "frac_active_dark"})
+    h.append({"id": "H4.5", "name": "Light-dark speed change differs between types",
+              "type": "between_group_session", "metric": "speed_light_dark_diff"})
+
     # --- H5: Spatial coding ---
     h.append({"id": "H5.1", "name": "RSP has spatial info",
               "type": "descriptive", "metric": "place_all_significant"})
@@ -438,7 +401,8 @@ def define_hypotheses() -> list[dict]:
 
 
 def run_hypotheses(
-    df: pd.DataFrame,
+    cell_df: pd.DataFrame,
+    session_df: pd.DataFrame,
     n_perms: int = 10000,
 ) -> tuple[list[dict], list[dict]]:
     """Run all hypothesis tests, return (results, confound_checks)."""
@@ -447,9 +411,14 @@ def run_hypotheses(
     confounds: list[dict] = []
     confound_cols = ["snr", "peak_dff", "baseline_std", "bleaching_slope"]
 
-    # Filter to soma only
-    soma = df[df["roi_type"] == 0].copy()
-    log.info("Testing on %d soma ROIs (%d total ROIs)", len(soma), len(df))
+    # Filter to soma only for cell-level tests
+    soma = cell_df[cell_df["roi_type"] == 0].copy()
+    log.info("Testing on %d soma ROIs (%d total ROIs)", len(soma), len(cell_df))
+
+    # Prepare session_df with derived metric for H4.5
+    ses_df = session_df.copy()
+    if "mean_speed_light" in ses_df.columns and "mean_speed_dark" in ses_df.columns:
+        ses_df["speed_light_dark_diff"] = ses_df["mean_speed_light"] - ses_df["mean_speed_dark"]
 
     for hyp in hypotheses:
         hid = hyp["id"]
@@ -457,38 +426,67 @@ def run_hypotheses(
         htype = hyp["type"]
         log.info("  %s: %s (%s)", hid, hname, htype)
 
-        if htype == "between_group":
-            metric = hyp["metric"]
-            r1 = animal_summary_test(soma, metric)
-            r1["hypothesis"] = hid
-            r1["hypothesis_name"] = hname
-            results.append(r1)
+        try:
+            if htype == "between_group":
+                metric = hyp["metric"]
+                r = run_between_group_test(soma, metric, n_perms=n_perms)
+                r["hypothesis"] = hid
+                r["hypothesis_name"] = hname
+                results.append(r)
 
-            r2 = cluster_permutation_test(soma, metric, n_perms=n_perms)
-            r2["hypothesis"] = hid
-            r2["hypothesis_name"] = hname
-            results.append(r2)
+                # Confound check if either test is trending
+                p_summary = r.get("summary_p_value", 1)
+                p_perm = r.get("perm_p_value", 1)
+                if p_summary < 0.1 or p_perm < 0.1:
+                    available = [c for c in confound_cols if c in soma.columns]
+                    if available:
+                        checks = confound_check(soma, metric, available)
+                        for c in checks:
+                            c["hypothesis"] = hid
+                        confounds.extend(checks)
 
-            # Confound check if significant
-            if r1.get("p_value", 1) < 0.1 or r2.get("p_value", 1) < 0.1:
-                available = [c for c in confound_cols if c in soma.columns]
-                checks = confound_check(soma, metric, available)
-                for c in checks:
-                    c["hypothesis"] = hid
-                confounds.extend(checks)
+            elif htype == "between_group_session":
+                metric = hyp["metric"]
+                if metric not in ses_df.columns:
+                    log.warning("    Skipping %s: column '%s' not in session data", hid, metric)
+                    continue
+                # Collapse sessions to animal means, then between-group test
+                r = run_between_group_test(ses_df, metric, n_perms=n_perms)
+                r["hypothesis"] = hid
+                r["hypothesis_name"] = hname
+                r["level"] = "session"
+                results.append(r)
 
-        elif htype == "within_cell":
-            r = within_cell_test(soma, hyp["col_a"], hyp["col_b"], hid)
-            r["hypothesis"] = hid
-            r["hypothesis_name"] = hname
-            results.append(r)
+            elif htype == "within_cell":
+                col_a, col_b = hyp["col_a"], hyp["col_b"]
+                if col_a not in soma.columns or col_b not in soma.columns:
+                    log.warning("    Skipping %s: missing columns", hid)
+                    continue
+                r = within_cell_test(soma, col_a, col_b)
+                r["test"] = "wilcoxon"
+                r["hypothesis"] = hid
+                r["hypothesis_name"] = hname
+                results.append(r)
 
-        elif htype == "within_cell_interaction":
-            # Compute interaction contrast per cell
-            cols = hyp["cols"]
-            sub = soma[cols].dropna()
-            if len(sub) > 5:
-                contrast = (sub[cols[0]] - sub[cols[1]]) - (sub[cols[2]] - sub[cols[3]])
+            elif htype == "within_session":
+                col_a, col_b = hyp["col_a"], hyp["col_b"]
+                if col_a not in ses_df.columns or col_b not in ses_df.columns:
+                    log.warning("    Skipping %s: missing columns in session data", hid)
+                    continue
+                r = within_cell_test(ses_df, col_a, col_b)
+                r["test"] = "wilcoxon"
+                r["hypothesis"] = hid
+                r["hypothesis_name"] = hname
+                r["level"] = "session"
+                results.append(r)
+
+            elif htype == "within_cell_interaction":
+                cols = hyp["cols"]
+                missing = [c for c in cols if c not in soma.columns]
+                if missing:
+                    log.warning("    Skipping %s: missing columns %s", hid, missing)
+                    continue
+                contrast = interaction_contrast(soma[cols].dropna(), cols)
                 nonzero = contrast[contrast != 0]
                 if len(nonzero) > 5:
                     stat, p = stats.wilcoxon(nonzero, alternative="two-sided")
@@ -496,65 +494,101 @@ def run_hypotheses(
                         "test": "wilcoxon_interaction", "hypothesis": hid,
                         "hypothesis_name": hname,
                         "statistic": float(stat), "p_value": float(p),
-                        "n_cells": len(sub),
+                        "n_cells": len(contrast),
                         "mean_contrast": float(contrast.mean()),
                     })
 
-        elif htype == "between_group_interaction":
-            # Compute interaction contrast, then compare between groups
-            cols = hyp["cols"]
-            sub = soma[cols + ["celltype", "animal_id"]].dropna()
-            if len(sub) > 5:
-                sub = sub.copy()
-                sub["interaction"] = (sub[cols[0]] - sub[cols[1]]) - (sub[cols[2]] - sub[cols[3]])
-                r1 = animal_summary_test(sub, "interaction")
-                r1["hypothesis"] = hid
-                r1["hypothesis_name"] = hname
-                results.append(r1)
-                r2 = cluster_permutation_test(sub, "interaction", n_perms=n_perms)
-                r2["hypothesis"] = hid
-                r2["hypothesis_name"] = hname
-                results.append(r2)
+            elif htype == "between_group_interaction":
+                cols = hyp["cols"]
+                needed = cols + ["celltype", "animal_id"]
+                missing = [c for c in needed if c not in soma.columns]
+                if missing:
+                    log.warning("    Skipping %s: missing columns %s", hid, missing)
+                    continue
+                sub = soma[needed].dropna().copy()
+                if len(sub) > 5:
+                    sub["interaction"] = interaction_contrast(sub, cols)
+                    r = run_between_group_test(sub, "interaction", n_perms=n_perms)
+                    r["hypothesis"] = hid
+                    r["hypothesis_name"] = hname
+                    results.append(r)
 
-        elif htype == "within_cell_onesample":
-            metric = hyp["metric"]
-            vals = soma[metric].dropna().values
-            nonzero = vals[vals != 0]
-            if len(nonzero) > 5:
-                stat, p = stats.wilcoxon(nonzero, alternative="two-sided")
-                results.append({
-                    "test": "wilcoxon_onesample", "hypothesis": hid,
-                    "hypothesis_name": hname,
-                    "statistic": float(stat), "p_value": float(p),
-                    "n_cells": len(vals),
-                    "mean": float(np.mean(vals)),
-                    "median": float(np.median(vals)),
-                })
+            elif htype == "within_cell_onesample":
+                metric = hyp["metric"]
+                if metric not in soma.columns:
+                    log.warning("    Skipping %s: missing column '%s'", hid, metric)
+                    continue
+                vals = soma[metric].dropna().values
+                nonzero = vals[vals != 0]
+                if len(nonzero) > 5:
+                    stat, p = stats.wilcoxon(nonzero, alternative="two-sided")
+                    results.append({
+                        "test": "wilcoxon_onesample", "hypothesis": hid,
+                        "hypothesis_name": hname,
+                        "statistic": float(stat), "p_value": float(p),
+                        "n_cells": len(vals),
+                        "mean": float(np.mean(vals)),
+                        "median": float(np.median(vals)),
+                    })
 
-        elif htype == "descriptive":
-            metric = hyp["metric"]
-            vals = soma[metric].dropna()
-            if metric.endswith("_significant"):
-                frac = vals.mean()
-                n_sig = int(vals.sum())
-                results.append({
-                    "test": "descriptive", "hypothesis": hid,
-                    "hypothesis_name": hname,
-                    "metric": metric,
-                    "fraction_significant": float(frac),
-                    "n_significant": n_sig,
-                    "n_total": len(vals),
-                })
-            else:
-                results.append({
-                    "test": "descriptive", "hypothesis": hid,
-                    "hypothesis_name": hname,
-                    "metric": metric,
-                    "mean": float(vals.mean()),
-                    "median": float(vals.median()),
-                    "std": float(vals.std()),
-                    "n": len(vals),
-                })
+            elif htype == "descriptive":
+                metric = hyp["metric"]
+                if metric not in soma.columns:
+                    log.warning("    Skipping %s: missing column '%s'", hid, metric)
+                    continue
+                vals = soma[metric].dropna()
+                if metric.endswith("_significant"):
+                    frac = vals.mean()
+                    n_sig = int(vals.sum())
+                    results.append({
+                        "test": "descriptive", "hypothesis": hid,
+                        "hypothesis_name": hname,
+                        "metric": metric,
+                        "fraction_significant": float(frac),
+                        "n_significant": n_sig,
+                        "n_total": len(vals),
+                    })
+                else:
+                    results.append({
+                        "test": "descriptive", "hypothesis": hid,
+                        "hypothesis_name": hname,
+                        "metric": metric,
+                        "mean": float(vals.mean()),
+                        "median": float(vals.median()),
+                        "std": float(vals.std()),
+                        "n": len(vals),
+                    })
+
+        except (ValueError, KeyError) as exc:
+            log.warning("    %s failed: %s", hid, exc)
+            results.append({
+                "test": "error", "hypothesis": hid,
+                "hypothesis_name": hname, "error": str(exc),
+            })
+
+    # --- FDR correction across all testable results ---
+    testable = [r for r in results if r.get("test") not in ("descriptive", "error")]
+    if testable:
+        # Collect p-values: use perm_p_value for between-group, p_value for others
+        p_vals = []
+        for r in testable:
+            p = r.get("perm_p_value", r.get("p_value", np.nan))
+            p_vals.append(p)
+
+        # Apply FDR via the mixed_stats helper
+        # Build temporary dicts with p_value key for fdr_correct
+        temp = [{"p_value": p} for p in p_vals]
+        valid_temp = [t for t in temp if not np.isnan(t["p_value"])]
+        if valid_temp:
+            corrected = fdr_correct(valid_temp)
+            # Map back to original results
+            vi = 0
+            for i, r in enumerate(testable):
+                p = p_vals[i]
+                if not np.isnan(p):
+                    r["p_fdr"] = corrected[vi]["p_fdr"]
+                    r["significant_fdr"] = corrected[vi]["significant_fdr"]
+                    vi += 1
 
     return results, confounds
 
@@ -567,7 +601,8 @@ def run_hypotheses(
 def generate_report(
     results: list[dict],
     confounds: list[dict],
-    df: pd.DataFrame,
+    cell_df: pd.DataFrame,
+    session_df: pd.DataFrame,
     output_path: Path,
 ) -> None:
     """Write markdown + CSV report."""
@@ -582,18 +617,26 @@ def generate_report(
     lines: list[str] = []
     lines.append("# Hypothesis Test Report")
     lines.append("")
-    lines.append(f"**Signal:** {df['signal'].iloc[0] if 'signal' in df.columns else 'dff'}")
-    lines.append(f"**Cells:** {len(df[df['roi_type'] == 0])} soma ROIs from "
-                 f"{df['animal_id'].nunique()} animals ({df['exp_id'].nunique()} sessions)")
-    n_penk = df[df["celltype"] == "penk"]["animal_id"].nunique()
-    n_nonpenk = df[df["celltype"] == "nonpenk"]["animal_id"].nunique()
-    lines.append(f"**Groups:** {n_penk} Penk+ animals, {n_nonpenk} Penk⁻CamKII+ animals")
+    lines.append(f"**Signal:** {cell_df['signal'].iloc[0] if 'signal' in cell_df.columns and len(cell_df) > 0 else 'dff'}")
+    n_soma = len(cell_df[cell_df['roi_type'] == 0]) if len(cell_df) > 0 else 0
+    lines.append(f"**Cells:** {n_soma} soma ROIs from "
+                 f"{cell_df['animal_id'].nunique() if len(cell_df) > 0 else 0} animals "
+                 f"({cell_df['exp_id'].nunique() if len(cell_df) > 0 else 0} sessions)")
+    n_penk = cell_df[cell_df["celltype"] == "penk"]["animal_id"].nunique() if len(cell_df) > 0 else 0
+    n_nonpenk = cell_df[cell_df["celltype"] == "nonpenk"]["animal_id"].nunique() if len(cell_df) > 0 else 0
+    lines.append(f"**Groups:** {n_penk} Penk+ animals, {n_nonpenk} CamKII+ animals")
+    lines.append(f"**Sessions with behaviour:** {len(session_df)}")
     lines.append("")
 
-    # Count significant results
-    sig_results = [r for r in results if r.get("p_value", 1) < 0.05
-                   and r.get("test") not in ("descriptive",)]
-    lines.append(f"**Significant results (p < 0.05):** {len(sig_results)}")
+    # Count significant results (uncorrected and FDR-corrected)
+    testable = [r for r in results if r.get("test") not in ("descriptive", "error")]
+    sig_uncorrected = sum(
+        1 for r in testable
+        if r.get("perm_p_value", r.get("p_value", 1)) < 0.05
+    )
+    sig_fdr = sum(1 for r in testable if r.get("significant_fdr", False))
+    lines.append(f"**Significant (uncorrected p < 0.05):** {sig_uncorrected}/{len(testable)}")
+    lines.append(f"**Significant (FDR-corrected):** {sig_fdr}/{len(testable)}")
     lines.append("")
 
     # Organise by hypothesis
@@ -616,35 +659,54 @@ def generate_report(
 
         for r in hyp_results:
             test = r.get("test", "?")
-            p = r.get("p_value", np.nan)
-            p_str = f"p = {p:.4f}" if not np.isnan(p) else "p = n/a"
-            sig = " **\\***" if p < 0.05 else ""
+            level_tag = f" [{r['level']}]" if "level" in r else ""
+            fdr_tag = ""
+            if "p_fdr" in r and not np.isnan(r.get("p_fdr", np.nan)):
+                fdr_tag = f" (FDR p = {r['p_fdr']:.4f}{'**' if r.get('significant_fdr') else ''})"
 
-            if test == "animal_summary":
+            if test == "error":
+                lines.append(f"- **Error:** {r.get('error', 'unknown')}")
+
+            elif "verdict" in r:
+                # Combined between-group result from run_between_group_test
+                p_summary = r.get("summary_p_value", np.nan)
+                p_perm = r.get("perm_p_value", np.nan)
+                verdict = r.get("verdict", "?")
+                p_s = f"p = {p_summary:.4f}" if not np.isnan(p_summary) else "p = n/a"
+                p_p = f"p = {p_perm:.4f}" if not np.isnan(p_perm) else "p = n/a"
+                sig_s = " *" if p_summary < 0.05 else ""
+                sig_p = " *" if p_perm < 0.05 else ""
                 lines.append(
-                    f"- **Animal-level Mann-Whitney U:** {p_str}{sig} "
-                    f"(Penk+ mean={r.get('penk_mean', 0):.4f}, "
-                    f"Penk⁻CamKII+ mean={r.get('nonpenk_mean', 0):.4f}, "
-                    f"N={r.get('n_penk', 0)} vs {r.get('n_nonpenk', 0)} animals, "
-                    f"CLES={r.get('effect_size', 0):.2f})"
+                    f"- **Animal-level Mann-Whitney:** {p_s}{sig_s} "
+                    f"(Penk+ mean={r.get('summary_penk_mean', 0):.4f}, "
+                    f"CamKII+ mean={r.get('summary_nonpenk_mean', 0):.4f}, "
+                    f"N={r.get('summary_n_penk', 0)} vs {r.get('summary_n_nonpenk', 0)} animals, "
+                    f"CLES={r.get('summary_effect_size', 0):.2f})"
                 )
-            elif test == "cluster_perm":
                 lines.append(
-                    f"- **Cluster permutation:** {p_str}{sig} "
-                    f"(observed diff={r.get('observed', 0):.4f}, "
-                    f"null std={r.get('null_std', 0):.4f})"
+                    f"- **Cluster permutation:** {p_p}{sig_p} "
+                    f"(observed diff={r.get('perm_observed', 0):.4f}, "
+                    f"null std={r.get('perm_null_std', 0):.4f})"
                 )
+                lines.append(f"- **Verdict:** {verdict}{level_tag}{fdr_tag}")
+
             elif test in ("wilcoxon", "wilcoxon_interaction"):
+                p = r.get("p_value", np.nan)
+                p_str = f"p = {p:.4f}" if not np.isnan(p) else "p = n/a"
+                sig = " *" if p < 0.05 else ""
                 lines.append(
                     f"- **Wilcoxon signed-rank:** {p_str}{sig} "
                     f"(mean diff={r.get('mean_diff', r.get('mean_contrast', 0)):.4f}, "
-                    f"N={r.get('n_cells', 0)} cells)"
+                    f"N={r.get('n_cells', 0)}){level_tag}{fdr_tag}"
                 )
             elif test == "wilcoxon_onesample":
+                p = r.get("p_value", np.nan)
+                p_str = f"p = {p:.4f}" if not np.isnan(p) else "p = n/a"
+                sig = " *" if p < 0.05 else ""
                 lines.append(
                     f"- **Wilcoxon (vs 0):** {p_str}{sig} "
                     f"(mean={r.get('mean', 0):.4f}, median={r.get('median', 0):.4f}, "
-                    f"N={r.get('n_cells', 0)} cells)"
+                    f"N={r.get('n_cells', 0)}){fdr_tag}"
                 )
             elif test == "descriptive":
                 if "fraction_significant" in r:
@@ -666,8 +728,8 @@ def generate_report(
             lines.append("**Confound warnings:**")
             for c in flagged:
                 lines.append(
-                    f"- {c['confound']}: Spearman ρ = {c['rho']:.3f} "
-                    f"(p = {c['p_value']:.4f}, N={c['n']})"
+                    f"- {c['confound']}: Spearman rho = {c['rho']:.3f} "
+                    f"(p = {c['p_value']:.4f}, N={c.get('n', '?')})"
                 )
 
         lines.append("")
@@ -699,14 +761,14 @@ def main():
     args = parser.parse_args()
 
     animals, exps = load_metadata()
-    df = load_all_analysis(animals, exps, signal=args.signal)
+    cell_df, session_df = load_all_analysis(animals, exps, signal=args.signal)
 
-    if df.empty:
+    if cell_df.empty:
         log.error("No data loaded. Check S3 access and metadata.")
         sys.exit(1)
 
-    results, confounds = run_hypotheses(df, n_perms=args.n_perms)
-    generate_report(results, confounds, df, args.output)
+    results, confounds = run_hypotheses(cell_df, session_df, n_perms=args.n_perms)
+    generate_report(results, confounds, cell_df, session_df, args.output)
 
 
 if __name__ == "__main__":
