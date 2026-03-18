@@ -32,7 +32,7 @@ BP_HEX = {
 VIDEO_FPS = 30
 
 st.title("DLC Viewer")
-st.caption("Labelled video playback + frame-by-frame inspection for QC.")
+st.caption("Labelled video playback + frame-by-frame inspection for QC. Select session in sidebar.")
 
 # ── Cached loaders ───────────────────────────────────────────────────────
 
@@ -265,6 +265,13 @@ with st.sidebar:
 eid = dict(opts)[sel]
 sub, ses = parse_session_id(eid)
 
+# Show session info prominently at top
+aid = eid.split("_")[-1]
+ct = amap.get(aid, {}).get("celltype", "?")
+ct_label = "Penk+" if ct == "penk" else "Penk\u207bCamKII+" if ct == "nonpenk" else ct
+st.subheader(f"Session: {eid}")
+st.caption(f"Animal {aid} | {ct_label} | Mode: {mode} | Position: {pos_source}")
+
 # ── Load data ────────────────────────────────────────────────────────────
 
 vbytes = dl_video(sub, ses)
@@ -407,11 +414,38 @@ if mode == "Inspect":
     )
     st.caption(f"Frame {fi} | t = {fi/VIDEO_FPS:.2f}s | {fi/n_frames*100:.1f}%")
 
-    # Frame image
+    # Frame image — optionally overlay filtered markers
     if vbytes is not None:
         rgb = extract_frame(vbytes, fi)
         if rgb is not None:
-            st.image(rgb, caption=f"Frame {fi}", use_container_width=True)
+            # If using filtered positions, draw filtered markers on top
+            if pos_source != "DLC raw" and active_dlc is not None and fi < active_dlc["n_frames"]:
+                import cv2
+                frame_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+                h, w = frame_bgr.shape[:2]
+                for bp in active_dlc["keypoints"]:
+                    x, y, lk = get_xy(active_dlc, bp)
+                    if x is None:
+                        continue
+                    xv, yv, lkv = float(x[fi]), float(y[fi]), float(lk[fi])
+                    if np.isnan(xv) or np.isnan(yv):
+                        continue
+                    # Scale from original DLC pixel coords to displayed frame size
+                    # The labelled video is 416x304, DLC coords are in original resolution
+                    sx = w / 832.0  # original video width
+                    sy = h / 608.0  # original video height
+                    px, py = int(xv * sx), int(yv * sy)
+                    color_map = {"nose": (0,0,255), "left_ear": (255,0,0),
+                                 "right_ear": (255,255,0), "mid_back": (0,204,0),
+                                 "mouse_center": (0,215,255), "tail_base": (255,0,255)}
+                    bgr = color_map.get(bp, (255,255,255))
+                    # Draw filtered marker as a larger ring (distinguishable from baked-in dots)
+                    cv2.circle(frame_bgr, (px, py), 6, bgr, 2, cv2.LINE_AA)
+                rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+                label = "filtered" if pos_source == "DLC median filtered" else "pipeline"
+                st.image(rgb, caption=f"Frame {fi} (rings = {label} positions)", use_container_width=True)
+            else:
+                st.image(rgb, caption=f"Frame {fi}", use_container_width=True)
 
     # Keypoint table (always from raw DLC data for QC)
     if dlc_data is not None and fi < dlc_data["n_frames"]:
