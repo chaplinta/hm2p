@@ -199,19 +199,23 @@ def dl_kinematics(sub: str, ses: str) -> dict | None:
     return result if result else None
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cache_video_path(vbytes: bytes) -> str:
+    """Write video bytes to a persistent temp file (cached by content hash)."""
+    tmp = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)
+    tmp.write(vbytes)
+    tmp.close()
+    return tmp.name
+
+
 def extract_frame(vbytes: bytes, idx: int):
     import cv2
-    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-        tmp.write(vbytes)
-        p = tmp.name
-    try:
-        cap = cv2.VideoCapture(p)
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ret, frame = cap.read()
-        cap.release()
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) if ret else None
-    finally:
-        Path(p).unlink(missing_ok=True)
+    p = _cache_video_path(vbytes)
+    cap = cv2.VideoCapture(p)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+    ret, frame = cap.read()
+    cap.release()
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) if ret else None
 
 
 def get_xy(dlc_data: dict, bp: str):
@@ -247,30 +251,26 @@ if not opts:
     st.warning("No sessions.")
     st.stop()
 
-with st.sidebar:
-    mode = st.radio("Mode", ["Playback", "Inspect"], key="dlcv_m")
+# Controls in main page body (not sidebar)
+col_ses, col_mode, col_pos = st.columns([3, 1, 2])
+with col_ses:
     sel = st.selectbox("Session", [o[0] for o in opts], key="dlcv_s")
-    conf_thr = st.slider("Confidence threshold", 0.0, 1.0, 0.5, 0.05, key="dlcv_c")
+with col_mode:
+    mode = st.radio("Mode", ["Playback", "Inspect"], key="dlcv_m")
+with col_pos:
     pos_source = st.radio(
-        "Position data",
-        ["DLC raw", "DLC median filtered", "Pipeline filtered (sync.h5)"],
-        index=0, key="dlcv_pos",
-        help="DLC raw = unfiltered keypoint coords from DLC .h5 via movement. "
-             "DLC median filtered = confidence-gated + rolling median (window=5) "
-             "applied on-the-fly via movement.filtering. "
-             "Pipeline filtered = median-filtered, confidence-gated, "
-             "interpolated positions from the kinematics pipeline.",
+        "Positions", ["DLC raw", "DLC median filtered", "Pipeline filtered"],
+        index=0, key="dlcv_pos", horizontal=True,
     )
+
+conf_thr = 0.5  # fixed threshold — simplifies UI
 
 eid = dict(opts)[sel]
 sub, ses = parse_session_id(eid)
-
-# Show session info prominently at top
 aid = eid.split("_")[-1]
 ct = amap.get(aid, {}).get("celltype", "?")
 ct_label = "Penk+" if ct == "penk" else "Penk\u207bCamKII+" if ct == "nonpenk" else ct
-st.subheader(f"Session: {eid}")
-st.caption(f"Animal {aid} | {ct_label} | Mode: {mode} | Position: {pos_source}")
+st.caption(f"Animal {aid} | {ct_label}")
 
 # ── Load data ────────────────────────────────────────────────────────────
 
@@ -281,7 +281,7 @@ dlc_filtered = (
     if pos_source == "DLC median filtered"
     else None
 )
-kin = dl_kinematics(sub, ses) if pos_source == "Pipeline filtered (sync.h5)" else None
+kin = dl_kinematics(sub, ses) if pos_source == "Pipeline filtered" else None
 
 # Choose which DLC data dict to use for position display
 active_dlc = dlc_filtered if dlc_filtered is not None else dlc_data
@@ -303,7 +303,7 @@ def make_ts_fig(vline_frame=None, ds_step=50):
     t = idx / VIDEO_FPS
 
     # Position traces
-    if pos_source == "Pipeline filtered (sync.h5)" and kin is not None:
+    if pos_source == "Pipeline filtered" and kin is not None:
         # Pipeline-filtered positions (from sync.h5, at imaging rate ~9.6Hz)
         sync_t = kin.get("frame_times")
         dlc_t = np.arange(n) / VIDEO_FPS
@@ -357,7 +357,7 @@ def make_ts_fig(vline_frame=None, ds_step=50):
         fig.add_vline(x=vt, line_color="lime", line_width=2)
 
     pos_label = "Position (px)"
-    if pos_source == "Pipeline filtered (sync.h5)":
+    if pos_source == "Pipeline filtered":
         pos_label = "Position (mm)"
     elif pos_source == "DLC median filtered":
         pos_label = "Position (px, filtered)"
