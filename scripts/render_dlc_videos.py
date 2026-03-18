@@ -5,7 +5,7 @@ For each session:
 1. Download raw overhead video from S3 (hm2p-rawdata).
 2. Download DLC .h5 from S3 (hm2p-derivatives).
 3. Convert multi-animal DLC to single-animal (best individual per frame).
-4. Subsample video 100fps->30fps (take every 3rd frame) to align with DLC.
+4. Map DLC frames to raw video frames (100fps→30fps = every 3.33 frames).
 5. Draw keypoints + skeleton on each frame.
 6. Encode as H.264 MP4 at 30fps, downscaled to 416x304.
 7. Upload labelled video to S3.
@@ -69,8 +69,9 @@ OUTPUT_WIDTH = 416
 OUTPUT_HEIGHT = 304
 OUTPUT_FPS = 30
 
-# Raw video is 100fps, DLC ran on 30fps subsampled video: take every 3rd frame.
-FRAME_STEP = 3
+# Raw video is 100fps, DLC ran on 30fps subsampled video.
+# ffmpeg -r 30 picks frames at evenly spaced intervals (every 3.33 frames),
+# NOT every 3rd frame.  We compute the exact mapping per DLC frame.
 
 METADATA_PATH = Path(__file__).resolve().parent.parent / "metadata" / "experiments.csv"
 LOCAL_OUTPUT_DIR = Path("/tmp/dlc_labelled")
@@ -359,35 +360,27 @@ def render_session(
             cap.release()
             return None
 
-        # Process frames: take every 3rd video frame to match 30fps DLC
-        video_frame_idx = 0
-        dlc_frame_idx = 0
+        # Process frames: for each DLC frame, seek to the correct raw video
+        # frame.  ffmpeg -r 30 on 100fps picks frame at t = dlc_idx / 30,
+        # which is raw_frame = round(dlc_idx * raw_fps / 30).
+        raw_fps = cap.get(cv2.CAP_PROP_FPS) or 100.0
         written = 0
 
-        while True:
+        for dlc_frame_idx in range(n_dlc_frames):
+            target_raw = round(dlc_frame_idx * raw_fps / OUTPUT_FPS)
+            cap.set(cv2.CAP_PROP_POS_FRAMES, target_raw)
             ret, frame = cap.read()
             if not ret:
                 break
 
-            # Take every 3rd frame (0, 3, 6, 9, ...)
-            if video_frame_idx % FRAME_STEP == 0:
-                if dlc_frame_idx >= n_dlc_frames:
-                    break
+            frame = draw_frame(frame, keypoints, dlc_frame_idx)
+            frame = cv2.resize(frame, (OUTPUT_WIDTH, OUTPUT_HEIGHT),
+                               interpolation=cv2.INTER_AREA)
+            writer.write(frame)
+            written += 1
 
-                # Draw keypoints at original resolution, then downscale
-                frame = draw_frame(frame, keypoints, dlc_frame_idx)
-
-                # Downscale to 416x304
-                frame = cv2.resize(frame, (OUTPUT_WIDTH, OUTPUT_HEIGHT),
-                                   interpolation=cv2.INTER_AREA)
-                writer.write(frame)
-                written += 1
-                dlc_frame_idx += 1
-
-                if written % 5000 == 0:
-                    log.info("  Rendered %d / %d frames", written, n_dlc_frames)
-
-            video_frame_idx += 1
+            if written % 5000 == 0:
+                log.info("  Rendered %d / %d frames", written, n_dlc_frames)
 
         cap.release()
         writer.release()
