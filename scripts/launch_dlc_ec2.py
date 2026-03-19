@@ -270,8 +270,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False, fo
                     model_name='hrnet_w32',
                     detector_name='fasterrcnn_resnet50_fpn_v2',
                     max_individuals=1,
-                    video_adapt=True,
-                    adapt_iterations=1000,
+                    video_adapt=False,
                     pcutoff=0.1,
                     videotype='.mp4',
                     dest_folder=str(out_dir),
@@ -287,7 +286,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False, fo
                          'model': 'superanimal_topviewmouse_hrnet_w32',
                          'detector': 'fasterrcnn_resnet50_fpn_v2',
                          'max_individuals': 1,
-                         'video_adapt': True}}
+                         'video_adapt': False}}
                 (out_dir / 'dlc_meta.json').write_text(_json.dumps(meta, indent=2))
                 print(f'  DLC DONE', flush=True)
             except Exception as e:
