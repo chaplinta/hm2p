@@ -89,6 +89,12 @@ PIPELINE_STAGES = {
         "s3_prefix": "kinematics",
         "expected": 26,
     },
+    "kpms": {
+        "label": "Stage 3b — MoSeq",
+        "short": "MoSeq",
+        "s3_prefix": "kinematics",  # syllables.npz lives under kinematics/
+        "expected": 26,
+    },
     "calcium": {
         "label": "Stage 4 — Calcium",
         "short": "Calcium",
@@ -105,12 +111,6 @@ PIPELINE_STAGES = {
         "label": "Stage 6 — Analysis",
         "short": "Analysis",
         "s3_prefix": "analysis",
-        "expected": 26,
-    },
-    "kpms": {
-        "label": "Stage 3b — MoSeq",
-        "short": "MoSeq",
-        "s3_prefix": "kinematics",  # syllables.npz lives under kinematics/
         "expected": 26,
     },
 }
@@ -132,15 +132,44 @@ DOWNSTREAM_DEPS: dict[str, list[str]] = {
 
 @st.cache_data(ttl=120)
 def _get_rerun_status() -> dict:
-    """Check S3 for pipeline_rerun.json marker indicating active re-runs."""
+    """Check S3 for pipeline_rerun.json marker indicating active re-runs.
+
+    Also auto-detects running EC2 instances tagged hm2p-dlc-run or
+    hm2p-suite2p as evidence of an active re-run, even if the marker
+    file hasn't been uploaded yet.
+    """
+    result: dict = {}
     try:
         data = download_s3_bytes(DERIVATIVES_BUCKET, "pipeline_rerun.json")
         if data is not None:
-            import json
-            return json.loads(data)
+            result = json.loads(data)
     except Exception:
         pass
-    return {}
+
+    # Auto-detect from running EC2 instances if no marker exists
+    if not result.get("rerunning"):
+        try:
+            instances = get_ec2_instances()
+            for inst in instances:
+                if inst["state"] != "running":
+                    continue
+                name = inst.get("project", "").lower()
+                if "dlc" in name:
+                    result = {
+                        "rerunning": ["pose"],
+                        "reason": f"DLC running on {inst['id']}",
+                    }
+                    break
+                if "suite2p" in name:
+                    result = {
+                        "rerunning": ["ca_extraction"],
+                        "reason": f"Suite2p running on {inst['id']}",
+                    }
+                    break
+        except Exception:
+            pass
+
+    return result
 
 
 def get_stage_summary() -> dict[str, dict]:
@@ -365,18 +394,28 @@ def list_s3_session_files(bucket: str, prefix: str) -> list[dict]:
     return files
 
 
-def check_stale_data_warning(stages: list[str] | None = None) -> bool:
+def check_stale_data_warning(
+    stages: list[str] | None = None,
+    block: bool = False,
+) -> bool:
     """Show a warning banner if any required stages have stale data.
 
     Call at the top of any page that loads sync/analysis data.
-    Returns True if data is stale (page should still render but with caveat).
+
+    Args:
+        stages: List of pipeline stage keys this page depends on.
+            Default: ["sync", "analysis"].
+        block: If True, call st.stop() to prevent the page from rendering
+            stale data. If False, show a warning but continue.
+
+    Returns:
+        True if data is stale.
     """
     rerun = _get_rerun_status()
     rerunning = rerun.get("rerunning", [])
     if not rerunning:
         return False
 
-    # Check if any of the required stages are invalidated
     if stages is None:
         stages = ["sync", "analysis"]
 
@@ -389,11 +428,21 @@ def check_stale_data_warning(stages: list[str] | None = None) -> bool:
 
     if invalidated:
         reason = rerun.get("reason", "upstream stage re-running")
-        st.warning(
-            f"**Data may be stale.** Pipeline re-run in progress: {reason}. "
-            f"Affected stages: {', '.join(set(invalidated))}. "
-            f"Results shown below are from the previous run and will be updated."
-        )
+        affected = ", ".join(sorted(set(invalidated)))
+        if block:
+            st.error(
+                f"**Data unavailable.** An upstream pipeline stage is re-running: "
+                f"{reason}. This page depends on: {affected}. "
+                f"Data will be available once the re-run completes and "
+                f"downstream stages are re-processed."
+            )
+            st.stop()
+        else:
+            st.warning(
+                f"**Data may be stale.** Pipeline re-run in progress: {reason}. "
+                f"Affected stages: {affected}. "
+                f"Results shown below are from the previous run."
+            )
         return True
     return False
 
@@ -443,6 +492,10 @@ def invalidate_session_cache(name: str | None = None) -> None:
 def load_all_sync_data() -> dict:
     """Load sync.h5 data for ALL sessions. Cached in session state.
 
+    If an upstream pipeline stage is re-running (detected via
+    pipeline_rerun.json on S3 or running EC2 instances), shows an error
+    and blocks the page — stale data should not be displayed.
+
     Returns dict with:
         ``"sessions"`` — list of dicts, each with keys:
             exp_id, sub, ses, animal_id, celltype, dff, hd_deg, speed_cm_s,
@@ -451,6 +504,9 @@ def load_all_sync_data() -> dict:
         ``"n_sessions"`` — number of sessions loaded
         ``"n_total_rois"`` — total ROIs across all sessions
     """
+    # Block page if upstream data is being re-processed
+    check_stale_data_warning(stages=["sync"], block=True)
+
     cache_key = _session_state_key("sync_data")
     if cache_key in st.session_state:
         return st.session_state[cache_key]
