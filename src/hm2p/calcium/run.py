@@ -118,10 +118,13 @@ def run(
     )
     dff = compute_dff(F_corr, F0)
 
-    # --- Event detection (Voigts & Harnett) ---
-    from hm2p.calcium.events import detect_events_batch
+    # --- Event detection ---
+    from hm2p.calcium.events import detect_events_batch, detect_events_sd
 
+    # V&H method (percentile-based noise model)
     batch_result = detect_events_batch(dff, fps=fps)
+    # SD-threshold method (more sensitive to small transients)
+    event_masks_sd = detect_events_sd(dff, fps=fps, sd_threshold=2.0, min_duration_s=0.3)
 
     # Encode roi_types as uint8 array: 0=soma, 1=dend, 2=artefact
     type_map = {"soma": 0, "dend": 1, "artefact": 2}
@@ -131,6 +134,7 @@ def run(
         "frame_times": frame_times,
         "dff": dff,
         "event_masks": batch_result.event_masks,
+        "event_masks_sd": event_masks_sd,
         "noise_probs": batch_result.noise_probs,
         "roi_types": roi_type_arr,
     }

@@ -63,6 +63,8 @@ def load_session_data(sub: str, ses: str) -> dict | None:
     }
     if "event_masks" in f:
         result["event_masks"] = f["event_masks"][:]
+    if "event_masks_sd" in f:
+        result["event_masks_sd"] = f["event_masks_sd"][:]
     if "spks" in f:
         result["spks"] = f["spks"][:]
     if "frame_times" in f:
@@ -139,6 +141,23 @@ col1.metric("ROIs", n_rois)
 col2.metric("Duration", f"{n_frames / fps:.0f}s")
 col3.metric("Frames", f"{n_frames:,}")
 col4.metric("FPS", f"{fps:.1f}")
+
+# --- Event method selector ---
+_available_methods = ["V&H (percentile)"]
+if "event_masks_sd" in ca_data:
+    _available_methods.append("SD threshold")
+
+event_method = st.radio(
+    "Event detection method",
+    _available_methods,
+    horizontal=True,
+    key="tl_event_method",
+    help="V&H: Voigts & Harnett 2020 percentile-based noise model. "
+         "SD threshold: 2×SD of noise floor (Zong et al. 2022) — more "
+         "sensitive to small transients.",
+)
+_use_sd = event_method == "SD threshold"
+_active_event_key = "event_masks_sd" if _use_sd else "event_masks"
 
 # --- Build timeline ---
 st.subheader("Timeline")
@@ -273,8 +292,8 @@ fig.add_trace(
 )
 
 # --- Row 3: Population event rate ---
-if "event_masks" in ca_data:
-    em = ca_data["event_masks"]
+if _active_event_key in ca_data and ca_data[_active_event_key] is not None:
+    em = ca_data[_active_event_key]
     # Compute population event rate (fraction of cells active per frame)
     pop_rate = em.mean(axis=0)
     # Smooth with 1s window
@@ -353,8 +372,8 @@ if has_sync and sync_data and "light_on" in sync_data:
     col3.metric("Light transitions", transitions)
 
     # Mean activity by light condition
-    if "event_masks" in ca_data:
-        em = ca_data["event_masks"][:, :n_frames]
+    if _active_event_key in ca_data and ca_data[_active_event_key] is not None:
+        em = ca_data[_active_event_key][:, :n_frames]
         light_rate = em[:, light].mean()
         dark_rate = em[:, ~light].mean()
         st.markdown(
@@ -425,8 +444,8 @@ with col2:
     )
 
     # Event overlay
-    if "event_masks" in ca_data:
-        em = ca_data["event_masks"][roi_idx].astype(bool)
+    if _active_event_key in ca_data and ca_data[_active_event_key] is not None:
+        em = ca_data[_active_event_key][roi_idx].astype(bool)
         event_trace = trace.copy()
         event_trace[~em] = np.nan
         roi_fig.add_trace(
@@ -436,6 +455,24 @@ with col2:
                 mode="lines",
                 name="Events",
                 line=dict(color="red", width=1.5),
+            )
+        )
+
+    # If both methods available, show the other as faint overlay for comparison
+    _other_key = "event_masks" if _use_sd else "event_masks_sd"
+    if _other_key in ca_data and ca_data[_other_key] is not None:
+        em_other = ca_data[_other_key][roi_idx].astype(bool)
+        other_trace = trace.copy()
+        other_trace[~em_other] = np.nan
+        _other_name = "V&H" if _use_sd else "SD"
+        roi_fig.add_trace(
+            go.Scatter(
+                x=time_s,
+                y=other_trace,
+                mode="lines",
+                name=f"Events ({_other_name})",
+                line=dict(color="rgba(100,100,255,0.3)", width=1),
+                opacity=0.4,
             )
         )
 

@@ -552,6 +552,8 @@ def _fetch_all_sync_data() -> dict:
                 deconv = f["spikes"][:] if "spikes" in f else None
                 # Event masks (Voigts & Harnett binary events)
                 event_masks = f["event_masks"][:] if "event_masks" in f else None
+                # SD-threshold events (Zong et al. 2022 — more sensitive)
+                event_masks_sd = f["event_masks_sd"][:] if "event_masks_sd" in f else None
                 # Position and AHV (from kinematics, resampled to imaging rate)
                 x_mm = f["x_mm"][:] if "x_mm" in f else None
                 y_mm = f["y_mm"][:] if "y_mm" in f else None
@@ -570,6 +572,7 @@ def _fetch_all_sync_data() -> dict:
                 "dff": dff,
                 "deconv": deconv,
                 "event_masks": event_masks,
+                "event_masks_sd": event_masks_sd,
                 "hd_deg": hd_deg,
                 "speed_cm_s": speed,
                 "light_on": light_on,
@@ -638,6 +641,7 @@ def _fetch_all_ca_data() -> list[dict]:
                 fps = float(f.attrs.get("fps_imaging", 30.0))
                 roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
                 event_masks = f["event_masks"][:] if "event_masks" in f else None
+                event_masks_sd = f["event_masks_sd"][:] if "event_masks_sd" in f else None
 
             sessions.append({
                 "exp_id": exp_id,
@@ -649,6 +653,7 @@ def _fetch_all_ca_data() -> list[dict]:
                 "fps": fps,
                 "roi_types": roi_types,
                 "event_masks": event_masks,
+                "event_masks_sd": event_masks_sd,
                 "n_rois": dff.shape[0],
                 "n_frames": dff.shape[1],
             })
@@ -759,6 +764,8 @@ def session_filter_sidebar(
                         s_copy["deconv"] = s["deconv"][mask]
                     if s.get("event_masks") is not None:
                         s_copy["event_masks"] = s["event_masks"][mask]
+                    if s.get("event_masks_sd") is not None:
+                        s_copy["event_masks_sd"] = s["event_masks_sd"][mask]
                     s_copy["n_rois"] = int(mask.sum())
                     roi_filtered.append(s_copy)
             else:
