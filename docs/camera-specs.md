@@ -83,6 +83,19 @@ giving higher spatial resolution per pixel.
 | Video format | Basler .camera → cropped .mp4 |
 | Crop region | Per-session, stored in `meta.txt` |
 
+## Maze Physical Dimensions
+
+| Parameter | Value |
+|-----------|-------|
+| Overall footprint | ~500 × 347 mm (50 × 35 cm) |
+| Grid | 7 columns × 5 rows (23 accessible cells) |
+| Cell size | ~71 × 69 mm (~7 cm corridors) |
+| Wall height | 120 mm (12 cm) above floor |
+| Wall material | 9 mm clear acrylic (laser-cut) |
+| Wall slot into floor | 10 mm tab |
+
+Source: laser-cut SVG file (CorelDRAW `Tristan-maze-walls-large-2.cdr`).
+
 The camera is **not centered** over the maze. The optical axis intersects
 the maze floor at an offset from the maze center (estimated ~65mm lateral,
 ~32mm longitudinal for the sample session). This offset, combined with the

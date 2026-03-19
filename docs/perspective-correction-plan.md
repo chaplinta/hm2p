@@ -48,6 +48,17 @@ ratio `H / (H - h)`. The correction is larger for:
 - Higher bodyparts (implant, ears during rearing)
 - Positions further from the camera axis (maze edges)
 
+## Maze Wall Dimensions (from laser-cut SVG)
+
+| Parameter | Value |
+|-----------|-------|
+| Wall height above floor | 120 mm (12 cm) |
+| Material thickness | 9 mm (acrylic) |
+| Tab (slots into floor) | 10 mm |
+| Total cut height | 130 mm |
+
+Source: `Tristan-maze-walls-large-2.cdr` (CorelDRAW laser-cut file).
+
 ## Per-Bodypart Height Estimates
 
 | Bodypart | Typical height (mm) | With implant (mm) |
@@ -59,10 +70,23 @@ ratio `H / (H - h)`. The correction is larger for:
 | right_ear | 25 | 40 |
 | nose | 20 | 35 |
 
+Max possible height: 120 mm (mouse rearing to wall top).
+
 Note: head keypoints are higher with the 2P implant + headstage.
 These are approximate — exact values would need calibration object or
 side-camera measurement. The correction is not very sensitive to ±5mm
 errors in height (at H=700mm, ±5mm changes the correction by < 1%).
+
+## Parallax Displacement Table
+
+At 250mm from camera axis (maze edge), camera at 700mm:
+
+| Height | Displacement | Pixels (f4mm) |
+|--------|-------------|--------------|
+| 20 mm (walking) | 7.4 mm | 9 px |
+| 40 mm (implant) | 15.2 mm | 19 px |
+| 80 mm (rearing) | 32.3 mm | 40 px |
+| 120 mm (wall top) | 51.7 mm | 64 px |
 
 ## Implementation
 
