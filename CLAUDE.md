@@ -205,9 +205,15 @@ Stage 0  Ingest + validate + DAQ parse  CPU    DataShuttle → S3; TDMS → time
 Stage 1  2P extraction (pluggable)      GPU    TIFF → ca_extraction/ via roiextractors
 Stage 2  Pose estimation (pluggable)    GPU    .mp4 → pose/ (DLC / SLEAP / LP)
 Stage 3  Kinematics (movement)          CPU    pose → kinematics.h5 (HD, position, speed)
+Stage 3b MoSeq syllables (kpms)         CPU    pose → syllables.npz (keypoint-MoSeq AR-HMM)
 Stage 4  Calcium processing             CPU    roiextractors → FISSA → CASCADE → ca.h5
 Stage 5  Sync                           CPU    kinematics + ca → sync.h5
+Stage 6  Analysis                       CPU    sync → analysis.h5 (tuning, decoding, etc.)
 ```
+
+**Dependency chain:** If Stage 2 (DLC) is re-run, **all** downstream stages must
+re-run: Stage 3 → Stage 3b (MoSeq) → Stage 5 → Stage 6. Stage 4 is independent
+of pose data and does not need re-running.
 
 Full details in [PLAN.md](PLAN.md). Architecture in [ARCHITECTURE.md](ARCHITECTURE.md).
 
