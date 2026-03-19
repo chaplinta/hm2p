@@ -1,7 +1,7 @@
 repos:
   # ── ruff: fast lint + format (replaces flake8 + isort + black) ────────────
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.5.7
+    rev: v0.11.8
     hooks:
       - id: ruff
         args: [--fix]
@@ -9,7 +9,7 @@ repos:
 
   # ── mypy: static type checking ────────────────────────────────────────────
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.11.2
+    rev: v1.15.0
     hooks:
       - id: mypy
         additional_dependencies:
@@ -22,13 +22,13 @@ repos:
 
   # ── nbstripout: strip notebook outputs before committing ─────────────────
   - repo: https://github.com/kynan/nbstripout
-    rev: 0.7.1
+    rev: 0.8.1
     hooks:
       - id: nbstripout
 
   # ── bandit: Python security linter ────────────────────────────────────────
   - repo: https://github.com/PyCQA/bandit
-    rev: 1.8.3
+    rev: 1.9.0
     hooks:
       - id: bandit
         args: [-c, pyproject.toml, -r, src/]
@@ -39,6 +39,9 @@ repos:
     rev: 3.2.346
     hooks:
       - id: checkov
+        # CKV_DOCKER_2: no HEALTHCHECK — acceptable for batch job containers
+        # CKV_DOCKER_3: USER not root — already handled (node user)
+        # CKV_DOCKER_7: no arbitrary user IDs — not applicable to dev/batch containers
         args: [--skip-check, CKV_DOCKER_2,CKV_DOCKER_3,CKV_DOCKER_7]
 
   # ── detect-secrets: prevent committing secrets/credentials ───────────────
@@ -50,7 +53,7 @@ repos:
 
   # ── Standard pre-commit hooks ─────────────────────────────────────────────
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.6.0
+    rev: v5.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer

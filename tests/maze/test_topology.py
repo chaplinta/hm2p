@@ -230,10 +230,6 @@ class TestShortestPath:
 class TestRoseMaze:
     """Test the RoseMaze dataclass."""
 
-    @pytest.fixture
-    def maze(self):
-        return build_rose_maze()
-
     def test_n_cells(self, maze):
         assert maze.n_cells == 23
 

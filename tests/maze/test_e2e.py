@@ -30,11 +30,6 @@ from hm2p.maze.discretize import (
 from hm2p.maze.topology import build_rose_maze
 
 
-@pytest.fixture
-def maze():
-    return build_rose_maze()
-
-
 def generate_random_walk(maze, n_steps: int, seed: int = 42) -> np.ndarray:
     """Generate a random walk trajectory on the maze graph.
 

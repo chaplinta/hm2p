@@ -11,14 +11,6 @@ from hm2p.maze.discretize import (
     discretize_position_fast,
     node_sequence,
 )
-from hm2p.maze.topology import build_rose_maze
-
-
-@pytest.fixture
-def maze():
-    return build_rose_maze()
-
-
 class TestDiscretizePosition:
     """Test continuous → discrete position mapping."""
 

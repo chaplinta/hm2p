@@ -34,11 +34,6 @@ from hm2p.maze.analysis import (
 from hm2p.maze.topology import build_rose_maze
 
 
-@pytest.fixture
-def maze():
-    return build_rose_maze()
-
-
 # ---------------------------------------------------------------------------
 # Occupancy
 # ---------------------------------------------------------------------------
