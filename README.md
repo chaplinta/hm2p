@@ -56,7 +56,7 @@ hm2p-v2/
 ├── ARCHITECTURE.md    ← code layout, HDF5 schemas, interface contracts
 ├── CLAUDE.md          ← coding standards, tool versions, rules for AI agents (auto-loaded by Claude Code)
 ├── old-pipeline/      ← legacy pipeline code (read-only reference — never modify)
-├── frontend/         ← Streamlit dashboard (43+ pages)
+├── frontend/         ← Streamlit dashboard (53 pages)
 │   ├── app.py
 │   ├── data.py       ← S3 data loading + caching
 │   └── pages/        ← analysis, pipeline QC, system pages
@@ -101,7 +101,7 @@ Stage 1 — 2P Extraction          Stage 2 — Pose Estimation
               → derivatives/sync/sync.h5
                  │
                  ▼
-            Analysis (done — 16 modules)
+            Analysis (done — 17 modules)
               pynapple · NEMOS · CEBRA†
               † CEBRA requires separate env
 ```
@@ -174,7 +174,7 @@ Switch between local and cloud by changing one line in `config/compute.yaml`:
 profile: local        # or local-gpu, aws-batch
 ```
 
-One-time processing cost for all 30 sessions: ~$180–380 (AWS Spot).
+One-time processing cost for all 26 sessions: ~$180–380 (AWS Spot).
 Ongoing storage: ~$10/month (600 GB on S3 Infrequent Access).
 
 ---
@@ -263,27 +263,29 @@ instructions (local macOS and devcontainer).
 
 ## Status
 
-**Implementation phase** — core pipeline code and tests are written. 1119+ tests passing, 91%+ coverage.
+**Implementation phase** — core pipeline and analysis code complete. 1500+ tests passing, 91%+ coverage.
 
 | Component | Status |
 | --- | --- |
 | Project skeleton (pyproject.toml, pre-commit, CI) | Done |
 | HDF5 schema validation | Done |
-| Stage 0 — TDMS ingest (`ingest/daq.py`) | Done |
-| **Stage 1 — Suite2p cloud run (all 26 sessions)** | **Done** |
-| Stage 2 — DLC pose estimation | **Done** — 26/26 sessions |
-| Stage 3 — Kinematics (`kinematics/compute.py`) | **Done** — 21/21 sessions |
-| Stage 4 — Calcium processing (`calcium/`) | Done — 26/26 sessions (CASCADE deferred) |
-| Stage 5 — Sync (`sync/align.py`) | **Done** — 21/21 sessions |
-| Stage 6 — Analysis (`analysis/`, 16 modules) | **Done** — 21/21 sessions |
+| Stage 0 — TDMS ingest (`ingest/daq.py`) | Done — 26/26 |
+| Stage 1 — Suite2p cloud run | Done — 26/26 |
+| Stage 2 — DLC pose estimation | Re-running — `max_individuals=1` + `video_adapt=True` |
+| Stage 3 — Kinematics (`kinematics/compute.py`) | Done — awaiting DLC re-run for refresh |
+| Stage 3b — MoSeq syllables | Code ready — awaiting DLC re-run |
+| Stage 4 — Calcium processing (`calcium/`) | Done — 26/26 (CASCADE deferred) |
+| Stage 5 — Sync (`sync/align.py`) | Done — awaiting DLC re-run for refresh |
+| Stage 6 — Analysis (`analysis/`, 17 modules) | Done — awaiting DLC re-run for refresh |
+| Perspective correction (`kinematics/perspective.py`) | Done — integrated into Stage 3 |
 | Suite2p extractor (`extraction/suite2p.py`) | Done |
 | CaImAn extractor (`extraction/caiman.py`) | Done |
 | S3 data upload (26 sessions) | Done |
-| EC2 cloud run infrastructure | Done (`scripts/launch_suite2p_ec2.py`) |
+| EC2 cloud run infrastructure | Done |
 | Snakemake DAG | Pending — rules defined, shell commands needed |
 | Docker images for cloud | Done (gpu, cpu, kpms Dockerfiles) |
-| Frontend dashboard (43+ pages) | Done |
-| Analysis framework (16 modules) | Done |
+| Frontend dashboard (53 pages) | Done |
+| Analysis framework (17 modules) | Done |
 | Patching pipeline (10 modules, 227 tests) | Done |
 | keypoint-MoSeq Docker integration | Done |
 | NWB export (neuroconv) | Pending — stub only |

@@ -1,8 +1,8 @@
-# Research Landscape: AI-Built Neuroscience Pipelines (March 2026)
+# Research Landscape: Related Neuroscience Pipelines (March 2026)
 
-## Key Finding
-No other project uses Claude Code (or any AI coding agent) to build an end-to-end
-systems neuroscience pipeline. hm2p appears to be unique in this regard.
+## Context
+This document surveys existing neuroscience analysis pipelines to identify
+useful patterns, tools, and approaches that could inform hm2p development.
 
 ## Closest Comparable Projects
 
@@ -47,27 +47,10 @@ systems neuroscience pipeline. hm2p appears to be unique in this regard.
 - **What**: Framework for integrating, validating, and sharing neurodata workflows
 - **Ideas**: Their validation and sharing approach
 
-## AI/Agent Landscape
+## Notes
 
-### Claude Code adoption (March 2026)
-- 4% of GitHub commits now made by Claude Code (SemiAnalysis report)
-- Claude Opus 4.6 (Feb 2026) — improved scientific reasoning
-- Claude for Life Sciences launched Oct 2025
-- everything-claude-code: agent harness with skills/memory (hackathon project)
-- No scientific pipeline projects found using Claude Code specifically
-
-### Agentic Science (emerging field)
-- arXiv 2508.14111: "From AI for Science to Agentic Science" survey
-- DeepAnalyze-8B: first agentic LLM for autonomous data science
-- Agentic bioinformatics (Oxford Academic): end-to-end AI agents across research
-- Trend: autonomous agents managing entire research pipelines, but all
-  bioinformatics/genomics focused — no systems neuroscience examples
-
-### Vibe Coding concerns
-- arXiv 2601.15494: "Vibe Coding Kills Open Source" paper
-- AI-generated "slop" contributions flooding open source
-- Key risk: code that works but nobody understands
-- Mitigation for hm2p: comprehensive tests, CLAUDE.md instructions, citations
+This pipeline was developed with assistance from Claude Code (Anthropic).
+All code has unit tests (1500+ tests, 91%+ coverage) and method citations.
 
 ## Ideas for hm2p Improvements (do not implement yet)
 

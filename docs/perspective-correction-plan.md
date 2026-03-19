@@ -95,9 +95,9 @@ At 250mm from camera axis (maze edge), camera at 700mm:
 
 15mm displacement with implant ≈ 20% of corridor width.
 
-## Implementation
+## Implementation (COMPLETE — 2026-03-19)
 
-### Step 1: New module `src/hm2p/kinematics/perspective.py`
+### Step 1: New module `src/hm2p/kinematics/perspective.py` — DONE
 
 ```python
 # Per-bodypart default heights (mm above maze floor)
@@ -145,7 +145,7 @@ def load_camera_params(meta_txt_path: Path) -> dict:
     """
 ```
 
-### Step 2: Tests `tests/kinematics/test_perspective.py`
+### Step 2: Tests `tests/kinematics/test_perspective.py` — DONE (31 tests)
 
 - `test_center_pixel_unchanged`: point at camera center → no correction
 - `test_edge_pushed_inward`: point far from center → moved toward center
@@ -157,7 +157,7 @@ def load_camera_params(meta_txt_path: Path) -> dict:
 - `test_estimate_camera_center`: known crop offset → correct center
 - hypothesis: corrected point always between original and camera center
 
-### Step 3: Integrate into `compute.py:run()`
+### Step 3: Integrate into `compute.py:run()` — DONE
 
 In the pipeline `run()` function, after loading the pose Dataset and
 applying confidence filtering + interpolation + median filter:

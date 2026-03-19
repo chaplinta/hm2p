@@ -672,7 +672,7 @@ Notebooks
 
 ### Completed
 
-1. ✅ **Project skeleton** — `pyproject.toml`, `src/hm2p/`, `tests/` (1119+ tests, 91%+
+1. ✅ **Project skeleton** — `pyproject.toml`, `src/hm2p/`, `tests/` (1500+ tests, 91%+
    coverage), pre-commit (ruff, mypy, nbstripout), GitHub Actions CI/lint, `uv` venv,
    `metadata/` CSVs.
 2. ✅ **HDF5 schemas** — pandera schema validation in `io/hdf5.py` for all output files.
@@ -689,18 +689,20 @@ Notebooks
    backend with SuperAnimal TopViewMouse + HRNet-W32 + FasterRCNN detector. Videos
    subsampled to 30 fps. Processed on g4dn.xlarge + g5.xlarge EC2 instances (parallel
    shards). All EC2 instances stopped.
-7. ✅ **Stage 3 — Kinematics** — 21/21 sessions (non-excluded) processed.
+7. ✅ **Stage 3 — Kinematics** — Code complete with perspective correction.
    `kinematics/compute.py` using `movement` library. HD, position, speed, AHV, movement
-   state, light on/off, bad_behav masking. kinematics.h5 on S3 for all 21 sessions.
+   state, light on/off, bad_behav masking. Perspective correction (`perspective.py`)
+   projects bodypart heights to ground plane, removing parallax displacement.
+   Awaiting DLC re-run to process all 26 sessions.
 8. ✅ **Stage 4 — Calcium processing** — 26/26 sessions processed. 391 total ROIs.
    Neuropil subtraction (fixed coefficient), dF/F0 baseline, V&H event detection,
    per-ROI stats, soma/dendrite/artefact classification. ca.h5 on S3.
 9. ✅ **Stage 5 — Sync** — 21/21 sessions processed. `sync/align.py` resamples behaviour
    → imaging frame times. sync.h5 on S3 for all 21 sessions.
-10. ✅ **Stage 6 — Analysis** — 21/21 sessions processed. 16 analysis modules: activity,
-    tuning, significance, comparison, decoder, stability, population, ahv, information,
-    classify, gain, anchoring, speed, run, save, plus maze analysis module. Multi-signal
-    analysis (dF/F, deconv, events). analysis.h5 on S3 for all 21 sessions.
+10. ✅ **Stage 6 — Analysis** — 17 analysis modules: activity, tuning, significance,
+    comparison, decoder, stability, population, ahv, information, classify, gain,
+    anchoring, speed, cache, mixed_stats, run, save, plus maze analysis module.
+    Multi-signal analysis (dF/F, deconv, events). Awaiting DLC re-run for refresh.
 11. ✅ **Snakemake DAG** — `workflow/Snakefile` + 6 stage rules (`workflow/rules/*.smk`)
     with resource specs. Three profiles: `local`, `local-gpu`, `aws-batch`.
 12. ✅ **Docker images defined** — `docker/gpu.Dockerfile` (CUDA 12.1 + Suite2p + DLC),
@@ -712,7 +714,7 @@ Notebooks
     `scripts/launch_dlc_parallel.py` (DLC parallel shards). Both support `--status`,
     `--terminate`, `--dry-run`.
 16. ✅ **Visualization script** — `scripts/viz_suite2p.py` generates multi-panel figure.
-17. ✅ **Frontend / dashboard** — Streamlit app with 43+ pages organized in 5 navigation
+17. ✅ **Frontend / dashboard** — Streamlit app with 53 pages organized in 5 navigation
     sections (Overview, Pipeline, Explore, Analysis, System). Loads real data from S3;
     shows clear message if unavailable. No synthetic data.
 18. ✅ **keypoint-MoSeq** — Docker container + orchestration script implemented for

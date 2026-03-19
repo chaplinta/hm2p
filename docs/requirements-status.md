@@ -1,6 +1,6 @@
 # Requirements Status
 
-Last updated: 2026-03-14
+Last updated: 2026-03-19
 
 ---
 
@@ -41,8 +41,9 @@ Last updated: 2026-03-14
 - [x] DLC retraining helpers (`src/hm2p/pose/retrain.py`)
 - [x] EC2 launch scripts: single (`scripts/launch_dlc_ec2.py`), parallel (`scripts/launch_dlc_parallel.py`)
 - [x] Cloud run complete -- 26/26 sessions
+- [~] Re-running with `max_individuals=1` + `video_adapt=True` for better tracking quality
 - [x] Unit tests (`tests/pose/test_preprocess.py`, `test_quality.py`, `test_retrain.py`, `test_run.py`)
-- **Status: Complete (26/26 sessions)**
+- **Status: Re-running (instance i-023165e775ad63b3d, g4dn.xlarge)**
 
 ### Stage 3 -- Behavioural Kinematics (CPU)
 
@@ -59,11 +60,16 @@ Last updated: 2026-03-14
 - [x] Maze coordinate positions (7x5 rose-maze grid)
 - [x] `kinematics.h5` output with full schema
 - [x] Run script (`scripts/run_stage3_kinematics.py`)
-- [x] Unit tests (`tests/kinematics/test_compute.py`, `test_compute_dataset.py`)
+- [x] Perspective correction for overhead camera parallax (`src/hm2p/kinematics/perspective.py`)
+- [x] Per-bodypart height-based projection to ground plane
+- [x] Camera centre estimation from crop offset in meta.txt
+- [x] Unit tests (`tests/kinematics/test_compute.py`, `test_compute_dataset.py`, `test_perspective.py`)
 - [ ] Behavioural syllables via keypoint-MoSeq or VAME (Stage 3b -- deferred)
-- [~] Syllables module exists (`src/hm2p/kinematics/syllables.py`, `tests/kinematics/test_syllables.py`) but not run on real data
-- **Status: Complete (21/21 sessions with DLC results at 30fps)**
-- **Note:** 21 not 26 because kinematics requires DLC pose output; all 26 sessions have DLC, 21 have kinematics.h5 on S3
+- [x] keypoint-MoSeq completed (26/26 sessions, 100 syllables, c5.4xlarge ~3.5h)
+- [x] Results on S3: `kinematics/{sub}/{ses}/syllables.npz` + `kpms_summary.json`
+- [x] Syllables module (`src/hm2p/kinematics/syllables.py`, `tests/kinematics/test_syllables.py`)
+- [ ] Append syllable_id to kinematics.h5 or sync.h5 — pending
+- **Status: Code complete; awaiting DLC re-run to process all 26 sessions**
 
 ### Stage 4 -- Calcium Signal Processing (CPU)
 
@@ -294,12 +300,18 @@ Last updated: 2026-03-14
 ### Other Frontend
 
 - [x] MoSeq pages (`moseq_page.py`, `moseq_explore_page.py`)
+- [x] Behaviour page (`behaviour_page.py`)
+- [x] DLC Viewer page (`dlc_viewer_page.py`)
+- [x] Hypotheses page (`hypotheses_page.py`)
+- [x] Place Tuning page (`place_tuning_page.py`)
+- [x] ROI Viewer page (`roi_viewer_page.py`)
+- [x] Patching Morphology page (`patching_morph_page.py`)
 - [x] Data loading from S3 (`frontend/data.py`)
 - [x] Session filter sidebar
 - [x] No synthetic data in frontend (loads real data, shows message if unavailable)
 - [x] `st.set_page_config` only in `app.py`
 - [x] Dict-based `st.navigation()` for section grouping
-- **Total: 47 pages**
+- **Total: 53 pages**
 - **Status: Complete**
 
 ---
@@ -313,7 +325,7 @@ Last updated: 2026-03-14
 - [x] Synthetic data only in tests (no real data files)
 - [x] hypothesis property-based testing (`tests/analysis/test_hypothesis_analysis.py`, `tests/maze/test_hypothesis.py`)
 - [x] pandera schema validation in tests
-- [x] 1119+ total tests
+- [x] 1500+ total tests (1522 as of 2026-03-19)
 - [x] 227 patching-specific tests
 - [x] Frontend e2e tests (11 test files in `tests/frontend/`)
 - [~] Coverage target >= 90% (configured in CI as `--cov-fail-under=90`; reported at 91%+ per memory)
@@ -385,9 +397,9 @@ Last updated: 2026-03-14
 
 ### Patching Remaining Work
 
-- [ ] Plotting module (`src/hm2p/patching/plotting.py` -- not yet created)
-- [x] Frontend pages (`patching_page.py`, `patching_traces_page.py`)
-- **Status: Mostly complete. Plotting module pending.**
+- [x] Morphology plotting (`src/hm2p/patching/plotting/morph_plots.py`)
+- [x] Frontend pages (`patching_page.py`, `patching_traces_page.py`, `patching_morph_page.py`)
+- **Status: Complete**
 
 ---
 
@@ -501,13 +513,13 @@ Last updated: 2026-03-14
 
 | Item | Priority | Notes |
 |------|----------|-------|
+| DLC re-run completion | **High** | Instance i-023165e775ad63b3d running; then re-run Stages 3→6 |
+| Credential rotation | High | hm2p-agent S3 key exposed in EC2 user-data |
+| Terminate stopped EC2 instances | Medium | 7 stopped instances accruing EBS costs |
 | CASCADE spike inference | Medium | Requires separate conda env (Python 3.8 + TF 2.3) |
 | FISSA neuropil subtraction | Low | Optional, more accurate than fixed coefficient |
 | neuroconv NWB export | Low | Stub exists at `src/hm2p/io/nwb.py` |
-| Credential rotation | High | hm2p-agent S3 key exposed in EC2 user-data |
-| Terminate stopped EC2 instances | Medium | 7 stopped instances accruing EBS costs |
 | DVC setup | Low | Not yet initialized |
-| mkdocs documentation site | Low | Not yet set up |
 | pynapple integration | Medium | Planned for analysis interface |
 | NEMOS GLM encoding models | Low | Planned for future analysis |
 | CEBRA population embeddings | Low | Planned for future analysis |
@@ -516,4 +528,3 @@ Last updated: 2026-03-14
 | Parameter grid robustness | Low | Sweep across analysis parameters |
 | Patching plotting module | Low | Missing from patching pipeline |
 | Citation audit (frontend) | Medium | Verify Methods & References on all analysis pages |
-| 5 remaining sessions for kinematics | Medium | 21/26 have kinematics.h5; 5 need processing |

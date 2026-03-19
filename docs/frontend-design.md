@@ -150,7 +150,7 @@ For a single-user research project, local or a small EC2 instance is simplest.
 
 ### Page Structure
 
-The frontend has 43+ pages organised in 5 navigation sections. See `frontend/pages/`
+The frontend has 53 pages organised in 5 navigation sections. See `frontend/pages/`
 for the full list. Key sections:
 
 - **Overview**: Home, Summary, Sessions, Animals, Pipeline, Batch

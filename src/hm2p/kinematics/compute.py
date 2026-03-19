@@ -599,6 +599,8 @@ def run(
     confidence_threshold: float = 0.9,
     gap_fill_frames: int = 5,
     speed_active_threshold: float = SPEED_ACTIVE_THRESHOLD,
+    camera_center_px: tuple[float, float] | None = None,
+    camera_height_mm: float = 700.0,
 ) -> None:
     """End-to-end Stage 3: pose file → kinematics.h5.
 
@@ -615,8 +617,15 @@ def run(
         confidence_threshold: DLC/SLEAP likelihood cutoff.
         gap_fill_frames: Max frames to interpolate over.
         speed_active_threshold: cm/s threshold for active/inactive state.
+        camera_center_px: Camera optical centre in cropped-frame pixels for
+            perspective correction. If None, perspective correction is skipped.
+        camera_height_mm: Camera-to-floor distance in mm (default 700).
     """
     from hm2p.io.hdf5 import read_h5, write_h5
+    from hm2p.kinematics.perspective import (
+        BODYPART_HEIGHTS_IMPLANT,
+        correct_dataset_perspective,
+    )
 
     # --- Load timestamps ---
     ts = read_h5(timestamps_h5)
@@ -637,6 +646,16 @@ def run(
     ds = filter_low_confidence(ds, threshold=confidence_threshold)
     ds = interpolate_gaps(ds, max_gap_frames=gap_fill_frames)
     ds = median_filter_dataset(ds, window=5)  # movement rolling median
+
+    # Perspective correction: project bodypart heights to ground plane.
+    # Applied after filtering so corrected positions are based on clean data.
+    if camera_center_px is not None:
+        ds = correct_dataset_perspective(
+            ds,
+            camera_center_px=camera_center_px,
+            camera_height_mm=camera_height_mm,
+            bodypart_heights=BODYPART_HEIGHTS_IMPLANT,
+        )
 
     # --- Kinematics ---
     hd_deg = compute_head_direction(ds)  # (N,) float32

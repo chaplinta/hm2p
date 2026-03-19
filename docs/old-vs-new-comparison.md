@@ -228,7 +228,7 @@ Logically equivalent, different implementation. Should produce identical results
 4. **Multi-signal analysis**: Systematic comparison of dF/F0 vs deconv vs events
 5. **Automated significance testing**: Circular shuffle with configurable parameters
 6. **Population-level statistics**: Cross-session pooling
-7. **Comprehensive frontend**: 43+ pages for visualization and QC
+7. **Comprehensive frontend**: 53 pages for visualization and QC
 
 ---
 

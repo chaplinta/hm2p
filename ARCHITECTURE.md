@@ -72,7 +72,7 @@ flowchart TB
 
     S5  -->|"sync.h5"| ANA
 
-    subgraph ANA["📊 Stage 6 — Analysis  (done — 16 modules)"]
+    subgraph ANA["📊 Stage 6 — Analysis  (done — 17 modules)"]
         direction LR
         PYN["pynapple\nTsdFrame"]
         CEB["CEBRA\nHD manifold"]
@@ -150,6 +150,7 @@ hm2p-v2/
 │       ├── kinematics/
 │       │   ├── __init__.py
 │       │   ├── compute.py         # Load via movement, compute HD/position/speed/AHV
+│       │   ├── perspective.py     # Parallax correction for overhead camera bodypart height
 │       │   └── syllables.py       # OPTIONAL Stage 3b: VAME / keypoint-MoSeq syllable discovery
 │       ├── calcium/
 │       │   ├── __init__.py
@@ -240,6 +241,8 @@ hm2p-v2/
 │   │   └── test_preprocess.py
 │   ├── kinematics/
 │   │   ├── test_compute.py
+│   │   ├── test_compute_dataset.py
+│   │   ├── test_perspective.py
 │   │   └── test_syllables.py
 │   ├── calcium/
 │   │   ├── test_neuropil.py

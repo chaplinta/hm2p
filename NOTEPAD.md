@@ -4,7 +4,7 @@ Working notes and decisions log. Not a design doc — use PLAN.md / ARCHITECTURE
 
 ---
 
-## Current Status (2026-03-14)
+## Current Status (2026-03-19)
 
 ### Pipeline Completion
 
@@ -12,31 +12,34 @@ Working notes and decisions log. Not a design doc — use PLAN.md / ARCHITECTURE
 |-------|--------|----------|
 | 0 — Ingest (DAQ) | COMPLETE | 26/26 timestamps.h5 on S3 |
 | 1 — Suite2p | COMPLETE | 26/26 ca_extraction on S3 |
-| 2 — DLC Pose | COMPLETE | 26/26 pose on S3 |
-| 3 — Kinematics | COMPLETE | 21/21 kinematics.h5 on S3 |
-| 4 — Calcium | COMPLETE | 26/26 ca.h5 on S3 (391 ROIs) |
-| 5 — Sync | COMPLETE | 21/21 sync.h5 on S3 |
-| 6 — Analysis | COMPLETE | 21/21 analysis.h5 on S3 |
+| 2 — DLC Pose | RE-RUNNING | max_individuals=1 + video_adapt=True (i-023165e775ad63b3d) |
+| 3 — Kinematics | PENDING RE-RUN | Blocked on DLC; perspective correction implemented |
+| 3b — MoSeq | PENDING RE-RUN | Code ready; blocked on DLC |
+| 4 — Calcium | COMPLETE | 26/26 ca.h5 on S3 (391 ROIs) — not affected by DLC re-run |
+| 5 — Sync | PENDING RE-RUN | Blocked on kinematics |
+| 6 — Analysis | PENDING RE-RUN | Blocked on sync |
 
-Note: 21/21 refers to non-excluded sessions (5 sessions excluded via experiments.csv).
+Dependency chain: DLC → Kinematics → MoSeq → Sync → Analysis.
 
 ### Test Coverage
 
-- 1119+ total tests, 91%+ coverage
-- 227 patching-specific tests (config, io, ephys, protocols, spike_features, morphology, metrics, statistics, pca, run)
+- 1500+ total tests, 91%+ coverage
+- 227 patching-specific tests
+- 31 perspective correction tests (new)
 
 ### Frontend
 
-- 43+ pages in 5 navigation sections
+- 53 pages in 5 navigation sections
 - All analysis pages implemented and loading real data from S3
 
 ### Remaining Work
 
+- DLC re-run completion → re-run downstream stages (3, 3b, 5, 6)
 - CASCADE spike inference (needs separate conda env)
 - FISSA neuropil subtraction (optional)
 - neuroconv NWB export
-- Patching pipeline: plotting modules + frontend pages
 - Credential rotation (hm2p-agent S3 keys)
+- Terminate stopped EC2 instances (7 instances accruing EBS costs)
 
 ---
 

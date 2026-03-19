@@ -1,15 +1,9 @@
 # Contributing
 
-## Branch Protection
-
-The `main` branch is protected on GitHub:
-
-- **Direct pushes to `main` are blocked** — all changes go through pull requests
-- **PRs require 1 approving review** before merge
-- **Stale reviews are dismissed** when new commits are pushed
-- **Force pushes and branch deletion are blocked**
-
 ## Workflow
+
+Feature branches are used for organizing work, but the typical workflow is to
+**merge locally to main and push** — not via pull requests:
 
 1. **Create a feature branch** from `main`:
 
@@ -18,21 +12,22 @@ The `main` branch is protected on GitHub:
    git checkout -b feat/short-description
    ```
 
-2. **Make changes, commit, push:**
+2. **Make changes, commit:**
 
    ```bash
    git add <files>
    git commit -m "description of change"
-   git push -u origin feat/short-description
    ```
 
-3. **Open a PR** against `main`:
+3. **Merge to main and push:**
 
    ```bash
-   gh pr create --title "Short title" --body "Summary of changes"
+   git checkout main
+   git merge feat/short-description
+   git push
    ```
 
-4. **Get a review** (from a collaborator or Copilot if available), then merge.
+Always commit and push after completing features/fixes — don't let changes accumulate.
 
 ## Branch Naming
 
@@ -70,7 +65,7 @@ on every push; PRs are blocked if coverage drops below the threshold.
 - Tests use small synthetic arrays only -- never real data files
 - Use `hypothesis` for numerical functions to auto-generate adversarial inputs
 - Use `pandera` to validate HDF5 schemas in tests
-- Current status: **1119+ tests, 91%+ coverage**
+- Current status: **1500+ tests, 91%+ coverage**
 
 ## Citation Policy
 

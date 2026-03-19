@@ -2,6 +2,12 @@
 
 ## Critical Rules
 
+**Scientific tone only:** This is a scientific research project, not a product.
+All documentation, comments, and commit messages must use neutral, clear language.
+Never use marketing language, superlatives, or promotional phrasing. Do not describe
+the project as "production-grade", "comprehensive", "powerful", "state-of-the-art",
+or similar. State what the code does, not how impressive it is.
+
 **NEVER modify or delete files in these directories:**
 
 - `old-pipeline/` — legacy pipeline code copied into this repo (read-only reference only)
@@ -230,6 +236,33 @@ The pipeline status page and all analysis pages must reflect the true state:
 - Frontend pages loading stale data should show a warning banner
 
 Full details in [PLAN.md](PLAN.md). Architecture in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+---
+
+## Frontend Rules
+
+- **No sidebar filters:** Never put filters, selectors, or controls in the Streamlit
+  sidebar. Always put them in the main page body using `st.columns()` for layout.
+  The sidebar is for navigation only (handled by `st.navigation()`).
+- **`st.set_page_config`** must only appear in `app.py`, never in subpages.
+- **No synthetic data:** Frontend pages must load real data from S3 and show a clear
+  message if no data is available yet. Never fall back to synthetic/fake data.
+
+---
+
+## movement Library Policy
+
+Always use the **movement** library (neuroinformatics.dev) for pose and kinematics
+operations. Never reimplement functionality that movement already provides:
+
+- Pose loading: `movement.io.load_poses` (not raw `pd.read_hdf` for DLC .h5)
+- Confidence filtering: `movement.filtering.filter_by_confidence`
+- Interpolation: `movement.filtering.interpolate_over_time`
+- Median/rolling filter: `movement.filtering.rolling_filter` (not `scipy.ndimage`)
+- Velocity/speed: consider `movement.kinematics.compute_velocity` for new code
+
+Only exception: 1D scalar signals (e.g. unwrapped HD angle) where movement's xarray
+API doesn't apply — use scipy directly with a comment explaining why.
 
 ---
 
