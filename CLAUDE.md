@@ -220,6 +220,15 @@ of `exclude` or `primary_exp` flags. Those flags are for analysis-time filtering
 only, not for skipping pipeline processing. Even excluded sessions should have
 sync.h5 and analysis.h5 — they may be useful for QC or later re-evaluation.
 
+**Pipeline invalidation:** When a stage is re-run, **all downstream stages are
+invalidated** and their completion status resets to 0/26. Stale data from
+invalidated stages must NOT be shown in the frontend — pages should check
+whether upstream stages have completed more recently than the data they display.
+The pipeline status page and all analysis pages must reflect the true state:
+- If DLC (Stage 2) is re-running → Stages 3, 3b, 5, 6 show as "pending re-run"
+- Stale sync.h5 / analysis.h5 from before the re-run should be flagged or hidden
+- Frontend pages loading stale data should show a warning banner
+
 Full details in [PLAN.md](PLAN.md). Architecture in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---

@@ -116,13 +116,42 @@ PIPELINE_STAGES = {
 }
 
 
+# Stages currently invalidated by a re-run. When a stage is re-running,
+# all downstream stages are stale and should show as "pending re-run".
+# This is checked by looking for a pipeline_rerun.json marker on S3.
+DOWNSTREAM_DEPS: dict[str, list[str]] = {
+    "pose": ["kinematics", "kpms", "sync", "analysis"],
+    "ca_extraction": ["calcium", "sync", "analysis"],
+    "kinematics": ["sync", "analysis"],
+    "kpms": [],
+    "calcium": ["sync", "analysis"],
+    "sync": ["analysis"],
+    "analysis": [],
+}
+
+
+@st.cache_data(ttl=120)
+def _get_rerun_status() -> dict:
+    """Check S3 for pipeline_rerun.json marker indicating active re-runs."""
+    try:
+        data = download_s3_bytes(DERIVATIVES_BUCKET, "pipeline_rerun.json")
+        if data is not None:
+            import json
+            return json.loads(data)
+    except Exception:
+        pass
+    return {}
+
+
 def get_stage_summary() -> dict[str, dict]:
     """Get unified pipeline status summary for all stages.
 
     Returns dict[stage_key -> {label, short, expected, done, status, color}].
-    Uses cached pipeline_status from S3.
+    Uses cached pipeline_status from S3. Checks for active re-runs and
+    marks downstream stages as invalidated.
     """
     pipeline_status = get_pipeline_status()
+    rerun = _get_rerun_status()
 
     summary = {}
     for key, info in PIPELINE_STAGES.items():
@@ -146,6 +175,24 @@ def get_stage_summary() -> dict[str, dict]:
         else:
             status, color = "Not started", "red"
 
+        # Check if this stage is invalidated by an upstream re-run
+        invalidated = False
+        rerunning_stages = rerun.get("rerunning", [])
+        for rerun_stage in rerunning_stages:
+            downstream = DOWNSTREAM_DEPS.get(rerun_stage, [])
+            if key in downstream or key == rerun_stage:
+                invalidated = True
+                break
+
+        if invalidated:
+            if key in rerunning_stages:
+                status = "Re-running"
+                color = "orange"
+            else:
+                status = "Stale (pending re-run)"
+                color = "red"
+                done = 0  # Show as 0 — data is stale
+
         summary[key] = {
             "label": info["label"],
             "short": info["short"],
@@ -153,6 +200,7 @@ def get_stage_summary() -> dict[str, dict]:
             "done": done,
             "status": status,
             "color": color,
+            "invalidated": invalidated,
         }
 
     return summary
@@ -315,6 +363,39 @@ def list_s3_session_files(bucket: str, prefix: str) -> list[dict]:
     except Exception:
         log.exception("Error listing S3 files: s3://%s/%s", bucket, prefix)
     return files
+
+
+def check_stale_data_warning(stages: list[str] | None = None) -> bool:
+    """Show a warning banner if any required stages have stale data.
+
+    Call at the top of any page that loads sync/analysis data.
+    Returns True if data is stale (page should still render but with caveat).
+    """
+    rerun = _get_rerun_status()
+    rerunning = rerun.get("rerunning", [])
+    if not rerunning:
+        return False
+
+    # Check if any of the required stages are invalidated
+    if stages is None:
+        stages = ["sync", "analysis"]
+
+    invalidated = []
+    for rerun_stage in rerunning:
+        downstream = DOWNSTREAM_DEPS.get(rerun_stage, [])
+        for s in stages:
+            if s in downstream or s == rerun_stage:
+                invalidated.append(s)
+
+    if invalidated:
+        reason = rerun.get("reason", "upstream stage re-running")
+        st.warning(
+            f"**Data may be stale.** Pipeline re-run in progress: {reason}. "
+            f"Affected stages: {', '.join(set(invalidated))}. "
+            f"Results shown below are from the previous run and will be updated."
+        )
+        return True
+    return False
 
 
 @st.cache_data(ttl=1800)
