@@ -61,9 +61,20 @@ def download_s3_dir(s3, bucket: str, prefix: str, local_dir: Path) -> list[str]:
     return downloaded
 
 
-def run_session(s3, sub: str, ses: str, exp_id: str, work_dir: Path, dry_run: bool = False) -> str:
+def run_session(s3, sub: str, ses: str, exp_id: str, work_dir: Path,
+                dry_run: bool = False, force: bool = False) -> str:
     """Run Stage 4 for a single session. Returns status string."""
     print(f"\n--- {sub}/{ses} ({exp_id}) ---")
+
+    # Check if ca.h5 already exists (skip unless --force)
+    ca_key = f"calcium/{sub}/{ses}/ca.h5"
+    if not force:
+        try:
+            s3.head_object(Bucket=DERIVATIVES_BUCKET, Key=ca_key)
+            print(f"  SKIP: ca.h5 already exists (use --force to re-run)")
+            return "skip_exists"
+        except Exception:
+            pass
 
     # Check for Suite2p output on S3
     s2p_prefix = f"ca_extraction/{sub}/{ses}/suite2p/plane0/"
@@ -125,13 +136,14 @@ def run_session(s3, sub: str, ses: str, exp_id: str, work_dir: Path, dry_run: bo
             print(f"  FPS: {fps}")
             if "event_masks" in f:
                 masks = f["event_masks"][:]
-                n_events = int(masks.sum())
-                events_per_roi = masks.sum(axis=1)
-                print(f"  Total event frames: {n_events}")
-                print(f"  Mean event frames/ROI: {events_per_roi.mean():.0f}")
+                n_vh = int(masks.sum())
+                print(f"  V&H event frames: {n_vh} (mean {masks.sum(axis=1).mean():.0f}/ROI)")
+            if "event_masks_sd" in f:
+                masks_sd = f["event_masks_sd"][:]
+                n_sd = int(masks_sd.sum())
+                print(f"  SD event frames:  {n_sd} (mean {masks_sd.sum(axis=1).mean():.0f}/ROI)")
 
         # Upload to S3
-        ca_key = f"calcium/{sub}/{ses}/ca.h5"
         print(f"  Uploading to s3://{DERIVATIVES_BUCKET}/{ca_key}")
         s3.upload_file(str(output_path), DERIVATIVES_BUCKET, ca_key)
         print(f"  DONE")
@@ -154,6 +166,8 @@ def main():
                         help="Process only this session index (0-based)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be done without processing")
+    parser.add_argument("--force", action="store_true",
+                        help="Re-run even if ca.h5 already exists on S3")
     args = parser.parse_args()
 
     sessions = get_sessions()
@@ -169,7 +183,7 @@ def main():
     results = {}
     for i, ses in enumerate(sessions):
         status = run_session(s3, ses["sub"], ses["ses"], ses["exp_id"],
-                             work_dir, dry_run=args.dry_run)
+                             work_dir, dry_run=args.dry_run, force=args.force)
         results[ses["exp_id"]] = status
 
     # Summary
