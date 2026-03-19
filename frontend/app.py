@@ -132,6 +132,7 @@ correlations_page = st.Page(str(_app_dir / "pages/correlations_page.py"), title=
 trace_compare_page = st.Page(str(_app_dir / "pages/trace_compare_page.py"), title="Trace Compare", icon=":material/compare_arrows:")
 qc_page = st.Page(str(_app_dir / "pages/qc_report_page.py"), title="QC Report", icon=":material/verified:")
 maze_page = st.Page(str(_app_dir / "pages/maze_page.py"), title="Maze", icon=":material/map:")
+maze_anim_page = st.Page(str(_app_dir / "pages/maze_animation_page.py"), title="Maze Animation", icon=":material/animation:")
 signal_quality_page = st.Page(str(_app_dir / "pages/signal_quality_page.py"), title="Signal Quality", icon=":material/troubleshoot:")
 hd_tuning_page = st.Page(str(_app_dir / "pages/hd_tuning_page.py"), title="HD Tuning", icon=":material/explore:")
 place_tuning_page = st.Page(str(_app_dir / "pages/place_tuning_page.py"), title="Place Tuning", icon=":material/place:")
@@ -162,7 +163,7 @@ aws_page = st.Page(str(_app_dir / "pages/aws_page.py"), title="AWS", icon=":mate
 pg = st.navigation({
     "Overview": [home_page, sessions_page, animals_page, pipeline_page, summary_page],
     "Pipeline": [suite2p_page, calcium_page, dlc_page, dlc_viewer_page, tracking_quality_page, sync_page, zdrift_page, anatomy_page, moseq_page],
-    "Explore": [explorer_page, timeline_page, gallery_page, roi_viewer_page, events_page, event_dynamics_page, correlations_page, trace_compare_page, moseq_explore_page, behaviour_page],
+    "Explore": [explorer_page, timeline_page, gallery_page, roi_viewer_page, events_page, event_dynamics_page, correlations_page, trace_compare_page, moseq_explore_page, behaviour_page, maze_anim_page],
     "Analysis": [hypotheses_page, analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, place_tuning_page, decoder_page, stability_page, drift_page, gain_page, anchoring_page, speed_mod_page, pop_dynamics_page, ahv_page, info_theory_page, classify_page, signal_quality_page, qc_page, patching_page, patching_traces_page, patching_morph_page],
     "System": [aws_page, cost_page, changelog_page],
 })
