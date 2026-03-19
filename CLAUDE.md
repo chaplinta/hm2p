@@ -215,6 +215,11 @@ Stage 6  Analysis                       CPU    sync → analysis.h5 (tuning, dec
 re-run: Stage 3 → Stage 3b (MoSeq) → Stage 5 → Stage 6. Stage 4 is independent
 of pose data and does not need re-running.
 
+**Process ALL sessions:** Pipeline stages must process **all 26 sessions** regardless
+of `exclude` or `primary_exp` flags. Those flags are for analysis-time filtering
+only, not for skipping pipeline processing. Even excluded sessions should have
+sync.h5 and analysis.h5 — they may be useful for QC or later re-evaluation.
+
 Full details in [PLAN.md](PLAN.md). Architecture in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
