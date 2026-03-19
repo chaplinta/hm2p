@@ -137,18 +137,35 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False, fo
         echo "dpkg lock free"
 
         apt-get update -qq
-        apt-get install -y -qq python3-pip python3-dev awscli ffmpeg || echo "WARNING: apt-get had errors"
+        apt-get install -y -qq awscli ffmpeg || echo "WARNING: apt-get had errors"
 
         # --- Install DeepLabCut 3.0 (PyTorch backend) ---
-        # DLC 3.0rc uses PyTorch (not TF) — works with DL AMI's pre-installed PyTorch+CUDA
-        # --break-system-packages needed on Ubuntu 22.04+ (PEP 668)
-        pip3 install --break-system-packages --quiet --pre deeplabcut
+        # Use the DL AMI's pre-installed PyTorch with CUDA support.
+        # pip3 install --pre deeplabcut would pull CPU-only PyTorch — avoid that.
+        # Instead: install DLC without deps, then install remaining deps
+        # while keeping the existing CUDA PyTorch.
+        pip3 install --break-system-packages --quiet --pre --no-deps deeplabcut
+        pip3 install --break-system-packages --quiet \
+            timm torchvision torchaudio \
+            dlclibrary tables huggingface_hub scikit-image scikit-learn \
+            filterpy numba imgaug segment-anything 2>/dev/null || true
         echo "DLC install exit code: $?"
 
-        # --- Verify GPU + DLC ---
+        # --- Verify GPU is actually being used ---
         nvidia-smi || echo "WARNING: No GPU detected"
+        python3 -c "
+import torch
+print(f'PyTorch {{torch.__version__}}')
+print(f'CUDA available: {{torch.cuda.is_available()}}')
+if torch.cuda.is_available():
+    print(f'GPU: {{torch.cuda.get_device_name(0)}}')
+    t = torch.zeros(1).cuda()
+    print(f'CUDA tensor test: OK (device={{t.device}})')
+else:
+    print('ERROR: CUDA not available — DLC will run on CPU (very slow)')
+    print('PyTorch location:', torch.__file__)
+" || echo "WARNING: PyTorch GPU check failed"
         python3 -c "import deeplabcut; print(f'DLC version: {{deeplabcut.__version__}}')" || echo "WARNING: DLC import failed"
-        python3 -c "import torch; print(f'PyTorch {{torch.__version__}}, CUDA: {{torch.cuda.is_available()}}, GPUs: {{torch.cuda.device_count()}}')" || echo "WARNING: PyTorch GPU check failed"
 
         # Upload log after install phase
         upload_log
