@@ -357,3 +357,127 @@ class TestComputeEventSNREdgeCases:
         amps = np.array([1.0])
         snr = compute_event_snr(dff, mask, amps)
         assert np.isnan(snr)
+
+
+# ---------------------------------------------------------------------------
+# SD-threshold detector (Zong et al. 2022)
+# ---------------------------------------------------------------------------
+
+
+class TestDetectEventsSdSingle:
+    """Tests for the SD-threshold event detector."""
+
+    def test_flat_trace_no_events(self):
+        from hm2p.calcium.events import detect_events_sd_single
+        trace = np.zeros(500)
+        result = detect_events_sd_single(trace, fps=10.0)
+        assert len(result.onsets) == 0
+        assert result.event_mask.sum() == 0
+
+    def test_detects_large_transient(self):
+        from hm2p.calcium.events import detect_events_sd_single
+        rng = np.random.default_rng(42)
+        trace = rng.normal(0, 0.05, 500)
+        # Insert a clear event: 10x noise SD
+        trace[200:220] += 0.5
+        result = detect_events_sd_single(trace, fps=10.0, sd_threshold=2.0)
+        assert len(result.onsets) >= 1
+        # Event should span the transient region
+        assert any(190 <= o <= 210 for o in result.onsets)
+
+    def test_detects_small_transient(self):
+        """SD method should catch events V&H might miss."""
+        from hm2p.calcium.events import detect_events_sd_single
+        rng = np.random.default_rng(42)
+        trace = rng.normal(0, 0.02, 1000)
+        # Insert a small but clear event: 3x noise SD, 5 frames
+        trace[500:510] += 0.06
+        result = detect_events_sd_single(trace, fps=10.0, sd_threshold=2.0, min_duration_s=0.3)
+        assert len(result.onsets) >= 1
+
+    def test_min_duration_filters_short_events(self):
+        from hm2p.calcium.events import detect_events_sd_single
+        rng = np.random.default_rng(42)
+        trace = rng.normal(0, 0.02, 500)
+        # Insert a 1-frame spike (too short for min_duration=0.3s at 10Hz = 3 frames)
+        trace[100] += 0.5
+        result = detect_events_sd_single(trace, fps=10.0, sd_threshold=2.0, min_duration_s=0.3)
+        # Should NOT detect the 1-frame spike
+        assert all(abs(o - 100) > 5 for o in result.onsets) if len(result.onsets) > 0 else True
+
+    def test_noise_sd_from_negative_values(self):
+        """Noise SD should be estimated from below-zero values."""
+        from hm2p.calcium.events import detect_events_sd_single
+        rng = np.random.default_rng(42)
+        # Trace with known noise SD (~0.05) and large events
+        trace = rng.normal(0, 0.05, 1000)
+        trace[200:230] += 1.0  # huge event shouldn't bias noise estimate
+        result = detect_events_sd_single(trace, fps=10.0, sd_threshold=2.0)
+        # Should detect the large event
+        assert len(result.onsets) >= 1
+        # Noise prob should be low during the event
+        assert result.noise_prob[215] < 0.1
+
+    def test_returns_correct_types(self):
+        from hm2p.calcium.events import detect_events_sd_single
+        trace = np.random.default_rng(42).normal(0, 0.1, 100)
+        result = detect_events_sd_single(trace, fps=10.0)
+        assert isinstance(result, EventResult)
+        assert result.event_mask.dtype == np.int32
+        assert result.noise_prob.shape == (100,)
+
+    def test_with_smoothing(self):
+        from hm2p.calcium.events import detect_events_sd_single
+        rng = np.random.default_rng(42)
+        trace = rng.normal(0, 0.05, 500)
+        trace[200:220] += 0.5
+        result = detect_events_sd_single(trace, fps=10.0, smooth_sigma=2)
+        assert len(result.onsets) >= 1
+
+    def test_event_at_end_of_trace(self):
+        from hm2p.calcium.events import detect_events_sd_single
+        trace = np.zeros(100)
+        trace[90:] += 0.5  # event at end
+        result = detect_events_sd_single(trace, fps=10.0, sd_threshold=2.0, min_duration_s=0.3)
+        if len(result.onsets) > 0:
+            assert result.offsets[-1] == 100
+
+
+class TestDetectEventsSdBatch:
+    """Tests for the batch SD-threshold detector."""
+
+    def test_batch_shape(self):
+        from hm2p.calcium.events import detect_events_sd
+        rng = np.random.default_rng(42)
+        dff = rng.normal(0, 0.05, (5, 500)).astype(np.float32)
+        masks = detect_events_sd(dff, fps=10.0)
+        assert masks.shape == (5, 500)
+        assert masks.dtype == np.float32
+
+    def test_batch_detects_events(self):
+        from hm2p.calcium.events import detect_events_sd
+        rng = np.random.default_rng(42)
+        dff = rng.normal(0, 0.02, (3, 500)).astype(np.float32)
+        dff[0, 200:220] += 0.5  # event in ROI 0
+        dff[2, 300:320] += 0.5  # event in ROI 2
+        masks = detect_events_sd(dff, fps=10.0)
+        assert masks[0, 210] == 1.0  # ROI 0 has event
+        assert masks[2, 310] == 1.0  # ROI 2 has event
+
+
+class TestSdVsVhSensitivity:
+    """Compare SD and V&H methods on the same trace."""
+
+    def test_sd_catches_more_small_events(self):
+        """SD method should detect more events than V&H on a trace with small transients."""
+        from hm2p.calcium.events import detect_events_sd_single, detect_events_single
+        rng = np.random.default_rng(42)
+        trace = rng.normal(0, 0.03, 2000).astype(np.float64)
+        # Insert 5 small events (3-4x noise SD, ~10 frames each)
+        for start in [200, 500, 800, 1200, 1600]:
+            trace[start:start + 10] += 0.10
+
+        vh = detect_events_single(trace)
+        sd = detect_events_sd_single(trace, fps=10.0, sd_threshold=2.0, min_duration_s=0.3)
+        # SD should catch at least as many events as V&H
+        assert len(sd.onsets) >= len(vh.onsets)

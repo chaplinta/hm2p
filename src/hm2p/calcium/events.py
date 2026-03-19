@@ -390,6 +390,143 @@ def compute_event_rate(
 
 
 # ---------------------------------------------------------------------------
+# Alternative detector: SD-threshold (Zong et al. 2022)
+# ---------------------------------------------------------------------------
+
+
+def detect_events_sd(
+    dff: np.ndarray,
+    fps: float,
+    sd_threshold: float = 2.0,
+    min_duration_s: float = 0.3,
+    smooth_sigma: int | None = None,
+) -> np.ndarray:
+    """Detect calcium events using a simple SD-threshold method.
+
+    More sensitive than the V&H method for small transients at low frame
+    rates. A frame is considered part of an event if the dF/F exceeds
+    ``sd_threshold`` standard deviations above zero, and the event lasts
+    at least ``min_duration_s`` seconds.
+
+    The noise SD is estimated from the negative portion of the trace
+    (below-zero values are assumed to be pure noise), which avoids
+    biasing the estimate with large transients.
+
+    Based on the approach in:
+        Zong et al. 2022. "Large-scale two-photon calcium imaging in
+        freely moving mice." Cell 185(7):1240-1256.
+        doi:10.1016/j.cell.2022.02.017
+
+    Args:
+        dff: (n_rois, n_frames) float32 — dF/F0 traces.
+        fps: Imaging frame rate (Hz).
+        sd_threshold: Number of SDs above zero for event detection.
+        min_duration_s: Minimum event duration in seconds.
+        smooth_sigma: Optional Gaussian smoothing in frames before detection.
+
+    Returns:
+        (n_rois, n_frames) float32 — binary event mask.
+    """
+    n_rois, n_frames = dff.shape
+    min_frames = max(1, int(round(min_duration_s * fps)))
+    masks = np.zeros((n_rois, n_frames), dtype=np.float32)
+
+    for i in range(n_rois):
+        result = detect_events_sd_single(
+            dff[i], fps, sd_threshold, min_duration_s, smooth_sigma,
+        )
+        masks[i] = result.event_mask.astype(np.float32)
+
+    return masks
+
+
+def detect_events_sd_single(
+    dff_trace: np.ndarray,
+    fps: float,
+    sd_threshold: float = 2.0,
+    min_duration_s: float = 0.3,
+    smooth_sigma: int | None = None,
+) -> EventResult:
+    """SD-threshold event detection for a single ROI.
+
+    Args:
+        dff_trace: (n_frames,) float — dF/F0 trace.
+        fps: Imaging frame rate (Hz).
+        sd_threshold: Number of SDs above zero for detection.
+        min_duration_s: Minimum event duration in seconds.
+        smooth_sigma: Optional Gaussian smoothing in frames.
+
+    Returns:
+        EventResult with onset/offset indices, amplitudes, and mask.
+    """
+    n_frames = len(dff_trace)
+    trace = dff_trace.astype(np.float64)
+
+    if smooth_sigma is not None and smooth_sigma > 0:
+        trace = ndimage.gaussian_filter1d(trace, sigma=smooth_sigma)
+
+    # Estimate noise SD from the negative portion of the trace.
+    # Below-zero values in dF/F are pure noise (no calcium transient can
+    # produce negative fluorescence changes). Mirror them to estimate the
+    # full noise distribution width.
+    neg_values = trace[trace < 0]
+    if len(neg_values) > 10:
+        noise_sd = np.std(neg_values) * np.sqrt(2)  # mirror correction
+    else:
+        # Fallback: use MAD of full trace (robust to transients)
+        noise_sd = np.median(np.abs(trace - np.median(trace))) * 1.4826
+
+    if noise_sd <= 0:
+        noise_sd = np.finfo(np.float64).eps
+
+    threshold = sd_threshold * noise_sd
+    min_frames = max(1, int(round(min_duration_s * fps)))
+
+    # Find contiguous above-threshold regions
+    above = trace > threshold
+    event_mask = np.zeros(n_frames, dtype=np.int32)
+    onsets = []
+    offsets_list = []
+    amplitudes = []
+
+    in_event = False
+    onset = 0
+    for j in range(n_frames):
+        if above[j] and not in_event:
+            onset = j
+            in_event = True
+        elif not above[j] and in_event:
+            duration = j - onset
+            if duration >= min_frames:
+                onsets.append(onset)
+                offsets_list.append(j)
+                amplitudes.append(float(np.max(trace[onset:j])))
+                event_mask[onset:j] = 1
+            in_event = False
+
+    # Handle event running to end of trace
+    if in_event:
+        duration = n_frames - onset
+        if duration >= min_frames:
+            onsets.append(onset)
+            offsets_list.append(n_frames)
+            amplitudes.append(float(np.max(trace[onset:])))
+            event_mask[onset:] = 1
+
+    # Compute noise probability (for compatibility with V&H interface)
+    noise_prob = 1.0 - stats.norm.cdf(np.clip(trace, 0, None), loc=0, scale=noise_sd)
+    noise_prob = np.clip(noise_prob * 2, 0, 1)
+
+    return EventResult(
+        onsets=np.array(onsets, dtype=np.int64),
+        offsets=np.array(offsets_list, dtype=np.int64),
+        amplitudes=np.array(amplitudes, dtype=np.float64),
+        event_mask=event_mask,
+        noise_prob=noise_prob,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Event dynamics characterization
 # ---------------------------------------------------------------------------
 
