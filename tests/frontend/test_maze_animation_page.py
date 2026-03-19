@@ -58,7 +58,7 @@ class TestBuildAnimationFigure:
         fig = _build_animation_figure(x, y, hd, speed, light_on, ft,
                                       trail_seconds=1.0, step=1, arrow_length=0.5)
         for frame in fig.frames:
-            assert len(frame.data) == 5  # walls, trail, head, arrow line, arrowhead
+            assert len(frame.data) == 6  # surround, walls, trail, head, arrow line, arrowhead
 
     def test_subsample_reduces_frames(self):
         from frontend.pages.maze_animation_page import _build_animation_figure
@@ -95,6 +95,37 @@ class TestBuildAnimationFigure:
         labels = [b.label for b in buttons]
         assert "Play" in labels
         assert "Pause" in labels
+
+
+class TestDarkSurround:
+    """Test that light/dark state changes the surround fill."""
+
+    def _make_test_data(self, n: int = 20, all_dark: bool = False):
+        t = np.linspace(0, 2 * np.pi, n)
+        x = 3.5 + 2.0 * np.cos(t)
+        y = 2.5 + 1.5 * np.sin(t)
+        hd = np.degrees(t) % 360
+        speed = np.ones(n) * 5.0
+        light_on = np.zeros(n, dtype=bool) if all_dark else np.ones(n, dtype=bool)
+        frame_times = np.linspace(0, n / 9.6, n)
+        return x, y, hd, speed, light_on, frame_times
+
+    def test_light_on_surround_transparent(self):
+        from frontend.pages.maze_animation_page import _build_animation_figure
+        x, y, hd, speed, light_on, ft = self._make_test_data(all_dark=False)
+        fig = _build_animation_figure(x, y, hd, speed, light_on, ft,
+                                      trail_seconds=1.0, step=1, arrow_length=0.5)
+        # First trace in each frame is the surround
+        surround = fig.frames[0].data[0]
+        assert surround.fillcolor == "rgba(0, 0, 0, 0)"  # transparent
+
+    def test_dark_surround_grey(self):
+        from frontend.pages.maze_animation_page import _build_animation_figure
+        x, y, hd, speed, light_on, ft = self._make_test_data(all_dark=True)
+        fig = _build_animation_figure(x, y, hd, speed, light_on, ft,
+                                      trail_seconds=1.0, step=1, arrow_length=0.5)
+        surround = fig.frames[0].data[0]
+        assert "60, 60, 60" in surround.fillcolor  # grey fill
 
 
 class TestMazeWalls:

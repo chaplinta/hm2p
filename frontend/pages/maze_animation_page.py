@@ -92,6 +92,12 @@ def _build_animation_figure(
         skip = len(frame_indices) // 2000
         frame_indices = frame_indices[::skip]
 
+    # Surround rectangle (covers entire plot area) — visible only during dark
+    # We draw it as a filled scatter polygon that sits behind everything.
+    # During light-on frames it's transparent; during dark it's grey.
+    _SURROUND_X = [-0.5, 7.5, 7.5, -0.5, -0.5]
+    _SURROUND_Y = [-0.5, -0.5, 5.5, 5.5, -0.5]
+
     for i in frame_indices:
         trail_start = max(0, i - trail_frames)
         trail_x = x[trail_start:i + 1]
@@ -111,6 +117,10 @@ def _build_animation_figure(
         # Head position marker
         head_color = "orange" if light_on[i] else "dimgrey"
 
+        # Surround fill: grey when dark, transparent when light
+        surround_fill = "rgba(60, 60, 60, 0.55)" if not light_on[i] else "rgba(0, 0, 0, 0)"
+        wall_color = "black" if light_on[i] else "rgba(200, 200, 200, 0.8)"
+
         # Arrow line (head position → arrow tip)
         ax = x[i] + dx[i]
         ay = y[i] + dy[i]
@@ -119,11 +129,20 @@ def _build_animation_figure(
         t_min = t_s / 60.0
 
         frame_data = [
-            # Maze walls (always present)
+            # Dark surround (grey fill covering area outside maze)
+            go.Scatter(
+                x=_SURROUND_X, y=_SURROUND_Y,
+                mode="lines",
+                fill="toself",
+                fillcolor=surround_fill,
+                line=dict(color="rgba(0,0,0,0)", width=0),
+                showlegend=False, hoverinfo="skip",
+            ),
+            # Maze walls
             go.Scatter(
                 x=_MAZE_WALLS_X, y=_MAZE_WALLS_Y,
                 mode="lines",
-                line=dict(color="black", width=2),
+                line=dict(color=wall_color, width=2),
                 showlegend=False, hoverinfo="skip",
             ),
             # Trail
@@ -137,7 +156,7 @@ def _build_animation_figure(
             go.Scatter(
                 x=[x[i]], y=[y[i]],
                 mode="markers",
-                marker=dict(size=10, color=head_color, line=dict(color="black", width=1)),
+                marker=dict(size=10, color=head_color, line=dict(color="black" if light_on[i] else "white", width=1)),
                 showlegend=False,
                 hovertext=f"t={t_min:.1f} min, HD={hd[i]:.0f}°, speed={speed[i]:.1f} cm/s",
                 hoverinfo="text",
@@ -146,7 +165,7 @@ def _build_animation_figure(
             go.Scatter(
                 x=[x[i], ax], y=[y[i], ay],
                 mode="lines",
-                line=dict(color="blue", width=2),
+                line=dict(color="deepskyblue" if not light_on[i] else "blue", width=2),
                 showlegend=False, hoverinfo="skip",
             ),
             # Arrowhead (small triangle marker at tip)
@@ -154,7 +173,8 @@ def _build_animation_figure(
                 x=[ax], y=[ay],
                 mode="markers",
                 marker=dict(
-                    size=8, color="blue",
+                    size=8,
+                    color="deepskyblue" if not light_on[i] else "blue",
                     symbol="arrow",
                     angle=-(hd[i] % 360),  # Plotly arrow angles are CCW from right
                 ),
