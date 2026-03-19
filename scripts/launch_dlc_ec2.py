@@ -77,9 +77,10 @@ def get_sessions() -> list[dict]:
     return sessions
 
 
-def build_user_data(sessions: list[dict], use_instance_profile: bool = False) -> str:
+def build_user_data(sessions: list[dict], use_instance_profile: bool = False, force_rerun: bool = False) -> str:
     """Build the cloud-init user-data script for DLC."""
     session_json = json.dumps(sessions)
+    force_rerun = str(force_rerun)
 
     if use_instance_profile:
         creds_block = textwrap.dedent(f"""\
@@ -194,15 +195,17 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             print(f'\\n=== [{{i}}/{{total}}] {{sub}}/{{ses_id}} ({{exp_id}}) ===', flush=True)
             update_progress(f'Processing {{i}}/{{total}}: {{sub}}/{{ses_id}}')
 
-            # Skip if already processed on S3
-            check = subprocess.run([
-                'aws', 's3', 'ls',
-                f's3://{DERIVATIVES_BUCKET}/pose/{{sub}}/{{ses_id}}/',
-            ], capture_output=True, text=True)
-            if check.returncode == 0 and ('.h5' in check.stdout or '.csv' in check.stdout):
-                print(f'  SKIP: already processed on S3', flush=True)
-                skipped.append(exp_id)
-                continue
+            # Skip if already processed on S3 (unless force=True)
+            force = {force_rerun}
+            if not force:
+                check = subprocess.run([
+                    'aws', 's3', 'ls',
+                    f's3://{DERIVATIVES_BUCKET}/pose/{{sub}}/{{ses_id}}/',
+                ], capture_output=True, text=True)
+                if check.returncode == 0 and ('.h5' in check.stdout or '.csv' in check.stdout):
+                    print(f'  SKIP: already processed on S3', flush=True)
+                    skipped.append(exp_id)
+                    continue
 
             # Create working dirs
             video_dir = work / 'input' / sub / ses_id / 'behav'
@@ -408,7 +411,10 @@ def launch(args):
     else:
         print("No IAM instance profile — embedding S3 credentials")
 
-    user_data = build_user_data(sessions, use_instance_profile=use_profile)
+    force = getattr(args, 'force', False)
+    if force:
+        print("FORCE mode: will re-process all sessions (ignoring existing S3 output)")
+    user_data = build_user_data(sessions, use_instance_profile=use_profile, force_rerun=force)
 
     launch_kwargs = {
         "ImageId": AMI_ID,
@@ -504,6 +510,8 @@ def main():
     group.add_argument("--dry-run", action="store_true", help="Print user-data")
     parser.add_argument("--use-profile", action="store_true",
                         help="Force use of IAM instance profile")
+    parser.add_argument("--force", action="store_true",
+                        help="Force re-run even if output already exists on S3")
     args = parser.parse_args()
 
     if args.status:
@@ -514,7 +522,7 @@ def main():
         terminate(args)
     elif args.dry_run:
         sessions = get_sessions()
-        print(build_user_data(sessions))
+        print(build_user_data(sessions, force_rerun=getattr(args, 'force', False)))
     else:
         launch(args)
 
