@@ -361,6 +361,7 @@ Run this periodically (e.g. at the start of analysis or visualization sessions).
 | Camera calibration `.npz` files | `sourcedata/calibration/` |
 | Metadata CSVs | `sourcedata/metadata/` |
 
-The calcium event detection algorithm (Voigts & Harnett 2020) is reimplemented
-from the paper with unit tests — not copy-pasted from the old code. A second
-method (SD-threshold, Zong et al. 2022) is also available.
+The calcium event detection (Voigts & Harnett 2020) is reimplemented from the
+old pipeline's `utils/ca.py` with the same algorithm and parameters, cleaned up
+and unit-tested. A second method (SD-threshold, Zong et al. 2022) is also
+available. Both are computed in Stage 4 and selectable in the frontend.
