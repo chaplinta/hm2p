@@ -266,10 +266,14 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                     superanimal_name='superanimal_topviewmouse',
                     model_name='hrnet_w32',
                     detector_name='fasterrcnn_resnet50_fpn_v2',
+                    max_individuals=1,
+                    video_adapt=True,
+                    adapt_iterations=1000,
+                    pcutoff=0.1,
                     videotype='.mp4',
                     dest_folder=str(out_dir),
-                    batch_size=64,
-                    detector_batch_size=16,
+                    batch_size=96,
+                    detector_batch_size=24,
                     plot_trajectories=False,
                     create_labeled_video=False,
                 )
@@ -278,7 +282,9 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 meta = {{'tracking_fps': 30 if dlc_video == subsampled_path else 100,
                          'original_fps': 100,
                          'model': 'superanimal_topviewmouse_hrnet_w32',
-                         'detector': 'fasterrcnn_resnet50_fpn_v2'}}
+                         'detector': 'fasterrcnn_resnet50_fpn_v2',
+                         'max_individuals': 1,
+                         'video_adapt': True}}
                 (out_dir / 'dlc_meta.json').write_text(_json.dumps(meta, indent=2))
                 print(f'  DLC DONE', flush=True)
             except Exception as e:
