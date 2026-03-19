@@ -101,11 +101,13 @@ def parse_bad_behav_times(raw: str) -> list[tuple[float, float]]:
     return intervals
 
 
-def parse_meta_txt(meta_path: Path) -> tuple[float, np.ndarray]:
-    """Parse meta.txt for mm_per_pix and maze corner coordinates.
+def parse_meta_txt(meta_path: Path) -> tuple[float, np.ndarray, tuple[float, float]]:
+    """Parse meta.txt for mm_per_pix, maze corners, and camera centre.
 
     Returns:
-        (mm_per_pix, maze_corners_px) where maze_corners_px is (4, 2) array.
+        (mm_per_pix, maze_corners_px, camera_center_px) where
+        maze_corners_px is (4, 2) array and camera_center_px is (cx, cy)
+        in cropped-frame coordinates.
     """
     config = configparser.ConfigParser()
     config.read(str(meta_path))
@@ -119,7 +121,14 @@ def parse_meta_txt(meta_path: Path) -> tuple[float, np.ndarray]:
         [float(config["roi"]["x4"]), float(config["roi"]["y4"])],
     ])
 
-    return mm_per_pix, corners
+    # Camera optical centre in cropped-frame coordinates
+    # Full sensor: 1280×1024 (Basler acA1300-200um)
+    crop_x = int(config["crop"]["x"])
+    crop_y = int(config["crop"]["y"])
+    cx = 1280.0 / 2.0 - crop_x
+    cy = 1024.0 / 2.0 - crop_y
+
+    return mm_per_pix, corners, (cx, cy)
 
 
 def find_dlc_h5(s3, bucket: str, prefix: str) -> str | None:
@@ -212,11 +221,12 @@ def run_session(
         s3.download_file(RAWDATA_BUCKET, meta_key, str(meta_local))
 
         # Parse meta.txt
-        mm_per_pix, maze_corners_px = parse_meta_txt(meta_local)
+        mm_per_pix, maze_corners_px, camera_center_px = parse_meta_txt(meta_local)
         print(f"  Scale: {mm_per_pix:.4f} mm/px")
         print(f"  Maze corners (px): {maze_corners_px.tolist()}")
+        print(f"  Camera centre (cropped px): ({camera_center_px[0]:.1f}, {camera_center_px[1]:.1f})")
 
-        # Run kinematics pipeline
+        # Run kinematics pipeline (with perspective correction)
         print(f"  Running kinematics pipeline...")
         from hm2p.kinematics.compute import run
 
@@ -232,6 +242,8 @@ def run_session(
             maze_corners_px=maze_corners_px,
             bad_behav_intervals=bad_intervals,
             output_path=output_path,
+            camera_center_px=camera_center_px,
+            camera_height_mm=700.0,
         )
 
         # Report stats from kinematics.h5
