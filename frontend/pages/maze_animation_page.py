@@ -230,144 +230,147 @@ def _build_animation_figure(
 
 # ── Page ──────────────────────────────────────────────────────────────────
 
-st.title("Maze Animation")
-st.caption(
-    "Animated replay of mouse trajectory through the rose maze. "
-    "Shows head position, facing direction (blue arrow), and recent trail. "
-    "Colour indicates light state (orange = lights on, grey = dark)."
-)
 
-# Load data
-with st.spinner("Loading sync data..."):
-    all_data = load_all_sync_data()
-
-if all_data["n_sessions"] == 0:
-    st.warning(
-        "No sync.h5 data available. This page requires completed pipeline stages 0-5."
-    )
-    st.stop()
-
-sessions = session_filter_sidebar(
-    all_data["sessions"], show_roi_filter=False, key_prefix="maze_anim"
-)
-
-if not sessions:
-    st.warning("No sessions match the current filters.")
-    st.stop()
-
-# Filter to sessions that have position data
-sessions_with_pos = [s for s in sessions if s.get("x_maze") is not None and s.get("y_maze") is not None]
-
-if not sessions_with_pos:
-    st.warning("No sessions have position data (kinematics.h5 not yet generated).")
-    st.stop()
-
-# ── Session selector ──────────────────────────────────────────────────────
-col_sel, col_opts = st.columns([2, 3])
-
-with col_sel:
-    session_labels = [f"{s['exp_id']} ({s['celltype']})" for s in sessions_with_pos]
-    selected_idx = st.selectbox("Session", range(len(session_labels)), format_func=lambda i: session_labels[i], key="maze_anim_session")
-
-with col_opts:
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        trail_s = st.slider("Trail length (s)", 1.0, 30.0, 10.0, 1.0, key="maze_anim_trail")
-    with c2:
-        subsample = st.slider("Subsample (every N frames)", 1, 20, 5, 1, key="maze_anim_sub",
-                              help="Higher = faster animation, fewer frames. At ~9.6 Hz imaging, step=5 gives ~2 Hz playback.")
-    with c3:
-        arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
-
-ses = sessions_with_pos[selected_idx]
-
-x_maze = ses["x_maze"]
-y_maze = ses["y_maze"]
-hd_deg = ses["hd_deg"]
-speed = ses["speed_cm_s"]
-light_on = ses["light_on"]
-frame_times = ses["frame_times"]
-
-# Exclude bad_behav frames and NaN positions
-valid = np.isfinite(x_maze) & np.isfinite(y_maze) & np.isfinite(hd_deg) & ~ses["bad_behav"]
-if valid.sum() < 10:
-    st.warning("Not enough valid position data for this session.")
-    st.stop()
-
-# ── Time range selector ───────────────────────────────────────────────────
-total_dur_s = frame_times[valid][-1] - frame_times[valid][0]
-total_dur_min = total_dur_s / 60.0
-
-st.markdown(f"**Session duration:** {total_dur_min:.1f} min ({valid.sum()} valid frames)")
-
-time_range = st.slider(
-    "Time range (minutes)",
-    0.0, float(np.ceil(total_dur_min)),
-    (0.0, min(2.0, float(np.ceil(total_dur_min)))),
-    0.1,
-    key="maze_anim_time",
-    help="Select a time window to animate. Shorter windows render faster.",
-)
-
-# Apply time range filter
-t0 = frame_times[valid][0]
-time_mask = valid.copy()
-time_mask &= (frame_times >= t0 + time_range[0] * 60) & (frame_times <= t0 + time_range[1] * 60)
-
-if time_mask.sum() < 5:
-    st.warning("Selected time range has too few frames.")
-    st.stop()
-
-x_sel = x_maze[time_mask]
-y_sel = y_maze[time_mask]
-hd_sel = hd_deg[time_mask]
-speed_sel = speed[time_mask]
-light_sel = light_on[time_mask]
-ft_sel = frame_times[time_mask]
-
-n_frames_anim = len(x_sel) // subsample
-st.caption(f"Generating {n_frames_anim} animation frames...")
-
-if n_frames_anim > 2000:
-    st.info(
-        f"Large number of frames ({n_frames_anim}). "
-        "Consider increasing subsample or narrowing the time range for smoother playback."
+def _page() -> None:
+    """Render the maze animation page (called by Streamlit runner)."""
+    st.title("Maze Animation")
+    st.caption(
+        "Animated replay of mouse trajectory through the rose maze. "
+        "Shows head position, facing direction (blue arrow), and recent trail. "
+        "Colour indicates light state (orange = lights on, grey = dark)."
     )
 
-# ── Build and display animation ───────────────────────────────────────────
-with st.spinner("Building animation..."):
-    fig = _build_animation_figure(
-        x_sel, y_sel, hd_sel, speed_sel, light_sel, ft_sel,
-        trail_seconds=trail_s,
-        step=subsample,
-        arrow_length=arrow_len,
+    with st.spinner("Loading sync data..."):
+        all_data = load_all_sync_data()
+
+    if all_data["n_sessions"] == 0:
+        st.warning(
+            "No sync.h5 data available. This page requires completed pipeline stages 0-5."
+        )
+        st.stop()
+
+    sessions = session_filter_sidebar(
+        all_data["sessions"], show_roi_filter=False, key_prefix="maze_anim"
     )
 
-st.plotly_chart(fig, use_container_width=False)
+    if not sessions:
+        st.warning("No sessions match the current filters.")
+        st.stop()
 
-# ── Static overview ───────────────────────────────────────────────────────
-with st.expander("Full trajectory (static)"):
-    fig_static = go.Figure()
-    _draw_maze(fig_static)
+    sessions_with_pos = [s for s in sessions if s.get("x_maze") is not None and s.get("y_maze") is not None]
 
-    # Colour by time
-    fig_static.add_trace(go.Scatter(
-        x=x_sel, y=y_sel,
-        mode="markers",
-        marker=dict(
-            size=2,
-            color=ft_sel - ft_sel[0],
-            colorscale="Viridis",
-            colorbar=dict(title="Time (s)"),
-        ),
-        showlegend=False,
-        hoverinfo="skip",
-    ))
-    fig_static.update_layout(
-        xaxis=dict(range=[-0.5, 7.5], scaleanchor="y", scaleratio=1, showgrid=False, zeroline=False),
-        yaxis=dict(range=[-0.5, 5.5], showgrid=False, zeroline=False),
-        width=700, height=540,
-        margin=dict(l=40, r=40, t=20, b=40),
-        title="Trajectory coloured by time",
+    if not sessions_with_pos:
+        st.warning("No sessions have position data (kinematics.h5 not yet generated).")
+        st.stop()
+
+    col_sel, col_opts = st.columns([2, 3])
+
+    with col_sel:
+        session_labels = [f"{s['exp_id']} ({s['celltype']})" for s in sessions_with_pos]
+        selected_idx = st.selectbox("Session", range(len(session_labels)), format_func=lambda i: session_labels[i], key="maze_anim_session")
+
+    with col_opts:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            trail_s = st.slider("Trail length (s)", 1.0, 30.0, 10.0, 1.0, key="maze_anim_trail")
+        with c2:
+            subsample = st.slider("Subsample (every N frames)", 1, 20, 5, 1, key="maze_anim_sub",
+                                  help="Higher = faster animation, fewer frames. At ~9.6 Hz imaging, step=5 gives ~2 Hz playback.")
+        with c3:
+            arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
+
+    ses = sessions_with_pos[selected_idx]
+
+    x_maze = ses["x_maze"]
+    y_maze = ses["y_maze"]
+    hd_deg = ses["hd_deg"]
+    speed = ses["speed_cm_s"]
+    light_on = ses["light_on"]
+    frame_times = ses["frame_times"]
+
+    valid = np.isfinite(x_maze) & np.isfinite(y_maze) & np.isfinite(hd_deg) & ~ses["bad_behav"]
+    if valid.sum() < 10:
+        st.warning("Not enough valid position data for this session.")
+        st.stop()
+
+    total_dur_s = frame_times[valid][-1] - frame_times[valid][0]
+    total_dur_min = total_dur_s / 60.0
+
+    st.markdown(f"**Session duration:** {total_dur_min:.1f} min ({valid.sum()} valid frames)")
+
+    time_range = st.slider(
+        "Time range (minutes)",
+        0.0, float(np.ceil(total_dur_min)),
+        (0.0, min(2.0, float(np.ceil(total_dur_min)))),
+        0.1,
+        key="maze_anim_time",
+        help="Select a time window to animate. Shorter windows render faster.",
     )
-    st.plotly_chart(fig_static, use_container_width=False)
+
+    t0 = frame_times[valid][0]
+    time_mask = valid.copy()
+    time_mask &= (frame_times >= t0 + time_range[0] * 60) & (frame_times <= t0 + time_range[1] * 60)
+
+    if time_mask.sum() < 5:
+        st.warning("Selected time range has too few frames.")
+        st.stop()
+
+    x_sel = x_maze[time_mask]
+    y_sel = y_maze[time_mask]
+    hd_sel = hd_deg[time_mask]
+    speed_sel = speed[time_mask]
+    light_sel = light_on[time_mask]
+    ft_sel = frame_times[time_mask]
+
+    n_frames_anim = len(x_sel) // subsample
+    st.caption(f"Generating {n_frames_anim} animation frames...")
+
+    if n_frames_anim > 2000:
+        st.info(
+            f"Large number of frames ({n_frames_anim}). "
+            "Consider increasing subsample or narrowing the time range for smoother playback."
+        )
+
+    with st.spinner("Building animation..."):
+        fig = _build_animation_figure(
+            x_sel, y_sel, hd_sel, speed_sel, light_sel, ft_sel,
+            trail_seconds=trail_s,
+            step=subsample,
+            arrow_length=arrow_len,
+        )
+
+    st.plotly_chart(fig, use_container_width=False)
+
+    with st.expander("Full trajectory (static)"):
+        fig_static = go.Figure()
+        _draw_maze(fig_static)
+
+        fig_static.add_trace(go.Scatter(
+            x=x_sel, y=y_sel,
+            mode="markers",
+            marker=dict(
+                size=2,
+                color=ft_sel - ft_sel[0],
+                colorscale="Viridis",
+                colorbar=dict(title="Time (s)"),
+            ),
+            showlegend=False,
+            hoverinfo="skip",
+        ))
+        fig_static.update_layout(
+            xaxis=dict(range=[-0.5, 7.5], scaleanchor="y", scaleratio=1, showgrid=False, zeroline=False),
+            yaxis=dict(range=[-0.5, 5.5], showgrid=False, zeroline=False),
+            width=700, height=540,
+            margin=dict(l=40, r=40, t=20, b=40),
+            title="Trajectory coloured by time",
+        )
+        st.plotly_chart(fig_static, use_container_width=False)
+
+
+# Guard: only run when executed by Streamlit, not when imported by tests.
+try:
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
+    if get_script_run_ctx() is not None:
+        _page()
+except ImportError:
+    _page()

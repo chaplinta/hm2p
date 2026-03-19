@@ -178,130 +178,134 @@ def _out_of_bounds_stats(x: np.ndarray, y: np.ndarray) -> dict:
 
 # ── Page ──────────────────────────────────────────────────────────────────
 
-st.title("Perspective Correction")
-st.caption(
-    "Side-by-side comparison of mouse trajectories before and after perspective "
-    "correction. The correction projects bodypart positions from their height "
-    "above the maze floor to the ground plane, removing parallax displacement "
-    "from the off-axis overhead camera."
-)
 
-with st.spinner("Loading sync data..."):
-    all_data = load_all_sync_data()
-
-if all_data["n_sessions"] == 0:
-    st.warning("No sync.h5 data available.")
-    st.stop()
-
-sessions = session_filter_sidebar(
-    all_data["sessions"], show_roi_filter=False, key_prefix="persp"
-)
-
-sessions_with_pos = [s for s in sessions if s.get("x_maze") is not None]
-
-if not sessions_with_pos:
-    st.warning("No sessions have position data.")
-    st.stop()
-
-# ── Controls ──────────────────────────────────────────────────────────────
-col1, col2 = st.columns([2, 3])
-
-with col1:
-    labels = [f"{s['exp_id']} ({s['celltype']})" for s in sessions_with_pos]
-    sel_idx = st.selectbox("Session", range(len(labels)), format_func=lambda i: labels[i], key="persp_ses")
-
-with col2:
-    c1, c2 = st.columns(2)
-    with c1:
-        height_mm = st.slider(
-            "Bodypart height (mm)", 0, 80, 30, 5,
-            key="persp_height",
-            help="Estimated height of the body centroid above the maze floor. "
-                 "Mouse body ~20mm, ears with 2P implant ~40mm. "
-                 "This slider lets you see the effect at different heights.",
-        )
-    with c2:
-        cam_height = st.number_input(
-            "Camera height (mm)", 500, 1000, 700, 50,
-            key="persp_cam",
-            help="Distance from camera sensor to maze floor.",
-        )
-
-ses = sessions_with_pos[sel_idx]
-x_maze = ses["x_maze"]
-y_maze = ses["y_maze"]
-hd_deg = ses["hd_deg"]
-light_on = ses["light_on"]
-
-valid = np.isfinite(x_maze) & np.isfinite(y_maze) & ~ses["bad_behav"]
-x_v = x_maze[valid]
-y_v = y_maze[valid]
-hd_v = hd_deg[valid]
-light_v = light_on[valid]
-
-camera_center_maze = _estimate_camera_center_maze(None, None)
-
-# ── Build and show comparison ─────────────────────────────────────────────
-fig, x_corr, y_corr = _build_comparison_figure(
-    x_v, y_v, hd_v, light_v,
-    camera_center_maze, float(height_mm), float(cam_height),
-)
-st.plotly_chart(fig, use_container_width=False)
-
-# ── Statistics ────────────────────────────────────────────────────────────
-raw_stats = _out_of_bounds_stats(x_v, y_v)
-corr_stats = _out_of_bounds_stats(x_corr, y_corr)
-
-col_a, col_b, col_c = st.columns(3)
-with col_a:
-    st.metric("Out-of-bounds (raw)", f"{raw_stats['pct_oob']:.1f}%", help="Positions outside the 7×5 maze bounding box")
-with col_b:
-    st.metric("Out-of-bounds (corrected)", f"{corr_stats['pct_oob']:.1f}%",
-              delta=f"{corr_stats['pct_oob'] - raw_stats['pct_oob']:.1f}%",
-              delta_color="inverse")
-with col_c:
-    # Mean displacement
-    disp = np.sqrt((x_corr - x_v)**2 + (y_corr - y_v)**2)
-    st.metric("Mean correction", f"{np.nanmean(disp):.3f} maze units",
-              help="Average distance each point moved due to correction")
-
-# ── Displacement map ──────────────────────────────────────────────────────
-with st.expander("Correction displacement map"):
-    st.markdown(
-        "Arrows show the direction and magnitude of the correction at each point. "
-        "Points near the camera centre (red ×) move less; points at the edges move more."
+def _page() -> None:
+    """Render the perspective correction comparison page."""
+    st.title("Perspective Correction")
+    st.caption(
+        "Side-by-side comparison of mouse trajectories before and after perspective "
+        "correction. The correction projects bodypart positions from their height "
+        "above the maze floor to the ground plane, removing parallax displacement "
+        "from the off-axis overhead camera."
     )
-    # Subsample for quiver plot
-    step = max(1, len(x_v) // 500)
-    xs, ys = x_v[::step], y_v[::step]
-    xc, yc = x_corr[::step], y_corr[::step]
 
-    fig_q = go.Figure()
-    # Maze walls
-    fig_q.add_trace(go.Scatter(
-        x=_MAZE_WALLS_X, y=_MAZE_WALLS_Y,
-        mode="lines", line=dict(color="black", width=2),
-        showlegend=False, hoverinfo="skip",
-    ))
+    with st.spinner("Loading sync data..."):
+        all_data = load_all_sync_data()
 
-    # Displacement vectors (scaled for visibility)
-    for j in range(len(xs)):
-        if np.isfinite(xs[j]) and np.isfinite(xc[j]):
-            fig_q.add_annotation(
-                x=xc[j], y=yc[j], ax=xs[j], ay=ys[j],
-                xref="x", yref="y", axref="x", ayref="y",
-                showarrow=True, arrowhead=2, arrowsize=1.5, arrowwidth=1,
-                arrowcolor="rgba(255,0,0,0.3)",
+    if all_data["n_sessions"] == 0:
+        st.warning("No sync.h5 data available.")
+        st.stop()
+
+    sessions = session_filter_sidebar(
+        all_data["sessions"], show_roi_filter=False, key_prefix="persp"
+    )
+
+    sessions_with_pos = [s for s in sessions if s.get("x_maze") is not None]
+
+    if not sessions_with_pos:
+        st.warning("No sessions have position data.")
+        st.stop()
+
+    col1, col2 = st.columns([2, 3])
+
+    with col1:
+        labels = [f"{s['exp_id']} ({s['celltype']})" for s in sessions_with_pos]
+        sel_idx = st.selectbox("Session", range(len(labels)), format_func=lambda i: labels[i], key="persp_ses")
+
+    with col2:
+        c1, c2 = st.columns(2)
+        with c1:
+            height_mm = st.slider(
+                "Bodypart height (mm)", 0, 80, 30, 5,
+                key="persp_height",
+                help="Estimated height of the body centroid above the maze floor. "
+                     "Mouse body ~20mm, ears with 2P implant ~40mm. "
+                     "This slider lets you see the effect at different heights.",
+            )
+        with c2:
+            cam_height = st.number_input(
+                "Camera height (mm)", 500, 1000, 700, 50,
+                key="persp_cam",
+                help="Distance from camera sensor to maze floor.",
             )
 
-    fig_q.add_trace(go.Scatter(
-        x=[camera_center_maze[0]], y=[camera_center_maze[1]],
-        mode="markers", marker=dict(size=10, color="red", symbol="x"),
-        showlegend=False, hovertext="Camera centre", hoverinfo="text",
-    ))
-    fig_q.update_layout(
-        xaxis=dict(range=[-0.5, 7.5], scaleanchor="y", scaleratio=1, showgrid=False, zeroline=False),
-        yaxis=dict(range=[-0.5, 5.5], showgrid=False, zeroline=False),
-        width=700, height=540, margin=dict(l=40, r=40, t=20, b=40),
+    ses = sessions_with_pos[sel_idx]
+    x_maze = ses["x_maze"]
+    y_maze = ses["y_maze"]
+    hd_deg = ses["hd_deg"]
+    light_on = ses["light_on"]
+
+    valid = np.isfinite(x_maze) & np.isfinite(y_maze) & ~ses["bad_behav"]
+    x_v = x_maze[valid]
+    y_v = y_maze[valid]
+    hd_v = hd_deg[valid]
+    light_v = light_on[valid]
+
+    camera_center_maze = _estimate_camera_center_maze(None, None)
+
+    fig, x_corr, y_corr = _build_comparison_figure(
+        x_v, y_v, hd_v, light_v,
+        camera_center_maze, float(height_mm), float(cam_height),
     )
-    st.plotly_chart(fig_q, use_container_width=False)
+    st.plotly_chart(fig, use_container_width=False)
+
+    raw_stats = _out_of_bounds_stats(x_v, y_v)
+    corr_stats = _out_of_bounds_stats(x_corr, y_corr)
+
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        st.metric("Out-of-bounds (raw)", f"{raw_stats['pct_oob']:.1f}%", help="Positions outside the 7×5 maze bounding box")
+    with col_b:
+        st.metric("Out-of-bounds (corrected)", f"{corr_stats['pct_oob']:.1f}%",
+                  delta=f"{corr_stats['pct_oob'] - raw_stats['pct_oob']:.1f}%",
+                  delta_color="inverse")
+    with col_c:
+        disp = np.sqrt((x_corr - x_v)**2 + (y_corr - y_v)**2)
+        st.metric("Mean correction", f"{np.nanmean(disp):.3f} maze units",
+                  help="Average distance each point moved due to correction")
+
+    with st.expander("Correction displacement map"):
+        st.markdown(
+            "Arrows show the direction and magnitude of the correction at each point. "
+            "Points near the camera centre (red x) move less; points at the edges move more."
+        )
+        step = max(1, len(x_v) // 500)
+        xs, ys = x_v[::step], y_v[::step]
+        xc, yc = x_corr[::step], y_corr[::step]
+
+        fig_q = go.Figure()
+        fig_q.add_trace(go.Scatter(
+            x=_MAZE_WALLS_X, y=_MAZE_WALLS_Y,
+            mode="lines", line=dict(color="black", width=2),
+            showlegend=False, hoverinfo="skip",
+        ))
+
+        for j in range(len(xs)):
+            if np.isfinite(xs[j]) and np.isfinite(xc[j]):
+                fig_q.add_annotation(
+                    x=xc[j], y=yc[j], ax=xs[j], ay=ys[j],
+                    xref="x", yref="y", axref="x", ayref="y",
+                    showarrow=True, arrowhead=2, arrowsize=1.5, arrowwidth=1,
+                    arrowcolor="rgba(255,0,0,0.3)",
+                )
+
+        fig_q.add_trace(go.Scatter(
+            x=[camera_center_maze[0]], y=[camera_center_maze[1]],
+            mode="markers", marker=dict(size=10, color="red", symbol="x"),
+            showlegend=False, hovertext="Camera centre", hoverinfo="text",
+        ))
+        fig_q.update_layout(
+            xaxis=dict(range=[-0.5, 7.5], scaleanchor="y", scaleratio=1, showgrid=False, zeroline=False),
+            yaxis=dict(range=[-0.5, 5.5], showgrid=False, zeroline=False),
+            width=700, height=540, margin=dict(l=40, r=40, t=20, b=40),
+        )
+        st.plotly_chart(fig_q, use_container_width=False)
+
+
+# Guard: only run when executed by Streamlit, not when imported by tests.
+try:
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
+    if get_script_run_ctx() is not None:
+        _page()
+except ImportError:
+    _page()
