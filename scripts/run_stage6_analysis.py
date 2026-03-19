@@ -90,16 +90,31 @@ def run_analysis_all_signals(
     n_rois, n_frames_ca = dff.shape
     fps = float(sync.get("fps_imaging", 9.8))
     deconv = sync.get("spks")
+    if deconv is None:
+        deconv = sync.get("deconv")
     event_masks = sync.get("event_masks")
     if event_masks is not None:
         event_masks = event_masks.astype(bool)
+
+    # Collect all extra signal arrays
+    extra_signals: dict[str, np.ndarray] = {}
+    for key in ("deconv_norm", "event_masks_sd", "spikes"):
+        arr = sync.get(key)
+        if arr is not None:
+            extra_signals[key] = arr
 
     # Determine available signal types
     signal_types_available = ["dff"]
     if deconv is not None:
         signal_types_available.append("deconv")
+    if "deconv_norm" in extra_signals:
+        signal_types_available.append("deconv_norm")
     if event_masks is not None:
         signal_types_available.append("events")
+    if "event_masks_sd" in extra_signals:
+        signal_types_available.append("events_sd")
+    if "spikes" in extra_signals:
+        signal_types_available.append("spikes")
 
     # All kinematics are already resampled to imaging rate in sync.h5
     hd_deg = sync["hd_deg"]
@@ -120,6 +135,8 @@ def run_analysis_all_signals(
         deconv = deconv[:, :n]
     if event_masks is not None:
         event_masks = event_masks[:, :n]
+    for key in list(extra_signals):
+        extra_signals[key] = extra_signals[key][:, :n] if extra_signals[key].ndim == 2 else extra_signals[key][:n]
     hd_deg = hd_deg[:n]
     x_cm = x_cm[:n]
     y_cm = y_cm[:n]
@@ -158,6 +175,7 @@ def run_analysis_all_signals(
                 fps=fps,
                 params=p,
                 seed=42,
+                extra_signals=extra_signals,
             )
             cell_results.append(r)
         results_by_signal[signal_type] = cell_results

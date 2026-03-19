@@ -51,6 +51,78 @@ def sanitize_error(msg: str, max_length: int = 200) -> str:
         msg = msg[:max_length] + "..."
     return msg or "Unknown error"
 
+# ── Signal type labels and selector ────────────────────────────────────────
+SIGNAL_TYPE_LABELS: dict[str, str] = {
+    "dff": "dF/F0",
+    "deconv": "Deconv (raw)",
+    "deconv_norm": "Deconv (normalized)",
+    "events": "Events (V&H)",
+    "events_sd": "Events (SD threshold)",
+    "spikes": "Spikes (CASCADE)",
+}
+
+
+def signal_type_selector(
+    session: dict,
+    key_prefix: str = "sig",
+    default: str = "dff",
+) -> tuple[str, np.ndarray | None]:
+    """Show a radio button to select the calcium signal type.
+
+    Only shows options that are available in the session data.
+    Returns (signal_key, signal_array) where signal_array is
+    (n_rois, n_frames) or None if unavailable.
+
+    Call in the page body (not sidebar).
+    """
+    import numpy as np
+
+    options = []
+    for key, label in SIGNAL_TYPE_LABELS.items():
+        if key == "dff" and "dff" in session:
+            options.append((key, label))
+        elif key == "deconv" and session.get("deconv") is not None:
+            options.append((key, label))
+        elif key == "deconv_norm" and session.get("deconv_norm") is not None:
+            options.append((key, label))
+        elif key == "events" and session.get("event_masks") is not None:
+            options.append((key, label))
+        elif key == "events_sd" and session.get("event_masks_sd") is not None:
+            options.append((key, label))
+        elif key == "spikes" and session.get("spikes") is not None:
+            options.append((key, label))
+
+    if not options:
+        options = [("dff", "dF/F0")]
+
+    keys = [k for k, _ in options]
+    labels = [l for _, l in options]
+    default_idx = keys.index(default) if default in keys else 0
+
+    selected_label = st.radio(
+        "Signal type",
+        labels,
+        index=default_idx,
+        horizontal=True,
+        key=f"{key_prefix}_signal_type",
+    )
+    selected_key = keys[labels.index(selected_label)]
+
+    # Return the corresponding array
+    _key_to_data = {
+        "dff": "dff",
+        "deconv": "deconv",
+        "deconv_norm": "deconv_norm",
+        "events": "event_masks",
+        "events_sd": "event_masks_sd",
+        "spikes": "spikes",
+    }
+    data_key = _key_to_data.get(selected_key, "dff")
+    arr = session.get(data_key)
+
+    return selected_key, arr
+
+
 STAGE_PREFIXES = {
     "ca_extraction": "Stage 1 — Suite2p",
     "pose": "Stage 2 — DLC",

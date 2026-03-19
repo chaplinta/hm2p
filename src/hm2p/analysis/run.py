@@ -60,18 +60,46 @@ def _get_signal(
     event_masks: np.ndarray | None,
     roi_idx: int,
     signal_type: str,
+    extra_signals: dict[str, np.ndarray] | None = None,
 ) -> np.ndarray:
-    """Extract the signal array for one ROI based on signal_type."""
+    """Extract the signal array for one ROI based on signal_type.
+
+    Supported signal types:
+        dff          — raw dF/F0
+        deconv       — Suite2p deconvolved spikes (raw)
+        deconv_norm  — Suite2p deconv normalized to [0, 1] per ROI
+        events       — V&H binary event mask
+        events_sd    — SD-threshold binary event mask
+        spikes       — CASCADE calibrated spike rates (spikes/s)
+    """
+    if extra_signals is None:
+        extra_signals = {}
+
     if signal_type == "dff":
         return dff[roi_idx]
     elif signal_type == "deconv":
         if deconv is None:
-            raise ValueError("deconv (spks) not available but signal_type='deconv'")
+            raise ValueError("deconv not available")
         return deconv[roi_idx]
+    elif signal_type == "deconv_norm":
+        arr = extra_signals.get("deconv_norm")
+        if arr is None:
+            raise ValueError("deconv_norm not available")
+        return arr[roi_idx]
     elif signal_type == "events":
         if event_masks is None:
-            raise ValueError("event_masks not available but signal_type='events'")
+            raise ValueError("event_masks not available")
         return event_masks[roi_idx].astype(np.float32)
+    elif signal_type == "events_sd":
+        arr = extra_signals.get("event_masks_sd")
+        if arr is None:
+            raise ValueError("event_masks_sd not available")
+        return arr[roi_idx].astype(np.float32)
+    elif signal_type == "spikes":
+        arr = extra_signals.get("spikes")
+        if arr is None:
+            raise ValueError("CASCADE spikes not available")
+        return arr[roi_idx]
     else:
         raise ValueError(f"Unknown signal_type: {signal_type!r}")
 
@@ -184,6 +212,7 @@ def analyze_cell(
     fps: float,
     params: AnalysisParams | None = None,
     seed: int = 42,
+    extra_signals: dict[str, np.ndarray] | None = None,
 ) -> CellResult:
     """Run full analysis for one cell.
 
@@ -217,7 +246,8 @@ def analyze_cell(
         params = AnalysisParams()
     rng = np.random.default_rng(seed + roi_idx)
 
-    signal = _get_signal(dff, deconv, event_masks, roi_idx, params.signal_type)
+    signal = _get_signal(dff, deconv, event_masks, roi_idx, params.signal_type,
+                         extra_signals=extra_signals)
     evt = event_masks[roi_idx] if event_masks is not None else np.zeros_like(signal, dtype=bool)
 
     result = CellResult(roi_idx=roi_idx)

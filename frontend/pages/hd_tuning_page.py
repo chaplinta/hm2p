@@ -69,9 +69,22 @@ st.success(
     f"{sum(s['n_rois'] for s in real_sessions)} total cells"
 )
 
+# --- Signal type selector ---
+from frontend.data import SIGNAL_TYPE_LABELS
+_sig_options = list(SIGNAL_TYPE_LABELS.values())
+_sig_keys = list(SIGNAL_TYPE_LABELS.keys())
+_selected_sig_label = st.radio(
+    "Signal type",
+    _sig_options,
+    index=0,
+    horizontal=True,
+    key="hd_signal_type",
+)
+_selected_signal = _sig_keys[_sig_options.index(_selected_sig_label)]
+
 # --- Load precomputed analysis.h5 results ---
 @st.cache_data(ttl=600)
-def _load_analysis_results():
+def _load_analysis_results(signal_type: str = "dff"):
     """Load per-cell HD tuning results from analysis.h5 files on S3."""
     import h5py as _h5py
     from frontend.data import DERIVATIVES_BUCKET, download_s3_bytes
@@ -103,19 +116,19 @@ def _load_analysis_results():
 
         try:
             with _h5py.File(io.BytesIO(data), "r") as f:
-                if "dff/hd/all/mvl" not in f:
+                if f"{signal_type}/hd/all/mvl" not in f:
                     continue
-                n = f["dff/hd/all/mvl"].shape[0]
+                n = f[f"{signal_type}/hd/all/mvl"].shape[0]
                 for ri in range(n):
                     row = {"exp_id": eid, "animal_id": aid, "celltype": celltype, "roi": ri}
                     for cond in ("all", "light", "dark"):
-                        grp = f.get(f"dff/hd/{cond}")
+                        grp = f.get(f"{signal_type}/hd/{cond}")
                         if grp:
                             for k in ("mvl", "tuning_width", "preferred_direction", "significant", "p_value"):
                                 if k in grp:
                                     v = grp[k][ri]
                                     row[f"{cond}_{k}"] = bool(v) if k == "significant" else float(v)
-                    comp = f.get("dff/hd/comparison")
+                    comp = f.get(f"{signal_type}/hd/comparison")
                     if comp:
                         for k in ("correlation", "pd_shift", "mvl_ratio"):
                             if k in comp:
@@ -133,7 +146,7 @@ def _load_analysis_results():
     return pd.DataFrame(rows) if rows else None
 
 
-analysis_df = _load_analysis_results()
+analysis_df = _load_analysis_results(signal_type=_selected_signal)
 
 # --- Tabs ---
 tab_single, tab_population, tab_significance, tab_summary, tab_lightdark, tab_celltype = st.tabs([
@@ -157,7 +170,12 @@ with tab_single:
                                key="hd_nbins")
     sigma = st.slider("Smoothing sigma (deg)", 0.0, 30.0, 6.0, 1.0, key="hd_sigma")
 
-    signal = ses_data["dff"][sel_cell]
+    # Use selected signal type for live tuning curve computation
+    _sig_data_key = {"dff": "dff", "deconv": "deconv", "deconv_norm": "deconv_norm",
+                     "events": "event_masks", "events_sd": "event_masks_sd",
+                     "spikes": "spikes"}.get(_selected_signal, "dff")
+    _sig_arr = ses_data.get(_sig_data_key, ses_data["dff"])
+    signal = _sig_arr[sel_cell] if _sig_arr is not None else ses_data["dff"][sel_cell]
     hd_deg = ses_data["hd_deg"]
     mask = ses_data["active"] & ~ses_data["bad_behav"]
 
@@ -261,7 +279,8 @@ with tab_population:
     bc_shared = None
 
     for ses_data in real_sessions:
-        signals = ses_data["dff"]
+        _pop_arr = ses_data.get(_sig_data_key, ses_data["dff"])
+        signals = _pop_arr if _pop_arr is not None else ses_data["dff"]
         hd = ses_data["hd_deg"]
         msk = ses_data["active"] & ~ses_data["bad_behav"]
         exp_id = ses_data["exp_id"]
