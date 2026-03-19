@@ -550,6 +550,10 @@ def _fetch_all_sync_data() -> dict:
                 roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
                 # Deconvolved spikes (Suite2p spks or CASCADE spikes)
                 deconv = f["spikes"][:] if "spikes" in f else None
+                # Suite2p deconv raw + max-normalized (0-1 per ROI)
+                if deconv is None:
+                    deconv = f["deconv"][:] if "deconv" in f else None
+                deconv_norm = f["deconv_norm"][:] if "deconv_norm" in f else None
                 # Event masks (Voigts & Harnett binary events)
                 event_masks = f["event_masks"][:] if "event_masks" in f else None
                 # SD-threshold events (Zong et al. 2022 — more sensitive)
@@ -571,6 +575,7 @@ def _fetch_all_sync_data() -> dict:
                 "primary_exp": str(exp.get("primary_exp", "1")).strip(),
                 "dff": dff,
                 "deconv": deconv,
+                "deconv_norm": deconv_norm,
                 "event_masks": event_masks,
                 "event_masks_sd": event_masks_sd,
                 "hd_deg": hd_deg,
@@ -762,6 +767,8 @@ def session_filter_sidebar(
                     s_copy["roi_types"] = roi_types[mask]
                     if s.get("deconv") is not None:
                         s_copy["deconv"] = s["deconv"][mask]
+                    if s.get("deconv_norm") is not None:
+                        s_copy["deconv_norm"] = s["deconv_norm"][mask]
                     if s.get("event_masks") is not None:
                         s_copy["event_masks"] = s["event_masks"][mask]
                     if s.get("event_masks_sd") is not None:

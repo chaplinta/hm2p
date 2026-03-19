@@ -109,6 +109,19 @@ def run(
     F_corr = subtract_fixed_coefficient(F, Fneu, coefficient=neuropil_coefficient)
     F_corr = F_corr.astype(np.float32)
 
+    # --- Load Suite2p deconvolved spikes (spks.npy) ---
+    spks_path = plane_dir / "spks.npy"
+    if spks_path.exists():
+        spks_all = np.load(spks_path).astype(np.float32)
+        deconv = spks_all[cell_mask]
+        # Normalize per ROI by max (matching legacy pipeline: deconv / max)
+        deconv_max = deconv.max(axis=1, keepdims=True)
+        deconv_max[deconv_max == 0] = 1.0  # avoid division by zero
+        deconv_norm = deconv / deconv_max
+    else:
+        deconv = None
+        deconv_norm = None
+
     # --- dF/F0 ---
     F0 = compute_baseline(
         F_corr,
@@ -121,8 +134,10 @@ def run(
     # --- Event detection ---
     from hm2p.calcium.events import detect_events_batch, detect_events_sd
 
-    # V&H method (percentile-based noise model)
-    batch_result = detect_events_batch(dff, fps=fps)
+    # V&H method (percentile-based noise model) — use prob_onset=0.3 to
+    # catch the start of the calcium rise earlier (default 0.2 waits until
+    # the signal is well above noise, missing the rising phase).
+    batch_result = detect_events_batch(dff, fps=fps, prob_onset=0.3)
     # SD-threshold method (more sensitive to small transients)
     event_masks_sd = detect_events_sd(dff, fps=fps, sd_threshold=2.0, min_duration_s=0.3)
 
@@ -138,6 +153,11 @@ def run(
         "noise_probs": batch_result.noise_probs,
         "roi_types": roi_type_arr,
     }
+
+    # Suite2p deconvolved spikes (raw + max-normalized)
+    if deconv is not None:
+        datasets["deconv"] = deconv
+        datasets["deconv_norm"] = deconv_norm
 
     # --- Optional CASCADE spike inference ---
     if run_cascade:

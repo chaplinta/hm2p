@@ -67,6 +67,10 @@ def load_session_data(sub: str, ses: str) -> dict | None:
         result["event_masks_sd"] = f["event_masks_sd"][:]
     if "spks" in f:
         result["spks"] = f["spks"][:]
+    if "deconv" in f:
+        result["deconv"] = f["deconv"][:]
+    if "deconv_norm" in f:
+        result["deconv_norm"] = f["deconv_norm"][:]
     if "frame_times" in f:
         result["frame_times"] = f["frame_times"][:]
 
@@ -404,8 +408,24 @@ with col1:
         key="tl_roi",
     )
 
+    # Signal type selector
+    _signal_options = ["dF/F0"]
+    if "deconv_norm" in ca_data:
+        _signal_options.append("Deconv (normalized)")
+    if "deconv" in ca_data:
+        _signal_options.append("Deconv (raw)")
+    signal_type = st.radio("Signal", _signal_options, key="tl_signal")
+
 with col2:
-    trace = dff[roi_idx]
+    if signal_type == "Deconv (normalized)" and "deconv_norm" in ca_data:
+        trace = ca_data["deconv_norm"][roi_idx]
+        _ylabel = "Deconv (norm)"
+    elif signal_type == "Deconv (raw)" and "deconv" in ca_data:
+        trace = ca_data["deconv"][roi_idx]
+        _ylabel = "Deconv"
+    else:
+        trace = dff[roi_idx]
+        _ylabel = "dF/F0"
     roi_fig = go.Figure()
 
     # Add light/dark shading if available
@@ -481,7 +501,7 @@ with col2:
         margin=dict(l=50, r=20, t=30, b=30),
         title=f"ROI {roi_idx} — SNR={snr[roi_idx]:.1f}",
         xaxis_title="Time (s)",
-        yaxis_title="dF/F0",
+        yaxis_title=_ylabel,
         showlegend=True,
     )
     st.plotly_chart(roi_fig, use_container_width=True)
