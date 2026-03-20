@@ -245,3 +245,63 @@ This is the algorithm reimplemented in `src/hm2p/calcium/events.py`:
 | HD computation | Zong 2022 / V&H | Ear vector | Ear vector | Verify 90-deg convention |
 | Spatial tuning | Zong 2022 | Skaggs SI, MVL, shuffled | `analysis/tuning.py`, `analysis/information.py` | Follows Zong 2022 methods |
 | Speed filter | Zong 2022 | Exclude < threshold | `analysis/speed.py` | 2.5 cm/s threshold |
+
+---
+
+## 4. Suite2p — Pachitariu et al. 2016 (bioRxiv) and Stringer et al. 2026
+
+**Original paper:** Pachitariu et al. 2016. "Suite2p: beyond 10,000 neurons with
+standard two-photon microscopy." bioRxiv. doi:10.1101/061507
+
+**Updated paper:** Stringer et al. 2026. "Extracting large-scale neural activity
+with Suite2p." (HHMI Janelia)
+
+**Relevance:** Suite2p is the default calcium extraction backend (Stage 1).
+
+### Key methods used from Suite2p
+
+- **Non-rigid motion correction** — phase-correlation-based registration
+- **ROI detection** — activity-based cell detection using sparse matrix ops
+- **Neuropil model** — per-ROI neuropil ring, coefficient stored in `ops["neucoeff"]`
+- **Deconvolution** — `spks.npy` (OASIS-based), stored in ca.h5 as `deconv`
+- **Baseline computation** — rolling Gaussian smooth → min → max filter
+  (Pachitariu et al. 2016, dcnv.preprocess; parameters: `sig_baseline`, `win_baseline`)
+
+### Stringer et al. 2026 updates
+
+- GPU-accelerated non-rigid registration (faster than alternatives)
+- Improved cell detection vs CaImAn/Fiola (more cells, fewer false positives)
+- Quality control steps for evaluating performance
+- Benchmarks on 100,000+ neuron recordings
+
+---
+
+## 5. Movement confounds — Zagha et al. 2022 (J Neurosci)
+
+**Paper:** "The Importance of Accounting for Movement When Relating Neuronal
+Activity to Sensory and Cognitive Processes." J Neurosci 42(8):1375-1382.
+doi:10.1523/JNEUROSCI.1919-21.2021
+
+**Relevance:** Freely-moving mice produce widespread movement-related neural
+activity that can be confounded with HD or sensory tuning. This paper argues
+that movement signals should be accounted for before attributing neural
+activity to other processes.
+
+### Key points for hm2p
+
+1. **Task-uninstructed movements** (whisking, postural shifts, arousal changes)
+   generate neural signals in sensory and association cortex — including RSP.
+2. **Speed gating alone is insufficient** — neural correlates of movement
+   persist even after excluding stationary periods, because subthreshold
+   movements, arousal shifts, and preparatory activity co-vary with
+   task-relevant variables.
+3. **Recommended controls:**
+   - Include movement regressors (speed, acceleration, AHV) in GLM models
+     when testing for HD tuning (NEMOS framework supports this).
+   - Test whether HD tuning persists after regressing out movement variables.
+   - Compare tuning during matched-speed epochs across light/dark conditions.
+   - Report movement statistics (speed distribution, AHV) alongside neural
+     results to show conditions are comparable.
+4. **For hm2p specifically:** The NEMOS GLM encoding model (planned) should
+   include speed, AHV, and acceleration as nuisance regressors alongside HD
+   and position. This separates movement-related from HD-related variance.
