@@ -189,6 +189,10 @@ def _page() -> None:
         "from the off-axis overhead camera."
     )
 
+    # Check for stale data before starting the slow download
+    from frontend.data import check_stale_data_warning
+    check_stale_data_warning(stages=["kinematics", "sync"], block=True)
+
     with st.spinner("Loading sync data..."):
         all_data = load_all_sync_data()
 

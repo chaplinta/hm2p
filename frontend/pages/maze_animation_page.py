@@ -240,6 +240,9 @@ def _page() -> None:
         "Colour indicates light state (orange = lights on, grey = dark)."
     )
 
+    from frontend.data import check_stale_data_warning
+    check_stale_data_warning(stages=["kinematics", "sync"], block=True)
+
     with st.spinner("Loading sync data..."):
         all_data = load_all_sync_data()
 
