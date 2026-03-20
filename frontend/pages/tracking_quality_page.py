@@ -480,12 +480,27 @@ if "retrain_frames" in st.session_state:
     st.markdown("**Step 3 — Label in DLC:**")
     st.code(
         f"# Open DLC labeling GUI (requires DLC installed with GUI support)\n"
-        f"uv run python -c \"import deeplabcut; deeplabcut.label_frames('/path/to/dlc_project/config.yaml')\"",
+        f"cd ~/Neuro/hm2p-v2\n"
+        f"uv run python -c \"import deeplabcut; deeplabcut.label_frames('sourcedata/trackers/dlc/config.yaml')\"",
         language="bash",
     )
 
+    st.info(
+        "If no DLC project exists yet, create one first:\n\n"
+        "```python\n"
+        "import deeplabcut\n"
+        "deeplabcut.create_new_project(\n"
+        "    'hm2p-retrain', 'tristan',\n"
+        f"    ['/tmp/{_rt_sub}_{_rt_ses}/*.mp4'],\n"
+        "    working_directory='sourcedata/trackers/dlc',\n"
+        "    copy_videos=False,\n"
+        ")\n"
+        "```"
+    )
+
     st.markdown(
-        "After labeling, merge the new labels into your DLC project and retrain. "
+        "After labeling, retrain with "
+        "`deeplabcut.create_training_dataset()` then `deeplabcut.train_network()`. "
         f"See `src/hm2p/pose/retrain.py` for helper functions."
     )
 
