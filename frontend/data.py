@@ -287,7 +287,11 @@ def get_stage_summary() -> dict[str, dict]:
 
         if invalidated:
             if key in rerunning_stages:
-                status = "Re-running"
+                # Count only files modified after the re-run started
+                rerun_started = rerun.get("started", "")
+                if rerun_started:
+                    done = _count_new_outputs(key, rerun_started)
+                status = f"Re-running ({done}/{expected})"
                 color = "orange"
             else:
                 status = "Stale (pending re-run)"
@@ -305,6 +309,43 @@ def get_stage_summary() -> dict[str, dict]:
         }
 
     return summary
+
+
+@st.cache_data(ttl=120)
+def _count_new_outputs(stage_key: str, since_iso: str) -> int:
+    """Count S3 outputs for a stage that were modified after a given timestamp."""
+    from datetime import datetime, timezone
+
+    try:
+        since = datetime.fromisoformat(since_iso.replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        return 0
+
+    prefix_map = {
+        "pose": "pose/",
+        "kinematics": "kinematics/",
+        "calcium": "calcium/",
+        "sync": "sync/",
+        "analysis": "analysis/",
+        "ca_extraction": "ca_extraction/",
+    }
+    prefix = prefix_map.get(stage_key)
+    if not prefix:
+        return 0
+
+    try:
+        s3 = get_s3_client()
+        paginator = s3.get_paginator("list_objects_v2")
+        sessions_done = set()
+        for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                if obj["Key"].endswith(".h5") and obj["LastModified"] > since:
+                    parts = obj["Key"].split("/")
+                    if len(parts) >= 3:
+                        sessions_done.add(f"{parts[1]}/{parts[2]}")
+        return len(sessions_done)
+    except Exception:
+        return 0
 
 
 @st.cache_data(ttl=120)
