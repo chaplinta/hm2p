@@ -65,12 +65,14 @@ def load_session_data(sub: str, ses: str) -> dict | None:
         result["event_masks"] = f["event_masks"][:]
     if "event_masks_sd" in f:
         result["event_masks_sd"] = f["event_masks_sd"][:]
-    if "spks" in f:
-        result["spks"] = f["spks"][:]
     if "deconv" in f:
         result["deconv"] = f["deconv"][:]
+    elif "spks" in f:
+        result["deconv"] = f["spks"][:]
     if "deconv_norm" in f:
         result["deconv_norm"] = f["deconv_norm"][:]
+    if "spikes" in f:
+        result["spikes"] = f["spikes"][:]
     if "frame_times" in f:
         result["frame_times"] = f["frame_times"][:]
 
@@ -414,6 +416,8 @@ with col1:
         _signal_options.append("Deconv (normalized)")
     if "deconv" in ca_data:
         _signal_options.append("Deconv (raw)")
+    if "spikes" in ca_data:
+        _signal_options.append("Spikes (CASCADE)")
     signal_type = st.radio("Signal", _signal_options, key="tl_signal")
 
 with col2:
@@ -423,6 +427,9 @@ with col2:
     elif signal_type == "Deconv (raw)" and "deconv" in ca_data:
         trace = ca_data["deconv"][roi_idx]
         _ylabel = "Deconv"
+    elif signal_type == "Spikes (CASCADE)" and "spikes" in ca_data:
+        trace = ca_data["spikes"][roi_idx]
+        _ylabel = "Spikes (spk/s)"
     else:
         trace = dff[roi_idx]
         _ylabel = "dF/F0"

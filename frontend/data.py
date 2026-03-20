@@ -173,6 +173,12 @@ PIPELINE_STAGES = {
         "s3_prefix": "calcium",
         "expected": 26,
     },
+    "cascade": {
+        "label": "Stage 4b — CASCADE",
+        "short": "CASCADE",
+        "s3_prefix": "calcium",  # spikes added to existing ca.h5
+        "expected": 26,
+    },
     "sync": {
         "label": "Stage 5 — Sync",
         "short": "Sync",
@@ -193,10 +199,11 @@ PIPELINE_STAGES = {
 # This is checked by looking for a pipeline_rerun.json marker on S3.
 DOWNSTREAM_DEPS: dict[str, list[str]] = {
     "pose": ["kinematics", "kpms", "sync", "analysis"],
-    "ca_extraction": ["calcium", "sync", "analysis"],
+    "ca_extraction": ["calcium", "cascade", "sync", "analysis"],
     "kinematics": ["sync", "analysis"],
     "kpms": [],
     "calcium": ["sync", "analysis"],
+    "cascade": [],  # CASCADE adds spikes to ca.h5; doesn't invalidate downstream
     "sync": ["analysis"],
     "analysis": [],
 }
@@ -261,6 +268,9 @@ def get_stage_summary() -> dict[str, dict]:
         if key == "kpms":
             # MoSeq: count syllables.npz files on S3
             done = _count_kpms_outputs()
+        elif key == "cascade":
+            # CASCADE: count ca.h5 files that contain a 'spikes' dataset
+            done = _count_cascade_outputs()
         elif key == "ingest":
             # Ingest: count timestamps.h5 on rawdata bucket
             done = expected  # always 26/26 (already uploaded)
@@ -344,6 +354,28 @@ def _count_new_outputs(stage_key: str, since_iso: str) -> int:
                     if len(parts) >= 3:
                         sessions_done.add(f"{parts[1]}/{parts[2]}")
         return len(sessions_done)
+    except Exception:
+        return 0
+
+
+@st.cache_data(ttl=300)
+def _count_cascade_outputs() -> int:
+    """Count ca.h5 files that have CASCADE spikes by sampling one file.
+
+    Downloading all 26 ca.h5 files to check for a key would be too slow.
+    Instead, check a single sample file — CASCADE processes all sessions
+    in one batch, so if one has spikes, all do.
+    """
+    import h5py as _h5py
+
+    sample_key = "calcium/sub-1114353/ses-20210823T165950/ca.h5"
+    try:
+        data = download_s3_bytes(DERIVATIVES_BUCKET, sample_key)
+        if data:
+            with _h5py.File(io.BytesIO(data), "r") as f:
+                if "spikes" in f:
+                    return 26  # CASCADE runs all-or-nothing
+        return 0
     except Exception:
         return 0
 
@@ -661,11 +693,12 @@ def _fetch_all_sync_data() -> dict:
                 bad_behav = f["bad_behav"][:] if "bad_behav" in f else np.zeros(len(hd_deg), dtype=bool)
                 frame_times = f["frame_times"][:] if "frame_times" in f else np.arange(len(hd_deg), dtype=float)
                 roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
-                # Deconvolved spikes (Suite2p spks or CASCADE spikes)
-                deconv = f["spikes"][:] if "spikes" in f else None
-                # Suite2p deconv raw + max-normalized (0-1 per ROI)
+                # Suite2p deconvolved spikes
+                deconv = f["deconv"][:] if "deconv" in f else None
                 if deconv is None:
-                    deconv = f["deconv"][:] if "deconv" in f else None
+                    deconv = f["spks"][:] if "spks" in f else None
+                # CASCADE calibrated spike rates (separate from deconv)
+                spikes = f["spikes"][:] if "spikes" in f else None
                 deconv_norm = f["deconv_norm"][:] if "deconv_norm" in f else None
                 # Event masks (Voigts & Harnett binary events)
                 event_masks = f["event_masks"][:] if "event_masks" in f else None
@@ -689,6 +722,7 @@ def _fetch_all_sync_data() -> dict:
                 "dff": dff,
                 "deconv": deconv,
                 "deconv_norm": deconv_norm,
+                "spikes": spikes,
                 "event_masks": event_masks,
                 "event_masks_sd": event_masks_sd,
                 "hd_deg": hd_deg,
@@ -882,6 +916,8 @@ def session_filter_sidebar(
                         s_copy["deconv"] = s["deconv"][mask]
                     if s.get("deconv_norm") is not None:
                         s_copy["deconv_norm"] = s["deconv_norm"][mask]
+                    if s.get("spikes") is not None:
+                        s_copy["spikes"] = s["spikes"][mask]
                     if s.get("event_masks") is not None:
                         s_copy["event_masks"] = s["event_masks"][mask]
                     if s.get("event_masks_sd") is not None:
