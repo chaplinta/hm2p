@@ -461,7 +461,21 @@ if "retrain_frames" in st.session_state:
         language="bash",
     )
 
-    st.markdown("The script will print the labeling command when done. After labeling:")
+    st.markdown("The script opens a **napari** window for labeling. How to label:")
+    st.markdown(
+        "1. Each frame is shown as an image layer. The 5 bodyparts to label are: "
+        "**left_ear**, **right_ear**, **mid_back**, **mouse_center**, **tail_base**.\n"
+        "2. Select a bodypart from the **Points** layer dropdown on the left panel.\n"
+        "3. Click on the image to place the keypoint at the correct location.\n"
+        "4. Use the **slider at the bottom** to move between frames.\n"
+        "5. If a bodypart is not visible (e.g. occluded), skip it — don't guess.\n"
+        "6. When all frames are labeled, **close the napari window** (Cmd+Q or click X). "
+        "DLC saves labels automatically on close.\n"
+        "7. Aim for **50-200 labeled frames** across multiple sessions for best results. "
+        "Run the script again with different sessions to add more frames to the same project."
+    )
+
+    st.markdown("After labeling and closing napari:")
     st.code(
         f"# Upload labels and launch training on AWS (GPU)\n"
         f"uv run python scripts/upload_dlc_labels.py\n"
