@@ -438,18 +438,55 @@ if st.button("Select frames", key="select_frames_btn"):
 # --- Export instructions ---
 if "retrain_frames" in st.session_state:
     st.subheader("Export for Labeling")
+
+    _rt_sub, _rt_ses = st.session_state["retrain_session"].split("/")
+    _rt_frames = st.session_state["retrain_frames"].tolist()
+    _rt_s3_video = f"s3://hm2p-rawdata/rawdata/{_rt_sub}/{_rt_ses}/behav/"
+    _rt_output = f"retrain_frames/{_rt_sub}_{_rt_ses}"
+    _rt_frames_str = str(_rt_frames[:20])
+    if len(_rt_frames) > 20:
+        _rt_frames_str = _rt_frames_str[:-1] + ", ...]"
+
+    st.markdown(f"**Session:** `{_rt_sub}/{_rt_ses}`")
+    st.markdown(f"**Selected frames:** {len(_rt_frames)}")
+
+    st.markdown("**Step 1 — Download the video from S3:**")
+    st.code(
+        f"aws s3 sync {_rt_s3_video} /tmp/{_rt_sub}_{_rt_ses}/ "
+        f"--exclude '*' --include '*.mp4' --exclude '*side*'",
+        language="bash",
+    )
+
+    st.markdown("**Step 2 — Extract frames:**")
+    st.code(
+        f"uv run python -c \"\n"
+        f"from hm2p.pose.retrain import extract_frames_from_video\n"
+        f"from pathlib import Path\n"
+        f"import numpy as np\n\n"
+        f"# Find the overhead video\n"
+        f"video_dir = Path('/tmp/{_rt_sub}_{_rt_ses}')\n"
+        f"videos = list(video_dir.glob('*overhead*.mp4')) + list(video_dir.glob('*cropped*.mp4'))\n"
+        f"video = videos[0] if videos else list(video_dir.glob('*.mp4'))[0]\n\n"
+        f"extract_frames_from_video(\n"
+        f"    video_path=video,\n"
+        f"    frame_indices=np.array({_rt_frames_str}),\n"
+        f"    output_dir=Path('{_rt_output}'),\n"
+        f")\n"
+        f"print(f'Extracted {{len({_rt_frames_str})}} frames to {_rt_output}/')\n"
+        f"\"",
+        language="bash",
+    )
+
+    st.markdown("**Step 3 — Label in DLC:**")
+    st.code(
+        f"# Open DLC labeling GUI (requires DLC installed with GUI support)\n"
+        f"uv run python -c \"import deeplabcut; deeplabcut.label_frames('/path/to/dlc_project/config.yaml')\"",
+        language="bash",
+    )
+
     st.markdown(
-        "To extract these frames for DLC labeling:\n\n"
-        "```python\n"
-        "from hm2p.pose.retrain import extract_frames_from_video\n"
-        "from pathlib import Path\n\n"
-        "frames = extract_frames_from_video(\n"
-        "    video_path=Path('path/to/video.mp4'),\n"
-        f"    frame_indices=np.array({st.session_state['retrain_frames'].tolist()[:10]}...),\n"
-        "    output_dir=Path('retrain_frames/'),\n"
-        ")\n"
-        "```\n\n"
-        "Then open the DLC labeling GUI to annotate the extracted frames."
+        "After labeling, merge the new labels into your DLC project and retrain. "
+        f"See `src/hm2p/pose/retrain.py` for helper functions."
     )
 
 
