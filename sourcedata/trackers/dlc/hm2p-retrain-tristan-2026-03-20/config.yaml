@@ -78,10 +78,11 @@ move2corner: true
 
 
 # Conversion tables to fine-tune SuperAnimal weights
-# 1:1 mapping — our bodypart names match SuperAnimal TopViewMouse names
+# Format: superanimal_model_name: {project_bodypart: superanimal_bodypart}
 SuperAnimalConversionTables:
-  left_ear: left_ear
-  right_ear: right_ear
-  mid_back: mid_back
-  mouse_center: mouse_center
-  tail_base: tail_base
+  superanimal_topviewmouse:
+    left_ear: left_ear
+    right_ear: right_ear
+    mid_back: mid_back
+    mouse_center: mouse_center
+    tail_base: tail_base

@@ -161,8 +161,9 @@ def main() -> None:
         cfg["bodyparts"] = BODYPARTS
         cfg["skeleton"] = SKELETON
         # Set up SuperAnimal conversion table for fine-tuning
+        # Format: {superanimal_model: {project_bp: superanimal_bp}}
         cfg["SuperAnimalConversionTables"] = {
-            bp: bp for bp in BODYPARTS  # 1:1 mapping (our names match SuperAnimal)
+            "superanimal_topviewmouse": {bp: bp for bp in BODYPARTS}
         }
         with open(config_path, "w") as f:
             yaml.dump(cfg, f, default_flow_style=False)
