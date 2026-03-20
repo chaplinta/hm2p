@@ -154,12 +154,17 @@ def main() -> None:
     n_copied = len(list(labeled_dir.glob("*.png")))
     print(f"Copied {n_copied} frames to {labeled_dir}/")
 
-    # Step 5: Print next steps
+    # Step 5: Open labeling GUI
     config_path = project_dir / "config.yaml"
+    print(f"\n--- Opening DLC labeling GUI ---")
+    print(f"Config: {config_path}")
+    print("Label all frames, then close the GUI window.")
+
+    import deeplabcut
+    deeplabcut.label_frames(str(config_path))
+
     print(f"\n{'='*60}")
-    print("DONE. Next step — open the labeling GUI:")
-    print(f"\n  uv run python -c \"import deeplabcut; deeplabcut.label_frames('{config_path}')\"")
-    print(f"\nAfter labeling, upload labels and launch training on AWS:")
+    print("Labeling done. Next steps:")
     print(f"\n  uv run python scripts/upload_dlc_labels.py")
     print(f"  uv run python scripts/launch_dlc_retrain_ec2.py")
     print(f"{'='*60}")
