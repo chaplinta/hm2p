@@ -477,34 +477,46 @@ if "retrain_frames" in st.session_state:
         language="bash",
     )
 
-    st.markdown("**Step 3 — Install DLC GUI and label frames:**")
+    st.markdown("**Step 3 — Create DLC project and label frames:**")
     st.code(
         f"# Install DLC with GUI support (only needed once)\n"
-        f"uv pip install --pre 'deeplabcut[gui]'\n\n"
-        f"# Open labeling GUI\n"
+        f"uv pip install --pre 'deeplabcut[gui]' --python ~/.venv-hm2p/bin/python\n\n"
+        f"# Create a new DLC project (only needed once)\n"
         f"cd ~/Neuro/hm2p-v2\n"
-        f"uv run python -c \"import deeplabcut; deeplabcut.label_frames('sourcedata/trackers/dlc/config.yaml')\"",
+        f"uv run python << 'PY'\n"
+        f"import deeplabcut\n"
+        f"import glob\n"
+        f"videos = glob.glob('/tmp/{_rt_sub}_{_rt_ses}/*.mp4')\n"
+        f"deeplabcut.create_new_project(\n"
+        f"    'hm2p-retrain', 'tristan', videos,\n"
+        f"    working_directory='sourcedata/trackers/dlc',\n"
+        f"    copy_videos=False,\n"
+        f")\n"
+        f"PY",
         language="bash",
     )
 
-    st.info(
-        "If no DLC project exists yet, create one first:\n\n"
-        "```bash\n"
-        "uv run python -c \"\n"
-        "import deeplabcut\n"
-        "deeplabcut.create_new_project(\n"
-        "    'hm2p-retrain', 'tristan',\n"
-        f"    ['/tmp/{_rt_sub}_{_rt_ses}/*.mp4'],\n"
-        "    working_directory='sourcedata/trackers/dlc',\n"
-        "    copy_videos=False,\n"
-        ")\n"
-        "\"\n"
-        "```"
+    st.markdown("**Step 4 — Copy extracted frames into the project and label:**")
+    st.code(
+        f"# Copy extracted frames into the DLC project's labeled-data folder\n"
+        f"DLC_PROJECT=$(ls -d sourcedata/trackers/dlc/hm2p-retrain-tristan-*/)\n"
+        f"mkdir -p \"$DLC_PROJECT/labeled-data/{_rt_sub}_{_rt_ses}\"\n"
+        f"cp {_rt_output}/*.png \"$DLC_PROJECT/labeled-data/{_rt_sub}_{_rt_ses}/\"\n\n"
+        f"# Open the labeling GUI\n"
+        f"uv run python -c \"import deeplabcut; deeplabcut.label_frames('$DLC_PROJECT/config.yaml')\"",
+        language="bash",
     )
 
     st.markdown(
-        "After labeling, retrain with "
-        "`deeplabcut.create_training_dataset()` then `deeplabcut.train_network()`. "
+        "**Step 5 — Retrain:** After labeling, create a training dataset and retrain:\n\n"
+        "```bash\n"
+        "uv run python << 'PY'\n"
+        "import deeplabcut\n"
+        "config = 'sourcedata/trackers/dlc/hm2p-retrain-tristan-.../config.yaml'\n"
+        "deeplabcut.create_training_dataset(config)\n"
+        "deeplabcut.train_network(config)  # needs GPU\n"
+        "PY\n"
+        "```\n\n"
         f"See `src/hm2p/pose/retrain.py` for helper functions."
     )
 
