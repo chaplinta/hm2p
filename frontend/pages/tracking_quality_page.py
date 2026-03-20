@@ -447,77 +447,26 @@ if "retrain_frames" in st.session_state:
     if len(_rt_frames) > 20:
         _rt_frames_str = _rt_frames_str[:-1] + ", ...]"
 
-    st.markdown(f"**Session:** `{_rt_sub}/{_rt_ses}`")
-    st.markdown(f"**Selected frames:** {len(_rt_frames)}")
+    _frames_arg = " ".join(str(f) for f in _rt_frames)
 
-    st.markdown("**Step 1 — Download the video from S3:**")
-    st.code(
-        f"aws s3 sync {_rt_s3_video} /tmp/{_rt_sub}_{_rt_ses}/ "
-        f"--exclude '*' --include '*.mp4' --exclude '*side*'",
-        language="bash",
-    )
+    st.markdown(f"**Session:** `{_rt_sub}/{_rt_ses}` | **Frames:** {len(_rt_frames)}")
 
-    st.markdown("**Step 2 — Extract frames:**")
+    st.markdown("**Run this on your Mac** (downloads video, extracts frames, sets up DLC project):")
     st.code(
-        f"uv run python -c \"\n"
-        f"from hm2p.pose.retrain import extract_frames_from_video\n"
-        f"from pathlib import Path\n"
-        f"import numpy as np\n\n"
-        f"# Find the overhead video\n"
-        f"video_dir = Path('/tmp/{_rt_sub}_{_rt_ses}')\n"
-        f"videos = list(video_dir.glob('*overhead*.mp4')) + list(video_dir.glob('*cropped*.mp4'))\n"
-        f"video = videos[0] if videos else list(video_dir.glob('*.mp4'))[0]\n\n"
-        f"extract_frames_from_video(\n"
-        f"    video_path=video,\n"
-        f"    frame_indices=np.array({_rt_frames_str}),\n"
-        f"    output_dir=Path('{_rt_output}'),\n"
-        f")\n"
-        f"print(f'Extracted {{len({_rt_frames_str})}} frames to {_rt_output}/')\n"
-        f"\"",
-        language="bash",
-    )
-
-    st.markdown("**Step 3 — Create DLC project and label frames:**")
-    st.code(
-        f"# Install DLC with GUI support (only needed once)\n"
+        f"# Install DLC GUI (only needed once)\n"
         f"uv pip install --pre 'deeplabcut[gui]' --python ~/.venv-hm2p/bin/python\n\n"
-        f"# Create a new DLC project (only needed once)\n"
+        f"# Prepare frames + DLC project\n"
         f"cd ~/Neuro/hm2p-v2\n"
-        f"uv run python << 'PY'\n"
-        f"import deeplabcut\n"
-        f"import glob\n"
-        f"videos = glob.glob('/tmp/{_rt_sub}_{_rt_ses}/*.mp4')\n"
-        f"deeplabcut.create_new_project(\n"
-        f"    'hm2p-retrain', 'tristan', videos,\n"
-        f"    working_directory='sourcedata/trackers/dlc',\n"
-        f"    copy_videos=False,\n"
-        f")\n"
-        f"PY",
+        f"uv run python scripts/prepare_retrain_frames.py {_rt_sub}/{_rt_ses} {_frames_arg}",
         language="bash",
     )
 
-    st.markdown("**Step 4 — Copy extracted frames into the project and label:**")
+    st.markdown("The script will print the labeling command when done. After labeling:")
     st.code(
-        f"# Copy extracted frames into the DLC project's labeled-data folder\n"
-        f"DLC_PROJECT=$(ls -d sourcedata/trackers/dlc/hm2p-retrain-tristan-*/)\n"
-        f"mkdir -p \"$DLC_PROJECT/labeled-data/{_rt_sub}_{_rt_ses}\"\n"
-        f"cp {_rt_output}/*.png \"$DLC_PROJECT/labeled-data/{_rt_sub}_{_rt_ses}/\"\n\n"
-        f"# Open the labeling GUI\n"
-        f"uv run python -c \"import deeplabcut; deeplabcut.label_frames('$DLC_PROJECT/config.yaml')\"",
+        f"# Upload labels and launch training on AWS (GPU)\n"
+        f"uv run python scripts/upload_dlc_labels.py\n"
+        f"uv run python scripts/launch_dlc_retrain_ec2.py",
         language="bash",
-    )
-
-    st.markdown(
-        "**Step 5 — Retrain:** After labeling, create a training dataset and retrain:\n\n"
-        "```bash\n"
-        "uv run python << 'PY'\n"
-        "import deeplabcut\n"
-        "config = 'sourcedata/trackers/dlc/hm2p-retrain-tristan-.../config.yaml'\n"
-        "deeplabcut.create_training_dataset(config)\n"
-        "deeplabcut.train_network(config)  # needs GPU\n"
-        "PY\n"
-        "```\n\n"
-        f"See `src/hm2p/pose/retrain.py` for helper functions."
     )
 
 

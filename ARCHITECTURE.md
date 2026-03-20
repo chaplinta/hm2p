@@ -108,6 +108,9 @@ flowchart LR
 
     SYN -->|Stage 6| ANAL["analysis.h5\nHD tuning · significance\ndecoding · stability"]
 
+    PSE -.->|"QC: bad frames"| RETRAIN["DLC retrain\nlabel frames → fine-tune on AWS"]
+    RETRAIN -.->|"pose-finetuned/"| PSE
+
     style TS  fill:#fef3c7,stroke:#d97706
     style KIN fill:#dcfce7,stroke:#16a34a
     style CA  fill:#dcfce7,stroke:#16a34a
@@ -544,5 +547,65 @@ No CD (deployment) planned — pipeline is run on-demand per session batch.
 | checkov | Infrastructure-as-code scanner (Dockerfiles, CI YAMLs) |
 | detect-secrets | Pre-commit hook to prevent secrets from entering git |
 | pip-audit | Dependency vulnerability scanner (OSV database) |
+
+---
+
+## DLC Retraining Pipeline
+
+When SuperAnimal tracking quality is insufficient, the pipeline supports
+fine-tuning DLC on manually labeled frames. The workflow spans local (Mac)
+and cloud (AWS) steps.
+
+### S3 layout
+
+```text
+s3://hm2p-derivatives/
+  dlc-retrain/
+    labeled-data/{sub}_{ses}/     ← PNG frames + CollectedData CSV/H5
+    config.yaml                   ← DLC project config
+    models/iteration-0/           ← fine-tuned model weights
+    _retrain_progress.json        ← training + inference progress
+  pose-finetuned/{sub}/{ses}/     ← re-inference results (before promotion)
+```
+
+### Scripts
+
+| Script | Runs on | Purpose |
+|--------|---------|---------|
+| `scripts/prepare_retrain_frames.py` | Mac | Downloads video, extracts frames, creates DLC project, copies frames into labeled-data |
+| `scripts/upload_dlc_labels.py` | Mac | Uploads labeled data + config to S3 |
+| `scripts/launch_dlc_retrain_ec2.py` | Mac | Launches g4dn.xlarge for training + re-inference |
+| `scripts/run_dlc_retrain.py` | EC2 | Training + re-inference (called by user-data) |
+| `scripts/promote_finetuned_pose.py` | Mac | Copies pose-finetuned → pose on S3 after QC |
+
+### Workflow
+
+```text
+1. Tracking QC page → select bad frames → "Export for Labeling"
+                                           ↓
+2. Mac: uv run python scripts/prepare_retrain_frames.py sub/ses 606 2093 ...
+        → downloads video, extracts frames, creates DLC project
+                                           ↓
+3. Mac: uv run python -c "import deeplabcut; deeplabcut.label_frames('...')"
+        → manually label frames in napari GUI
+                                           ↓
+4. Mac: uv run python scripts/upload_dlc_labels.py
+        → uploads labeled-data + config.yaml to S3
+                                           ↓
+5. Mac: uv run python scripts/launch_dlc_retrain_ec2.py
+        → launches g4dn.xlarge which:
+          a. Downloads labels from S3
+          b. Runs deeplabcut.create_training_dataset(superanimal_transfer=True)
+          c. Runs deeplabcut.train_network()
+          d. Uploads model weights to S3
+          e. Re-runs inference on all 26 sessions → pose-finetuned/
+          f. Self-terminates
+                                           ↓
+6. Frontend: compare SuperAnimal vs fine-tuned in Tracking QC page
+                                           ↓
+7. Mac: uv run python scripts/promote_finetuned_pose.py
+        → copies pose-finetuned/ → pose/ on S3
+        → triggers downstream re-run (Stages 3, 5, 6)
+```
 | vulture | Dead code detection — finds unused functions and variables |
 | structlog | Structured JSON logging throughout pipeline stages |
