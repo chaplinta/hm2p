@@ -142,13 +142,16 @@ def main() -> None:
         print(f"Created: {project_dir}")
 
     # Step 4: Copy frames into labeled-data
-    labeled_dir = project_dir / "labeled-data" / session_tag
+    # DLC expects frames in a subdirectory named after the video (stem without extension).
+    # Read config.yaml to find the expected directory name.
+    video_stem = video_path.stem
+    labeled_dir = project_dir / "labeled-data" / video_stem
     labeled_dir.mkdir(parents=True, exist_ok=True)
 
+    import shutil
     for img in output_dir.glob("*.png"):
         dest = labeled_dir / img.name
         if not dest.exists():
-            import shutil
             shutil.copy2(img, dest)
 
     n_copied = len(list(labeled_dir.glob("*.png")))
