@@ -85,5 +85,9 @@ NOTEPAD.md
 # Pipeline results (uploaded to S3)
 results/
 
+# DLC retraining — extracted frames are large, keep only the indices
+retrain_frames/
+sourcedata/trackers/dlc/*/labeled-data/
+
 # Docker
 docker/.env

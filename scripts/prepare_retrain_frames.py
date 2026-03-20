@@ -157,17 +157,36 @@ def main() -> None:
     n_copied = len(list(labeled_dir.glob("*.png")))
     print(f"Copied {n_copied} frames to {labeled_dir}/")
 
-    # Step 5: Open labeling GUI
+    # Step 5: Save frame indices to metadata for reproducibility
+    indices_dir = Path("metadata/retrain_frames")
+    indices_dir.mkdir(parents=True, exist_ok=True)
+    indices_file = indices_dir / f"{session_tag}.json"
+    indices_file.write_text(json.dumps({
+        "session": f"{sub}/{ses}",
+        "video": video_path.name,
+        "frame_indices": frame_indices.tolist(),
+        "n_frames": len(frame_indices),
+    }, indent=2))
+    print(f"\nSaved frame indices to {indices_file}")
+
+    # Step 6: Open labeling GUI
     config_path = project_dir / "config.yaml"
     print(f"\n--- Opening DLC labeling GUI ---")
     print(f"Config: {config_path}")
-    print("Label all frames, then close the GUI window.")
+    print("Label all frames, then close the napari window.\n")
 
     import deeplabcut
     deeplabcut.label_frames(str(config_path))
 
+    # Keep napari event loop running until the user closes the window
+    try:
+        import napari
+        napari.run()
+    except (ImportError, RuntimeError):
+        pass
+
     print(f"\n{'='*60}")
-    print("Labeling done. Next steps:")
+    print("Next steps:")
     print(f"\n  uv run python scripts/upload_dlc_labels.py")
     print(f"  uv run python scripts/launch_dlc_retrain_ec2.py")
     print(f"{'='*60}")
