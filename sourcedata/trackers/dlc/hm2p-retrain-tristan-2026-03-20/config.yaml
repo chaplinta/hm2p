@@ -1,0 +1,87 @@
+# Project definitions (do not edit)
+Task: hm2p-retrain
+scorer: tristan
+date: Mar20
+multianimalproject: false
+identity:
+
+
+# Project path (change when moving around)
+project_path: /Users/tristan/Neuro/hm2p-v2/sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20
+
+
+# Default DeepLabCut engine to use for shuffle creation (either pytorch or tensorflow)
+engine: pytorch
+
+
+# Annotation data set configuration (and individual video cropping parameters)
+video_sets:
+  /private/tmp/sub-1114353_ses-20210823T165950/20210823_17_00_04_1114353_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 832, 0, 608
+bodyparts:
+- left_ear
+- right_ear
+- mid_back
+- mouse_center
+- tail_base
+
+
+# Fraction of video to start/stop when extracting frames for labeling/refinement
+start: 0
+stop: 1
+numframes2pick: 20
+
+
+# Plotting configuration
+skeleton:
+- - left_ear
+  - right_ear
+- - right_ear
+  - mid_back
+- - mid_back
+  - mouse_center
+- - mouse_center
+  - tail_base
+skeleton_color: black
+pcutoff: 0.6
+dotsize: 12
+alphavalue: 0.7
+colormap: rainbow
+
+
+# Training,Evaluation and Analysis configuration
+TrainingFraction:
+- 0.95
+iteration: 0
+default_net_type: resnet_50
+default_augmenter: default
+snapshotindex: -1
+detector_snapshotindex: -1
+batch_size: 8
+detector_batch_size: 1
+
+
+# Cropping Parameters (for analysis and outlier frame detection)
+cropping: false
+#if cropping is true for analysis, then set the values here:
+x1: 0
+x2: 640
+y1: 277
+y2: 624
+
+
+# Refinement configuration (parameters from annotation dataset configuration also relevant in this stage)
+corner2move2:
+- 50
+- 50
+move2corner: true
+
+
+# Conversion tables to fine-tune SuperAnimal weights
+# 1:1 mapping — our bodypart names match SuperAnimal TopViewMouse names
+SuperAnimalConversionTables:
+  left_ear: left_ear
+  right_ear: right_ear
+  mid_back: mid_back
+  mouse_center: mouse_center
+  tail_base: tail_base

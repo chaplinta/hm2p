@@ -125,6 +125,15 @@ def main() -> None:
     dlc_base.mkdir(parents=True, exist_ok=True)
     projects = sorted(dlc_base.glob(f"{args.dlc_project_name}-{args.experimenter}-*"))
 
+    # SuperAnimal TopViewMouse bodyparts — must match for fine-tuning
+    BODYPARTS = ["left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"]
+    SKELETON = [
+        ["left_ear", "right_ear"],
+        ["right_ear", "mid_back"],
+        ["mid_back", "mouse_center"],
+        ["mouse_center", "tail_base"],
+    ]
+
     if projects:
         project_dir = projects[-1]
         print(f"\n--- Using existing DLC project: {project_dir} ---")
@@ -140,6 +149,24 @@ def main() -> None:
         )
         project_dir = Path(config_path).parent
         print(f"Created: {project_dir}")
+
+    # Fix config.yaml bodyparts to match SuperAnimal TopViewMouse
+    config_path = project_dir / "config.yaml"
+    import yaml
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+
+    if cfg.get("bodyparts") != BODYPARTS:
+        print(f"  Updating bodyparts: {cfg.get('bodyparts')} → {BODYPARTS}")
+        cfg["bodyparts"] = BODYPARTS
+        cfg["skeleton"] = SKELETON
+        # Set up SuperAnimal conversion table for fine-tuning
+        cfg["SuperAnimalConversionTables"] = {
+            bp: bp for bp in BODYPARTS  # 1:1 mapping (our names match SuperAnimal)
+        }
+        with open(config_path, "w") as f:
+            yaml.dump(cfg, f, default_flow_style=False)
+        print(f"  Config updated: {config_path}")
 
     # Step 4: Copy frames into labeled-data
     # DLC expects frames in a subdirectory named after the video (stem without extension).
