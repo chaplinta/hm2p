@@ -175,7 +175,8 @@ else:
         WORK=/tmp/hm2p-work
         mkdir -p $WORK
 
-        echo "$SESSIONS" | python3 -c "
+        # Write processing script to file (avoids python3 -c indentation issues)
+        cat > /tmp/hm2p_dlc_process.py << 'DLCPYTHON'
         import json, sys, subprocess, shutil, os, datetime
         from pathlib import Path
 
@@ -352,7 +353,11 @@ else:
         if failed:
             print(f'Failed sessions: {{failed}}', flush=True)
         update_progress('ALL DONE')
-        "
+DLCPYTHON
+
+        # Strip leading 8-space indent from heredoc (f-string indentation artifact)
+        sed -i 's/^        //' /tmp/hm2p_dlc_process.py
+        echo "$SESSIONS" | python3 /tmp/hm2p_dlc_process.py
 
         echo ""
         echo "=== DLC run complete: $(date -u) ==="
