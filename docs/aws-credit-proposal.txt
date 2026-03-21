@@ -32,18 +32,35 @@ cloud computing.
 
 Project Summary
 
-This project has built a reproducible, cloud-first analysis pipeline
-(hm2p) for processing two-photon calcium imaging data from 26
-experimental sessions (20 animals, ~113 GB raw data). The pipeline
-extracts neural activity (Suite2p), tracks animal pose (DeepLabCut),
-computes behavioural kinematics (head direction, speed, position), and
-aligns neural and behavioural data for downstream analysis of HD tuning,
-population decoding, and visual cue dependence.
+This project serves a dual purpose. The primary scientific goal is to
+analyse head direction coding in RSP using two-photon calcium imaging
+from 26 sessions (20 animals, ~113 GB). But it is also an experiment in
+AI-assisted science: the entire analysis pipeline — code, tests,
+documentation, infrastructure, and frontend — was built collaboratively
+with an AI coding agent (Claude Code, Anthropic). The pipeline
+comprises 5,600+ lines of processing code, 1,500+ unit tests at 91%+
+coverage, and a 53-page interactive frontend, developed in weeks rather
+than the months this would typically require.
 
-The pipeline is implemented in Python, orchestrated by Snakemake, and
-runs on AWS EC2 instances with data stored on S3. All code is
-open-source (https://github.com/chaplinta/hm2p) with 1500+ unit tests
-and 91%+ code coverage.
+This approach points toward a future where AI agents build and maintain
+scientific analysis pipelines, generate testable hypotheses from data,
+and iteratively refine analyses based on results — with the scientist
+directing the research questions and interpreting the findings. This
+project is an early demonstration of that workflow applied to systems
+neuroscience. The AI-built pipeline also advances reproducibility: every
+processing step is version-controlled, unit-tested, containerised in
+Docker, and orchestrated by Snakemake, making the entire analysis
+re-runnable from raw data to final figures on any machine with AWS
+access. The full commit history documenting the AI-assisted development
+process is publicly visible at https://github.com/chaplinta/hm2p.
+
+The pipeline extracts neural activity (Suite2p), tracks animal pose
+(DeepLabCut), computes behavioural kinematics (head direction, speed,
+position), and aligns neural and behavioural data for downstream
+analysis of HD tuning, population decoding, and visual cue dependence.
+It is implemented in Python, orchestrated by Snakemake, and runs on AWS
+EC2 instances with data stored on S3. All code is open-source
+(https://github.com/chaplinta/hm2p).
 
 AWS Services Used
 
