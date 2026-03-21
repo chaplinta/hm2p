@@ -21,7 +21,7 @@ import boto3
 
 REGION = "ap-southeast-2"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
-INSTANCE_TYPE = "g4dn.xlarge"
+INSTANCE_TYPE = "g5.xlarge"
 AMI = "ami-05186a30469f66913"
 KEY_NAME = "hm2p-suite2p"
 SG_ID = "sg-020161fb424325e6b"
