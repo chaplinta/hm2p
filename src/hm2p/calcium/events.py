@@ -200,9 +200,15 @@ def detect_events_single(
                 found_offset = True
                 break
 
-        # If no offset found, event runs to end of trace (don't include it)
+        # If no offset found, event runs to end of trace — retain it
+        # (matching legacy pipeline behaviour).
         if not found_offset:
-            pass
+            i_offset = n_frames
+            if alpha >= 1.0 or np.any(noise_prob[i_onset:i_offset] < alpha):
+                onsets.append(i_onset)
+                offsets.append(i_offset)
+                amplitudes.append(np.max(trace[i_onset:i_offset]))
+                event_mask[i_onset:i_offset] = 1
 
     return EventResult(
         onsets=np.array(onsets, dtype=np.int64),
@@ -471,7 +477,10 @@ def detect_events_sd_single(
     # full noise distribution width.
     neg_values = trace[trace < 0]
     if len(neg_values) > 10:
-        noise_sd = np.std(neg_values) * np.sqrt(2)  # mirror correction
+        # The negative portion of dF/F follows a half-normal distribution.
+        # SD of the half-normal is sigma * sqrt(1 - 2/pi). To recover the
+        # full distribution sigma: sigma = std(negatives) / sqrt(1 - 2/pi).
+        noise_sd = np.std(neg_values) / np.sqrt(1.0 - 2.0 / np.pi)
     else:
         # Fallback: use MAD of full trace (robust to transients)
         noise_sd = np.median(np.abs(trace - np.median(trace))) * 1.4826

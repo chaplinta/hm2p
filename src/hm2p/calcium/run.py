@@ -134,10 +134,9 @@ def run(
     # --- Event detection ---
     from hm2p.calcium.events import detect_events_batch, detect_events_sd
 
-    # V&H method (percentile-based noise model) — use prob_onset=0.3 to
-    # catch the start of the calcium rise earlier (default 0.2 waits until
-    # the signal is well above noise, missing the rising phase).
-    batch_result = detect_events_batch(dff, fps=fps, prob_onset=0.3)
+    # V&H method (percentile-based noise model) with significance filtering.
+    # prob_onset=0.2 and alpha=0.05 match the legacy pipeline and V&H paper.
+    batch_result = detect_events_batch(dff, fps=fps, prob_onset=0.2, alpha=0.05)
     # SD-threshold method (more sensitive to small transients)
     event_masks_sd = detect_events_sd(dff, fps=fps, sd_threshold=2.0, min_duration_s=0.3)
 

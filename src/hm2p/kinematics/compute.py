@@ -124,12 +124,16 @@ def median_filter_dataset(ds: xr.Dataset, window: int = 5) -> xr.Dataset:
     """
     from movement.filtering import rolling_filter
 
+    import logging as _logging
+
     try:
         filtered = rolling_filter(ds.position, window=window, statistic="median")
         if filtered.shape == ds.position.shape:
             ds["position"].values[:] = filtered.values
-    except Exception:
-        pass  # If filter fails (e.g. all-NaN data), keep unfiltered
+    except Exception as exc:
+        _logging.getLogger("hm2p.kinematics").warning(
+            "Median filter failed — using unfiltered positions: %s", exc
+        )
     return ds
 
 
@@ -552,11 +556,15 @@ def _windowed_gradient(
             if denom > 0:
                 result[i] = ((dt * (s_v - s_mean)).sum()) / denom
 
-    # Fill any remaining NaN at edges with simple central difference
+    # Fill any remaining NaN at edges with simple central difference.
+    # Only use np.gradient where signal is finite (it propagates NaN).
     nan_mask = np.isnan(result)
     if nan_mask.any():
-        simple = np.gradient(signal, frame_times)
-        result[nan_mask] = simple[nan_mask]
+        finite = np.isfinite(signal)
+        if finite.all():
+            simple = np.gradient(signal, frame_times)
+            result[nan_mask] = simple[nan_mask]
+        # If signal has NaN, leave those gradient values as NaN
 
     return result
 
@@ -660,6 +668,19 @@ def run(
     # --- Kinematics ---
     hd_deg = compute_head_direction(ds)  # (N,) float32
     x_mm, y_mm = compute_position_mm(ds, scale_mm_per_px)  # (N,) float32
+
+    # Rotate maze corners by the same orientation angle as the keypoints,
+    # so positions and maze boundaries are in the same coordinate frame.
+    if orientation_deg != 0.0:
+        cx = float(np.nanmean(maze_corners_px[:, 0]))
+        cy = float(np.nanmean(maze_corners_px[:, 1]))
+        rot_x, rot_y = _rotate_xy(
+            maze_corners_px[:, 0].astype(float),
+            maze_corners_px[:, 1].astype(float),
+            orientation_deg, cx, cy,
+        )
+        maze_corners_px = np.column_stack([rot_x, rot_y])
+
     x_maze, y_maze = compute_maze_coords(x_mm, y_mm, maze_corners_px, scale_mm_per_px)
 
     # Speed (cm/s): windowed linear regression matching legacy pipeline

@@ -65,8 +65,18 @@ def circular_shift_significance(
     n_frames = len(signal)
     shuffle_metrics = np.empty(n_shuffles, dtype=np.float64)
 
+    # Minimum shift of 20 seconds (at ~10 Hz = ~200 frames) to break
+    # the signal-behaviour relationship while preserving temporal
+    # autocorrelation. Shifts < 20s preserve too much correlation,
+    # making the null distribution too wide (Muller et al. 1987).
+    min_shift = min(200, n_frames // 4)
+    max_shift = n_frames - min_shift
+    if max_shift <= min_shift:
+        min_shift = 1
+        max_shift = n_frames - 1
+
     for i in range(n_shuffles):
-        offset = rng.integers(1, n_frames)
+        offset = rng.integers(min_shift, max_shift)
         shifted = np.roll(signal, offset)
         shuffle_metrics[i] = tuning_fn(shifted)
 

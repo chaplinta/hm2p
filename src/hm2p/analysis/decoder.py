@@ -99,6 +99,12 @@ def build_decoder(
             preferred_directions[i] = 0.0
             mvl[i] = 0.0
 
+    # Store z-score statistics from training data for use in decode_hd
+    # (avoids data leakage when decoding test data).
+    train_signals = signals[:, mask]
+    z_mean = np.mean(train_signals, axis=1)
+    z_std = np.std(train_signals, axis=1)
+
     return {
         "tuning_curves": tuning_curves,
         "bin_centers": bin_centers,
@@ -106,6 +112,8 @@ def build_decoder(
         "mvl": mvl,
         "n_cells": n_cells,
         "n_bins": n_bins,
+        "z_mean": z_mean,
+        "z_std": z_std,
     }
 
 
@@ -155,9 +163,16 @@ def decode_hd(
         n_steps = n_frames
         binned = signals.astype(np.float64)
 
-    # Z-score each cell's activity so all cells contribute proportionally
-    cell_mean = np.mean(binned, axis=1, keepdims=True)
-    cell_std = np.std(binned, axis=1, keepdims=True)
+    # Z-score each cell's activity using training-set statistics if available
+    # (avoids data leakage when decoding test data in cross-validation).
+    cell_mean = decoder.get("z_mean")
+    cell_std = decoder.get("z_std")
+    if cell_mean is None or cell_std is None:
+        cell_mean = np.mean(binned, axis=1, keepdims=True)
+        cell_std = np.std(binned, axis=1, keepdims=True)
+    else:
+        cell_mean = cell_mean.reshape(-1, 1)
+        cell_std = cell_std.reshape(-1, 1)
     cell_std = np.where(cell_std < 1e-10, 1.0, cell_std)
     z_activity = (binned - cell_mean) / cell_std  # (n_cells, n_steps)
 
@@ -597,8 +612,9 @@ def cross_validated_decode(
     valid_idx = np.where(mask)[0]
     n_valid = len(valid_idx)
 
-    # Shuffle and split into folds
-    shuffled = rng.permutation(valid_idx)
+    # Use contiguous temporal blocks for folds (not random shuffle).
+    # Random frame shuffling causes train/test leakage at 9.6 Hz imaging
+    # because adjacent frames are nearly identical (Varoquaux 2017).
     fold_size = n_valid // n_folds
 
     all_decoded = np.zeros(n_valid, dtype=np.float64)
@@ -608,8 +624,8 @@ def cross_validated_decode(
     for fold in range(n_folds):
         test_start = fold * fold_size
         test_end = test_start + fold_size if fold < n_folds - 1 else n_valid
-        test_idx = shuffled[test_start:test_end]
-        train_idx = np.concatenate([shuffled[:test_start], shuffled[test_end:]])
+        test_idx = valid_idx[test_start:test_end]
+        train_idx = np.concatenate([valid_idx[:test_start], valid_idx[test_end:]])
 
         # Build train mask
         train_mask = np.zeros_like(mask)

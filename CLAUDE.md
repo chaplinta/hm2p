@@ -111,7 +111,7 @@ Do not pin to old versions without a documented compatibility reason.
 
 ## Project Context
 
-**Experiment:** freely-moving mouse in rose-maze / open field / linear track.
+**Experiment:** freely-moving mouse in rose-maze
 **Brain region:** Retrosplenial cortex (RSP) and nearby cortex — HD cells. NOT subiculum or postsubiculum.
 **Cell types:** Two non-overlapping RSP populations — (1) **Penk+** (Penk-Cre mouse + ADD3 virus, Cre-ON); (2) **Penk⁻CamKII+** (virus 344, Cre-OFF intersectional: Cre in Penk+ cells blocks expression — labels only non-Penk CamKII+ cells). Column `celltype` in `animals.csv`: `"penk"` or `"nonpenk"`. Short labels: "Penk+" and "Penk⁻CamKII+".
 **Imaging:** Single plane per session — soma and dendrite ROIs coexist in one plane; classified post-hoc by shape. No second dendrite plane.

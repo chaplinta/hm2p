@@ -113,8 +113,8 @@ def _circular_smooth_1d(
     arr_padded = np.concatenate([arr_filled[-pad:], arr_filled, arr_filled[:pad]])
     wgt_padded = np.concatenate([weight[-pad:], weight, weight[:pad]])
 
-    smoothed_arr = gaussian_filter1d(arr_padded, sigma=sigma_bins, mode="nearest")
-    smoothed_wgt = gaussian_filter1d(wgt_padded, sigma=sigma_bins, mode="nearest")
+    smoothed_arr = gaussian_filter1d(arr_padded, sigma=sigma_bins, mode="constant", cval=0.0)
+    smoothed_wgt = gaussian_filter1d(wgt_padded, sigma=sigma_bins, mode="constant", cval=0.0)
 
     # Trim padding
     smoothed_arr = smoothed_arr[pad : pad + len(arr)]
@@ -148,8 +148,14 @@ def mean_vector_length(
     float
         MVL in [0, 1].  Returns 0.0 if the sum of rates is zero.
     """
-    tc = np.where(np.isnan(tuning_curve), 0.0, tuning_curve)
-    theta = np.deg2rad(bin_centers_deg)
+    # Skip NaN bins (unvisited directions) rather than replacing with 0.
+    # Replacing with 0 deflates MVL for cells with incomplete angular
+    # coverage, systematically biasing dark-condition MVL downward.
+    valid = ~np.isnan(tuning_curve)
+    if not valid.any():
+        return 0.0
+    tc = tuning_curve[valid]
+    theta = np.deg2rad(bin_centers_deg[valid])
     r_sum = np.sum(tc)
     if r_sum == 0.0:
         return 0.0
@@ -173,8 +179,11 @@ def preferred_direction(
     float
         Preferred direction in degrees.
     """
-    tc = np.where(np.isnan(tuning_curve), 0.0, tuning_curve)
-    theta = np.deg2rad(bin_centers_deg)
+    valid = ~np.isnan(tuning_curve)
+    if not valid.any():
+        return 0.0
+    tc = tuning_curve[valid]
+    theta = np.deg2rad(bin_centers_deg[valid])
     z = np.sum(tc * np.exp(1j * theta))
     angle_deg = float(np.rad2deg(np.angle(z))) % 360.0
     return angle_deg

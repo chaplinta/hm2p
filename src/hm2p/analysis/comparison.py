@@ -45,7 +45,10 @@ def tuning_curve_correlation(
     if np.std(a) < 1e-15 or np.std(b) < 1e-15:
         return float("nan")
 
-    return float(np.corrcoef(a, b)[0, 1])
+    from scipy.stats import spearmanr
+
+    r, _ = spearmanr(a, b)
+    return float(r)
 
 
 def preferred_direction_shift(
@@ -80,7 +83,7 @@ def rate_map_correlation(
     map_a: npt.NDArray[np.floating],
     map_b: npt.NDArray[np.floating],
 ) -> float:
-    """Pearson correlation between two 2D rate maps.
+    """Spearman rank correlation between two 2D rate maps.
 
     Parameters
     ----------
@@ -112,7 +115,10 @@ def rate_map_correlation(
     if np.std(av) < 1e-15 or np.std(bv) < 1e-15:
         return float("nan")
 
-    return float(np.corrcoef(av, bv)[0, 1])
+    from scipy.stats import spearmanr
+
+    r, _ = spearmanr(av, bv)
+    return float(r)
 
 
 def mvl_ratio(

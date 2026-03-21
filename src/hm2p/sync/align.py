@@ -51,7 +51,7 @@ def resample_bool_to_imaging_rate(
     src_times: np.ndarray,
     dst_times: np.ndarray,
 ) -> np.ndarray:
-    """Resample a boolean mask using nearest-neighbour interpolation.
+    """Resample a boolean mask using true nearest-neighbour interpolation.
 
     Args:
         mask: (N,) bool — boolean signal at camera rate.
@@ -61,8 +61,16 @@ def resample_bool_to_imaging_rate(
     Returns:
         (T,) bool — mask resampled to imaging rate.
     """
-    indices = np.searchsorted(src_times, dst_times, side="left")
-    indices = np.clip(indices, 0, len(mask) - 1)
+    # Find true nearest neighbour (not just next-left).
+    # searchsorted("left") gives the first src >= dst, but the previous
+    # src might be closer. Compare both and pick the nearer one.
+    idx_right = np.searchsorted(src_times, dst_times, side="left")
+    idx_right = np.clip(idx_right, 0, len(mask) - 1)
+    idx_left = np.clip(idx_right - 1, 0, len(mask) - 1)
+
+    dist_right = np.abs(src_times[idx_right] - dst_times)
+    dist_left = np.abs(src_times[idx_left] - dst_times)
+    indices = np.where(dist_left <= dist_right, idx_left, idx_right)
     return mask[indices]
 
 
@@ -121,9 +129,14 @@ def run(
         else:
             datasets[key] = resample_to_imaging_rate(arr, src_times, dst_times).astype(np.float32)
 
-    # Copy calcium arrays (already at imaging rate)
+    # Copy calcium arrays (already at imaging rate).
+    # Use the trimmed dst_times as frame_times (not the raw ca.h5 value,
+    # which may have N+1 entries due to the Suite2p off-by-one).
     for key, arr in ca.items():
-        datasets[key] = arr  # includes frame_times, dff, spikes, etc.
+        if key == "frame_times":
+            datasets["frame_times"] = dst_times
+        else:
+            datasets[key] = arr
 
     # Inherit ca.h5 root attrs, override session_id
     attrs = dict(read_attrs(ca_h5))
