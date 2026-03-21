@@ -461,19 +461,42 @@ if "retrain_frames" in st.session_state:
         language="bash",
     )
 
-    st.markdown("The script opens a **napari** window for labeling. How to label:")
-    st.markdown(
-        "1. Each frame is shown as an image layer. The 5 bodyparts to label are: "
-        "**left_ear**, **right_ear**, **mid_back**, **mouse_center**, **tail_base**.\n"
-        "2. Select a bodypart from the **Points** layer dropdown on the left panel.\n"
-        "3. Click on the image to place the keypoint at the correct location.\n"
-        "4. Use the **slider at the bottom** to move between frames.\n"
-        "5. If a bodypart is not visible (e.g. occluded), skip it — don't guess.\n"
-        "6. When all frames are labeled, **close the napari window** (Cmd+Q or click X). "
-        "DLC saves labels automatically on close.\n"
-        "7. Aim for **50-200 labeled frames** across multiple sessions for best results. "
-        "Run the script again with different sessions to add more frames to the same project."
-    )
+    with st.expander("How to label frames in napari", expanded=True):
+        st.markdown(
+            "The script opens a **napari** window. For each frame, place 5 keypoints:\n\n"
+            "| Keypoint | Where to click |\n"
+            "|----------|---------------|\n"
+            "| **left_ear** | Centre of the left ear (mouse's left, your right when viewed from above) |\n"
+            "| **right_ear** | Centre of the right ear |\n"
+            "| **mid_back** | Midpoint of the back, between the shoulders and hips |\n"
+            "| **mouse_center** | Centre of the body, at the hip/lower back (more caudal than mid_back) |\n"
+            "| **tail_base** | Where the tail meets the body |\n\n"
+            "**Steps:**\n"
+            "1. Select a bodypart from the **Points layer** dropdown (left panel).\n"
+            "2. Click **Add Points** mode (the + icon in the layer controls).\n"
+            "3. Click on the image to place the keypoint.\n"
+            "4. Repeat for all 5 bodyparts on this frame.\n"
+            "5. Use the **slider at the bottom** to move to the next frame.\n"
+            "6. When done, **close the napari window** (Cmd+Q). Labels save automatically.\n\n"
+            "**Tips:**\n"
+            "- If a bodypart is **occluded** (hidden by the headstage, another body part, "
+            "or the maze wall), **skip it** — don't guess. DLC handles missing labels.\n"
+            "- If the mouse is **out of frame** or the frame is very blurry, skip the entire frame.\n"
+            "- Label the **centre** of each body part, not the edge.\n"
+            "- Zoom in (scroll wheel) for precise placement on small features like ears.\n"
+            "- You can **drag** a placed point to adjust its position.\n"
+            "- To **delete** a misplaced point, select it and press Delete.\n\n"
+            "**How many frames to label:**\n"
+            "- **Minimum for a first retrain:** 50 frames across 3-5 sessions.\n"
+            "- **Recommended:** 100-200 frames across 5-10 sessions, focusing on sessions "
+            "with the worst tracking quality (lowest scores above).\n"
+            "- Include frames from **different conditions**: light on, light off, "
+            "mouse near walls, mouse in open corridor, mouse turning, mouse stationary.\n"
+            "- Run the script multiple times with different sessions to accumulate "
+            "frames in the same DLC project.\n"
+            "- After the first retrain, review tracking quality again and add more "
+            "frames from remaining problem areas."
+        )
 
     st.markdown("After labeling and closing napari:")
     st.code(
