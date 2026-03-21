@@ -214,9 +214,12 @@ def main() -> None:
         pass
 
     print(f"\n{'='*60}")
-    print("Next steps:")
-    print(f"\n  uv run python scripts/upload_dlc_labels.py")
-    print(f"  uv run python scripts/launch_dlc_retrain_ec2.py")
+    print("Labeling complete. Next steps:\n")
+    print("1. Upload your labels to S3:")
+    print("     uv run python scripts/upload_dlc_labels.py\n")
+    print("2. Launch GPU training on AWS (fine-tunes SuperAnimal on your labels,")
+    print("   then re-runs inference on all 26 sessions):")
+    print("     uv run python scripts/launch_dlc_retrain_ec2.py")
     print(f"{'='*60}")
 
 
