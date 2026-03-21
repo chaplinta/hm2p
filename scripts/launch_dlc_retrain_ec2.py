@@ -54,6 +54,10 @@ python3 -c "import deeplabcut; print(f'DLC: {{deeplabcut.__version__}}')"
 
 aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_retrain_log.txt || true
 
+# GPU monitor — log utilization every 30s to verify GPU is used
+nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used \
+    --format=csv -l 30 >> /var/log/hm2p-gpu-monitor.log 2>&1 &
+
 # Clone repo and run
 cd /home/ubuntu
 git clone https://github.com/chaplinta/hm2p.git

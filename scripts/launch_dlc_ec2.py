@@ -121,6 +121,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False, fo
         # Upload log to S3 on exit (for debugging)
         upload_log() {{
             aws s3 cp /var/log/hm2p-dlc.log s3://{DERIVATIVES_BUCKET}/pose/_dlc_log.txt 2>/dev/null || true
+            aws s3 cp /var/log/hm2p-gpu-monitor.log s3://{DERIVATIVES_BUCKET}/pose/_gpu_monitor.txt 2>/dev/null || true
         }}
         trap upload_log EXIT
 
@@ -169,6 +170,14 @@ else:
 
         # Upload log after install phase
         upload_log
+
+        # --- GPU monitoring (background) ---
+        # Log GPU utilization every 30s so we can verify DLC uses GPU.
+        # If GPU-Util stays at 0% during processing, DLC is on CPU.
+        nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used \
+            --format=csv -l 30 >> /var/log/hm2p-gpu-monitor.log 2>&1 &
+        GPU_MONITOR_PID=$!
+        echo "GPU monitor started (PID $GPU_MONITOR_PID)"
 
         # --- Process sessions ---
         SESSIONS='{session_json}'
@@ -307,6 +316,27 @@ else:
                          'video_adapt': False}}
                 (out_dir / 'dlc_meta.json').write_text(_json.dumps(meta, indent=2))
                 print(f'  DLC DONE', flush=True)
+
+                # After first session, check GPU was actually used
+                if i == 1:
+                    gpu_log = Path('/var/log/hm2p-gpu-monitor.log')
+                    if gpu_log.exists():
+                        lines = gpu_log.read_text().strip().split('\n')
+                        # Check last 10 GPU readings during processing
+                        gpu_pcts = []
+                        for line in lines[-10:]:
+                            parts = line.split(',')
+                            if len(parts) >= 2:
+                                try:
+                                    gpu_pcts.append(int(parts[1].strip().replace(' %', '')))
+                                except ValueError:
+                                    pass
+                        if gpu_pcts:
+                            max_gpu = max(gpu_pcts)
+                            print(f'  GPU utilization during session 1: max={max_gpu}%', flush=True)
+                            if max_gpu == 0:
+                                print(f'  WARNING: GPU utilization was 0% — DLC may be running on CPU!', flush=True)
+                                print(f'  This will be very slow (~3h/session instead of ~20min).', flush=True)
             except Exception as e:
                 err_msg = str(e)
                 print(f'  ERROR in DLC: {{err_msg}}', flush=True)

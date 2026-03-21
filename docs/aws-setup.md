@@ -750,3 +750,27 @@ service file.
 | Launch EC2 spot | `aws ec2 run-instances --instance-type g4dn.xlarge --instance-market-options MarketType=spot ...` |
 | Check Batch jobs | `aws batch list-jobs --job-queue hm2p-gpu-queue` |
 | Check current IAM identity | `aws sts get-caller-identity` |
+
+## GPU Utilization Verification
+
+DLC's FasterRCNN detector can silently fall back to CPU even when
+`torch.cuda.is_available()` returns True. CPU inference is ~10x slower
+(3h vs 20min per session). All GPU launch scripts now include:
+
+1. Background `nvidia-smi` monitor logging GPU utilization every 30s
+   to `/var/log/hm2p-gpu-monitor.log` (uploaded to S3 alongside the
+   main log)
+2. After the first session completes, the script checks the GPU log
+   and warns if utilization was 0%
+
+To check GPU usage on a running instance (requires SSH):
+
+```bash
+ssh -i ~/.ssh/hm2p-suite2p.pem ubuntu@<IP> 'nvidia-smi'
+# GPU-Util should be >50% during DLC inference
+# Memory-Usage should be >2 GB
+```
+
+If GPU-Util is 0%, the likely cause is pip installing a CPU-only
+PyTorch that shadows the CUDA version. Fix: install PyTorch with
+explicit CUDA index URL BEFORE installing DLC.
