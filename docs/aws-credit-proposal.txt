@@ -11,7 +11,7 @@ PRINCIPAL INVESTIGATOR
 
 Dr Tristan Chaplin
 University of Western Australia
-tristan.chaplin@gmail.com
+tristan.chaplin@uwa.edu.au
 
 
 1. PROJECT DESCRIPTION
@@ -69,15 +69,64 @@ Cost Breakdown
   EC2 CPU c5.xlarge Spot (kinematics, calcium, sync,
     analysis, MoSeq ~10h)                                     $1
   Data transfer (S3 egress)                                  $10
-  Subtotal (current dataset)                                $108
+  Subtotal (current dataset, single pass)                   $108
 
-  Extended analysis (CEBRA embeddings, NEMOS GLM
-    encoding models, parameter sweeps, re-runs)             $200
-  Future recordings (20-40 additional sessions,
-    new cohorts, optogenetic experiments)                    $300
-  Buffer (30% contingency for iteration/debugging)          $180
+  DLC fine-tuning iterations — the SuperAnimal pretrained
+    model requires iterative fine-tuning on manually labeled
+    frames specific to this experimental setup (overhead
+    view, 2P headstage occluding bodyparts, maze walls).
+    Each round: label 50-100 frames, train on GPU (~24h),
+    evaluate, re-label problem frames. Expect 5-10 rounds
+    to achieve reliable tracking across all sessions.
+    (5-10 rounds x 24h GPU x $0.16/h Spot)                 $400
 
-  TOTAL REQUESTED                                           $800
+  CASCADE spike inference — calibrated deep-learning spike
+    rate estimation requires GPU. Must re-run after each
+    calcium processing update.
+    (26 sessions x multiple re-runs)                        $100
+
+  Alternative pose estimation models — evaluating SLEAP
+    and AnimalPose alongside DeepLabCut to determine the
+    best tracker for this preparation. Each requires GPU
+    training and inference across 26 sessions.              $300
+
+  CEBRA contrastive embeddings — GPU-accelerated joint
+    neural-behavioural embedding (Schneider et al. 2023).
+    Multiple hyperparameter configurations and
+    cross-validation folds.                                 $300
+
+  NEMOS GLM encoding models — parameter sweeps across
+    HD, speed, AHV, acceleration, and position regressors
+    to control for movement confounds
+    (Zagha et al. 2022).                                    $200
+
+  keypoint-MoSeq behavioural syllable extraction —
+    zero-label AR-HMM segmentation (Weinreb et al. 2024).
+    Must re-run after each DLC update. Multiple kappa
+    values for model selection.                             $100
+
+  Pipeline re-runs — full Stage 1-6 re-processing after
+    each DLC, Suite2p, or pose tracker change. Each full
+    re-run: ~80h GPU + downstream CPU stages.
+    (5-8 full re-runs expected across tracker/parameter
+    comparisons)                                            $600
+
+  Future recordings — 20-40 additional sessions from
+    new animal cohorts with optogenetic manipulation
+    of Penk+ cells. Full pipeline processing per cohort.    $800
+
+  Extended storage — S3 growth to ~500 GB with additional
+    sessions, model checkpoints, and NWB exports.
+    12 months at Intelligent-Tiering.                       $150
+
+  Streamlit frontend hosting on EC2 for collaborator
+    access during manuscript preparation and review.        $200
+
+  Contingency — additional fine-tuning rounds, failed
+    Spot instances, larger future datasets, reviewer-
+    requested re-analyses.                                $1,742
+
+  TOTAL REQUESTED                                         $5,000
 
 All GPU workloads use EC2 Spot instances (60-70% discount vs On-Demand).
 Instances self-terminate after processing completes. S3 lifecycle
