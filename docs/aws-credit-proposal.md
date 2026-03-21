@@ -1,0 +1,179 @@
+# AWS Cloud Credit for Research — Project Proposal
+
+## Project Title
+
+Cloud-based analysis pipeline for two-photon calcium imaging of
+head direction coding in freely moving mice
+
+## Principal Investigator
+
+Dr Tristan Chaplin
+University of Western Australia
+tristan.chaplin@gmail.com
+
+---
+
+## 1. Project Description
+
+### Problem Statement
+
+Head direction (HD) cells in the retrosplenial cortex (RSP) maintain an
+internal representation of the animal's facing direction, but how
+genetically distinct RSP populations (Penk+ vs Penk⁻CamKII+) contribute
+to this representation — and whether they differ in their reliance on
+visual vs path-integration cues — remains unknown. Answering this
+question requires processing large-scale two-photon calcium imaging
+datasets (>100 GB) from freely moving mice alongside synchronised
+behavioural video tracking. The computational demands of motion
+correction, cell detection, pose estimation, and spike inference exceed
+what is feasible on a single workstation and require GPU-accelerated
+cloud computing.
+
+### Project Summary
+
+This project has built a reproducible, cloud-first analysis pipeline
+(hm2p) for processing two-photon calcium imaging data from 26
+experimental sessions (20 animals, ~113 GB raw data). The pipeline
+extracts neural activity (Suite2p), tracks animal pose (DeepLabCut),
+computes behavioural kinematics (head direction, speed, position), and
+aligns neural and behavioural data for downstream analysis of HD tuning,
+population decoding, and visual cue dependence.
+
+The pipeline is implemented in Python, orchestrated by Snakemake, and
+runs on AWS EC2 instances with data stored on S3. All code is
+open-source (https://github.com/chaplinta/hm2p) with 1500+ unit tests
+and 91%+ code coverage.
+
+### AWS Services Used
+
+| Service | Purpose | Instance/Tier |
+|---------|---------|---------------|
+| **EC2** | GPU-accelerated calcium extraction (Suite2p), pose estimation (DeepLabCut), spike inference (CASCADE), model fine-tuning | g4dn.xlarge (T4 GPU, Spot) |
+| **EC2** | CPU stages: kinematics, calcium processing, sync, analysis, behavioural syllable extraction (keypoint-MoSeq) | c5.xlarge (Spot) |
+| **S3** | Raw data storage (two-photon TIFF stacks, behavioural video, DAQ files) | Standard + Intelligent-Tiering |
+| **S3** | Pipeline derivatives (extracted signals, pose estimates, synchronised datasets, analysis results) | Standard |
+| **CloudWatch** | Pipeline monitoring and logging | Basic |
+
+### Cost Breakdown
+
+| Item | Details | Estimated Cost |
+|------|---------|---------------|
+| **S3 storage** | ~200 GB (rawdata + derivatives), 12 months | $60 |
+| **EC2 GPU** (g4dn.xlarge Spot) | Suite2p: 52h, DLC: 156h, CASCADE: 2h, DLC fine-tuning: 24h | $37 |
+| **EC2 CPU** (c5.xlarge Spot) | Kinematics, calcium, sync, analysis, MoSeq: ~10h | $1 |
+| **Data transfer** | S3 egress for local analysis and QC | $10 |
+| **Subtotal (current dataset)** | | **$108** |
+| **Extended analysis** | CEBRA embeddings, NEMOS GLM encoding models, parameter sweeps, additional re-runs | $200 |
+| **Future recordings** | 20-40 additional sessions (new cohorts, optogenetic experiments) | $300 |
+| **Buffer** (iteration, debugging, re-processing) | 30% contingency | $180 |
+| **Total requested** | | **$800** |
+
+All GPU workloads use EC2 Spot instances (60-70% discount vs On-Demand).
+Instances self-terminate after processing completes. S3 lifecycle
+policies transition infrequently accessed data to Intelligent-Tiering.
+
+### Timeline and Key Milestones
+
+| Period | Milestone |
+|--------|-----------|
+| Months 1-2 (completed) | Pipeline development, Suite2p extraction (26/26 sessions), S3 data upload |
+| Months 2-3 (completed) | DLC pose estimation (26/26), calcium processing, sync, initial analysis |
+| Month 3 (current) | DLC re-run with improved parameters, CASCADE spike inference, DLC fine-tuning from manual labels |
+| Months 4-6 | NEMOS GLM encoding models, CEBRA population embeddings, movement confound analysis (Zagha et al. 2022) |
+| Months 6-9 | Manuscript preparation, NWB export to DANDI archive |
+| Months 9-12 | Additional recordings (new cohorts), extended analysis |
+
+---
+
+## 2. Plan for Sharing Outcomes
+
+### Open-Source Code
+
+The complete pipeline is publicly available at
+https://github.com/chaplinta/hm2p under the MIT licence. This includes:
+
+- Processing pipeline (Stages 0-6) with Snakemake orchestration
+- Docker containers for reproducible compute environments
+- EC2 launch scripts for cloud deployment
+- Streamlit frontend (53 pages) for data exploration and QC
+- 1500+ unit tests with 91%+ code coverage
+
+### Data Sharing
+
+- Processed datasets will be exported to NWB (Neurodata Without Borders)
+  format using neuroconv and deposited on the DANDI archive
+  (https://dandiarchive.org)
+- Raw data will be made available upon reasonable request
+
+### Publications
+
+Results will be submitted for publication in a peer-reviewed journal
+(target: eLife, Journal of Neuroscience, or Cell Reports). AWS support
+will be acknowledged in all publications.
+
+### Methodological Contributions
+
+- The pipeline demonstrates a reproducible, cloud-first approach to
+  freely-moving two-photon calcium imaging analysis that other labs can
+  adapt
+- Comparison of multiple calcium event detection methods (V&H
+  percentile, SD-threshold, CASCADE) at low frame rates (~10 Hz)
+  provides practical guidance for the field
+
+---
+
+## 3. Future AWS Use
+
+### Continued Research
+
+The lab plans to continue using AWS for:
+
+- Processing additional recording sessions (new animal cohorts with
+  optogenetic manipulation of Penk+ cells)
+- Running CEBRA and NEMOS analyses that benefit from GPU acceleration
+- Hosting the Streamlit dashboard for collaborator access
+
+### Broader Community
+
+- The open-source pipeline and Docker containers will enable other
+  neuroscience labs to deploy similar analyses on AWS without building
+  infrastructure from scratch
+- The pipeline architecture (Snakemake + S3 + EC2 Spot) serves as a
+  template for cloud-based neuroscience workflows
+
+### Sustainability
+
+After the credit period, ongoing costs are estimated at ~$15/month
+(primarily S3 storage). This is sustainable from standard research
+funds. GPU compute is needed only for periodic re-processing and
+is a negligible ongoing cost with Spot pricing.
+
+---
+
+## 4. AWS Contacts
+
+No prior contact with AWS employees.
+
+---
+
+## 5. AWS Public Data Sets
+
+This project does not currently use AWS Public Data Sets. However, the
+Allen Brain Atlas reference volumes (used for anatomical registration
+via brainreg) are available through the Allen Institute's AWS-hosted
+resources and may be accessed during the registration stage.
+
+---
+
+## References
+
+- Voigts J & Harnett MT. 2020. Neuron 105(2):237-245.
+  doi:10.1016/j.neuron.2019.10.016
+- Zong W et al. 2022. Cell 185(7):1240-1256.
+  doi:10.1016/j.cell.2022.02.017
+- Rupprecht P et al. 2021. Nature Neuroscience 24:1324-1337.
+  doi:10.1038/s41593-021-00895-5
+- Weinreb C et al. 2024. Nature Methods.
+  doi:10.1038/s41592-023-02159-1
+- Zagha E et al. 2022. J Neuroscience 42(8):1375-1382.
+  doi:10.1523/JNEUROSCI.1919-21.2021
