@@ -445,7 +445,8 @@ def template_decode_cv(
 
     valid_idx = np.where(mask)[0]
     n_valid = len(valid_idx)
-    shuffled = rng.permutation(valid_idx)
+    # Use contiguous temporal blocks (not random shuffle) to avoid
+    # train/test leakage from temporal autocorrelation at ~10 Hz.
     fold_size = n_valid // n_folds
 
     all_decoded = np.zeros(n_valid, dtype=np.float64)
@@ -458,8 +459,8 @@ def template_decode_cv(
     for fold in range(n_folds):
         test_start = fold * fold_size
         test_end = test_start + fold_size if fold < n_folds - 1 else n_valid
-        test_idx = shuffled[test_start:test_end]
-        train_idx = np.concatenate([shuffled[:test_start], shuffled[test_end:]])
+        test_idx = valid_idx[test_start:test_end]
+        train_idx = np.concatenate([valid_idx[:test_start], valid_idx[test_end:]])
 
         # Build template from training data
         train_mask = np.zeros_like(mask)

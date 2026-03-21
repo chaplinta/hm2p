@@ -670,10 +670,13 @@ def run(
     x_mm, y_mm = compute_position_mm(ds, scale_mm_per_px)  # (N,) float32
 
     # Rotate maze corners by the same orientation angle as the keypoints,
-    # so positions and maze boundaries are in the same coordinate frame.
+    # using the SAME rotation centre (mean of all keypoint positions).
     if orientation_deg != 0.0:
-        cx = float(np.nanmean(maze_corners_px[:, 0]))
-        cy = float(np.nanmean(maze_corners_px[:, 1]))
+        pos = ds.position.isel(individuals=0)
+        all_x = pos.sel(space="x").values
+        all_y = pos.sel(space="y").values
+        cx = float(np.nanmean(all_x))
+        cy = float(np.nanmean(all_y))
         rot_x, rot_y = _rotate_xy(
             maze_corners_px[:, 0].astype(float),
             maze_corners_px[:, 1].astype(float),

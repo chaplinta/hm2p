@@ -62,7 +62,7 @@ def population_pca(
 def pairwise_correlations(
     signals: npt.NDArray[np.floating],
 ) -> np.ndarray:
-    """Pairwise Pearson correlation matrix.
+    """Pairwise Spearman rank correlation matrix.
 
     Parameters
     ----------
@@ -73,7 +73,13 @@ def pairwise_correlations(
     corr : (n_cells, n_cells) float
         Correlation matrix.
     """
-    return np.corrcoef(signals)
+    from scipy.stats import spearmanr
+
+    r, _ = spearmanr(signals, axis=1)
+    # spearmanr returns a scalar if n_cells == 2; ensure matrix
+    if np.ndim(r) == 0:
+        r = np.array([[1.0, float(r)], [float(r), 1.0]])
+    return np.asarray(r)
 
 
 def population_vector_correlation(
@@ -131,7 +137,8 @@ def population_vector_correlation(
             std_i = np.std(vi)
             std_j = np.std(vj)
             if std_i > 0 and std_j > 0:
-                pv_corr[i, j] = float(np.corrcoef(vi, vj)[0, 1])
+                from scipy.stats import spearmanr
+                pv_corr[i, j] = float(spearmanr(vi, vj)[0])
             else:
                 pv_corr[i, j] = 0.0
 
@@ -163,7 +170,10 @@ def ensemble_coherence(
     for start in range(0, n_frames - window_frames + 1, window_frames // 2):
         end = start + window_frames
         chunk = signals[:, start:end]
-        corr = np.corrcoef(chunk)
+        from scipy.stats import spearmanr
+        corr, _ = spearmanr(chunk, axis=1)
+        if np.ndim(corr) == 0:
+            corr = np.array([[1.0, float(corr)], [float(corr), 1.0]])
         # Mean of upper triangle (excluding diagonal)
         mask = np.triu(np.ones_like(corr, dtype=bool), k=1)
         if mask.sum() > 0:

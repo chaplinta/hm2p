@@ -50,7 +50,12 @@ def predict_spike_rates(
             "See: https://github.com/HelmchenLabSoftware/Cascade"
         ) from exc
 
-    spike_prob = cascade.predict(model_name, dff)
+    result = cascade.predict(model_name, dff)
+    # CASCADE returns a list [spike_prob_array]; extract the array.
+    if isinstance(result, (list, tuple)):
+        spike_prob = result[0]
+    else:
+        spike_prob = result
     return np.asarray(spike_prob, dtype=np.float32)
 
 

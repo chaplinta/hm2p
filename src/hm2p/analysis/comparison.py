@@ -21,7 +21,7 @@ def tuning_curve_correlation(
     curve_a: npt.NDArray[np.floating],
     curve_b: npt.NDArray[np.floating],
 ) -> float:
-    """Pearson correlation between two tuning curves.
+    """Spearman rank correlation between two tuning curves.
 
     Parameters
     ----------
@@ -31,7 +31,7 @@ def tuning_curve_correlation(
     Returns
     -------
     float
-        Pearson r.  Returns NaN if fewer than 3 valid (non-NaN) bins
+        Spearman rank r.  Returns NaN if fewer than 3 valid (non-NaN) bins
         in common.
     """
     valid = ~np.isnan(curve_a) & ~np.isnan(curve_b)
@@ -93,7 +93,7 @@ def rate_map_correlation(
     Returns
     -------
     float
-        Pearson r.  Returns NaN if fewer than 3 valid bins in common.
+        Spearman rank r.  Returns NaN if fewer than 3 valid bins in common.
     """
     a = map_a.ravel()
     b = map_b.ravel()
@@ -197,7 +197,7 @@ def split_half_reliability(
     """Compute split-half reliability of HD tuning.
 
     Splits valid frames into odd/even halves, computes tuning curves for
-    each half, and returns the Pearson correlation between them.
+    each half, and returns the Spearman rank correlation between them.
 
     Parameters
     ----------
@@ -210,7 +210,7 @@ def split_half_reliability(
     Returns
     -------
     dict
-        ``"correlation"`` — Pearson r between half-curves.
+        ``"correlation"`` — Spearman rank r between half-curves.
         ``"mvl_half1"``, ``"mvl_half2"`` — MVL of each half.
         ``"pd_shift"`` — angular difference in preferred direction (degrees).
     """

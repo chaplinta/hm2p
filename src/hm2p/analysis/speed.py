@@ -108,7 +108,8 @@ def speed_modulation_index(
 
     # Correlation
     if len(sig) > 2 and np.std(spd) > 0 and np.std(sig) > 0:
-        corr = float(np.corrcoef(spd, sig)[0, 1])
+        from scipy.stats import spearmanr
+        corr = float(spearmanr(spd, sig)[0])
     else:
         corr = 0.0
 
