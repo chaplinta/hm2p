@@ -149,18 +149,19 @@ class TestParseMetaTxt:
         meta = tmp_path / "meta.txt"
         corners = [[10.0, 20.0], [30.0, 40.0], [50.0, 60.0], [70.0, 80.0]]
         self._write_meta(meta, 0.1234, corners)
-        mm_per_pix, result_corners, camera_center = parse_meta_txt(meta)
+        mm_per_pix, result_corners, camera_center, maze_rot = parse_meta_txt(meta)
         assert mm_per_pix == pytest.approx(0.1234)
         expected = np.array(corners)
         np.testing.assert_allclose(result_corners, expected)
         assert isinstance(camera_center, tuple)
         assert len(camera_center) == 2
+        assert isinstance(maze_rot, float)
 
     def test_camera_center_computation(self, tmp_path):
         meta = tmp_path / "meta.txt"
         corners = [[10, 20], [30, 40], [50, 60], [70, 80]]
         self._write_meta(meta, 0.5, corners, crop_x=108, crop_y=261)
-        _, _, (cx, cy) = parse_meta_txt(meta)
+        _, _, (cx, cy), _ = parse_meta_txt(meta)
         assert cx == pytest.approx(1280 / 2 - 108)
         assert cy == pytest.approx(1024 / 2 - 261)
 
@@ -168,7 +169,7 @@ class TestParseMetaTxt:
         meta = tmp_path / "meta.txt"
         corners = [[1, 2], [3, 4], [5, 6], [7, 8]]
         self._write_meta(meta, 0.5, corners)
-        mm_per_pix, result_corners, camera_center = parse_meta_txt(meta)
+        mm_per_pix, result_corners, camera_center, _ = parse_meta_txt(meta)
         assert isinstance(mm_per_pix, float)
         assert isinstance(result_corners, np.ndarray)
         assert isinstance(camera_center, tuple)
@@ -177,14 +178,14 @@ class TestParseMetaTxt:
         meta = tmp_path / "meta.txt"
         corners = [[100, 200], [300, 400], [500, 600], [700, 800]]
         self._write_meta(meta, 1.0, corners)
-        _, result_corners, _ = parse_meta_txt(meta)
+        _, result_corners, _, _ = parse_meta_txt(meta)
         assert result_corners.shape == (4, 2)
 
     def test_fractional_corners(self, tmp_path):
         meta = tmp_path / "meta.txt"
         corners = [[10.5, 20.3], [30.7, 40.1], [50.9, 60.2], [70.4, 80.6]]
         self._write_meta(meta, 0.0567, corners)
-        mm_per_pix, result_corners, _ = parse_meta_txt(meta)
+        mm_per_pix, result_corners, _, _ = parse_meta_txt(meta)
         assert mm_per_pix == pytest.approx(0.0567)
         np.testing.assert_allclose(result_corners, np.array(corners), atol=1e-10)
 
@@ -192,21 +193,21 @@ class TestParseMetaTxt:
         meta = tmp_path / "meta.txt"
         corners = [[0, 0], [1, 0], [1, 1], [0, 1]]
         self._write_meta(meta, 0.0, corners)
-        mm_per_pix, _, _ = parse_meta_txt(meta)
+        mm_per_pix, _, _, _ = parse_meta_txt(meta)
         assert mm_per_pix == 0.0
 
     def test_large_coordinates(self, tmp_path):
         meta = tmp_path / "meta.txt"
         corners = [[1920, 1080], [0, 1080], [0, 0], [1920, 0]]
         self._write_meta(meta, 0.08, corners)
-        _, result_corners, _ = parse_meta_txt(meta)
+        _, result_corners, _, _ = parse_meta_txt(meta)
         np.testing.assert_allclose(result_corners[0], [1920, 1080])
 
     def test_zero_crop_offset(self, tmp_path):
         meta = tmp_path / "meta.txt"
         corners = [[10, 20], [30, 40], [50, 60], [70, 80]]
         self._write_meta(meta, 0.5, corners, crop_x=0, crop_y=0)
-        _, _, (cx, cy) = parse_meta_txt(meta)
+        _, _, (cx, cy), _ = parse_meta_txt(meta)
         assert cx == pytest.approx(640.0)
         assert cy == pytest.approx(512.0)
 
@@ -244,7 +245,7 @@ class TestParseMetaTxt:
             "[extra]\nfoo = bar\n"
         )
         meta.write_text(content)
-        mm_per_pix, corners, _ = parse_meta_txt(meta)
+        mm_per_pix, corners, _, _ = parse_meta_txt(meta)
         assert mm_per_pix == pytest.approx(0.25)
         assert corners.shape == (4, 2)
 

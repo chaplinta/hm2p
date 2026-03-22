@@ -101,13 +101,14 @@ def parse_bad_behav_times(raw: str) -> list[tuple[float, float]]:
     return intervals
 
 
-def parse_meta_txt(meta_path: Path) -> tuple[float, np.ndarray, tuple[float, float]]:
-    """Parse meta.txt for mm_per_pix, maze corners, and camera centre.
+def parse_meta_txt(meta_path: Path) -> tuple[float, np.ndarray, tuple[float, float], float]:
+    """Parse meta.txt for mm_per_pix, maze corners, camera centre, and maze rotation.
 
     Returns:
-        (mm_per_pix, maze_corners_px, camera_center_px) where
-        maze_corners_px is (4, 2) array and camera_center_px is (cx, cy)
-        in cropped-frame coordinates.
+        (mm_per_pix, maze_corners_px, camera_center_px, maze_rotation_deg) where
+        maze_corners_px is (4, 2) array, camera_center_px is (cx, cy)
+        in cropped-frame coordinates, and maze_rotation_deg is the angle
+        of the maze relative to the image axes (from corner coordinates).
     """
     config = configparser.ConfigParser()
     config.read(str(meta_path))
@@ -128,7 +129,11 @@ def parse_meta_txt(meta_path: Path) -> tuple[float, np.ndarray, tuple[float, flo
     cx = 1280.0 / 2.0 - crop_x
     cy = 1024.0 / 2.0 - crop_y
 
-    return mm_per_pix, corners, (cx, cy)
+    # Maze rotation from corner geometry
+    from hm2p.kinematics.perspective import compute_maze_rotation
+    maze_rotation_deg = compute_maze_rotation(corners)
+
+    return mm_per_pix, corners, (cx, cy), maze_rotation_deg
 
 
 def find_dlc_h5(s3, bucket: str, prefix: str) -> str | None:
@@ -221,10 +226,19 @@ def run_session(
         s3.download_file(RAWDATA_BUCKET, meta_key, str(meta_local))
 
         # Parse meta.txt
-        mm_per_pix, maze_corners_px, camera_center_px = parse_meta_txt(meta_local)
+        mm_per_pix, maze_corners_px, camera_center_px, maze_rotation = parse_meta_txt(meta_local)
         print(f"  Scale: {mm_per_pix:.4f} mm/px")
         print(f"  Maze corners (px): {maze_corners_px.tolist()}")
         print(f"  Camera centre (cropped px): ({camera_center_px[0]:.1f}, {camera_center_px[1]:.1f})")
+        print(f"  Maze rotation from corners: {maze_rotation:.2f}°")
+
+        # Total orientation = CSV orientation + maze rotation from corners.
+        # CSV orientation handles 90°/180° camera placement differences.
+        # Maze rotation handles the small residual tilt (<1°) of the maze
+        # in the camera frame, computed from the ROI corner coordinates.
+        total_orientation = orientation + maze_rotation
+        if abs(maze_rotation) > 0.01:
+            print(f"  Total orientation: {orientation}° + {maze_rotation:.2f}° = {total_orientation:.2f}°")
 
         # Run kinematics pipeline (with perspective correction)
         print(f"  Running kinematics pipeline...")
@@ -237,7 +251,7 @@ def run_session(
             timestamps_h5=ts_local,
             session_id=session_id,
             tracker=tracker,
-            orientation_deg=orientation,
+            orientation_deg=total_orientation,
             scale_mm_per_px=mm_per_pix,
             maze_corners_px=maze_corners_px,
             bad_behav_intervals=bad_intervals,

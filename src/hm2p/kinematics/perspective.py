@@ -188,6 +188,43 @@ def estimate_camera_center(
     return (uncrop_w / 2.0 - crop_x, uncrop_h / 2.0 - crop_y)
 
 
+def compute_maze_rotation(
+    corners: np.ndarray,
+) -> float:
+    """Compute the rotation angle of the maze from its corner coordinates.
+
+    Uses the top and left edges to estimate the angle between the maze
+    axes and the image axes. Returns the mean of both edge angles for
+    robustness.
+
+    Args:
+        corners: (4, 2) array of maze corner pixel coordinates, ordered
+            [top-left, top-right, bottom-right, bottom-left].
+
+    Returns:
+        Rotation angle in degrees. Positive = maze is rotated clockwise
+        relative to the image axes.
+    """
+    # Top edge: corner 0 → corner 1
+    dx_top = corners[1, 0] - corners[0, 0]
+    dy_top = corners[1, 1] - corners[0, 1]
+    top_angle = np.degrees(np.arctan2(dy_top, dx_top))
+
+    # Left edge: corner 0 → corner 3
+    dx_left = corners[3, 0] - corners[0, 0]
+    dy_left = corners[3, 1] - corners[0, 1]
+    left_angle = np.degrees(np.arctan2(dy_left, dx_left)) - 90.0
+
+    # Handle portrait vs landscape (90° difference)
+    if abs(top_angle) > 45:
+        # Portrait orientation — corners are in rotated order
+        # The "top edge" is actually the side edge
+        return 0.0  # Let the orientation column handle the 90° rotation
+
+    # Mean of both edge estimates for robustness
+    return float((top_angle + left_angle) / 2.0)
+
+
 def load_camera_params(meta_txt_path) -> dict:
     """Parse meta.txt and return camera parameters for perspective correction.
 
@@ -213,9 +250,13 @@ def load_camera_params(meta_txt_path) -> dict:
     crop_x, crop_y = meta["roi"][0], meta["roi"][1]
     cx, cy = estimate_camera_center(crop_x, crop_y)
 
+    corners = meta["maze_corners"]
+    maze_rotation_deg = compute_maze_rotation(corners)
+
     return {
         "camera_center_px": (cx, cy),
         "crop_offset": (crop_x, crop_y),
         "scale_mm_per_px": meta["scale_mm_per_px"],
-        "maze_corners": meta["maze_corners"],
+        "maze_corners": corners,
+        "maze_rotation_deg": maze_rotation_deg,
     }
