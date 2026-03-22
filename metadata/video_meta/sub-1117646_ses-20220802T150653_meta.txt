@@ -1,0 +1,34 @@
+[crop]
+x = 80
+y = 300
+width = 864
+height = 608
+width_diff = 31
+height_diff = 22
+
+[scale]
+mm_per_pix = 0.7808688094430304
+mean_dist_pix = 32.01562118716424
+dist_mm = 25.0
+
+[roi]
+x1_raw = 240
+y1_raw = 391
+x2_raw = 853
+y2_raw = 395
+x3_raw = 850
+y3_raw = 828
+x4_raw = 237
+y4_raw = 824
+x1 = 160.0
+y1 = 91.0
+x2 = 773.0
+y2 = 95.0
+x3 = 770.0
+y3 = 528.0
+x4 = 157.0
+y4 = 524.0
+width = 610.0
+height = 437.0
+rotation = -179.62613398807073
+
