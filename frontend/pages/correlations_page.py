@@ -232,7 +232,8 @@ with tab_pca:
     from sklearn.decomposition import PCA
 
     # Z-score each ROI
-    z_signal = (signal - signal.mean(axis=1, keepdims=True)) / (signal.std(axis=1, keepdims=True) + 1e-10)
+    z_signal = (signal - np.nanmean(signal, axis=1, keepdims=True)) / (np.nanstd(signal, axis=1, keepdims=True) + 1e-10)
+    z_signal = np.nan_to_num(z_signal, nan=0.0)
 
     max_components = min(n_rois, 20)
     pca = PCA(n_components=max_components)
