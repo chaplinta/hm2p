@@ -54,7 +54,6 @@ def sanitize_error(msg: str, max_length: int = 200) -> str:
 # ── Signal type labels and selector ────────────────────────────────────────
 SIGNAL_TYPE_LABELS: dict[str, str] = {
     "dff": "dF/F0",
-    "deconv": "Deconv (raw)",
     "deconv_norm": "Deconv (normalized)",
     "events": "Events (V&H)",
     "events_sd": "Events (SD threshold)",

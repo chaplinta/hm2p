@@ -414,8 +414,6 @@ with col1:
     _signal_options = ["dF/F0"]
     if "deconv_norm" in ca_data:
         _signal_options.append("Deconv (normalized)")
-    if "deconv" in ca_data:
-        _signal_options.append("Deconv (raw)")
     if "spikes" in ca_data:
         _signal_options.append("Spikes (CASCADE)")
     signal_type = st.radio("Signal", _signal_options, key="tl_signal")
@@ -424,9 +422,6 @@ with col2:
     if signal_type == "Deconv (normalized)" and "deconv_norm" in ca_data:
         trace = ca_data["deconv_norm"][roi_idx]
         _ylabel = "Deconv (norm)"
-    elif signal_type == "Deconv (raw)" and "deconv" in ca_data:
-        trace = ca_data["deconv"][roi_idx]
-        _ylabel = "Deconv"
     elif signal_type == "Spikes (CASCADE)" and "spikes" in ca_data:
         trace = ca_data["spikes"][roi_idx]
         _ylabel = "Spikes (spk/s)"

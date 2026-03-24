@@ -175,8 +175,6 @@ def _page() -> None:
     signals_available = ["dF/F0"]
     if has_spikes:
         signals_available.append("CASCADE spikes")
-    if has_deconv:
-        signals_available.append("Deconv (raw)")
     if "deconv_norm" in ca:
         signals_available.append("Deconv (normalized)")
 
@@ -210,15 +208,6 @@ def _page() -> None:
         fig.add_trace(go.Scatter(
             x=time_s, y=ca["spikes"][roi_idx],
             mode="lines", line=dict(color="#d62728", width=0.8), name="Spikes",
-            showlegend=False,
-        ), row=panel, col=1)
-        panel += 1
-
-    # Deconv raw
-    if has_deconv:
-        fig.add_trace(go.Scatter(
-            x=time_s, y=ca["deconv"][roi_idx],
-            mode="lines", line=dict(color="steelblue", width=0.8), name="Deconv",
             showlegend=False,
         ), row=panel, col=1)
         panel += 1
