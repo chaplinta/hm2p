@@ -312,9 +312,15 @@ def compute_place_rate_map(
 
     xm, ym, sm = x[mask], y[mask], signal[mask]
 
+    # Filter out non-finite positions
+    finite = np.isfinite(xm) & np.isfinite(ym)
+    if finite.sum() < 2:
+        return np.full((1, 1), np.nan), np.zeros((1, 1)), np.array([0.0, 1.0]), np.array([0.0, 1.0])
+    xm, ym, sm = xm[finite], ym[finite], sm[finite]
+
     # Build bin edges — ensure at least one bin even for degenerate ranges
-    x_min, x_max = np.min(xm), np.max(xm)
-    y_min, y_max = np.min(ym), np.max(ym)
+    x_min, x_max = float(np.min(xm)), float(np.max(xm))
+    y_min, y_max = float(np.min(ym)), float(np.max(ym))
     # Pad by half a bin if range is zero so we get exactly one bin
     if x_max - x_min < bin_size:
         x_max = x_min + bin_size

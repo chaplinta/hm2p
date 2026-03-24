@@ -196,6 +196,7 @@ def main():
     parser.add_argument("--session", help="Single session exp_id to process")
     parser.add_argument("--n-shuffles", type=int, default=500)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--force", action="store_true", help="Re-run even if analysis.h5 exists")
     args = parser.parse_args()
 
     s3 = boto3.client("s3", region_name=REGION)
@@ -229,7 +230,7 @@ def main():
                 Prefix=f"analysis/{sub}/{ses}/analysis.h5",
                 MaxKeys=1,
             )
-            if resp.get("KeyCount", 0) > 0 and not args.session:
+            if resp.get("KeyCount", 0) > 0 and not args.session and not getattr(args, 'force', False):
                 log.info("  SKIP: already processed")
                 skipped.append(exp_id)
                 continue
