@@ -157,18 +157,20 @@ def run_session(
     tracker: str,
     work_dir: Path,
     dry_run: bool = False,
+    force: bool = False,
 ) -> str:
     """Run Stage 3 for a single session. Returns status string."""
     print(f"\n--- {sub}/{ses} ({exp_id}) ---")
 
     # Check if kinematics.h5 already exists on S3
     kin_key = f"kinematics/{sub}/{ses}/kinematics.h5"
-    try:
-        s3.head_object(Bucket=DERIVATIVES_BUCKET, Key=kin_key)
-        print(f"  SKIP: kinematics.h5 already exists at {kin_key}")
-        return "skip_exists"
-    except s3.exceptions.ClientError:
-        pass  # Does not exist, proceed
+    if not force:
+        try:
+            s3.head_object(Bucket=DERIVATIVES_BUCKET, Key=kin_key)
+            print(f"  SKIP: kinematics.h5 already exists (use --force to re-run)")
+            return "skip_exists"
+        except s3.exceptions.ClientError:
+            pass  # Does not exist, proceed
 
     # Check for DLC output on S3
     pose_prefix = f"pose/{sub}/{ses}/"
@@ -310,6 +312,11 @@ def main():
         action="store_true",
         help="Show what would be done without processing",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run even if kinematics.h5 already exists on S3",
+    )
     args = parser.parse_args()
 
     sessions = get_sessions()
@@ -334,6 +341,7 @@ def main():
             ses["tracker"],
             work_dir,
             dry_run=args.dry_run,
+            force=args.force,
         )
         results[ses["exp_id"]] = status
 
