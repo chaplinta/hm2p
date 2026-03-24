@@ -116,7 +116,7 @@ _signal_key_map = {
     "events": "event_masks",
     "events_sd": "event_masks_sd",
 }
-signal = data[_signal_key_map[signal_type]].copy().astype(np.float32)
+signal = np.nan_to_num(data[_signal_key_map[signal_type]].copy().astype(np.float32))
 
 # Optional smoothing
 if smooth_window > 1:
