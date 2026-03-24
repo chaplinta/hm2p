@@ -54,7 +54,8 @@ def s3_key_exists(s3, bucket: str, key: str) -> bool:
 
 
 def run_session(
-    s3, sub: str, ses: str, exp_id: str, work_dir: Path, dry_run: bool = False
+    s3, sub: str, ses: str, exp_id: str, work_dir: Path,
+    dry_run: bool = False, force: bool = False,
 ) -> str:
     """Run Stage 5 for a single session. Returns status string."""
     print(f"\n--- {sub}/{ses} ({exp_id}) ---")
@@ -64,8 +65,8 @@ def run_session(
     sync_key = f"sync/{sub}/{ses}/sync.h5"
 
     # Check if sync.h5 already exists
-    if s3_key_exists(s3, DERIVATIVES_BUCKET, sync_key):
-        print(f"  SKIP: sync.h5 already exists at {sync_key}")
+    if not force and s3_key_exists(s3, DERIVATIVES_BUCKET, sync_key):
+        print(f"  SKIP: sync.h5 already exists (use --force to re-run)")
         return "skip_exists"
 
     # Check for kinematics.h5
@@ -176,6 +177,11 @@ def main():
         action="store_true",
         help="Show what would be done without processing",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-run even if sync.h5 already exists on S3",
+    )
     args = parser.parse_args()
 
     sessions = get_sessions()
@@ -191,7 +197,8 @@ def main():
     results = {}
     for i, ses in enumerate(sessions):
         status = run_session(
-            s3, ses["sub"], ses["ses"], ses["exp_id"], work_dir, dry_run=args.dry_run
+            s3, ses["sub"], ses["ses"], ses["exp_id"], work_dir,
+            dry_run=args.dry_run, force=args.force,
         )
         results[ses["exp_id"]] = status
 
