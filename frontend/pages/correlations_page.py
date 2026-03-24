@@ -60,10 +60,12 @@ def load_corr_data(sub: str, ses: str) -> dict | None:
         "dff": f["dff"][:],
         "fps": float(f.attrs.get("fps_imaging", 9.8)),
     }
-    if "event_masks" in f:
-        result["event_masks"] = f["event_masks"][:]
-    if "spks" in f:
-        result["spks"] = f["spks"][:]
+    for key in ("event_masks", "event_masks_sd", "spikes", "deconv", "deconv_norm"):
+        if key in f:
+            result[key] = f[key][:]
+    # Legacy key
+    if "spikes" not in result and "spks" in f:
+        result["spikes"] = f["spks"][:]
     f.close()
     return result
 
@@ -83,12 +85,22 @@ st.markdown(f"**{sub} / {ses}** — {celltype} — {n_rois} ROIs, {n_frames/fps:
 
 # Signal selection
 signal_options = ["dff"]
-if "spks" in data:
-    signal_options.append("deconv")
+if "spikes" in data:
+    signal_options.append("spikes")
+if "deconv_norm" in data:
+    signal_options.append("deconv_norm")
 if "event_masks" in data:
     signal_options.append("events")
+if "event_masks_sd" in data:
+    signal_options.append("events_sd")
 
-_signal_labels = {"dff": "dF/F\u2080", "deconv": "Deconv", "events": "Events"}
+_signal_labels = {
+    "dff": "dF/F\u2080",
+    "spikes": "Spikes (CASCADE)",
+    "deconv_norm": "Deconv (normalized)",
+    "events": "Events (V&H)",
+    "events_sd": "Events (SD)",
+}
 
 col1, col2 = st.columns(2)
 with col1:
@@ -97,12 +109,14 @@ with col2:
     smooth_window = st.slider("Smoothing (frames)", 0, 30, 5, key="corr_smooth")
 
 # Get signal
-if signal_type == "dff":
-    signal = dff.copy()
-elif signal_type == "deconv":
-    signal = data["spks"].copy()
-else:
-    signal = data["event_masks"].astype(np.float32)
+_signal_key_map = {
+    "dff": "dff",
+    "spikes": "spikes",
+    "deconv_norm": "deconv_norm",
+    "events": "event_masks",
+    "events_sd": "event_masks_sd",
+}
+signal = data[_signal_key_map[signal_type]].copy().astype(np.float32)
 
 # Optional smoothing
 if smooth_window > 1:
