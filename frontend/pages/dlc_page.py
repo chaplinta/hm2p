@@ -29,59 +29,58 @@ log = logging.getLogger("hm2p.frontend.dlc")
 
 st.title("DLC Pose Estimation")
 
-# --- Progress overview ---
+# --- Progress overview (from actual S3 file counts) ---
 st.header("Processing Progress")
 
-dlc_progress = get_progress("pose")
 experiments = load_experiments()
 total = len(experiments)
 
-if dlc_progress:
-    completed = dlc_progress.get("completed", 0)
-    failed = dlc_progress.get("failed", 0)
-    skipped = dlc_progress.get("skipped", 0)
-    status = dlc_progress.get("status", "")
+@st.cache_data(ttl=120)
+def _count_pose_sessions():
+    """Count sessions with .h5 pose files on S3."""
+    s3 = get_s3_client()
+    paginator = s3.get_paginator("list_objects_v2")
+    sessions_done = set()
+    for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix="pose/"):
+        for obj in page.get("Contents", []):
+            if obj["Key"].endswith(".h5"):
+                parts = obj["Key"].split("/")
+                if len(parts) >= 3:
+                    sessions_done.add(f"{parts[1]}/{parts[2]}")
+    return sessions_done
 
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Completed", f"{completed}/{total}")
-    col2.metric("Failed", failed)
-    col3.metric("Skipped", skipped)
-    col4.metric("Remaining", total - completed - failed - skipped)
-    col5.metric("Updated", dlc_progress.get("updated", "?")[:19])
+with st.spinner("Checking S3..."):
+    done_sessions = _count_pose_sessions()
 
-    if total > 0:
-        st.progress(
-            (completed + skipped) / total,
-            text=f"{status}",
-        )
+completed = len(done_sessions)
+remaining = total - completed
 
-    # Estimated time remaining
-    if completed > 0 and completed < total:
-        remaining = total - completed - skipped
-        # ~3h per session on T4
-        est_hours = remaining * 3
-        st.info(
-            f"Estimated time remaining: ~{est_hours}h "
-            f"({remaining} sessions x ~3h each on g4dn.xlarge)"
-        )
+col1, col2, col3 = st.columns(3)
+col1.metric("Completed", f"{completed}/{total}")
+col2.metric("Remaining", remaining)
+if total > 0:
+    col3.metric("Progress", f"{completed/total*100:.0f}%")
 
-    # Completed sessions list
-    completed_sessions = dlc_progress.get("completed_sessions", [])
-    if completed_sessions:
-        with st.expander(f"Completed sessions ({len(completed_sessions)})"):
-            for s in completed_sessions:
-                st.text(f"  {s}")
+if total > 0 and completed > 0:
+    st.progress(min(completed / total, 1.0))
 
-    # Failed sessions
-    failed_sessions = dlc_progress.get("failed_sessions", [])
-    failed_errors = dlc_progress.get("failed_errors", {})
-    if failed_sessions:
-        st.error(f"{len(failed_sessions)} failed sessions")
-        for s in failed_sessions:
-            err = failed_errors.get(s, "No error message")
-            st.text(f"  {s}: {sanitize_error(err)}")
-else:
-    st.info("No progress data available. DLC may not have started yet.")
+if completed == total:
+    st.success("All sessions have DLC pose data.")
+elif remaining > 0:
+    st.info(f"{remaining} sessions remaining (~{remaining * 3}h on g4dn.xlarge)")
+
+# Show which sessions are missing
+all_session_keys = set()
+for exp in experiments:
+    eid = exp["exp_id"]
+    parts = eid.split("_")
+    all_session_keys.add(f"sub-{parts[-1]}/ses-{parts[0]}T{parts[1]}{parts[2]}{parts[3]}")
+
+missing = all_session_keys - done_sessions
+if missing:
+    with st.expander(f"Missing sessions ({len(missing)})"):
+        for s in sorted(missing):
+            st.text(f"  {s}")
 
 
 # --- EC2 Instance Status ---
