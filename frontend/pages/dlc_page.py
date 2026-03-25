@@ -158,7 +158,13 @@ else:
     # Try to load the DLC .h5 file and show pose quality
     h5_files = [f_info for f_info in files if f_info["key"].endswith(".h5")]
     if h5_files:
-        h5_key = h5_files[0]["key"]
+        # Pick the most recently modified .h5 file.
+        # Skip files > 200 MB (old multi-animal runs are huge and slow to download).
+        reasonable = [f for f in h5_files if f.get("size_mb", 0) < 200]
+        if not reasonable:
+            reasonable = h5_files
+        reasonable.sort(key=lambda f: f.get("modified", ""), reverse=True)
+        h5_key = reasonable[0]["key"]
         st.subheader("Pose Quality")
         st.caption(f"Loading from `{h5_key.split('/')[-1]}`...")
 
