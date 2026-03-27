@@ -105,13 +105,13 @@ st.markdown(f"**Z-stack:** `{zstack_id}` | **Animal:** `{sub}` | **Session:** `{
 
 # ── Load z-drift data ────────────────────────────────────────────────────
 
-zdrift_key = f"zdrift/{sub}/{ses}/zdrift.h5"
+zdrift_key = f"ca_extraction/{sub}/{ses}/zdrift_meanimg.h5"
 zdrift = _load_zdrift(DERIVATIVES_BUCKET, zdrift_key)
 
 if zdrift is None:
-    st.warning(
-        f"No z-drift data found at `s3://{DERIVATIVES_BUCKET}/{zdrift_key}`. "
-        "Z-drift computation has not been run for this session yet."
+    st.info(
+        "No z-drift data for this session. Z-drift is only available for "
+        "sessions with a matching z-stack (12/26 sessions)."
     )
     st.stop()
 
@@ -204,7 +204,7 @@ overview_rows = []
 for exp_row in zstack_sessions:
     eid = exp_row["exp_id"]
     s, ss = parse_session_id(eid)
-    key = f"derivatives/zdrift/{s}/{ss}/zdrift.h5"
+    key = f"ca_extraction/{s}/{ss}/zdrift_meanimg.h5"
     zd = _load_zdrift(DERIVATIVES_BUCKET, key)
     if zd is not None and "zpos" in zd:
         zp = zd["zpos"]
