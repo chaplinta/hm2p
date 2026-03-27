@@ -172,12 +172,11 @@ mean_img = spatial.get("mean_img")
 max_img = spatial.get("max_img")
 shape_features = spatial.get("shape_features", [])
 
-# Enhanced image shows cell bodies better (Suite2p high-pass filtered mean)
 _img_choice = st.radio(
-    "Background image", ["Enhanced", "Mean"],
+    "Background image", ["Max projection", "Mean"],
     horizontal=True, key="rv_img_type",
 )
-bg_img = max_img if _img_choice == "Enhanced" and max_img is not None else mean_img
+bg_img = max_img if _img_choice == "Max projection" and max_img is not None else mean_img
 
 col_mean, col_roi = st.columns(2)
 
@@ -226,8 +225,11 @@ raw = _load_raw_f(ses["sub"], ses["ses"])
 
 n_panels = 2
 has_raw = raw is not None and raw["F"] is not None and roi_idx < raw["F"].shape[0]
+has_spikes = ses.get("spikes") is not None and roi_idx < (ses.get("spikes", np.empty((0,))).shape[0])
 if has_raw:
     n_panels = 4
+if has_spikes:
+    n_panels += 1
 
 fig = make_subplots(
     rows=n_panels, cols=1, shared_xaxes=True,
@@ -281,26 +283,30 @@ if event_masks is not None and roi_idx < event_masks.shape[0]:
 fig.update_yaxes(title_text="dF/F₀", row=row, col=1)
 row += 1
 
-# Panel 4: Deconvolved
-deconv = ses.get("deconv")
-spikes = ses.get("spikes")
-trace_d = None
-if deconv is not None and roi_idx < deconv.shape[0]:
-    trace_d = deconv[roi_idx]
-elif spikes is not None and roi_idx < spikes.shape[0]:
-    trace_d = spikes[roi_idx]
-
-if trace_d is not None:
+# Panel 4: Deconvolved (normalized)
+deconv_norm = ses.get("deconv_norm")
+if deconv_norm is not None and roi_idx < deconv_norm.shape[0]:
     fig.add_trace(go.Scattergl(
-        x=t, y=trace_d, mode="lines", line=dict(color="darkorange", width=1), name="Deconvolved",
+        x=t, y=deconv_norm[roi_idx], mode="lines",
+        line=dict(color="darkorange", width=1), name="Deconv (norm)",
     ), row=row, col=1)
     fig.update_yaxes(title_text="Deconv", row=row, col=1)
 else:
     fig.add_trace(go.Scattergl(
-        x=t, y=dff, mode="lines", line=dict(color="royalblue", width=1, dash="dot"),
-        name="dF/F₀ (no deconv)",
+        x=t, y=np.zeros_like(dff), mode="lines",
+        line=dict(color="lightgray", width=0.5), name="(no deconv)",
     ), row=row, col=1)
     fig.update_yaxes(title_text="(no deconv)", row=row, col=1)
+
+# Panel 5: CASCADE spikes (if available)
+spikes = ses.get("spikes")
+if n_panels >= 5 and spikes is not None and roi_idx < spikes.shape[0]:
+    spike_trace = np.nan_to_num(spikes[roi_idx])
+    fig.add_trace(go.Scattergl(
+        x=t, y=spike_trace, mode="lines",
+        line=dict(color="#d62728", width=1), name="CASCADE spikes",
+    ), row=row + 1, col=1)
+    fig.update_yaxes(title_text="Spk/s", row=row + 1, col=1)
 
 fig.update_xaxes(title_text="Time (s)", row=n_panels, col=1)
 fig.update_layout(

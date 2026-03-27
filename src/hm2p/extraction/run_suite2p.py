@@ -224,5 +224,63 @@ def run_suite2p(
         if not (plane0 / name).exists():
             raise RuntimeError(f"Suite2p output file missing: {plane0 / name}")
 
+    # Compute max projection from the registered binary while it's still on disk.
+    # Suite2p only stores meanImg and meanImgE (enhanced mean), not a true max.
+    _compute_max_projection(plane0)
+
     log.info("Suite2p complete. Output: %s", suite2p_dir)
     return suite2p_dir
+
+
+def _compute_max_projection(plane0: Path) -> None:
+    """Compute max projection from Suite2p's registered binary and save to ops.
+
+    Reads data.bin in chunks to avoid loading the entire movie into memory.
+    Saves as ops["max_proj"] in ops.npy.
+    """
+    import numpy as np
+
+    ops_path = plane0 / "ops.npy"
+    bin_path = plane0 / "data.bin"
+
+    if not bin_path.exists() or not ops_path.exists():
+        log.warning("Cannot compute max projection: missing data.bin or ops.npy")
+        return
+
+    try:
+        ops = np.load(ops_path, allow_pickle=True).item()
+        ly = ops.get("Ly", 0)
+        lx = ops.get("Lx", 0)
+        if ly == 0 or lx == 0:
+            log.warning("Cannot compute max projection: Ly/Lx not in ops")
+            return
+
+        n_frames = ops.get("nframes", 0)
+        if n_frames == 0:
+            file_size = bin_path.stat().st_size
+            n_frames = file_size // (ly * lx * 2)  # int16
+
+        log.info("Computing max projection (%d frames, %dx%d)...", n_frames, ly, lx)
+
+        # Read in chunks of 1000 frames to limit memory
+        chunk_size = 1000
+        max_proj = None
+
+        with open(bin_path, "rb") as f:
+            for start in range(0, n_frames, chunk_size):
+                n_read = min(chunk_size, n_frames - start)
+                chunk = np.fromfile(f, dtype=np.int16, count=n_read * ly * lx)
+                chunk = chunk.reshape(n_read, ly, lx).astype(np.float32)
+                chunk_max = chunk.max(axis=0)
+                if max_proj is None:
+                    max_proj = chunk_max
+                else:
+                    max_proj = np.maximum(max_proj, chunk_max)
+
+        if max_proj is not None:
+            ops["max_proj"] = max_proj
+            np.save(ops_path, ops)
+            log.info("Max projection saved to ops.npy (max_proj key)")
+
+    except Exception as exc:
+        log.warning("Failed to compute max projection: %s", exc)

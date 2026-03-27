@@ -1047,9 +1047,11 @@ def _fetch_all_suite2p_spatial() -> dict[str, dict]:
         if ops is not None:
             ops_dict = ops.item() if isinstance(ops, np.ndarray) and ops.ndim == 0 else ops
             mean_img = ops_dict.get("meanImg")
-            # Suite2p doesn't store a true max projection.
-            # meanImgE is contrast-enhanced (high-pass filtered) — shows cell bodies better.
-            max_img = ops_dict.get("meanImgE")
+            # True max projection (computed post-Suite2p from data.bin).
+            # Falls back to meanImgE (contrast-enhanced mean) if max_proj not available.
+            max_img = ops_dict.get("max_proj")
+            if max_img is None:
+                max_img = ops_dict.get("meanImgE")
 
         # Get accepted cell indices
         cell_mask = iscell[:, 0].astype(bool) if iscell is not None else None
