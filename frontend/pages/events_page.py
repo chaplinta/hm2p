@@ -15,9 +15,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from frontend.data import (
     DERIVATIVES_BUCKET,
     download_s3_bytes,
+    load_all_sync_data,
     load_animals,
     load_experiments,
     parse_session_id,
+    session_filter_sidebar,
 )
 
 log = logging.getLogger("hm2p.frontend.events")
@@ -175,8 +177,8 @@ with col2:
     st.markdown(f"**ROI {roi_idx}** — SNR: {snrs[roi_idx]:.1f} — **{len(events)} events** in {n_frames/fps:.0f}s ({len(events)/(n_frames/fps/60):.1f} events/min)")
 
 # --- Tabs ---
-tab_browse, tab_waveforms, tab_stats, tab_population = st.tabs([
-    "Browse Events", "Waveform Gallery", "Event Statistics", "Population Events",
+tab_browse, tab_waveforms, tab_stats, tab_population, tab_cross = st.tabs([
+    "Browse Events", "Waveform Gallery", "Event Statistics", "Population Events", "Cross-Session",
 ])
 
 import plotly.graph_objects as go
@@ -516,3 +518,153 @@ with tab_population:
         margin=dict(l=80, r=20, t=40, b=30),
     )
     st.plotly_chart(fig, use_container_width=True)
+
+
+# --- Tab 5: Cross-session event comparison ---
+with tab_cross:
+    st.subheader("Cross-Session Event Statistics")
+    st.caption(
+        "Event properties pooled across all sessions, split by cell type. "
+        "Uses soma ROIs only."
+    )
+
+    @st.cache_data(ttl=600)
+    def _load_all_event_stats(method_key):
+        """Load event stats from all ca.h5 files on S3."""
+        import pandas as pd
+        import h5py as _h5py
+
+        exps = load_experiments()
+        anim_map = {a["animal_id"]: a.get("celltype", "unknown") for a in load_animals()}
+        rows = []
+
+        for exp in exps:
+            eid = exp["exp_id"]
+            parts = eid.split("_")
+            animal_id = parts[-1]
+            sub_s, ses_s = parse_session_id(eid)
+            ct = anim_map.get(animal_id, "unknown")
+
+            ca_bytes = download_s3_bytes(DERIVATIVES_BUCKET, f"calcium/{sub_s}/{ses_s}/ca.h5")
+            if ca_bytes is None:
+                continue
+            try:
+                with _h5py.File(io.BytesIO(ca_bytes), "r") as f:
+                    dff_arr = f["dff"][:]
+                    _fps = float(f.attrs.get("fps_imaging", 9.8))
+                    roi_types_arr = f["roi_types"][:] if "roi_types" in f else np.zeros(dff_arr.shape[0], dtype=np.uint8)
+                    em = f[method_key][:] if method_key in f else None
+            except Exception:
+                continue
+
+            if em is None:
+                continue
+
+            nr, nf = dff_arr.shape
+            dur_min = nf / _fps / 60.0
+
+            for ri in range(nr):
+                if roi_types_arr[ri] != 0:
+                    continue
+                mask_i = em[ri].astype(bool)
+                onsets_i = np.flatnonzero(mask_i[1:] & ~mask_i[:-1])
+                n_ev = len(onsets_i) + (1 if mask_i[0] else 0)
+                trace_i = dff_arr[ri]
+
+                amps = []
+                durs = []
+                in_ev = False
+                ev_start = 0
+                for j in range(nf):
+                    if mask_i[j] and not in_ev:
+                        ev_start = j
+                        in_ev = True
+                    elif not mask_i[j] and in_ev:
+                        amps.append(float(np.max(trace_i[ev_start:j])))
+                        durs.append((j - ev_start) / _fps)
+                        in_ev = False
+
+                rows.append({
+                    "session": eid,
+                    "animal_id": animal_id,
+                    "celltype": ct,
+                    "roi": ri,
+                    "n_events": n_ev,
+                    "event_rate": n_ev / dur_min if dur_min > 0 else 0,
+                    "active_frac": float(mask_i.mean()),
+                    "mean_amp": float(np.mean(amps)) if amps else np.nan,
+                    "median_amp": float(np.median(amps)) if amps else np.nan,
+                    "mean_dur_s": float(np.mean(durs)) if durs else np.nan,
+                    "mean_dff": float(np.nanmean(trace_i)),
+                })
+
+        return pd.DataFrame(rows)
+
+    import pandas as pd
+
+    _em_key = "event_masks_sd" if _use_sd else "event_masks"
+    with st.spinner("Loading event stats from all sessions..."):
+        all_ev = _load_all_event_stats(_em_key)
+
+    if all_ev.empty:
+        st.warning("No event data available across sessions.")
+    else:
+        penk_ev = all_ev[all_ev["celltype"] == "penk"]
+        nonpenk_ev = all_ev[all_ev["celltype"] == "nonpenk"]
+
+        st.markdown(
+            f"**{len(all_ev)} soma ROIs** across {all_ev['session'].nunique()} sessions | "
+            f"Penk+: {len(penk_ev)} | Penk\u207bCamKII+: {len(nonpenk_ev)}"
+        )
+
+        from scipy.stats import mannwhitneyu
+
+        metrics = [
+            ("event_rate", "Rate (ev/min)"),
+            ("active_frac", "Active frac"),
+            ("mean_amp", "Mean amplitude"),
+            ("mean_dur_s", "Mean dur (s)"),
+            ("mean_dff", "Mean dF/F"),
+        ]
+
+        cols = st.columns(len(metrics))
+        for i, (key, label) in enumerate(metrics):
+            pv = penk_ev[key].dropna()
+            nv = nonpenk_ev[key].dropna()
+            with cols[i]:
+                if len(pv) >= 2 and len(nv) >= 2:
+                    _, p = mannwhitneyu(pv, nv, alternative="two-sided")
+                    p_str = f"p={p:.3f}" if p >= 0.001 else "p<0.001"
+                    sig = " *" if p < 0.05 else ""
+                    st.metric(label, f"P:{pv.median():.2f} N:{nv.median():.2f}")
+                    st.caption(f"{p_str}{sig}")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            fig = px.histogram(
+                all_ev, x="event_rate", color="celltype", nbins=40,
+                barmode="overlay", opacity=0.6,
+                title="Event Rate by Cell Type",
+                color_discrete_map={"penk": "#1f77b4", "nonpenk": "#ff7f0e"},
+            )
+            fig.update_layout(height=300, margin=dict(l=40, r=20, t=40, b=40))
+            st.plotly_chart(fig, use_container_width=True, key="cross_rate_hist")
+
+        with c2:
+            fig = px.histogram(
+                all_ev, x="mean_amp", color="celltype", nbins=40,
+                barmode="overlay", opacity=0.6,
+                title="Event Amplitude by Cell Type",
+                color_discrete_map={"penk": "#1f77b4", "nonpenk": "#ff7f0e"},
+            )
+            fig.update_layout(height=300, margin=dict(l=40, r=20, t=40, b=40))
+            st.plotly_chart(fig, use_container_width=True, key="cross_amp_hist")
+
+        with st.expander("Per-session breakdown"):
+            session_summary = all_ev.groupby(["session", "celltype"]).agg(
+                n_rois=("roi", "count"),
+                median_rate=("event_rate", "median"),
+                median_amp=("mean_amp", "median"),
+                median_active=("active_frac", "median"),
+            ).reset_index()
+            st.dataframe(session_summary, use_container_width=True, hide_index=True)
