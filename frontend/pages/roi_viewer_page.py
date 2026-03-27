@@ -172,12 +172,12 @@ mean_img = spatial.get("mean_img")
 max_img = spatial.get("max_img")
 shape_features = spatial.get("shape_features", [])
 
-# Default to max image, with option to show mean
+# Enhanced image shows cell bodies better (Suite2p high-pass filtered mean)
 _img_choice = st.radio(
-    "Background image", ["Max projection", "Mean image"],
+    "Background image", ["Enhanced", "Mean"],
     horizontal=True, key="rv_img_type",
 )
-bg_img = max_img if _img_choice == "Max projection" and max_img is not None else mean_img
+bg_img = max_img if _img_choice == "Enhanced" and max_img is not None else mean_img
 
 col_mean, col_roi = st.columns(2)
 
