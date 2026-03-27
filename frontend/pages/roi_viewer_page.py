@@ -169,17 +169,25 @@ st.markdown(
 
 spatial = spatial_data.get(ses["exp_id"], {})
 mean_img = spatial.get("mean_img")
+max_img = spatial.get("max_img")
 shape_features = spatial.get("shape_features", [])
+
+# Default to max image, with option to show mean
+_img_choice = st.radio(
+    "Background image", ["Max projection", "Mean image"],
+    horizontal=True, key="rv_img_type",
+)
+bg_img = max_img if _img_choice == "Max projection" and max_img is not None else mean_img
 
 col_mean, col_roi = st.columns(2)
 
-if mean_img is not None:
+if bg_img is not None:
     with col_mean:
         fig = go.Figure(data=go.Heatmap(
-            z=mean_img, colorscale="gray", showscale=False,
+            z=bg_img, colorscale="gray", showscale=False,
         ))
         fig.update_layout(
-            height=300, title="Mean Image",
+            height=300, title=_img_choice,
             yaxis=dict(scaleanchor="x", autorange="reversed"),
             margin=dict(t=30, b=5, l=5, r=5),
         )
@@ -187,7 +195,7 @@ if mean_img is not None:
 
     with col_roi:
         fig = go.Figure(data=go.Heatmap(
-            z=mean_img, colorscale="gray", showscale=False,
+            z=bg_img, colorscale="gray", showscale=False,
         ))
         if roi_idx < len(shape_features) and shape_features[roi_idx] is not None:
             sf = shape_features[roi_idx]

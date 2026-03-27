@@ -1041,11 +1041,13 @@ def _fetch_all_suite2p_spatial() -> dict[str, dict]:
         ops = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "ops.npy", allow_pickle=True)
         iscell = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "iscell.npy")
 
-        # Extract mean image from ops
+        # Extract mean and max images from ops
         mean_img = None
+        max_img = None
         if ops is not None:
             ops_dict = ops.item() if isinstance(ops, np.ndarray) and ops.ndim == 0 else ops
             mean_img = ops_dict.get("meanImg")
+            max_img = ops_dict.get("meanImgE")  # Suite2p enhanced mean (max projection)
 
         # Get accepted cell indices
         cell_mask = iscell[:, 0].astype(bool) if iscell is not None else None
@@ -1074,6 +1076,7 @@ def _fetch_all_suite2p_spatial() -> dict[str, dict]:
 
         result[exp_id] = {
             "mean_img": mean_img,
+            "max_img": max_img,
             "shape_features": shape_features,
             "accepted_ids": accepted_ids,
         }
