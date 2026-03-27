@@ -298,15 +298,16 @@ else:
     ), row=row, col=1)
     fig.update_yaxes(title_text="(no deconv)", row=row, col=1)
 
-# Panel 5: CASCADE spikes (if available)
+# Panel: CASCADE spikes (if available)
+row += 1
 spikes = ses.get("spikes")
-if n_panels >= 5 and spikes is not None and roi_idx < spikes.shape[0]:
+if has_spikes and spikes is not None and roi_idx < spikes.shape[0]:
     spike_trace = np.nan_to_num(spikes[roi_idx])
     fig.add_trace(go.Scattergl(
         x=t, y=spike_trace, mode="lines",
         line=dict(color="#d62728", width=1), name="CASCADE spikes",
-    ), row=row + 1, col=1)
-    fig.update_yaxes(title_text="Spk/s", row=row + 1, col=1)
+    ), row=row, col=1)
+    fig.update_yaxes(title_text="Spk/s", row=row, col=1)
 
 fig.update_xaxes(title_text="Time (s)", row=n_panels, col=1)
 fig.update_layout(

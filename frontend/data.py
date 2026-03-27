@@ -793,6 +793,9 @@ def _fetch_all_ca_data() -> list[dict]:
                 roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
                 event_masks = f["event_masks"][:] if "event_masks" in f else None
                 event_masks_sd = f["event_masks_sd"][:] if "event_masks_sd" in f else None
+                deconv_norm = f["deconv_norm"][:] if "deconv_norm" in f else None
+                spikes_ca = f["spikes"][:] if "spikes" in f else None
+                frame_times_ca = f["frame_times"][:] if "frame_times" in f else None
 
             sessions.append({
                 "exp_id": exp_id,
@@ -805,6 +808,9 @@ def _fetch_all_ca_data() -> list[dict]:
                 "roi_types": roi_types,
                 "event_masks": event_masks,
                 "event_masks_sd": event_masks_sd,
+                "deconv_norm": deconv_norm,
+                "spikes": spikes_ca,
+                "frame_times": frame_times_ca,
                 "n_rois": dff.shape[0],
                 "n_frames": dff.shape[1],
             })
