@@ -58,12 +58,9 @@ def load_event_data(sub: str, ses: str) -> dict | None:
         "dff": f["dff"][:],
         "fps": float(f.attrs.get("fps_imaging", 9.8)),
     }
-    if "event_masks" in f:
-        result["event_masks"] = f["event_masks"][:]
-    if "spks" in f:
-        result["spks"] = f["spks"][:]
-    if "noise_probs" in f:
-        result["noise_probs"] = f["noise_probs"][:]
+    for key in ("event_masks", "event_masks_sd", "noise_probs"):
+        if key in f:
+            result[key] = f[key][:]
     f.close()
     return result
 
@@ -75,15 +72,33 @@ if data is None:
     st.warning("No calcium data found.")
     st.stop()
 
-if "event_masks" not in data:
+if "event_masks" not in data and "event_masks_sd" not in data:
     st.warning("No event detection data in this session's ca.h5.")
     st.stop()
 
 dff = data["dff"]
-event_masks = data["event_masks"]
 n_rois, n_frames = dff.shape
 fps = data["fps"]
 time_s = np.arange(n_frames) / fps
+
+# Event method selector
+_methods = []
+if "event_masks" in data:
+    _methods.append("V&H (percentile)")
+if "event_masks_sd" in data:
+    _methods.append("SD threshold")
+
+event_method = st.radio(
+    "Event detection method", _methods, horizontal=True, key="ev_method",
+    help="V&H: Voigts & Harnett 2020 percentile-based. "
+         "SD: 2×SD of noise floor (Zong et al. 2022).",
+)
+_use_sd = event_method == "SD threshold"
+
+if _use_sd:
+    event_masks = data["event_masks_sd"]
+else:
+    event_masks = data["event_masks"]
 
 
 def extract_events(roi_idx: int) -> list[dict]:
@@ -215,8 +230,49 @@ with tab_browse:
             line=dict(color="red", width=2),
         ))
 
+        # Plot detection threshold
+        if _use_sd:
+            # SD method: 2×SD of noise floor (estimated from negative dF/F values)
+            trace_full = dff[roi_idx]
+            neg_vals = trace_full[trace_full < 0]
+            if len(neg_vals) > 10:
+                noise_sd = np.std(neg_vals) / np.sqrt(1.0 - 2.0 / np.pi)
+            else:
+                noise_sd = np.median(np.abs(trace_full - np.median(trace_full))) * 1.4826
+            threshold = 2.0 * noise_sd
+            fig.add_hline(
+                y=threshold, line_dash="dot", line_color="blue", opacity=0.6,
+                annotation_text=f"2×SD = {threshold:.3f}",
+                annotation_position="top right",
+            )
+        elif "noise_probs" in data:
+            # V&H: plot noise probability on secondary y-axis
+            noise_prob_window = data["noise_probs"][roi_idx, start:end]
+            fig.add_trace(go.Scatter(
+                x=t_window,
+                y=noise_prob_window,
+                mode="lines",
+                name="P(noise)",
+                line=dict(color="blue", width=0.8, dash="dot"),
+                yaxis="y2",
+                opacity=0.5,
+            ))
+            fig.update_layout(
+                yaxis2=dict(
+                    title="P(noise)", overlaying="y", side="right",
+                    range=[0, 1], showgrid=False,
+                ),
+            )
+            # Onset threshold line on secondary axis
+            fig.add_hline(
+                y=0.2, line_dash="dot", line_color="blue", opacity=0.3,
+                annotation_text="onset threshold",
+                annotation_position="top right",
+                yref="y2",
+            )
+
         fig.update_layout(
-            height=300,
+            height=350,
             title=f"Event {event_idx + 1}/{len(events)} — onset: {ev['onset_time_s']:.1f}s, dur: {ev['duration_s']:.2f}s, peak: {ev['peak_dff']:.3f}",
             xaxis_title="Time (s)",
             yaxis_title="dF/F\u2080",
