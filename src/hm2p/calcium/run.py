@@ -79,21 +79,29 @@ def run(
     from hm2p.io.hdf5 import read_h5, write_h5
 
     # --- Load Suite2p arrays ---
+    # Process ALL ROIs (not just iscell=True) so dendrites and other
+    # non-soma ROIs are available for analysis. The roi_types array
+    # marks each ROI's classification; filtering happens at display time.
     F_all, Fneu_all, cell_mask = load_suite2p(suite2p_dir)
-    F = F_all[cell_mask]
-    Fneu = Fneu_all[cell_mask]
+    F = F_all  # all ROIs, not filtered by iscell
+    Fneu = Fneu_all
 
-    # --- Classify ROI types (soma / dend / artefact) ---
+    # --- Classify ROI types ---
     from hm2p.extraction.suite2p import classify_roi_types
 
     plane_dir = suite2p_dir / "plane0"
     stat_path = plane_dir / "stat.npy"
     if stat_path.exists():
         stat = list(np.load(stat_path, allow_pickle=True))
-        all_types = classify_roi_types(stat)
-        roi_types = [all_types[i] for i in np.flatnonzero(cell_mask)]
+        roi_types = classify_roi_types(stat)
     else:
-        roi_types = ["soma"] * int(cell_mask.sum())
+        roi_types = ["soma"] * F.shape[0]
+
+    # Mark iscell status — 0=soma/dend/artefact (from shape), plus
+    # iscell=False ROIs get marked as "rejected"
+    for i in range(len(roi_types)):
+        if not cell_mask[i] and roi_types[i] == "soma":
+            roi_types[i] = "rejected"
 
     # --- Load imaging frame times ---
     ts = read_h5(timestamps_h5)
@@ -140,9 +148,9 @@ def run(
     # SD-threshold method (more sensitive to small transients)
     event_masks_sd = detect_events_sd(dff, fps=fps, sd_threshold=2.0, min_duration_s=0.3)
 
-    # Encode roi_types as uint8 array: 0=soma, 1=dend, 2=artefact
-    type_map = {"soma": 0, "dend": 1, "artefact": 2}
-    roi_type_arr = np.array([type_map.get(t, 0) for t in roi_types], dtype=np.uint8)
+    # Encode roi_types as uint8: 0=soma, 1=dend, 2=artefact, 3=rejected
+    type_map = {"soma": 0, "dend": 1, "artefact": 2, "rejected": 3}
+    roi_type_arr = np.array([type_map.get(t, 3) for t in roi_types], dtype=np.uint8)
 
     datasets: dict[str, np.ndarray] = {
         "frame_times": frame_times,
