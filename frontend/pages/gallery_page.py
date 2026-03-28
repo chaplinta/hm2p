@@ -53,6 +53,7 @@ with st.spinner("Loading ROI data from S3..."):
         all_sessions.append({
             **ses,
             "mean_img": spatial.get("mean_img"),
+            "max_img": spatial.get("max_img"),
             "shape_features": shape_features,
         })
 
@@ -78,8 +79,12 @@ with st.expander("Filters", expanded=False):
     with fc2:
         sel_sessions = st.multiselect("Session", exp_ids, default=exp_ids, key="gal_session")
         roi_type_filter = st.radio(
-            "ROI type", ["Soma only", "Dendrite only", "All ROIs"],
+            "ROI type", ["Soma only", "Dendrite only", "Soma + Dendrite", "All (incl. artefact)"],
             index=0, key="gal_roi_type",
+        )
+        bg_image_type = st.radio(
+            "Background image", ["Max projection", "Mean"],
+            horizontal=True, key="gal_bg_img",
         )
     with fc3:
         min_snr = st.slider("Min SNR", 0.0, 15.0, 0.0, 0.5, key="gal_snr")
@@ -120,6 +125,8 @@ for ses in sessions:
         if roi_type_filter == "Soma only" and roi_type_code != 0:
             continue
         if roi_type_filter == "Dendrite only" and roi_type_code != 1:
+            continue
+        if roi_type_filter == "Soma + Dendrite" and roi_type_code not in (0, 1):
             continue
 
         trace = dff[i]
@@ -190,8 +197,8 @@ st.markdown("---")
 
 # ── Tabs ────────────────────────────────────────────────────────────────────
 
-tab_gallery, tab_classifier, tab_features = st.tabs([
-    "Gallery", "Classifier Decisions", "Feature Distributions",
+tab_gallery, tab_classifier, tab_features, tab_pca = st.tabs([
+    "Gallery", "Classifier Decisions", "Feature Distributions", "Feature PCA",
 ])
 
 
@@ -236,9 +243,9 @@ with tab_gallery:
 
                 # ROI spatial footprint on mean image (if available)
                 sf = ses["shape_features"][roi_i] if roi_i < len(ses["shape_features"]) else None
-                mean_img = ses["mean_img"]
+                bg_img = (ses.get("max_img") if bg_image_type == "Max projection" else None) or ses.get("mean_img")
 
-                if mean_img is not None and sf is not None and "ypix" in sf and len(sf["ypix"]) > 0:
+                if bg_img is not None and sf is not None and "ypix" in sf and len(sf["ypix"]) > 0:
                     import matplotlib.pyplot as plt
                     from matplotlib.colors import Normalize
 
@@ -246,11 +253,11 @@ with tab_gallery:
                     ypix, xpix = sf["ypix"], sf["xpix"]
                     pad = 15
                     y0 = max(0, int(ypix.min()) - pad)
-                    y1 = min(mean_img.shape[0], int(ypix.max()) + pad)
+                    y1 = min(bg_img.shape[0], int(ypix.max()) + pad)
                     x0 = max(0, int(xpix.min()) - pad)
-                    x1 = min(mean_img.shape[1], int(xpix.max()) + pad)
+                    x1 = min(bg_img.shape[1], int(xpix.max()) + pad)
 
-                    crop = mean_img[y0:y1, x0:x1]
+                    crop = bg_img[y0:y1, x0:x1]
                     vmin, vmax = np.percentile(crop, [1, 99])
 
                     fig_img, ax = plt.subplots(figsize=(1.5, 1.5), dpi=80)
@@ -448,6 +455,57 @@ with tab_features:
             ].agg(["count", "median", "mean", "std"])
             summary.columns = [f"{c}_{s}" for c, s in summary.columns]
             st.dataframe(summary.T, use_container_width=True)
+
+
+# ── Tab 4: Feature PCA ─────────────────────────────────────────────────────
+
+with tab_pca:
+    st.subheader("PCA of Classification Features")
+    st.caption("Z-scored shape features projected onto 2 principal components, coloured by ROI type.")
+
+    has_features = roi_df["aspect_ratio"].notna().any()
+    if not has_features:
+        st.warning("No shape features available.")
+    else:
+        from sklearn.decomposition import PCA
+        from sklearn.preprocessing import StandardScaler
+
+        df_pca = roi_df[roi_df["aspect_ratio"].notna()].copy()
+        pca_features = ["aspect_ratio", "radius", "compact", "npix", "snr"]
+        pca_features = [f for f in pca_features if f in df_pca.columns and df_pca[f].notna().any()]
+
+        X = df_pca[pca_features].fillna(0).values
+        X_z = StandardScaler().fit_transform(X)
+
+        pca = PCA(n_components=min(2, len(pca_features)))
+        scores = pca.fit_transform(X_z)
+        df_pca["PC1"] = scores[:, 0]
+        df_pca["PC2"] = scores[:, 1] if scores.shape[1] > 1 else 0
+
+        fig = px.scatter(
+            df_pca, x="PC1", y="PC2", color="roi_type",
+            color_discrete_map={"soma": "#1f77b4", "dend": "#ff7f0e", "artefact": "#d62728"},
+            hover_data=["exp_id", "roi_local", "aspect_ratio", "radius", "compact"],
+            title=f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%) vs PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)",
+            opacity=0.6,
+        )
+        fig.update_layout(height=500, margin=dict(l=50, r=20, t=40, b=40))
+        st.plotly_chart(fig, use_container_width=True, key="pca_scatter")
+
+        # Loadings
+        st.markdown("**PC loadings:**")
+        loadings = pd.DataFrame(
+            pca.components_.T, index=pca_features,
+            columns=[f"PC{i+1}" for i in range(pca.n_components_)],
+        )
+        st.dataframe(loadings.style.format("{:.3f}"), use_container_width=True)
+
+        # Variance explained
+        st.caption(
+            f"Total variance explained: {pca.explained_variance_ratio_.sum()*100:.1f}% "
+            f"(PC1: {pca.explained_variance_ratio_[0]*100:.1f}%, "
+            f"PC2: {pca.explained_variance_ratio_[1]*100:.1f}%)"
+        )
 
 
 # ── Footer ──────────────────────────────────────────────────────────────────
