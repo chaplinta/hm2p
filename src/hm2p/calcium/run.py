@@ -97,11 +97,12 @@ def run(
     else:
         roi_types = ["soma"] * F.shape[0]
 
-    # Mark iscell status — 0=soma/dend/artefact (from shape), plus
-    # iscell=False ROIs get marked as "rejected"
+    # Merge iscell=False ROIs and shape-based artefacts into "non-cell"
     for i in range(len(roi_types)):
-        if not cell_mask[i] and roi_types[i] == "soma":
-            roi_types[i] = "rejected"
+        if not cell_mask[i]:
+            roi_types[i] = "non-cell"
+        elif roi_types[i] == "artefact":
+            roi_types[i] = "non-cell"
 
     # --- Load imaging frame times ---
     ts = read_h5(timestamps_h5)
@@ -148,9 +149,9 @@ def run(
     # SD-threshold method (more sensitive to small transients)
     event_masks_sd = detect_events_sd(dff, fps=fps, sd_threshold=2.0, min_duration_s=0.3)
 
-    # Encode roi_types as uint8: 0=soma, 1=dend, 2=artefact, 3=rejected
-    type_map = {"soma": 0, "dend": 1, "artefact": 2, "rejected": 3}
-    roi_type_arr = np.array([type_map.get(t, 3) for t in roi_types], dtype=np.uint8)
+    # Encode roi_types as uint8: 0=soma, 1=dendrite, 2=non-cell
+    type_map = {"soma": 0, "dend": 1, "non-cell": 2}
+    roi_type_arr = np.array([type_map.get(t, 2) for t in roi_types], dtype=np.uint8)
 
     datasets: dict[str, np.ndarray] = {
         "frame_times": frame_times,
