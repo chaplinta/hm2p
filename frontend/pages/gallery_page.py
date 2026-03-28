@@ -69,7 +69,7 @@ celltypes = sorted(set(s["celltype"] for s in all_sessions))
 animal_ids = sorted(set(s["animal_id"] for s in all_sessions))
 exp_ids = sorted(set(s["exp_id"] for s in all_sessions))
 
-ROI_TYPE_NAMES = {0: "soma", 1: "dend", 2: "artefact"}
+ROI_TYPE_NAMES = {0: "soma", 1: "dendrite", 2: "non-cell"}
 
 with st.expander("Filters", expanded=False):
     fc1, fc2, fc3 = st.columns(3)
@@ -79,7 +79,7 @@ with st.expander("Filters", expanded=False):
     with fc2:
         sel_sessions = st.multiselect("Session", exp_ids, default=exp_ids, key="gal_session")
         roi_type_filter = st.radio(
-            "ROI type", ["Soma only", "Dendrite only", "Soma + Dendrite", "All (incl. artefact)"],
+            "ROI type", ["Soma only", "Dendrite only", "Soma + Dendrite", "All (incl. non-cell)"],
             index=0, key="gal_roi_type",
         )
         bg_image_type = st.radio(
@@ -185,7 +185,7 @@ roi_df = roi_df.head(max_rois).reset_index(drop=True)
 n_total_all = sum(s["n_rois"] for s in sessions)
 n_shown = len(roi_df)
 n_soma = (roi_df["roi_type"] == "soma").sum()
-n_dend = (roi_df["roi_type"] == "dend").sum()
+n_dend = (roi_df["roi_type"] == "dendrite").sum()
 
 col1, col2, col3, col4, col5 = st.columns(5)
 col1.metric("Sessions", len(sessions))
@@ -269,7 +269,7 @@ with tab_gallery:
                     fig_img, ax = plt.subplots(figsize=(1.5, 1.5), dpi=80)
                     ax.imshow(crop, cmap="gray", vmin=vmin, vmax=vmax, aspect="equal")
                     # Overlay ROI pixels
-                    color = {"soma": COLOR_SOMA, "dend": COLOR_DEND, "artefact": "red"}.get(
+                    color = {"soma": COLOR_SOMA, "dendrite": COLOR_DEND, "non-cell": "red"}.get(
                         roi_row["roi_type"], "white"
                     )
                     y_local = ypix - y0
@@ -281,7 +281,7 @@ with tab_gallery:
                     plt.close(fig_img)
 
                 # Compact info line
-                type_emoji = {"soma": "S", "dend": "D", "artefact": "X"}.get(roi_row["roi_type"], "?")
+                type_emoji = {"soma": "S", "dendrite": "D", "non-cell": "X"}.get(roi_row["roi_type"], "?")
                 ar_str = f"AR:{roi_row['aspect_ratio']:.1f}" if not np.isnan(roi_row["aspect_ratio"]) else ""
                 _exp_id = html.escape(ses['exp_id'][:8])
                 _celltype = html.escape(str(ses['celltype']))
@@ -301,7 +301,7 @@ with tab_classifier:
     st.subheader("Soma / Dendrite Classification")
     st.markdown(
         "ROIs are classified using Suite2p `stat.npy` shape features:\n\n"
-        "- **Artefact**: `radius < 2.0` or `compact < 0.1`\n"
+        "- **Non-cell**: `radius < 2.0` or `compact < 0.1`\n"
         "- **Dendrite**: `aspect_ratio > 2.5`\n"
         "- **Soma**: everything else\n\n"
         "The scatter plots below show how each ROI falls relative to the "
@@ -321,16 +321,16 @@ with tab_classifier:
             fig = px.scatter(
                 df_feat, x="radius", y="aspect_ratio",
                 color="roi_type",
-                color_discrete_map={"soma": "#1f77b4", "dend": "#ff7f0e", "artefact": "#d62728"},
+                color_discrete_map={"soma": "#1f77b4", "dendrite": "#ff7f0e", "non-cell": "#d62728"},
                 hover_data=["exp_id", "roi_local", "compact", "snr"],
                 title="Aspect Ratio vs Radius",
                 opacity=0.6,
             )
             # Decision boundaries
             fig.add_hline(y=2.5, line_dash="dash", line_color="orange",
-                         annotation_text="AR=2.5 (dend threshold)")
+                         annotation_text="AR=2.5 (dendrite threshold)")
             fig.add_vline(x=2.0, line_dash="dash", line_color="red",
-                         annotation_text="r=2.0 (artefact)")
+                         annotation_text="r=2.0 (non-cell)")
             fig.update_layout(height=400, margin=dict(l=50, r=20, t=40, b=30))
             st.plotly_chart(fig, use_container_width=True, key="clf_ar_radius")
 
@@ -338,15 +338,15 @@ with tab_classifier:
             fig = px.scatter(
                 df_feat, x="compact", y="aspect_ratio",
                 color="roi_type",
-                color_discrete_map={"soma": "#1f77b4", "dend": "#ff7f0e", "artefact": "#d62728"},
+                color_discrete_map={"soma": "#1f77b4", "dendrite": "#ff7f0e", "non-cell": "#d62728"},
                 hover_data=["exp_id", "roi_local", "radius", "snr"],
                 title="Aspect Ratio vs Compactness",
                 opacity=0.6,
             )
             fig.add_hline(y=2.5, line_dash="dash", line_color="orange",
-                         annotation_text="AR=2.5 (dend)")
+                         annotation_text="AR=2.5 (dendrite)")
             fig.add_vline(x=0.1, line_dash="dash", line_color="red",
-                         annotation_text="compact=0.1 (artefact)")
+                         annotation_text="compact=0.1 (non-cell)")
             fig.update_layout(height=400, margin=dict(l=50, r=20, t=40, b=30))
             st.plotly_chart(fig, use_container_width=True, key="clf_ar_compact")
 
@@ -375,8 +375,8 @@ with tab_classifier:
             fig_map, ax = plt.subplots(figsize=(8, 8), dpi=100)
             ax.imshow(mean_img, cmap="gray", vmin=vmin, vmax=vmax)
 
-            colors = {"soma": COLOR_SOMA, "dend": COLOR_DEND, "artefact": "red"}
-            type_names = {0: "soma", 1: "dend", 2: "artefact"}
+            colors = {"soma": COLOR_SOMA, "dendrite": COLOR_DEND, "non-cell": "red"}
+            type_names = {0: "soma", 1: "dendrite", 2: "non-cell"}
             plotted_types = set()
 
             for i in range(ses_map["n_rois"]):
@@ -425,7 +425,7 @@ with tab_features:
                 with cols[col_idx]:
                     fig = px.histogram(
                         df_feat, x=metric, color="roi_type", nbins=30,
-                        color_discrete_map={"soma": "#1f77b4", "dend": "#ff7f0e", "artefact": "#d62728"},
+                        color_discrete_map={"soma": "#1f77b4", "dendrite": "#ff7f0e", "non-cell": "#d62728"},
                         title=label, barmode="overlay", opacity=0.7,
                     )
                     fig.update_layout(height=250, margin=dict(l=40, r=20, t=40, b=30))
@@ -433,7 +433,7 @@ with tab_features:
 
         # Soma vs dendrite comparison
         st.subheader("Soma vs Dendrite Comparison")
-        df_sd = df_feat[df_feat["roi_type"].isin(["soma", "dend"])]
+        df_sd = df_feat[df_feat["roi_type"].isin(["soma", "dendrite"])]
         if len(df_sd) > 0 and df_sd["roi_type"].nunique() >= 2:
             comp_metrics = [
                 ("snr", "SNR"),
@@ -446,7 +446,7 @@ with tab_features:
                 with cols[col_idx]:
                     fig = px.box(
                         df_sd, x="roi_type", y=metric, color="roi_type",
-                        color_discrete_map={"soma": "#1f77b4", "dend": "#ff7f0e"},
+                        color_discrete_map={"soma": "#1f77b4", "dendrite": "#ff7f0e"},
                         points="all", title=label,
                     )
                     fig.update_traces(marker=dict(size=3, opacity=0.4))
@@ -490,7 +490,7 @@ with tab_pca:
 
         fig = px.scatter(
             df_pca, x="PC1", y="PC2", color="roi_type",
-            color_discrete_map={"soma": "#1f77b4", "dend": "#ff7f0e", "artefact": "#d62728"},
+            color_discrete_map={"soma": "#1f77b4", "dendrite": "#ff7f0e", "non-cell": "#d62728"},
             hover_data=["exp_id", "roi_local", "aspect_ratio", "radius", "compact"],
             title=f"PC1 ({pca.explained_variance_ratio_[0]*100:.1f}%) vs PC2 ({pca.explained_variance_ratio_[1]*100:.1f}%)",
             opacity=0.6,
@@ -523,7 +523,7 @@ with st.expander("Methods"):
 [GitHub](https://github.com/MouseLand/suite2p)
 
 **Soma/dendrite classification:** Heuristic from Suite2p `stat.npy` shape features:
-- `radius < 2.0` or `compact < 0.1` → artefact
+- `radius < 2.0` or `compact < 0.1` → non-cell
 - `aspect_ratio > 2.5` → dendrite
 - Otherwise → soma
 

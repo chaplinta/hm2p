@@ -142,7 +142,7 @@ def _page() -> None:
         })
 
         if "roi_types" in ca:
-            type_labels = {0: "soma", 1: "dendrite", 2: "artefact"}
+            type_labels = {0: "soma", 1: "dendrite", 2: "non-cell"}
             roi_df["Type"] = [type_labels.get(int(t), "?") for t in ca["roi_types"]]
 
         c1, c2 = st.columns(2)

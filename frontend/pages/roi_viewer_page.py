@@ -28,7 +28,7 @@ from frontend.data import (
 
 log = logging.getLogger("hm2p.frontend.roi_viewer")
 
-ROI_TYPE_NAMES = {0: "Soma", 1: "Dendrite", 2: "Artefact"}
+ROI_TYPE_NAMES = {0: "Soma", 1: "Dendrite", 2: "Non-cell"}
 ROI_TYPE_COLORS = {0: "turquoise", 1: "darkorchid", 2: "gray"}
 
 st.title("ROI Viewer")
