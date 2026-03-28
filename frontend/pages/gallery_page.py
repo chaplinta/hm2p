@@ -260,6 +260,8 @@ with tab_gallery:
                     x1 = min(bg_img.shape[1], int(xpix.max()) + pad)
 
                     crop = bg_img[y0:y1, x0:x1]
+                    if crop.size == 0:
+                        continue
                     vmin, vmax = np.percentile(crop, [1, 99])
 
                     fig_img, ax = plt.subplots(figsize=(1.5, 1.5), dpi=80)
