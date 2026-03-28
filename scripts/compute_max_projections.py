@@ -59,8 +59,8 @@ def main() -> None:
         try:
             ops_data = s3.get_object(Bucket=BUCKET, Key=ops_key)["Body"].read()
             ops = np.load(__import__("io").BytesIO(ops_data), allow_pickle=True).item()
-            if "max_proj" in ops:
-                print("  SKIP: max_proj already in ops")
+            if "max_proj" in ops and ops["max_proj"].shape == (ops.get("Ly", 0), ops.get("Lx", 0)):
+                print("  SKIP: max_proj already correct size")
                 continue
         except Exception:
             print("  SKIP: no ops.npy")
@@ -82,22 +82,32 @@ def main() -> None:
             print("  SKIP: no data.bin on S3")
             continue
 
-        n_frames = local_bin.stat().st_size // (ly * lx * 2)
-        print(f"  {n_frames} frames, computing max projection...")
+        yrange = ops.get("yrange", [0, ly])
+        xrange = ops.get("xrange", [0, lx])
+        crop_ly = yrange[1] - yrange[0]
+        crop_lx = xrange[1] - xrange[0]
 
-        max_proj = None
+        n_frames = local_bin.stat().st_size // (crop_ly * crop_lx * 2)
+        print(f"  {n_frames} frames, crop {crop_ly}x{crop_lx}, computing max projection...")
+
+        max_proj_crop = None
         chunk_size = 1000
         with open(local_bin, "rb") as f:
             for start in range(0, n_frames, chunk_size):
                 n_read = min(chunk_size, n_frames - start)
-                chunk = np.fromfile(f, dtype=np.int16, count=n_read * ly * lx)
-                chunk = chunk.reshape(n_read, ly, lx).astype(np.float32)
+                chunk = np.fromfile(f, dtype=np.int16, count=n_read * crop_ly * crop_lx)
+                if chunk.size != n_read * crop_ly * crop_lx:
+                    break
+                chunk = chunk.reshape(n_read, crop_ly, crop_lx).astype(np.float32)
                 chunk_max = chunk.max(axis=0)
-                if max_proj is None:
-                    max_proj = chunk_max
+                if max_proj_crop is None:
+                    max_proj_crop = chunk_max
                 else:
-                    max_proj = np.maximum(max_proj, chunk_max)
+                    max_proj_crop = np.maximum(max_proj_crop, chunk_max)
 
+        # Embed into full frame (same size as meanImg)
+        max_proj = np.zeros((ly, lx), dtype=np.float32)
+        max_proj[yrange[0]:yrange[1], xrange[0]:xrange[1]] = max_proj_crop
         ops["max_proj"] = max_proj
         np.save(local_ops, ops)
 

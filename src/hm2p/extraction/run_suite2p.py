@@ -255,29 +255,41 @@ def _compute_max_projection(plane0: Path) -> None:
             log.warning("Cannot compute max projection: Ly/Lx not in ops")
             return
 
+        # data.bin uses cropped dimensions (yrange/xrange), not full Ly×Lx
+        yrange = ops.get("yrange", [0, ly])
+        xrange = ops.get("xrange", [0, lx])
+        crop_ly = yrange[1] - yrange[0]
+        crop_lx = xrange[1] - xrange[0]
+
         n_frames = ops.get("nframes", 0)
         if n_frames == 0:
             file_size = bin_path.stat().st_size
-            n_frames = file_size // (ly * lx * 2)  # int16
+            n_frames = file_size // (crop_ly * crop_lx * 2)  # int16
 
-        log.info("Computing max projection (%d frames, %dx%d)...", n_frames, ly, lx)
+        log.info("Computing max projection (%d frames, full %dx%d, crop %dx%d)...",
+                 n_frames, ly, lx, crop_ly, crop_lx)
 
         # Read in chunks of 1000 frames to limit memory
         chunk_size = 1000
-        max_proj = None
+        max_proj_crop = None
 
         with open(bin_path, "rb") as f:
             for start in range(0, n_frames, chunk_size):
                 n_read = min(chunk_size, n_frames - start)
-                chunk = np.fromfile(f, dtype=np.int16, count=n_read * ly * lx)
-                chunk = chunk.reshape(n_read, ly, lx).astype(np.float32)
+                chunk = np.fromfile(f, dtype=np.int16, count=n_read * crop_ly * crop_lx)
+                if chunk.size != n_read * crop_ly * crop_lx:
+                    break
+                chunk = chunk.reshape(n_read, crop_ly, crop_lx).astype(np.float32)
                 chunk_max = chunk.max(axis=0)
-                if max_proj is None:
-                    max_proj = chunk_max
+                if max_proj_crop is None:
+                    max_proj_crop = chunk_max
                 else:
-                    max_proj = np.maximum(max_proj, chunk_max)
+                    max_proj_crop = np.maximum(max_proj_crop, chunk_max)
 
-        if max_proj is not None:
+        if max_proj_crop is not None:
+            # Embed into full frame (same size as meanImg)
+            max_proj = np.zeros((ly, lx), dtype=np.float32)
+            max_proj[yrange[0]:yrange[1], xrange[0]:xrange[1]] = max_proj_crop
             ops["max_proj"] = max_proj
             np.save(ops_path, ops)
             log.info("Max projection saved to ops.npy (max_proj key)")

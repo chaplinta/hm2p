@@ -207,10 +207,12 @@ if bg_img is not None:
                     marker=dict(size=3, color=color, opacity=0.8),
                     name=f"ROI {roi_idx}",
                 ))
+        img_h, img_w = bg_img.shape[:2]
         fig.update_layout(
             height=300,
             title=f"ROI {roi_idx} ({ROI_TYPE_NAMES.get(roi_type, '?')})",
-            yaxis=dict(scaleanchor="x", autorange="reversed"),
+            xaxis=dict(range=[0, img_w], constrain="domain"),
+            yaxis=dict(range=[img_h, 0], scaleanchor="x", constrain="domain"),
             margin=dict(t=30, b=5, l=5, r=5),
             showlegend=False,
         )
