@@ -243,7 +243,9 @@ with tab_gallery:
 
                 # ROI spatial footprint on mean image (if available)
                 sf = ses["shape_features"][roi_i] if roi_i < len(ses["shape_features"]) else None
-                bg_img = (ses.get("max_img") if bg_image_type == "Max projection" else None) or ses.get("mean_img")
+                bg_img = ses.get("max_img") if bg_image_type == "Max projection" else None
+                if bg_img is None:
+                    bg_img = ses.get("mean_img")
 
                 if bg_img is not None and sf is not None and "ypix" in sf and len(sf["ypix"]) > 0:
                     import matplotlib.pyplot as plt
