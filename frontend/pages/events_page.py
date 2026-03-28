@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 import streamlit as st
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from frontend.data import (
