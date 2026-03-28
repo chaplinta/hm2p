@@ -121,21 +121,19 @@ for ses in sessions:
         roi_type_code = int(ses["roi_types"][i])
         roi_type_name = ROI_TYPE_NAMES.get(roi_type_code, "unknown")
 
-        # Apply ROI type filter
+        # Track whether this ROI passes the gallery filter
+        gallery_visible = True
         if roi_type_filter == "Soma only" and roi_type_code != 0:
-            continue
+            gallery_visible = False
         if roi_type_filter == "Dendrite only" and roi_type_code != 1:
-            continue
+            gallery_visible = False
         if roi_type_filter == "Soma + Dendrite" and roi_type_code not in (0, 1):
-            continue
+            gallery_visible = False
 
         trace = dff[i]
         baseline_std = np.std(trace[trace < np.percentile(trace, 50)])
         peak95 = np.percentile(trace, 95)
         snr = peak95 / baseline_std if baseline_std > 0 else 0.0
-
-        if snr < min_snr:
-            continue
 
         # Shape features
         sf = ses["shape_features"][i] if i < len(ses["shape_features"]) else None
@@ -155,6 +153,7 @@ for ses in sessions:
             "radius": sf["radius"] if sf else np.nan,
             "compact": sf["compact"] if sf else np.nan,
             "npix": sf["npix"] if sf else 0,
+            "gallery_visible": gallery_visible and snr >= min_snr,
             # Store references for plotting
             "_ses_idx": sessions.index(ses),
             "_roi_idx": i,
@@ -164,7 +163,10 @@ if not rows:
     st.warning("No ROIs match the current filters.")
     st.stop()
 
-roi_df = pd.DataFrame(rows)
+# Full DataFrame (all ROIs) for classifier/features/PCA tabs
+roi_df_all = pd.DataFrame(rows)
+# Filtered DataFrame for gallery tab
+roi_df = roi_df_all[roi_df_all["gallery_visible"]].copy()
 
 # Sort
 if sort_by == "SNR (high first)":
@@ -306,11 +308,11 @@ with tab_classifier:
         "decision boundaries."
     )
 
-    has_features = roi_df["aspect_ratio"].notna().any()
+    has_features = roi_df_all["aspect_ratio"].notna().any()
     if not has_features:
         st.warning("No shape features available (stat.npy not found on S3).")
     else:
-        df_feat = roi_df[roi_df["aspect_ratio"].notna()].copy()
+        df_feat = roi_df_all[roi_df_all["aspect_ratio"].notna()].copy()
 
         # Main decision plot: aspect_ratio vs radius, colored by classification
         col1, col2 = st.columns(2)
@@ -402,11 +404,11 @@ with tab_classifier:
 with tab_features:
     st.subheader("Shape Feature Distributions")
 
-    has_features = roi_df["aspect_ratio"].notna().any()
+    has_features = roi_df_all["aspect_ratio"].notna().any()
     if not has_features:
         st.warning("No shape features available (stat.npy not found).")
     else:
-        df_feat = roi_df[roi_df["aspect_ratio"].notna()].copy()
+        df_feat = roi_df_all[roi_df_all["aspect_ratio"].notna()].copy()
 
         feature_metrics = [
             ("aspect_ratio", "Aspect Ratio"),
@@ -467,14 +469,14 @@ with tab_pca:
     st.subheader("PCA of Classification Features")
     st.caption("Z-scored shape features projected onto 2 principal components, coloured by ROI type.")
 
-    has_features = roi_df["aspect_ratio"].notna().any()
+    has_features = roi_df_all["aspect_ratio"].notna().any()
     if not has_features:
         st.warning("No shape features available.")
     else:
         from sklearn.decomposition import PCA
         from sklearn.preprocessing import StandardScaler
 
-        df_pca = roi_df[roi_df["aspect_ratio"].notna()].copy()
+        df_pca = roi_df_all[roi_df_all["aspect_ratio"].notna()].copy()
         pca_features = ["aspect_ratio", "radius", "compact", "npix", "snr"]
         pca_features = [f for f in pca_features if f in df_pca.columns and df_pca[f].notna().any()]
 
