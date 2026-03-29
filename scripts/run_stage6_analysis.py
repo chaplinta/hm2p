@@ -92,16 +92,26 @@ def run_analysis_all_signals(
     deconv = sync.get("spks")
     if deconv is None:
         deconv = sync.get("deconv")
+    # Ensure deconv matches dff shape (may differ if from different pipeline run)
+    if deconv is not None and deconv.shape[0] != n_rois:
+        log.warning("deconv shape %s != dff shape %s — skipping deconv", deconv.shape, dff.shape)
+        deconv = None
     event_masks = sync.get("event_masks")
     if event_masks is not None:
-        event_masks = event_masks.astype(bool)
+        if event_masks.shape[0] != n_rois:
+            log.warning("event_masks shape mismatch — skipping")
+            event_masks = None
+        else:
+            event_masks = event_masks.astype(bool)
 
-    # Collect all extra signal arrays
+    # Collect all extra signal arrays (only if shape matches dff)
     extra_signals: dict[str, np.ndarray] = {}
     for key in ("deconv_norm", "event_masks_sd", "spikes"):
         arr = sync.get(key)
-        if arr is not None:
+        if arr is not None and arr.ndim >= 2 and arr.shape[0] == n_rois:
             extra_signals[key] = arr
+        elif arr is not None:
+            log.warning("%s shape %s != dff ROIs %d — skipping", key, arr.shape, n_rois)
 
     # Determine available signal types
     signal_types_available = ["dff"]
