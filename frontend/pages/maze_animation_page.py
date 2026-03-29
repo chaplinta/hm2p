@@ -87,9 +87,10 @@ def _build_animation_figure(
     frames = []
     # We generate frames at intervals to keep total count manageable
     frame_indices = list(range(0, n, 1))
-    if len(frame_indices) > 2000:
-        # Cap at 2000 animation frames for browser performance
-        skip = len(frame_indices) // 2000
+    if len(frame_indices) > 500:
+        # Cap at 500 animation frames for browser performance.
+        # Each frame has 6 traces; >500 frames overwhelms the browser.
+        skip = len(frame_indices) // 500
         frame_indices = frame_indices[::skip]
 
     # Surround rectangle (covers entire plot area) — visible only during dark
@@ -277,8 +278,8 @@ def _page() -> None:
         with c1:
             trail_s = st.slider("Trail length (s)", 1.0, 30.0, 10.0, 1.0, key="maze_anim_trail")
         with c2:
-            subsample = st.slider("Subsample (every N frames)", 1, 20, 5, 1, key="maze_anim_sub",
-                                  help="Higher = faster animation, fewer frames. At ~9.6 Hz imaging, step=5 gives ~2 Hz playback.")
+            subsample = st.slider("Subsample (every N frames)", 1, 30, 10, 1, key="maze_anim_sub",
+                                  help="Higher = faster animation, fewer frames. At ~9.6 Hz imaging, step=10 gives ~1 Hz playback.")
         with c3:
             arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
 
