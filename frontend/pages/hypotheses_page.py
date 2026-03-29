@@ -1,289 +1,310 @@
-"""Hypothesis Test Report — results from docs/hypotheses.md.
+"""Hypothesis Test Report — comprehensive results across all signal types.
 
-Runs or loads precomputed hypothesis tests comparing Penk+ vs Penk⁻CamKII+
-RSP neurons using non-parametric animal-level and cluster permutation tests.
+Shows a single table of all measures (dF/F0, deconv, events, CASCADE spikes,
+neuropil) with Penk+ vs Penk-CamKII+ comparisons, light vs dark, and
+movement effects. All tests are non-parametric.
 """
 
 from __future__ import annotations
 
+import io
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-import io
-
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
+from scipy.stats import mannwhitneyu, wilcoxon
 
-from frontend.data import DERIVATIVES_BUCKET, download_s3_bytes
-
-RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "results" / "hypotheses"
-
-
-@st.cache_data(ttl=600)
-def _load_results() -> tuple[pd.DataFrame | None, str | None]:
-    """Load hypothesis results CSV and markdown report."""
-    # Try local first (faster)
-    csv_path = RESULTS_DIR / "hypothesis_results.csv"
-    md_path = RESULTS_DIR / "hypothesis_report.md"
-
-    results_df = None
-    report_md = None
-
-    if csv_path.exists():
-        results_df = pd.read_csv(csv_path)
-    if md_path.exists():
-        report_md = md_path.read_text()
-
-    return results_df, report_md
-
-
-@st.cache_data(ttl=600)
-def _load_confounds() -> pd.DataFrame | None:
-    path = RESULTS_DIR / "confound_checks.csv"
-    if path.exists():
-        return pd.read_csv(path)
-    return None
-
-
-def _sig_color(p: float) -> str:
-    if np.isnan(p):
-        return "gray"
-    if p < 0.01:
-        return "#2ca02c"  # green
-    if p < 0.05:
-        return "#ff7f0e"  # orange
-    return "#d62728"  # red
-
-
-def _format_p(p: float) -> str:
-    if np.isnan(p):
-        return "n/a"
-    if p < 0.001:
-        return "< 0.001"
-    return f"{p:.3f}"
-
-
-# ---------------------------------------------------------------------------
-# Page
-# ---------------------------------------------------------------------------
-
-st.title("Hypothesis Test Report")
-st.caption(
-    "Non-parametric tests from docs/hypotheses.md. "
-    "Animal-level Mann-Whitney U + cluster permutation (primary). "
-    "See docs/stats-strategy.md for methodology."
+from frontend.data import (
+    DERIVATIVES_BUCKET,
+    download_s3_bytes,
+    load_animals,
+    load_experiments,
+    parse_session_id,
 )
 
-# --- Run tests button ---
-col_btn, col_signal, col_perms = st.columns([2, 2, 2])
-with col_signal:
-    signal_choice = st.selectbox("Signal", ["dff", "events"], index=0, key="hyp_signal")
-with col_perms:
-    n_perms_choice = st.selectbox("Permutations", [500, 1000, 5000, 10000], index=0, key="hyp_perms")
-with col_btn:
-    run_clicked = st.button("Run hypothesis tests", type="primary", key="run_hyp")
 
-if run_clicked:
-    with st.spinner(f"Running tests ({signal_choice}, {n_perms_choice} perms)..."):
-        import subprocess
-        cmd = [
-            sys.executable, str(Path(__file__).resolve().parent.parent.parent / "scripts" / "test_hypotheses.py"),
-            "--signal", signal_choice,
-            "--n-perms", str(n_perms_choice),
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-        if result.returncode == 0:
-            st.success("Tests complete. Refreshing...")
-            st.cache_data.clear()
-            st.rerun()
-        else:
-            st.error(f"Tests failed:\n```\n{result.stderr[-1000:]}\n```")
-
-results_df, report_md = _load_results()
-
-if results_df is None:
-    st.info("No results yet. Click **Run hypothesis tests** above.")
-    st.stop()
-
-# --- Summary metrics ---
-n_tests = len(results_df[results_df["test"] != "descriptive"])
-n_sig = len(results_df[(results_df["p_value"] < 0.05) & (results_df["test"] != "descriptive")])
-hypotheses = results_df["hypothesis"].unique()
-
-c1, c2, c3 = st.columns(3)
-c1.metric("Hypotheses tested", len(hypotheses))
-c2.metric("Statistical tests", n_tests)
-c3.metric("Significant (p < 0.05)", n_sig)
-
-# --- Tabs ---
-tab_overview, tab_detail, tab_confounds, tab_report = st.tabs([
-    "Overview", "Detailed Results", "Confound Checks", "Full Report",
-])
-
-# --- Overview: forest plot ---
-with tab_overview:
-    st.header("Results Overview")
-
-    # Build summary: one row per hypothesis, best p-value
-    hyp_summary = []
-    for hid in hypotheses:
-        hyp_rows = results_df[results_df["hypothesis"] == hid]
-        hname = hyp_rows.iloc[0].get("hypothesis_name", hid)
-
-        # Get p-values from different tests
-        animal_p = hyp_rows.loc[hyp_rows["test"] == "animal_summary", "p_value"]
-        perm_p = hyp_rows.loc[hyp_rows["test"] == "cluster_perm", "p_value"]
-        wilcox_p = hyp_rows.loc[hyp_rows["test"].isin(
-            ["wilcoxon", "wilcoxon_interaction", "wilcoxon_onesample"]
-        ), "p_value"]
-
-        row = {"hypothesis": hid, "name": hname}
-        row["animal_p"] = float(animal_p.iloc[0]) if len(animal_p) > 0 else np.nan
-        row["perm_p"] = float(perm_p.iloc[0]) if len(perm_p) > 0 else np.nan
-        row["wilcoxon_p"] = float(wilcox_p.iloc[0]) if len(wilcox_p) > 0 else np.nan
-
-        # Best p across tests
-        ps = [row["animal_p"], row["perm_p"], row["wilcoxon_p"]]
-        valid_ps = [p for p in ps if not np.isnan(p)]
-        row["best_p"] = min(valid_ps) if valid_ps else np.nan
-
-        # Determine verdict
-        if np.isnan(row["best_p"]):
-            row["verdict"] = "No data"
-        elif not np.isnan(row["animal_p"]) and not np.isnan(row["perm_p"]):
-            # Between-group: both must agree
-            if row["animal_p"] < 0.05 and row["perm_p"] < 0.05:
-                row["verdict"] = "Supported"
-            elif row["animal_p"] < 0.05 or row["perm_p"] < 0.05:
-                row["verdict"] = "Inconsistent"
-            else:
-                row["verdict"] = "Not supported"
-        elif not np.isnan(row["wilcoxon_p"]):
-            row["verdict"] = "Supported" if row["wilcoxon_p"] < 0.05 else "Not supported"
-        else:
-            row["verdict"] = "Descriptive"
-
-        hyp_summary.append(row)
-
-    summary_df = pd.DataFrame(hyp_summary)
-
-    # Verdict colours
-    verdict_colors = {
-        "Supported": "#2ca02c",
-        "Not supported": "#d62728",
-        "Inconsistent": "#ff7f0e",
-        "Descriptive": "#7f7f7f",
-        "No data": "#cccccc",
-    }
-
-    # Display as styled table
-    for _, row in summary_df.iterrows():
-        verdict = row["verdict"]
-        color = verdict_colors.get(verdict, "#999")
-        icon = {"Supported": ":white_check_mark:", "Not supported": ":x:",
-                "Inconsistent": ":warning:", "Descriptive": ":bar_chart:",
-                "No data": ":grey_question:"}.get(verdict, "")
-
-        cols = st.columns([1, 4, 2, 2, 2, 2])
-        cols[0].markdown(f"**{row['hypothesis']}**")
-        cols[1].markdown(row["name"])
-        cols[2].markdown(f"Animal: {_format_p(row['animal_p'])}")
-        cols[3].markdown(f"Perm: {_format_p(row['perm_p'])}")
-        cols[4].markdown(f"Wilcoxon: {_format_p(row['wilcoxon_p'])}")
-        cols[5].markdown(f"{icon} {verdict}")
-
-    # Legend
+def _page() -> None:
+    st.title("Hypothesis Tests")
     st.caption(
-        "**Supported** = both animal-level and permutation tests p < 0.05. "
-        "**Inconsistent** = one test significant, the other not (interpret with caution). "
-        "**Not supported** = both tests p > 0.05."
+        "Non-parametric tests across all signal types. "
+        "Session-level summaries compared with Mann-Whitney U (between celltypes) "
+        "and Wilcoxon signed-rank (within-session paired comparisons)."
     )
 
-# --- Detailed results ---
-with tab_detail:
-    st.header("All Test Results")
+    @st.cache_data(ttl=600, show_spinner="Running hypothesis tests across all sessions...")
+    def _compute_all_tests():
+        import h5py
 
-    # Filter
-    test_filter = st.multiselect(
-        "Filter by test type",
-        options=results_df["test"].unique().tolist(),
-        default=results_df["test"].unique().tolist(),
-    )
-    filtered = results_df[results_df["test"].isin(test_filter)].copy()
+        experiments = load_experiments()
+        animals_list = load_animals()
+        animal_map = {a["animal_id"]: a.get("celltype", "?") for a in animals_list}
 
-    # Highlight significant
-    filtered["significant"] = filtered["p_value"].apply(
-        lambda p: "Yes" if p < 0.05 else ("" if np.isnan(p) else "No")
-    )
+        # Collect per-session, per-signal metrics
+        rows = []
 
-    display_cols = [c for c in filtered.columns if c not in ("signal",)]
+        for exp in experiments:
+            eid = exp["exp_id"]
+            if exp.get("exclude", "0") == "1":
+                continue
+            parts = eid.split("_")
+            aid = parts[-1]
+            sub, ses = parse_session_id(eid)
+            ct = animal_map.get(aid, "?")
+
+            # Load ca.h5
+            ca_bytes = download_s3_bytes(DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5")
+            if ca_bytes is None:
+                continue
+
+            try:
+                with h5py.File(io.BytesIO(ca_bytes), "r") as f:
+                    dff = f["dff"][:]
+                    fps = float(f.attrs.get("fps_imaging", 9.8))
+                    roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
+                    signals = {"dF/F0": dff}
+                    for key, label in [("deconv_norm", "Deconv"), ("event_masks", "Events (V&H)"),
+                                       ("event_masks_sd", "Events (SD)"), ("spikes", "CASCADE spikes")]:
+                        if key in f:
+                            signals[label] = f[key][:]
+            except Exception:
+                continue
+
+            # Load sync for behaviour
+            sync_bytes = download_s3_bytes(DERIVATIVES_BUCKET, f"sync/{sub}/{ses}/sync.h5")
+            speed = light_on = bad = None
+            if sync_bytes:
+                try:
+                    with h5py.File(io.BytesIO(sync_bytes), "r") as sf:
+                        speed = sf["speed_cm_s"][:] if "speed_cm_s" in sf else None
+                        light_on = sf["light_on"][:].astype(bool) if "light_on" in sf else None
+                        bad = sf["bad_behav"][:].astype(bool) if "bad_behav" in sf else None
+                except Exception:
+                    pass
+
+            # Load Fneu for neuropil
+            prefix = f"ca_extraction/{sub}/{ses}/suite2p/plane0"
+            fneu_bytes = download_s3_bytes(DERIVATIVES_BUCKET, f"{prefix}/Fneu.npy")
+            if fneu_bytes is not None:
+                Fneu = np.load(io.BytesIO(fneu_bytes))
+                # Use iscell mask for neuropil mean
+                iscell_bytes = download_s3_bytes(DERIVATIVES_BUCKET, f"{prefix}/iscell.npy")
+                if iscell_bytes is not None:
+                    cell_mask = np.load(io.BytesIO(iscell_bytes))[:, 0].astype(bool)
+                    signals["Neuropil (Fneu)"] = np.nanmean(Fneu[cell_mask], axis=0, keepdims=True)
+                else:
+                    signals["Neuropil (Fneu)"] = np.nanmean(Fneu, axis=0, keepdims=True)
+
+            n_frames = dff.shape[1]
+            soma_mask = roi_types == 0
+
+            for sig_name, sig_arr in signals.items():
+                sig_arr = np.nan_to_num(sig_arr.astype(np.float32))
+
+                # For soma-specific signals, filter to soma
+                if sig_name != "Neuropil (Fneu)" and sig_arr.shape[0] > 1:
+                    if soma_mask.sum() > 0 and sig_arr.shape[0] == len(soma_mask):
+                        sig_arr = sig_arr[soma_mask]
+
+                n_rois = sig_arr.shape[0]
+                n = min(sig_arr.shape[1], n_frames)
+                if n_rois == 0:
+                    continue
+
+                mean_signal = np.nanmean(sig_arr[:, :n])
+
+                # Condition means
+                row = {
+                    "session": eid,
+                    "animal_id": aid,
+                    "celltype": ct,
+                    "signal": sig_name,
+                    "n_rois": n_rois,
+                    "mean_all": mean_signal,
+                }
+
+                if speed is not None and light_on is not None and bad is not None:
+                    ns = min(n, len(speed), len(light_on), len(bad))
+                    valid = ~bad[:ns]
+                    moving = valid & (speed[:ns] >= 2.5)
+                    stationary = valid & (speed[:ns] < 2.5)
+                    light = valid & light_on[:ns]
+                    dark = valid & ~light_on[:ns]
+
+                    for cond_name, cond_mask in [("light", light), ("dark", dark),
+                                                  ("moving", moving), ("stationary", stationary)]:
+                        if cond_mask.sum() > 0:
+                            row[f"mean_{cond_name}"] = float(np.nanmean(sig_arr[:, :ns][:, cond_mask]))
+
+                rows.append(row)
+
+        df = pd.DataFrame(rows)
+        if df.empty:
+            return df, pd.DataFrame()
+
+        # Run tests
+        test_rows = []
+        signal_names = df["signal"].unique()
+
+        for sig in signal_names:
+            sig_df = df[df["signal"] == sig]
+            penk = sig_df[sig_df["celltype"] == "penk"]
+            nonpenk = sig_df[sig_df["celltype"] == "nonpenk"]
+
+            # 1. Penk+ vs Penk-CamKII+ overall activity
+            pv = penk["mean_all"].dropna()
+            nv = nonpenk["mean_all"].dropna()
+            if len(pv) >= 2 and len(nv) >= 2:
+                U, p = mannwhitneyu(pv, nv, alternative="two-sided")
+                test_rows.append({
+                    "Signal": sig,
+                    "Comparison": "Penk+ vs Penk⁻CamKII+ (overall)",
+                    "Test": "Mann-Whitney U",
+                    "Penk+ median": f"{pv.median():.4f}",
+                    "NonPenk median": f"{nv.median():.4f}",
+                    "Statistic": f"{U:.0f}",
+                    "p-value": p,
+                    "n_penk": len(pv),
+                    "n_nonpenk": len(nv),
+                })
+
+            # 2. Light vs Dark (within-session, paired)
+            valid_ld = sig_df[["mean_light", "mean_dark"]].dropna()
+            if len(valid_ld) >= 3:
+                stat, p = wilcoxon(valid_ld["mean_light"], valid_ld["mean_dark"])
+                test_rows.append({
+                    "Signal": sig,
+                    "Comparison": "Light vs Dark (all sessions)",
+                    "Test": "Wilcoxon signed-rank",
+                    "Penk+ median": f"{valid_ld['mean_light'].median():.4f}",
+                    "NonPenk median": f"{valid_ld['mean_dark'].median():.4f}",
+                    "Statistic": f"{stat:.0f}",
+                    "p-value": p,
+                    "n_penk": len(valid_ld),
+                    "n_nonpenk": len(valid_ld),
+                })
+
+            # 3. Moving vs Stationary (within-session, paired)
+            valid_ms = sig_df[["mean_moving", "mean_stationary"]].dropna()
+            if len(valid_ms) >= 3:
+                stat, p = wilcoxon(valid_ms["mean_moving"], valid_ms["mean_stationary"])
+                test_rows.append({
+                    "Signal": sig,
+                    "Comparison": "Moving vs Stationary (all sessions)",
+                    "Test": "Wilcoxon signed-rank",
+                    "Penk+ median": f"{valid_ms['mean_moving'].median():.4f}",
+                    "NonPenk median": f"{valid_ms['mean_stationary'].median():.4f}",
+                    "Statistic": f"{stat:.0f}",
+                    "p-value": p,
+                    "n_penk": len(valid_ms),
+                    "n_nonpenk": len(valid_ms),
+                })
+
+            # 4. Light modulation index by celltype
+            for cond_pair, label in [(("mean_light", "mean_dark"), "Light mod"),
+                                      (("mean_moving", "mean_stationary"), "Movement mod")]:
+                valid = sig_df[[cond_pair[0], cond_pair[1]]].dropna()
+                if len(valid) < 3:
+                    continue
+                denom = valid[cond_pair[0]] + valid[cond_pair[1]]
+                mod_idx = (valid[cond_pair[0]] - valid[cond_pair[1]]) / denom.replace(0, np.nan)
+                sig_df_mod = sig_df.loc[mod_idx.index].copy()
+                sig_df_mod["mod_idx"] = mod_idx
+                p_mod = sig_df_mod[sig_df_mod["celltype"] == "penk"]["mod_idx"].dropna()
+                n_mod = sig_df_mod[sig_df_mod["celltype"] == "nonpenk"]["mod_idx"].dropna()
+                if len(p_mod) >= 2 and len(n_mod) >= 2:
+                    U, p = mannwhitneyu(p_mod, n_mod, alternative="two-sided")
+                    test_rows.append({
+                        "Signal": sig,
+                        "Comparison": f"{label} index: Penk+ vs Penk⁻CamKII+",
+                        "Test": "Mann-Whitney U",
+                        "Penk+ median": f"{p_mod.median():.4f}",
+                        "NonPenk median": f"{n_mod.median():.4f}",
+                        "Statistic": f"{U:.0f}",
+                        "p-value": p,
+                        "n_penk": len(p_mod),
+                        "n_nonpenk": len(n_mod),
+                    })
+
+        return df, pd.DataFrame(test_rows)
+
+    raw_df, tests_df = _compute_all_tests()
+
+    if tests_df.empty:
+        st.warning("No data available for hypothesis testing.")
+        st.stop()
+
+    # Summary
+    n_tests = len(tests_df)
+    n_sig = (tests_df["p-value"] < 0.05).sum()
+    n_signals = tests_df["Signal"].nunique()
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Signal types", n_signals)
+    c2.metric("Tests", n_tests)
+    c3.metric("Significant (p < 0.05)", n_sig)
+
+    # Format p-values
+    def _fmt_p(p):
+        if p < 0.001:
+            return "< 0.001 ***"
+        if p < 0.01:
+            return f"{p:.3f} **"
+        if p < 0.05:
+            return f"{p:.3f} *"
+        return f"{p:.3f}"
+
+    tests_df["p"] = tests_df["p-value"].apply(_fmt_p)
+
+    # Display table
+    st.subheader("Results")
+    display_cols = ["Signal", "Comparison", "Test", "Penk+ median", "NonPenk median", "p", "n_penk", "n_nonpenk"]
+
+    # Colour significant rows
     st.dataframe(
-        filtered[display_cols].sort_values("p_value"),
+        tests_df[display_cols].sort_values(["Signal", "p-value"]),
         use_container_width=True,
         hide_index=True,
+        column_config={
+            "p": st.column_config.TextColumn("p-value"),
+            "Penk+ median": st.column_config.TextColumn("Group 1 median"),
+            "NonPenk median": st.column_config.TextColumn("Group 2 median"),
+        },
     )
 
-    st.download_button(
-        "Download results CSV",
-        results_df.to_csv(index=False).encode(),
-        file_name="hypothesis_results.csv",
-        mime="text/csv",
-    )
+    # Significant results highlighted
+    sig_tests = tests_df[tests_df["p-value"] < 0.05]
+    if len(sig_tests) > 0:
+        st.subheader(f"Significant Results ({len(sig_tests)})")
+        for _, row in sig_tests.iterrows():
+            st.markdown(
+                f"**{row['Signal']}** — {row['Comparison']}: "
+                f"p = {_fmt_p(row['p-value'])}"
+            )
 
-# --- Confound checks ---
-with tab_confounds:
-    st.header("Signal Quality Confound Checks")
-    st.caption(
-        "Spearman correlation between significant metrics and signal quality "
-        "confounds (SNR, peak dF/F, bleaching). |ρ| > 0.3 is flagged."
-    )
+    with st.expander("Methods"):
+        st.markdown(
+            "**Between-group (Penk+ vs Penk⁻CamKII+):** Session-level means compared "
+            "with Mann-Whitney U test. Each session contributes one data point.\n\n"
+            "**Within-session (light vs dark, moving vs stationary):** Paired Wilcoxon "
+            "signed-rank test on session-level condition means.\n\n"
+            "**Modulation indices:** (condition1 - condition2) / (condition1 + condition2), "
+            "compared between celltypes with Mann-Whitney U.\n\n"
+            "**Signal types:** dF/F0 (raw calcium), Deconv (Suite2p normalized), "
+            "Events V&H (Voigts & Harnett 2020), Events SD (Zong et al. 2022), "
+            "CASCADE spikes (Rupprecht et al. 2021), Neuropil (mean Fneu from Suite2p).\n\n"
+            "All tests are non-parametric. No multiple comparisons correction is applied "
+            "to this exploratory table — interpret accordingly."
+        )
 
-    confounds_df = _load_confounds()
-    if confounds_df is not None and len(confounds_df) > 0:
-        flagged = confounds_df[confounds_df.get("flagged", False) == True]  # noqa: E712
-        if len(flagged) > 0:
-            st.warning(f"**{len(flagged)} confound(s) flagged** (|ρ| > 0.3)")
-            st.dataframe(flagged, use_container_width=True, hide_index=True)
-        else:
-            st.success("No confounds flagged (all |ρ| < 0.3)")
 
-        st.subheader("All confound checks")
-        st.dataframe(confounds_df, use_container_width=True, hide_index=True)
-    else:
-        st.info("No confound checks computed (no results were near significance).")
-
-# --- Full markdown report ---
-with tab_report:
-    st.header("Full Report")
-    if report_md:
-        st.markdown(report_md)
-    else:
-        st.info("No markdown report found.")
-
-    with st.expander("Methods & References"):
-        st.markdown("""
-**Animal-level Mann-Whitney U:** Collapse to one mean per animal, then
-unpaired Mann-Whitney U test. Conservative — each observation is independent.
-
-**Cluster permutation test:** Shuffle celltype labels at the animal level
-(10,000 permutations). Respects nesting structure without distributional
-assumptions. Minimum achievable p ≈ 0.0005 with 16 animals.
-
-**Wilcoxon signed-rank:** Paired within-cell comparison (e.g. light vs dark).
-Non-parametric alternative to paired t-test.
-
-**Confound control:** Spearman correlation between significant metrics and
-signal quality variables (SNR, peak dF/F₀, bleaching slope). Results with
-|ρ| > 0.3 are flagged as potentially confounded.
-
-**References:**
-- Mann & Whitney 1947. "On a test of whether one of two random variables
-  is stochastically larger than the other." *Ann Math Stat*.
-- Wilcoxon 1945. "Individual comparisons by ranking methods."
-  *Biometrics Bulletin* 1(6):80-83.
-""")
+try:
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
+    if get_script_run_ctx() is not None:
+        _page()
+except ImportError:
+    _page()
