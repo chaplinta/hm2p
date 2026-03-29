@@ -319,7 +319,8 @@ def _page() -> None:
                 nv = nonpenk[key].dropna()
                 with cols[i]:
                     if len(pv) >= 2 and len(nv) >= 2:
-                        _, p = mannwhitneyu(pv, nv, alternative="two-sided")
+                        from scipy.stats import mannwhitneyu as _mwu
+                        _, p = _mwu(pv, nv, alternative="two-sided")
                         st.metric(label, f"P:{pv.median():.3f} N:{nv.median():.3f}")
                         st.caption(f"p={p:.3f}" + (" *" if p < 0.05 else ""))
 

@@ -266,7 +266,7 @@ def _page() -> None:
 
     # Colour significant rows
     st.dataframe(
-        tests_df[display_cols].sort_values(["Signal", "p-value"]),
+        tests_df[display_cols].sort_values(["Signal", "p"]),
         use_container_width=True,
         hide_index=True,
         column_config={
