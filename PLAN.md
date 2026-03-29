@@ -699,10 +699,11 @@ Notebooks
    per-ROI stats, soma/dendrite/artefact classification. ca.h5 on S3.
 9. ✅ **Stage 5 — Sync** — 21/21 sessions processed. `sync/align.py` resamples behaviour
    → imaging frame times. sync.h5 on S3 for all 21 sessions.
-10. ✅ **Stage 6 — Analysis** — 17 analysis modules: activity, tuning, significance,
+10. ✅ **Stage 6 — Analysis** — 20 analysis modules: activity, tuning, significance,
     comparison, decoder, stability, population, ahv, information, classify, gain,
-    anchoring, speed, cache, mixed_stats, run, save, plus maze analysis module.
-    Multi-signal analysis (dF/F, deconv, events). Awaiting DLC re-run for refresh.
+    anchoring, speed, cache, mixed_stats, celltype_dynamics, rastermap_analysis, run, save,
+    plus maze analysis module. Multi-signal analysis (dF/F, deconv, events). Awaiting DLC
+    re-run for refresh.
 11. ✅ **Snakemake DAG** — `workflow/Snakefile` + 6 stage rules (`workflow/rules/*.smk`)
     with resource specs. Three profiles: `local`, `local-gpu`, `aws-batch`.
 12. ✅ **Docker images defined** — `docker/gpu.Dockerfile` (CUDA 12.1 + Suite2p + DLC),
@@ -714,16 +715,16 @@ Notebooks
     `scripts/launch_dlc_parallel.py` (DLC parallel shards). Both support `--status`,
     `--terminate`, `--dry-run`.
 16. ✅ **Visualization script** — `scripts/viz_suite2p.py` generates multi-panel figure.
-17. ✅ **Frontend / dashboard** — Streamlit app with 53 pages organized in 5 navigation
+17. ✅ **Frontend / dashboard** — Streamlit app with 59 pages organized in 5 navigation
     sections (Overview, Pipeline, Explore, Analysis, System). Loads real data from S3;
     shows clear message if unavailable. No synthetic data.
 18. ✅ **keypoint-MoSeq** — Docker container + orchestration script implemented for
     zero-label behavioural syllable extraction.
 19. ✅ **Security tooling** — bandit, checkov, detect-secrets, pip-audit, vulture
     integrated in CI + pre-commit hooks. SG lockdown, S3 access logging, Google auth.
-20. ✅ **Patching pipeline** — 10 modules complete (config, io, ephys, protocols,
-    spike_features, morphology, metrics, statistics, pca, run) under `src/hm2p/patching/`.
-    227 patching-specific tests passing. Plotting and frontend pages remain TODO.
+20. ✅ **Patching pipeline** — 11 modules complete (config, io, ephys, protocols,
+    spike_features, morphology, metrics, statistics, pca, run, plotting/morph_plots) under
+    `src/hm2p/patching/`. Frontend pages remain TODO.
 
 ### Cloud Infrastructure
 

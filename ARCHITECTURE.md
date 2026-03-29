@@ -72,7 +72,7 @@ flowchart TB
 
     S5  -->|"sync.h5"| ANA
 
-    subgraph ANA["📊 Stage 6 — Analysis  (done — 17 modules)"]
+    subgraph ANA["📊 Stage 6 — Analysis  (done — 20 modules)"]
         direction LR
         PYN["pynapple\nTsdFrame"]
         CEB["CEBRA\nHD manifold"]
@@ -142,6 +142,7 @@ hm2p-v2/
 │       │   ├── __init__.py
 │       │   ├── base.py            # Abstract extractor interface (wraps roiextractors)
 │       │   ├── suite2p.py         # Suite2pExtractor + post-hoc soma/dend classification
+│       │   ├── run_suite2p.py     # Suite2p batch runner: wraps suite2p.run_s2p()
 │       │   ├── zdrift.py          # Z-drift estimation from serial2p z-stacks
 │       │   └── caiman.py          # CaimanExtractor
 │       ├── pose/
@@ -157,29 +158,34 @@ hm2p-v2/
 │       │   └── syllables.py       # OPTIONAL Stage 3b: VAME / keypoint-MoSeq syllable discovery
 │       ├── calcium/
 │       │   ├── __init__.py
-│       │   ├── neuropil.py        # Neuropil subtraction (fixed coeff + FISSA)
-│       │   ├── dff.py             # dF/F0 computation
-│       │   ├── spikes.py          # CASCADE calibrated spike inference
-│       │   ├── events.py          # Voigts & Harnett fallback event detection
-│       │   └── run.py             # Stage 4 runner: neuropil → dF/F → CASCADE → ca.h5
+│       │   ├── neuropil.py          # Neuropil subtraction (fixed coeff + FISSA)
+│       │   ├── neuropil_analysis.py # Neuropil contamination QC metrics
+│       │   ├── dff.py               # dF/F0 computation
+│       │   ├── spikes.py            # CASCADE calibrated spike inference
+│       │   ├── events.py            # Voigts & Harnett fallback event detection
+│       │   ├── population.py        # Population-level calcium signal summaries
+│       │   └── run.py               # Stage 4 runner: neuropil → dF/F → CASCADE → ca.h5
 │       ├── analysis/
 │       │   ├── __init__.py
-│       │   ├── cache.py           # Analysis result caching utilities
-│       │   ├── activity.py        # Active-cell detection and firing rate stats
-│       │   ├── tuning.py          # HD tuning curves, PD, MVL, Rayleigh
-│       │   ├── significance.py    # Circular shuffle tests for HD significance
-│       │   ├── comparison.py      # Tuning curve correlation, PD shift, split-half
-│       │   ├── decoder.py         # Bayesian population HD decoder
-│       │   ├── stability.py       # Temporal stability, light/dark drift
-│       │   ├── population.py      # Population-level summary statistics
-│       │   ├── ahv.py             # Angular head velocity tuning
-│       │   ├── information.py     # Spatial / directional information (Skaggs)
-│       │   ├── classify.py        # Automated HD cell classification
-│       │   ├── gain.py            # Light/dark gain modulation index
-│       │   ├── anchoring.py       # Visual vs idiothetic HD anchoring
-│       │   ├── speed.py           # Speed modulation analysis
-│       │   ├── run.py             # Stage 6 runner: full analysis pipeline
-│       │   └── save.py            # Write analysis.h5 outputs
+│       │   ├── cache.py              # Analysis result caching utilities
+│       │   ├── activity.py           # Active-cell detection and firing rate stats
+│       │   ├── tuning.py             # HD tuning curves, PD, MVL, Rayleigh
+│       │   ├── significance.py       # Circular shuffle tests for HD significance
+│       │   ├── comparison.py         # Tuning curve correlation, PD shift, split-half
+│       │   ├── decoder.py            # Bayesian population HD decoder
+│       │   ├── stability.py          # Temporal stability, light/dark drift
+│       │   ├── population.py         # Population-level summary statistics
+│       │   ├── ahv.py                # Angular head velocity tuning
+│       │   ├── information.py        # Spatial / directional information (Skaggs)
+│       │   ├── classify.py           # Automated HD cell classification
+│       │   ├── gain.py               # Light/dark gain modulation index
+│       │   ├── anchoring.py          # Visual vs idiothetic HD anchoring
+│       │   ├── speed.py              # Speed modulation analysis
+│       │   ├── mixed_stats.py        # Cross-module statistical comparisons (Penk+ vs CamKII+)
+│       │   ├── celltype_dynamics.py  # Time-resolved population dynamics by cell type
+│       │   ├── rastermap_analysis.py # Rastermap-based neural population visualisation
+│       │   ├── run.py                # Stage 6 runner: full analysis pipeline
+│       │   └── save.py               # Write analysis.h5 outputs
 │       ├── maze/
 │       │   ├── __init__.py
 │       │   ├── topology.py        # Rose-maze graph: 7×5 grid, adjacency, dead ends
@@ -188,28 +194,32 @@ hm2p-v2/
 │       ├── anatomy/
 │       │   ├── __init__.py
 │       │   ├── register.py        # brainreg: serial2p → Allen CCFv3 registration
-│       │   └── injection.py       # Injection site extraction from brainreg output
+│       │   ├── injection.py       # Injection site extraction from brainreg output
+│       │   └── render.py          # 3D Plotly rendering of injection sites + atlas
 │       ├── sync/
 │       │   ├── __init__.py
 │       │   ├── align.py           # Resample behaviour to imaging timestamps
 │       │   └── validate.py        # Post-sync validation: shape, NaN, temporal monotonicity
 │       ├── patching/
 │       │   ├── __init__.py
-│       │   ├── config.py           # Patching pipeline configuration
-│       │   ├── io.py               # WaveSurfer H5 + SWC file I/O
-│       │   ├── ephys.py            # Electrophysiology signal processing
-│       │   ├── protocols.py        # Stimulus protocol parsing & response extraction
-│       │   ├── spike_features.py   # AP waveform feature extraction
-│       │   ├── morphology.py       # SWC morphology loading & analysis
-│       │   ├── metrics.py          # Intrinsic excitability & passive properties
-│       │   ├── statistics.py       # Statistical comparisons (Penk vs non-Penk)
-│       │   ├── pca.py              # PCA on electrophysiological features
-│       │   └── run.py              # Batch runner for patching analysis
+│       │   ├── config.py                    # Patching pipeline configuration
+│       │   ├── io.py                        # WaveSurfer H5 + SWC file I/O
+│       │   ├── ephys.py                     # Electrophysiology signal processing
+│       │   ├── protocols.py                 # Stimulus protocol parsing & response extraction
+│       │   ├── spike_features.py            # AP waveform feature extraction
+│       │   ├── morphology.py                # SWC morphology loading & analysis
+│       │   ├── metrics.py                   # Intrinsic excitability & passive properties
+│       │   ├── statistics.py                # Statistical comparisons (Penk vs non-Penk)
+│       │   ├── pca.py                       # PCA on electrophysiological features
+│       │   ├── run.py                       # Batch runner for patching analysis
+│       │   └── plotting/
+│       │       └── morph_plots.py           # Morphology visualisation figures
 │       └── io/
 │           ├── __init__.py
 │           ├── hdf5.py            # Read/write all .h5 files; pandera schema validation
 │           ├── nwb.py             # neuroconv wrapper: HDF5 → NWB export
-│           └── s3.py              # S3 path resolution (cloud vs local)
+│           ├── s3.py              # S3 path resolution (cloud vs local)
+│           └── aws_cost.py        # AWS cost estimation and billing queries
 ├── tests/
 │   ├── conftest.py                # shared pytest fixtures (synthetic data only)
 │   ├── test_cli.py
@@ -291,7 +301,7 @@ hm2p-v2/
 ├── frontend/
 │   ├── app.py                     # Streamlit entry point (st.navigation)
 │   ├── data.py                    # S3 data loading, caching, session filters
-│   └── pages/                     # 43+ page modules (one per analysis view)
+│   └── pages/                     # 59 page modules (one per analysis view)
 ├── scripts/
 │   └── run_kpms.py                # keypoint-MoSeq batch runner
 ├── PLAN.md
