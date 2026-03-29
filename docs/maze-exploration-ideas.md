@@ -189,6 +189,102 @@ laminar positions, or particular projection targets remains unknown.
 
 ---
 
+## 2b. The Rose Maze as a Natural Decision-Making Paradigm
+
+### Every T-junction is a free binary choice
+
+Rosenberg et al. (2021) make this point explicitly: a branching maze
+generates dozens of binary decisions per session **without any training**.
+Each T-junction visit is a natural two-alternative forced choice (2AFC).
+The mouse must choose left or right, guided by whatever internal model it
+has of the maze, its current goals (exploration, escape, foraging), and
+available sensory cues.
+
+In a standard trained 2AFC task, mice need weeks of shaping and thousands
+of trials to reach criterion, typically generating 100–200 decisions per
+session under artificial reward contingencies. In the rose maze, 7
+T-junctions are visited repeatedly across a ~20-minute session, producing
+**hundreds of decision points per session** — each one a free,
+intrinsically motivated choice. There is no reward shaping the decisions,
+so the choices reflect the animal's genuine navigation strategy.
+
+This reframes the dataset: we are not just recording HD cells during
+locomotion. We are recording RSP neurons during hundreds of natural
+spatial decisions.
+
+### Why this matters for RSP
+
+RSP lesion studies consistently show impairments in spatial tasks that
+require choosing between routes or integrating landmarks with path
+information (Vann & Aggleton 2002, 2004; Pothuizen et al. 2008). RSP
+receives convergent inputs from visual cortex (landmarks) and anterior
+thalamus (HD signal), making it a candidate site where sensory evidence
+is integrated to guide spatial decisions.
+
+The Voigts et al. (2025) finding that RSP encodes mixtures of spatial
+hypotheses through recurrent dynamics suggests RSP may actively
+deliberate before navigation decisions — not merely relay HD information.
+If this is true, we should see decision-related activity at T-junctions:
+pre-decision ramping, choice-predictive signals, or post-decision
+commitment signals.
+
+### The light/dark manipulation as decision context
+
+The alternating light/dark epochs create a natural manipulation of
+decision-making context:
+
+- **Light epochs**: The mouse has visual landmarks to guide decisions.
+  Choices may be more consistent (lower entropy), more goal-directed
+  (monotonic paths), and more influenced by allocentric spatial
+  information.
+- **Dark epochs**: Visual landmarks are removed. Decisions must rely on
+  path integration, proprioception, and memory of the maze structure.
+  We might expect higher choice entropy, more backtracking, more
+  dead-end visits, and possibly a shift from allocentric to egocentric
+  decision strategies (e.g. stronger forward bias, more stereotyped
+  turn sequences).
+
+This is a cleaner manipulation than most decision-making studies because
+it changes the **information available for the decision** without
+changing the task, the reward structure, or the motor requirements.
+
+### Connection to cell-type-specific function
+
+If Penk+ and Penk⁻CamKII+ neurons play different roles in the decision
+process — e.g. one population encodes the sensory evidence (visual
+landmarks), while the other maintains the internal model (path
+integration, maze structure memory) — then:
+
+- Their activity patterns at T-junctions should differ
+- The light/dark manipulation should differentially affect their
+  decision-related signals
+- The population that relies on visual input should show degraded
+  decision-predictive activity in darkness, while the other maintains it
+
+The high trial count from natural maze decisions gives statistical power
+to detect such differences even with small neural populations (~10–30
+cells per session). This is something a trained 2AFC with 200 trials
+could not achieve.
+
+### Quantifying decisions
+
+Each T-junction visit can be characterised by:
+- **Choice** (left/right relative to approach direction)
+- **Consistency** (does the mouse make the same choice on repeated visits?)
+- **Latency** (time spent at the junction before committing — proxy for
+  deliberation, though limited by 9.6 Hz temporal resolution)
+- **Preceding trajectory** (was the approach direct or meandering?)
+- **Outcome** (did the choice lead to a dead end or continue deeper?)
+- **Context** (light vs dark, early vs late in session, first visit vs
+  revisit)
+
+The Markov transition model provides a formal framework: the transition
+probabilities at each junction encode the animal's decision policy.
+Changes in these probabilities between light and dark epochs quantify how
+visual context shapes spatial decisions.
+
+---
+
 ## 3. Novel Analysis Ideas: Maze Exploration x RSP Activity
 
 ### 3.1 Exploration strategy differences between genotypes (behavioural)
