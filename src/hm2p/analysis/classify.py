@@ -13,7 +13,11 @@ import numpy.typing as npt
 from hm2p.analysis.comparison import split_half_reliability
 from hm2p.analysis.information import mutual_information_binned
 from hm2p.analysis.significance import hd_tuning_significance
-from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length
+from hm2p.analysis.tuning import (
+    compute_hd_tuning_curve,
+    mean_vector_length,
+    preferred_direction,
+)
 
 
 def classify_single_cell(
@@ -74,11 +78,7 @@ def classify_single_cell(
     mvl = mean_vector_length(tc, bc)
 
     # Preferred direction via circular mean weighted by tuning curve
-    bc_rad = np.deg2rad(bc)
-    pd_deg = float(np.rad2deg(np.arctan2(
-        np.sum(tc * np.sin(bc_rad)),
-        np.sum(tc * np.cos(bc_rad)),
-    ))) % 360.0
+    pd_deg = preferred_direction(tc, bc)
 
     # Shuffle significance
     sig_result = hd_tuning_significance(

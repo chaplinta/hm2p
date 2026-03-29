@@ -307,7 +307,7 @@ class TestComputeRmp:
     def test_rmp_rounded(self, val: float) -> None:
         traces = np.full((100, 1), val)
         rmp = compute_rmp(traces, baseline_samples=50)
-        assert rmp == round(val, 1)
+        assert rmp == pytest.approx(round(val, 1), abs=1e-9)
 
 
 # ---------------------------------------------------------------------------

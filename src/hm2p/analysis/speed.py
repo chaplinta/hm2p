@@ -89,7 +89,7 @@ def speed_modulation_index(
         ``"speed_modulation_index"`` — (high - low) / (high + low).
         ``"mean_signal_fast"`` — mean signal at high speed.
         ``"mean_signal_slow"`` — mean signal at low speed.
-        ``"speed_correlation"`` — Pearson r between speed and signal.
+        ``"speed_correlation"`` — Spearman rho between speed and signal.
     """
     sig = signal[mask]
     spd = speed[mask]

@@ -196,8 +196,18 @@ def split_half_reliability(
 ) -> dict:
     """Compute split-half reliability of HD tuning.
 
-    Splits valid frames into odd/even halves, computes tuning curves for
+    Splits valid frames into interleaved odd/even index halves (0::2 vs
+    1::2 over the valid-frame index sequence), computes tuning curves for
     each half, and returns the Spearman rank correlation between them.
+
+    The interleaved design is deliberate: alternating frames are maximally
+    spread across the session, which reduces sensitivity to slow signal
+    drift and ensures both halves sample a similar range of head directions.
+    However, because adjacent frames at 9.6 Hz are temporally autocorrelated,
+    the two halves are not independent — reliability estimates will be
+    inflated relative to a first-half/second-half temporal split.  Treat
+    the output as an internal consistency measure rather than a test of
+    temporal stability.
 
     Parameters
     ----------
@@ -326,6 +336,7 @@ def rayleigh_test(
         if n_eff < 50:
             p = p * (1 + (2 * Z - Z**2) / (4 * n_eff) -
                      (24 * Z - 132 * Z**2 + 76 * Z**3 - 9 * Z**4) / (288 * n_eff**2))
+    # Mardia & Jupp correction can overshoot for large Z / small n_eff; clamp to 0.
     p = max(0.0, min(1.0, float(p)))
 
     mean_dir = float(np.rad2deg(np.arctan2(S, C))) % 360.0

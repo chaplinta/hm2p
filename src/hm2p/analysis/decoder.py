@@ -311,6 +311,16 @@ def template_decode(
 ) -> tuple[np.ndarray, np.ndarray]:
     """Template matching decoder for head direction.
 
+    .. warning::
+        This function is an internal building block for
+        :func:`template_decode_cv`.  Do not use it to report decoding
+        accuracy.  It builds the population activity template on **all**
+        valid frames and then decodes those same frames — there is no
+        train/test separation.  Because calcium signals are temporally
+        autocorrelated at 9.6 Hz, this inflates apparent accuracy
+        (circular overfitting).  Use :func:`template_decode_cv` instead,
+        which performs cross-validated decoding with temporal block splits.
+
     Builds a population activity template (mean activity vector at each HD
     bin), then decodes each time point by finding the HD bin whose template
     has the highest correlation with the observed population activity.

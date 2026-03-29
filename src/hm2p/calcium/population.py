@@ -100,7 +100,7 @@ def frame_correlation(
         if valid.sum() < 3 or np.std(a[valid]) < 1e-10 or np.std(b[valid]) < 1e-10:
             corrs[i] = np.nan
         else:
-            corrs[i] = np.corrcoef(a[valid], b[valid])[0, 1]
+            corrs[i] = float(spearmanr(a[valid], b[valid])[0])
 
     return corrs
 

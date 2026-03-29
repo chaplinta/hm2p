@@ -129,7 +129,8 @@ class TestCalciumRun:
         run(suite2p_dir, ts_h5, session_id="test", output_path=out)
 
         ca = read_h5(out)
-        assert ca["dff"].shape == (6, 300)
+        # run() processes ALL ROIs (not just iscell=True) so shape is (n_rois, n_frames)
+        assert ca["dff"].shape == (10, 300)
 
     def test_dff_dtype_float32(self, tmp_path: Path) -> None:
         """dff is stored as float32."""

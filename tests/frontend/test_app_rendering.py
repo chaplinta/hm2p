@@ -64,6 +64,7 @@ MOCK_STAGE_SUMMARY = {
     "sync": {"label": "Stage 5 — Sync", "short": "Sync", "expected": 21, "done": 21, "status": "Complete", "color": "green"},
     "analysis": {"label": "Stage 6 — Analysis", "short": "Analysis", "expected": 21, "done": 21, "status": "Complete", "color": "green"},
     "kpms": {"label": "Stage 3b — MoSeq", "short": "MoSeq", "expected": 26, "done": 0, "status": "Not started", "color": "red"},
+    "cascade": {"label": "Stage 4b — CASCADE", "short": "CASCADE", "expected": 26, "done": 0, "status": "Not started", "color": "red"},
 }
 
 

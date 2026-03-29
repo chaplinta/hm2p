@@ -109,7 +109,7 @@ def _circular_smooth_1d(
     weight = np.where(nan_mask, 0.0, 1.0)
 
     # Pad by wrapping for circular boundary
-    pad = int(np.ceil(3 * sigma_bins))
+    pad = int(np.ceil(5 * sigma_bins))
     arr_padded = np.concatenate([arr_filled[-pad:], arr_filled, arr_filled[:pad]])
     wgt_padded = np.concatenate([weight[-pad:], weight, weight[:pad]])
 
@@ -452,7 +452,8 @@ def spatial_coherence(rate_map: np.ndarray) -> float:
     if len(values) < 3:
         return float("nan")
 
-    return float(np.corrcoef(values, neighbour_means)[0, 1])
+    from scipy.stats import spearmanr
+    return float(spearmanr(values, neighbour_means)[0])
 
 
 def spatial_sparsity(

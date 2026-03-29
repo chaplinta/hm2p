@@ -116,9 +116,15 @@ def run(
         if key in _BOOL_KEYS:
             datasets[key] = resample_bool_to_imaging_rate(arr, src_times, dst_times)
         elif key in _CATEGORICAL_KEYS:
-            # Nearest-neighbour for integer categories (syllable_id)
-            indices = np.searchsorted(src_times, dst_times, side="left")
-            indices = np.clip(indices, 0, len(arr) - 1)
+            # True nearest-neighbour for integer categories (syllable_id).
+            # searchsorted("left") gives first src >= dst; compare with
+            # the previous source frame and pick whichever is closer.
+            idx_right = np.searchsorted(src_times, dst_times, side="left")
+            idx_right = np.clip(idx_right, 0, len(arr) - 1)
+            idx_left = np.clip(idx_right - 1, 0, len(arr) - 1)
+            dist_right = np.abs(src_times[idx_right] - dst_times)
+            dist_left = np.abs(src_times[idx_left] - dst_times)
+            indices = np.where(dist_left <= dist_right, idx_left, idx_right)
             datasets[key] = arr[indices]
         elif key == "syllable_prob" and arr.ndim == 2:
             # 2D probability matrix — resample each column independently

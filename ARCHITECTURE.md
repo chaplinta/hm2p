@@ -118,6 +118,27 @@ flowchart LR
     style ANAL fill:#dcfce7,stroke:#16a34a
 ```
 
+### Pipeline Stages
+
+| Stage | Name | Compute | Output | Notes |
+| --- | --- | --- | --- | --- |
+| 0 | Ingest & DAQ | CPU | `timestamps.h5` | TDMS → frame times, light pulses; raw file validation |
+| 1 | 2P Extraction | GPU | `ca_extraction/` | Suite2p (default) or CaImAn via roiextractors |
+| 2 | Pose Estimation | GPU | `pose/` | DLC (default), SLEAP, or LightningPose via movement |
+| 3 | Kinematics | CPU | `kinematics.h5` | HD, position, speed, AHV, light_on, bad_behav |
+| 3b | Syllables (optional) | CPU | `syllables.npz` | keypoint-MoSeq (AR-HMM) or VAME — zero-label segmentation |
+| 4 | Calcium Processing | CPU | `ca.h5` | Neuropil subtraction → dF/F → CASCADE spike inference |
+| 4b | CASCADE | CPU | `ca.h5` (spikes) | Calibrated spike rates (spikes/s) via cascade2p; can be re-run independently of neuropil/dF/F steps |
+| 5 | Synchronisation | CPU | `sync.h5` | Resample behaviour to imaging frame times |
+| 6 | Analysis | CPU | `analysis.h5` | HD tuning, significance, decoding, stability, gain |
+
+Stage 4b is separated from Stage 4 in the runner because CASCADE can be re-run independently
+(e.g. with a different model) without repeating neuropil subtraction or dF/F computation.
+The `scripts/run_cascade.py` runner targets Stage 4b alone.
+
+**Dependency chain:** Stage 2 (pose) → Stage 3 → Stage 3b → Stage 5 → Stage 6. Stage 4 / 4b
+are independent of pose data and do not need re-running when pose is updated.
+
 ---
 
 ## Component Architecture
@@ -220,64 +241,10 @@ hm2p-v2/
 │           ├── nwb.py             # neuroconv wrapper: HDF5 → NWB export
 │           ├── s3.py              # S3 path resolution (cloud vs local)
 │           └── aws_cost.py        # AWS cost estimation and billing queries
-├── tests/
-│   ├── conftest.py                # shared pytest fixtures (synthetic data only)
-│   ├── test_cli.py
-│   ├── test_config.py
-│   ├── test_plotting.py
-│   ├── test_session.py
-│   ├── analysis/
-│   │   ├── test_activity.py
-│   │   ├── test_ahv.py
-│   │   ├── test_anchoring.py
-│   │   ├── test_cache.py
-│   │   ├── test_classify.py
-│   │   ├── test_comparison.py
-│   │   ├── test_decoder.py
-│   │   ├── test_gain.py
-│   │   ├── test_hypothesis_analysis.py
-│   │   ├── test_information.py
-│   │   ├── test_population.py
-│   │   ├── test_run.py
-│   │   ├── test_save.py
-│   │   ├── test_significance.py
-│   │   ├── test_speed.py
-│   │   ├── test_stability.py
-│   │   └── test_tuning.py
-│   ├── ingest/
-│   │   ├── test_validate.py
-│   │   └── test_daq.py
-│   ├── extraction/
-│   │   ├── test_suite2p.py
-│   │   └── test_caiman.py
-│   ├── pose/
-│   │   └── test_preprocess.py
-│   ├── kinematics/
-│   │   ├── test_compute.py
-│   │   ├── test_compute_dataset.py
-│   │   ├── test_perspective.py
-│   │   └── test_syllables.py
-│   ├── calcium/
-│   │   ├── test_neuropil.py
-│   │   ├── test_dff.py
-│   │   ├── test_spikes.py
-│   │   └── test_events.py
-│   ├── sync/
-│   │   └── test_align.py
-│   ├── patching/
-│   │   ├── test_config.py
-│   │   ├── test_io.py
-│   │   ├── test_ephys.py
-│   │   ├── test_protocols.py
-│   │   ├── test_spike_features.py
-│   │   ├── test_morphology.py
-│   │   ├── test_metrics.py
-│   │   ├── test_statistics.py
-│   │   ├── test_pca.py
-│   │   └── test_run.py
-│   └── io/
-│       ├── test_hdf5.py
-│       └── test_nwb.py
+├── tests/                         # Tests live in tests/ mirroring src/hm2p/ structure.
+│   │                              # 97 test files, 1,814 tests as of March 2026.
+│   │                              # See tests/ directory for details.
+│   └── ...
 ├── workflow/
 │   ├── Snakefile                  # Main DAG
 │   ├── rules/
@@ -293,7 +260,8 @@ hm2p-v2/
 │       └── aws-batch/config.yaml  # AWS Batch execution
 ├── config/
 │   ├── pipeline.yaml              # Session-level parameters (alpha, thresholds, etc.)
-│   └── compute.yaml               # Active compute profile
+│   ├── compute.yaml               # Active compute profile
+│   └── patching.yaml              # Patching pipeline parameters (protocols, thresholds)
 ├── docker/
 │   ├── gpu.Dockerfile             # Suite2p + DLC + CUDA
 │   ├── cpu.Dockerfile             # movement + calcium + sync
@@ -301,9 +269,45 @@ hm2p-v2/
 ├── frontend/
 │   ├── app.py                     # Streamlit entry point (st.navigation)
 │   ├── data.py                    # S3 data loading, caching, session filters
-│   └── pages/                     # 59 page modules (one per analysis view)
+│   └── pages/                     # 60 page modules (one per analysis view)
+│       │                          # Notable pages: ahv_page, analysis_page, anatomy_page,
+│       │                          # anchoring_page, cascade_page, classify_page, decoder_page,
+│       │                          # drift_page, gain_page, hd_tuning_page, info_theory_page,
+│       │                          # light_page, maze_page, moseq_page, neuropil_analysis_page,
+│       │                          # patching_page, pipeline_page, place_tuning_page,
+│       │                          # pop_dynamics_page, population_page, rastermap_page,
+│       │                          # signal_quality_page, stability_page, tracking_quality_page,
+│       │                          # zdrift_page, and others.
 ├── scripts/
-│   └── run_kpms.py                # keypoint-MoSeq batch runner
+│   │                              # Pipeline stage runners (invoke a single stage across sessions):
+│   ├── run_stage0_daq.py          # Stage 0: TDMS → timestamps.h5
+│   ├── run_stage3_kinematics.py   # Stage 3: pose → kinematics.h5
+│   ├── run_stage4_calcium.py      # Stage 4: neuropil → dF/F → ca.h5
+│   ├── run_stage5_sync.py         # Stage 5: kinematics + ca → sync.h5
+│   ├── run_stage6_analysis.py     # Stage 6: sync → analysis.h5
+│   ├── run_downstream_pipeline.py # Runs Stages 3 → 3b → 5 → 6 in sequence (after pose update)
+│   ├── run_cascade.py             # Stage 4b: re-run CASCADE spike inference only
+│   ├── run_zdrift.py              # Z-drift estimation from serial2p z-stacks
+│   ├── run_kpms.py                # Stage 3b: keypoint-MoSeq syllable discovery
+│   │                              # DLC retraining workflow (see DLC Retraining Pipeline section):
+│   ├── prepare_retrain_frames.py  # Extract frames + create DLC project for labeling
+│   ├── upload_dlc_labels.py       # Upload labeled data + config to S3
+│   ├── launch_dlc_retrain_ec2.py  # Launch g4dn for DLC training + re-inference
+│   ├── run_dlc_retrain.py         # Training + re-inference script (runs on EC2)
+│   ├── promote_finetuned_pose.py  # Copy pose-finetuned/ → pose/ after QC
+│   │                              # Infrastructure scripts (AWS setup — run once):
+│   ├── setup_ec2_iam.py           # IAM roles + instance profiles for EC2
+│   ├── setup_frontend_iam.py      # IAM policy for Streamlit frontend S3 access
+│   ├── setup_s3_logging.py        # Enable S3 access logging
+│   ├── setup_sg_lockdown.py       # Restrict EC2 security group to known IPs
+│   ├── setup_ssm.py               # SSM Session Manager setup for keyless SSH
+│   ├── setup_auto_shutdown.py     # Auto-shutdown idle EC2 instances
+│   ├── ec2_utils.py               # EC2 helper utilities (shared by launch scripts)
+│   │                              # Data transfer and utility scripts:
+│   ├── upload_to_s3.py            # Bulk upload rawdata to S3
+│   ├── download_from_s3.py        # Download derivatives from S3 for local analysis
+│   ├── upload_patching_s3.py      # Upload patching data to S3
+│   └── verify_s3_upload.sh        # Verify S3 upload checksums
 ├── PLAN.md
 ├── ARCHITECTURE.md
 ├── CLAUDE.md

@@ -55,7 +55,7 @@ def anchoring_time_course(
     step_frames: int = 60,
     pre_transition_s: float = 10.0,
     post_transition_s: float = 30.0,
-    fps: float = 30.0,
+    fps: float = 9.8,
     n_bins: int = 36,
     smoothing_sigma_deg: float = 6.0,
 ) -> dict:

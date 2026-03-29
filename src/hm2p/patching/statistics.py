@@ -179,7 +179,7 @@ def mixed_model_comparison(
     group_col: str = "cell_type",
     random_col: str = "animal_id",
 ) -> pd.DataFrame:
-    """Test cell-type effect with animal as random intercept (LMM).
+    """Supplementary LMM: animal as random intercept for ICC estimation.
 
     For each metric, fits::
 
@@ -188,6 +188,11 @@ def mixed_model_comparison(
     using restricted maximum likelihood (REML).  This disentangles true
     cell-type differences from animal-to-animal variability (e.g. prep
     quality, fill quality, slice health).
+
+    **This is a supplementary check only** — the primary cell-type comparison
+    must use a non-parametric test (Mann–Whitney U or permutation). The LMM
+    p-value (``lmm_p_supplementary``) quantifies the fixed effect but should
+    not be reported as the primary significance test.
 
     Parameters
     ----------
@@ -204,7 +209,7 @@ def mixed_model_comparison(
     -------
     DataFrame
         Columns: ``metric``, ``beta`` (fixed-effect coefficient for group),
-        ``se``, ``z``, ``p_value``, ``p_fdr``, ``significant``,
+        ``se``, ``z``, ``lmm_p_supplementary``, ``lmm_p_fdr``, ``lmm_significant``,
         ``icc`` (intraclass correlation — proportion of variance due to animal),
         ``n_groups`` (number of animals), ``converged``.
     """
@@ -223,7 +228,7 @@ def mixed_model_comparison(
         if len(groups) < 2 or n_random < 2 or len(sub) < 5:
             rows.append({
                 "metric": metric, "beta": np.nan, "se": np.nan,
-                "z": np.nan, "p_value": np.nan, "icc": np.nan,
+                "z": np.nan, "lmm_p_supplementary": np.nan, "icc": np.nan,
                 "n_groups": n_random, "converged": False,
             })
             continue
@@ -259,20 +264,20 @@ def mixed_model_comparison(
 
             rows.append({
                 "metric": metric, "beta": beta, "se": se, "z": z,
-                "p_value": p, "icc": icc, "n_groups": n_random,
+                "lmm_p_supplementary": p, "icc": icc, "n_groups": n_random,
                 "converged": result.converged,
             })
         except Exception:
             rows.append({
                 "metric": metric, "beta": np.nan, "se": np.nan,
-                "z": np.nan, "p_value": np.nan, "icc": np.nan,
+                "z": np.nan, "lmm_p_supplementary": np.nan, "icc": np.nan,
                 "n_groups": n_random, "converged": False,
             })
 
     result_df = pd.DataFrame(rows)
 
     # FDR correction
-    p_vals = result_df["p_value"].values.astype(float)
+    p_vals = result_df["lmm_p_supplementary"].values.astype(float)
     valid = ~np.isnan(p_vals)
     p_fdr = np.full(len(p_vals), np.nan)
     sig = np.full(len(p_vals), False)
@@ -282,8 +287,8 @@ def mixed_model_comparison(
         )
         p_fdr[valid] = corrected
         sig[valid] = reject
-    result_df["p_fdr"] = p_fdr
-    result_df["significant"] = sig
+    result_df["lmm_p_fdr"] = p_fdr
+    result_df["lmm_significant"] = sig
 
     return result_df
 

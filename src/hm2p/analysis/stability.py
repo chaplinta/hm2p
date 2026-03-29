@@ -40,7 +40,7 @@ def split_temporal_halves(
     Returns
     -------
     dict
-        ``"correlation"`` — Pearson r between half tuning curves.
+        ``"correlation"`` — Spearman rho between half tuning curves.
         ``"pd_shift_deg"`` — preferred direction shift in degrees.
         ``"mvl_half1"``, ``"mvl_half2"`` — MVL of each half.
         ``"tuning_curve_1"``, ``"tuning_curve_2"`` — the two tuning curves.
@@ -159,7 +159,7 @@ def light_dark_stability(
     Returns
     -------
     dict
-        ``"correlation"`` — Pearson r between light/dark tuning curves.
+        ``"correlation"`` — Spearman rho between light/dark tuning curves.
         ``"pd_shift_deg"`` — preferred direction shift (dark - light).
         ``"mvl_light"``, ``"mvl_dark"`` — MVL in each condition.
         ``"tuning_curve_light"``, ``"tuning_curve_dark"`` — tuning curves.
@@ -280,7 +280,7 @@ def dark_drift_rate(
     hd_deg: npt.NDArray[np.floating],
     mask: npt.NDArray[np.bool_],
     light_on: npt.NDArray[np.bool_],
-    fps: float = 30.0,
+    fps: float = 9.8,
     window_frames: int = 300,
     step_frames: int = 100,
     n_bins: int = 36,

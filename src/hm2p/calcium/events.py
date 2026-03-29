@@ -372,6 +372,12 @@ def compute_event_rate(
 ) -> float:
     """Compute event rate (events/min) for a single ROI.
 
+    Events are counted if their onset frame is not excluded by ``bad_frames``.
+    The event body (onset to offset) is not checked — an event whose onset
+    falls on a good frame but whose body partially overlaps bad frames is
+    still counted.  This is acceptable for rate estimation but means that
+    amplitude or AUC metrics derived from such events may include bad frames.
+
     Args:
         onsets: (n_events,) int — event onset frame indices.
         n_frames: Total number of frames.
@@ -479,8 +485,8 @@ def detect_events_sd_single(
     if len(neg_values) > 10:
         # The negative portion of dF/F follows a half-normal distribution.
         # SD of the half-normal is sigma * sqrt(1 - 2/pi). To recover the
-        # full distribution sigma: sigma = std(negatives) / sqrt(1 - 2/pi).
-        noise_sd = np.std(neg_values) / np.sqrt(1.0 - 2.0 / np.pi)
+        # parent normal sigma: sigma = std(negatives) * sqrt(pi / (pi - 2)).
+        noise_sd = np.std(neg_values) * np.sqrt(np.pi / (np.pi - 2.0))
     else:
         # Fallback: use MAD of full trace (robust to transients)
         noise_sd = np.median(np.abs(trace - np.median(trace))) * 1.4826

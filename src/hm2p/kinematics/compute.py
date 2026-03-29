@@ -446,9 +446,9 @@ def compute_maze_coords(
     corners_mm = maze_corners_px * scale_mm_per_px  # (4, 2)
     x1_mm = float(corners_mm[0, 0])
     y1_mm = float(corners_mm[0, 1])
-    # Width: span from TL corner to TR corner; height: span from TL to BL corner
-    width_mm = float(corners_mm[2, 0] - corners_mm[0, 0])
-    height_mm = float(corners_mm[2, 1] - corners_mm[0, 1])
+    # Width: TL→TR (index 0→1); Height: TL→BL (index 0→3)
+    width_mm = float(corners_mm[1, 0] - corners_mm[0, 0])
+    height_mm = float(corners_mm[3, 1] - corners_mm[0, 1])
 
     x_maze, y_maze = _maze_linear_transform(x_mm, y_mm, x1_mm, y1_mm, width_mm, height_mm)
     return _clip_to_maze_polygon(x_maze, y_maze)
