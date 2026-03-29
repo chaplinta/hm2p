@@ -631,9 +631,10 @@ with tab_markov:
                 # Correlation between stationary and empirical
                 valid_mask = (pi_stat > 0) | (occ_emp > 0)
                 if valid_mask.sum() >= 2:
-                    r_stat = float(np.corrcoef(pi_stat[valid_mask], occ_emp[valid_mask])[0, 1])
+                    from scipy.stats import spearmanr as _spr
+                    r_stat = float(_spr(pi_stat[valid_mask], occ_emp[valid_mask])[0])
                     st.metric(
-                        "Pearson r (stationary vs empirical)",
+                        "Spearman ρ (stationary vs empirical)",
                         f"{r_stat:.3f}",
                         help="High correlation suggests 1st-order Markov is a good model.",
                     )
@@ -799,7 +800,7 @@ with tab_compare:
         # ── Occupancy correlation matrix ────────────────────────────────
         st.markdown("### Occupancy Correlation Between Sessions")
         st.markdown(
-            "Pearson correlation of occupancy vectors between all session pairs. "
+            "Spearman rank correlation of occupancy vectors between all session pairs. "
             "High correlation means mice spent time in similar areas of the maze."
         )
 
@@ -808,8 +809,10 @@ with tab_compare:
 
         if n_sess >= 2:
             occ_matrix = np.array([session_occ[eid] for eid in exp_ids])
-            # Pearson correlation
-            corr = np.corrcoef(occ_matrix)
+            from scipy.stats import spearmanr as _spr2
+            corr, _ = _spr2(occ_matrix.T)
+            if np.ndim(corr) == 0:
+                corr = np.array([[1.0, float(corr)], [float(corr), 1.0]])
             # Handle NaN (e.g. if a session has zero variance)
             corr = np.nan_to_num(corr, nan=0.0)
 

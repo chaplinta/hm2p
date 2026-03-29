@@ -218,9 +218,10 @@ with tab_compare:
                     x=[0, maxv], y=[0, maxv], mode="lines",
                     line=dict(dash="dash", color="gray"), showlegend=False,
                 ))
-                corr = np.corrcoef(ref_vals[valid], other_vals[valid])[0, 1]
+                from scipy.stats import spearmanr as _spr
+                corr = float(_spr(ref_vals[valid], other_vals[valid])[0])
                 fig.update_layout(
-                    title=f"{_signal_labels[ref_sig]} vs {_signal_labels[other_sig]} (r={corr:.3f})",
+                    title=f"{_signal_labels[ref_sig]} vs {_signal_labels[other_sig]} (ρ={corr:.3f})",
                     xaxis_title=f"MVL ({_signal_labels[ref_sig]})",
                     yaxis_title=f"MVL ({_signal_labels[other_sig]})",
                     height=400,
