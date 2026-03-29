@@ -188,6 +188,7 @@ def launch_instance(dry_run: bool = False) -> dict | None:
                 "DeleteOnTermination": True,
             },
         }],
+        InstanceInitiatedShutdownBehavior="terminate",
         TagSpecifications=[{
             "ResourceType": "instance",
             "Tags": [

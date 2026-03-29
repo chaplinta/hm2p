@@ -504,6 +504,7 @@ def launch(args):
             },
         }],
         "UserData": user_data,
+        "InstanceInitiatedShutdownBehavior": "terminate",
         "TagSpecifications": [{
             "ResourceType": "instance",
             "Tags": [

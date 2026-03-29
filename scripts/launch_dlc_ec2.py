@@ -479,6 +479,7 @@ def launch(args):
             "Ebs": {"VolumeSize": 100, "VolumeType": "gp3", "DeleteOnTermination": True},
         }],
         "UserData": user_data,
+        "InstanceInitiatedShutdownBehavior": "terminate",
         "TagSpecifications": [{
             "ResourceType": "instance",
             "Tags": [TAG, {"Key": "Name", "Value": "hm2p-dlc-run"}],

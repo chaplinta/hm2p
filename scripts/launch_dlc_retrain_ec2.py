@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
-"""Launch EC2 instance for DLC fine-tuning and re-inference.
+"""Launch EC2 for DLC fine-tuning and re-inference.
 
-Prerequisite: labeled data uploaded to S3 via upload_dlc_labels.py.
+Hard requirements:
+- GPU verified before processing (abort if CUDA unavailable)
+- GPU utilization monitored every 30s, uploaded to S3 every 5 min
+- Watchdog aborts if GPU at 0% for 5 min during processing
+- Hard 24h timeout — instance terminates regardless
+- Instance self-terminates on completion (InstanceInitiatedShutdownBehavior=terminate)
 
 Usage:
-    uv run python scripts/launch_dlc_retrain_ec2.py              # launch
-    uv run python scripts/launch_dlc_retrain_ec2.py --status      # check instance
-    uv run python scripts/launch_dlc_retrain_ec2.py --progress    # check training progress
-    uv run python scripts/launch_dlc_retrain_ec2.py --terminate   # kill instance
+    uv run python scripts/launch_dlc_retrain_ec2.py
+    uv run python scripts/launch_dlc_retrain_ec2.py --progress
+    uv run python scripts/launch_dlc_retrain_ec2.py --status
+    uv run python scripts/launch_dlc_retrain_ec2.py --terminate
     uv run python scripts/launch_dlc_retrain_ec2.py --maxiters 100000
+    uv run python scripts/launch_dlc_retrain_ec2.py --dry-run
 """
 
 from __future__ import annotations
@@ -18,6 +24,16 @@ import json
 import sys
 
 import boto3
+
+from ec2_utils import (
+    APT_INSTALL_SNIPPET,
+    DPKG_WAIT_SNIPPET,
+    PYTORCH_CUDA_INSTALL_SNIPPET,
+    build_creds_block,
+    format_gpu_guard,
+    format_hard_timeout,
+    get_s3_credentials,
+)
 
 REGION = "ap-southeast-2"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
@@ -31,47 +47,45 @@ TAG_NAME = "hm2p-dlc-retrain"
 
 def build_user_data(maxiters: int = 50000) -> str:
     """Build the EC2 user-data script."""
+    key_id, secret, region = get_s3_credentials()
+    creds = build_creds_block(key_id, secret, region)
+    gpu_guard = format_gpu_guard(DERIVATIVES_BUCKET, "dlc-retrain")
+    timeout = format_hard_timeout(24)
+
     return f"""#!/bin/bash
 exec > >(tee /var/log/hm2p-dlc-retrain.log) 2>&1
-echo "=== DLC retrain ==="
+echo "=== DLC retrain (GPU enforced, 24h timeout) ==="
+echo "Started: $(date -u)"
 
-trap 'aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_retrain_log.txt || true' EXIT
+trap 'aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_retrain_log.txt || true; \\
+      aws s3 cp /var/log/gpu_monitor.csv s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_monitor.csv || true' EXIT
 
-export DEBIAN_FRONTEND=noninteractive
-while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 10; done
+{creds}
+{DPKG_WAIT_SNIPPET}
 
-apt-get update -qq
-apt-get install -y -qq awscli ffmpeg git
+set -ex
 
-# Install DLC with CUDA PyTorch
-pip3 install --break-system-packages torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-pip3 install --break-system-packages --quiet --pre deeplabcut
-pip3 install --break-system-packages pyyaml
-
-nvidia-smi
-python3 -c "import torch; assert torch.cuda.is_available(), 'CUDA not available'; print(f'GPU: {{torch.cuda.get_device_name(0)}}')"
-python3 -c "import deeplabcut; print(f'DLC: {{deeplabcut.__version__}}')"
-
-aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_retrain_log.txt || true
-
-# GPU monitor — log utilization every 30s to verify GPU is used
-nvidia-smi --query-gpu=timestamp,utilization.gpu,utilization.memory,memory.used \
-    --format=csv -l 30 >> /var/log/hm2p-gpu-monitor.log 2>&1 &
+{APT_INSTALL_SNIPPET}
+{PYTORCH_CUDA_INSTALL_SNIPPET}
+{timeout}
+{gpu_guard}
 
 # Clone repo and run
 cd /home/ubuntu
 git clone https://github.com/chaplinta/hm2p.git
 cd hm2p
 
+# Mark GPU as active during processing
+touch /tmp/gpu_processing_active
 python3 scripts/run_dlc_retrain.py --maxiters {maxiters}
+rm -f /tmp/gpu_processing_active
 
-echo "=== DLC retrain complete ==="
-aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_retrain_log.txt || true
+echo "=== DLC retrain complete: $(date -u) ==="
 shutdown -h now
 """
 
 
-def launch(maxiters: int) -> None:
+def launch(maxiters: int, dry_run: bool = False) -> None:
     """Launch the retraining instance."""
     ec2 = boto3.client("ec2", region_name=REGION)
     s3 = boto3.client("s3", region_name=REGION)
@@ -83,6 +97,12 @@ def launch(maxiters: int) -> None:
         print("ERROR: no labeled data on S3. Run upload_dlc_labels.py first.")
         sys.exit(1)
 
+    user_data = build_user_data(maxiters)
+
+    if dry_run:
+        print(user_data)
+        return
+
     resp = ec2.run_instances(
         ImageId=AMI,
         InstanceType=INSTANCE_TYPE,
@@ -90,7 +110,7 @@ def launch(maxiters: int) -> None:
         KeyName=KEY_NAME,
         SecurityGroupIds=[SG_ID],
         IamInstanceProfile={"Name": IAM_PROFILE},
-        UserData=build_user_data(maxiters),
+        UserData=user_data,
         BlockDeviceMappings=[{
             "DeviceName": "/dev/sda1",
             "Ebs": {"VolumeSize": 100, "VolumeType": "gp3"},
@@ -114,7 +134,7 @@ def launch(maxiters: int) -> None:
     ip = desc["Reservations"][0]["Instances"][0].get("PublicIpAddress", "N/A")
     print(f"IP: {ip}")
     print(f"SSH: ssh -i ~/.ssh/{KEY_NAME}.pem ubuntu@{ip}")
-    print(f"Logs: ssh ... 'tail -f /var/log/hm2p-dlc-retrain.log'")
+    print(f"GPU log: aws s3 cp s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_monitor.csv -")
 
 
 def status() -> None:
@@ -141,6 +161,26 @@ def progress() -> None:
     except Exception:
         print("No progress data yet.")
 
+    # Show GPU utilization summary
+    try:
+        obj = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key="dlc-retrain/_gpu_monitor.csv")
+        lines = obj["Body"].read().decode().strip().split("\n")
+        if len(lines) > 1:
+            import csv as _csv
+            reader = _csv.reader(lines[1:])
+            gpu_pcts = []
+            for row in reader:
+                if len(row) >= 2:
+                    try:
+                        gpu_pcts.append(int(row[1].strip().replace(" %", "")))
+                    except ValueError:
+                        pass
+            if gpu_pcts:
+                print(f"\nGPU utilization: mean={sum(gpu_pcts)/len(gpu_pcts):.0f}%, "
+                      f"max={max(gpu_pcts)}%, readings={len(gpu_pcts)}")
+    except Exception:
+        pass
+
 
 def terminate() -> None:
     """Terminate retrain instances."""
@@ -160,6 +200,7 @@ def main() -> None:
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--progress", action="store_true")
     parser.add_argument("--terminate", action="store_true")
+    parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--maxiters", type=int, default=50000)
     args = parser.parse_args()
 
@@ -170,7 +211,7 @@ def main() -> None:
     elif args.terminate:
         terminate()
     else:
-        launch(args.maxiters)
+        launch(args.maxiters, dry_run=args.dry_run)
 
 
 if __name__ == "__main__":
