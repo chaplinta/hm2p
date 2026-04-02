@@ -163,8 +163,18 @@ total_ec2 = total_completed_cost + total_active_cost
 total_all = total_ec2 + s3_monthly
 
 
+def _usd(usd: float) -> str:
+    """Format a cost as USD."""
+    return f"${usd:.2f}"
+
+
+def _aud_help(usd: float) -> str:
+    """AUD equivalent string for metric help tooltip."""
+    return f"≈ ${usd * USD_TO_AUD:.2f} AUD"
+
+
 def _usd_aud(usd: float) -> str:
-    """Format a cost as USD with AUD equivalent in brackets."""
+    """Format a cost as USD with AUD equivalent in brackets (for markdown)."""
     return f"${usd:.2f} USD (${usd * USD_TO_AUD:.2f} AUD)"
 
 
@@ -177,10 +187,10 @@ def _usd_aud(usd: float) -> str:
 st.header("Total Project Cost Summary")
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("S3 Storage (monthly)", _usd_aud(s3_monthly))
-col2.metric("EC2 Completed", _usd_aud(total_completed_cost))
-col3.metric("EC2 Active", _usd_aud(total_active_cost))
-col4.metric("Total to Date", _usd_aud(total_all))
+col1.metric("S3 Storage (monthly)", _usd(s3_monthly), help=_aud_help(s3_monthly))
+col2.metric("EC2 Completed", _usd(total_completed_cost), help=_aud_help(total_completed_cost))
+col3.metric("EC2 Active", _usd(total_active_cost), help=_aud_help(total_active_cost))
+col4.metric("Total to Date", _usd(total_all), help=_aud_help(total_all))
 
 st.caption(
     "S3 cost is per month. EC2 cost is cumulative (completed + active). "
@@ -213,7 +223,7 @@ for job in completed_jobs:
     )
     st.caption(f"  {job['note']}")
 
-st.metric("Total Completed", _usd_aud(total_completed_cost))
+st.metric("Total Completed", _usd(total_completed_cost), help=_aud_help(total_completed_cost))
 
 if planned_jobs:
     st.subheader("Active / In-Progress")
@@ -230,7 +240,7 @@ if planned_jobs:
         )
         st.caption(f"  {job['note']}")
 
-    st.metric("Active Instance Cost (so far)", _usd_aud(total_active_cost))
+    st.metric("Active Instance Cost (so far)", _usd(total_active_cost), help=_aud_help(total_active_cost))
 
 
 # ── 3. S3 Storage ────────────────────────────────────────────────────────────
@@ -246,7 +256,7 @@ tab_raw, tab_deriv = st.tabs(["Raw Data", "Derivatives"])
 with tab_raw:
     if raw_size is not None:
         col1, col2, col3 = st.columns(3)
-        col1.metric("Monthly Cost", _usd_aud(raw_monthly))
+        col1.metric("Monthly Cost", _usd(raw_monthly), help=_aud_help(raw_monthly))
         col2.metric("Total Size", f"{raw_size['total_gb']:.1f} GB")
         col3.metric("Objects", f"{raw_size['n_objects']:,}")
         st.caption(f"Bucket: `{RAWDATA_BUCKET}` ({REGION})")
@@ -257,7 +267,7 @@ with tab_raw:
 with tab_deriv:
     if prefix_sizes is not None:
         col1, col2, col3 = st.columns(3)
-        col1.metric("Monthly Cost", _usd_aud(deriv_monthly))
+        col1.metric("Monthly Cost", _usd(deriv_monthly), help=_aud_help(deriv_monthly))
         col2.metric("Total Size", f"{total_deriv_gb:.1f} GB")
         col3.metric("Objects", f"{sum(v['n_objects'] for v in prefix_sizes.values()):,}")
 
@@ -305,7 +315,7 @@ calc_cost = rate * calc_hours * calc_n
 col1, col2, col3 = st.columns(3)
 col1.metric("Rate", f"${rate:.3f}/hr")
 col2.metric("Total Hours", f"{calc_hours * calc_n}h")
-col3.metric("Estimated Cost", _usd_aud(calc_cost))
+col3.metric("Estimated Cost", _usd(calc_cost), help=_aud_help(calc_cost))
 
 
 # ── 5. Instance Pricing Reference ────────────────────────────────────────────
