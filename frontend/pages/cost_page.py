@@ -29,6 +29,7 @@ S3_STORAGE_PER_GB_MONTH = 0.025  # USD
 S3_PUT_PER_1K = 0.005
 S3_GET_PER_1K = 0.0004
 S3_EGRESS_PER_GB = 0.09
+USD_TO_AUD = 1.55  # approximate exchange rate
 
 # EC2 On-Demand pricing (ap-southeast-2)
 EC2_PRICING = {
@@ -162,6 +163,11 @@ total_ec2 = total_completed_cost + total_active_cost
 total_all = total_ec2 + s3_monthly
 
 
+def _usd_aud(usd: float) -> str:
+    """Format a cost as USD with AUD equivalent in brackets."""
+    return f"${usd:.2f} USD (${usd * USD_TO_AUD:.2f} AUD)"
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DISPLAY — ordered by importance: summary first, details after
 # ══════════════════════════════════════════════════════════════════════════════
@@ -171,10 +177,10 @@ total_all = total_ec2 + s3_monthly
 st.header("Total Project Cost Summary")
 
 col1, col2, col3, col4 = st.columns(4)
-col1.metric("S3 Storage (monthly)", f"${s3_monthly:.2f}")
-col2.metric("EC2 Completed", f"${total_completed_cost:.2f}")
-col3.metric("EC2 Active", f"${total_active_cost:.2f}")
-col4.metric("Total to Date", f"${total_all:.2f}")
+col1.metric("S3 Storage (monthly)", _usd_aud(s3_monthly))
+col2.metric("EC2 Completed", _usd_aud(total_completed_cost))
+col3.metric("EC2 Active", _usd_aud(total_active_cost))
+col4.metric("Total to Date", _usd_aud(total_all))
 
 st.caption(
     "S3 cost is per month. EC2 cost is cumulative (completed + active). "
@@ -203,11 +209,11 @@ for job in completed_jobs:
     spot_label = "Spot" if job.get("spot") else "On-Demand"
     st.markdown(
         f"**{job['stage']}** — `{job['instance']}` ({pricing['gpu']}) "
-        f"× {n_inst} — {job['hours']}h {spot_label} — **${cost:.2f}**"
+        f"× {n_inst} — {job['hours']}h {spot_label} — **{_usd_aud(cost)}**"
     )
     st.caption(f"  {job['note']}")
 
-st.metric("Total Completed", f"${total_completed_cost:.2f}")
+st.metric("Total Completed", _usd_aud(total_completed_cost))
 
 if planned_jobs:
     st.subheader("Active / In-Progress")
@@ -220,11 +226,11 @@ if planned_jobs:
 
         st.markdown(
             f"**{job['stage']}** — `{job['instance']}` ({pricing['gpu']}) "
-            f"× {n_inst} — {job['hours']}h {spot_label} — **${cost:.2f}**"
+            f"× {n_inst} — {job['hours']}h {spot_label} — **{_usd_aud(cost)}**"
         )
         st.caption(f"  {job['note']}")
 
-    st.metric("Active Instance Cost (so far)", f"${total_active_cost:.2f}")
+    st.metric("Active Instance Cost (so far)", _usd_aud(total_active_cost))
 
 
 # ── 3. S3 Storage ────────────────────────────────────────────────────────────
@@ -240,7 +246,7 @@ tab_raw, tab_deriv = st.tabs(["Raw Data", "Derivatives"])
 with tab_raw:
     if raw_size is not None:
         col1, col2, col3 = st.columns(3)
-        col1.metric("Monthly Cost", f"${raw_monthly:.2f}")
+        col1.metric("Monthly Cost", _usd_aud(raw_monthly))
         col2.metric("Total Size", f"{raw_size['total_gb']:.1f} GB")
         col3.metric("Objects", f"{raw_size['n_objects']:,}")
         st.caption(f"Bucket: `{RAWDATA_BUCKET}` ({REGION})")
@@ -251,7 +257,7 @@ with tab_raw:
 with tab_deriv:
     if prefix_sizes is not None:
         col1, col2, col3 = st.columns(3)
-        col1.metric("Monthly Cost", f"${deriv_monthly:.2f}")
+        col1.metric("Monthly Cost", _usd_aud(deriv_monthly))
         col2.metric("Total Size", f"{total_deriv_gb:.1f} GB")
         col3.metric("Objects", f"{sum(v['n_objects'] for v in prefix_sizes.values()):,}")
 
@@ -299,7 +305,7 @@ calc_cost = rate * calc_hours * calc_n
 col1, col2, col3 = st.columns(3)
 col1.metric("Rate", f"${rate:.3f}/hr")
 col2.metric("Total Hours", f"{calc_hours * calc_n}h")
-col3.metric("Estimated Cost", f"${calc_cost:.2f}")
+col3.metric("Estimated Cost", _usd_aud(calc_cost))
 
 
 # ── 5. Instance Pricing Reference ────────────────────────────────────────────
