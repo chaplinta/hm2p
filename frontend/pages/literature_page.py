@@ -81,12 +81,13 @@ def _read_doc(name: str) -> str | None:
 
 st.title("Literature & Papers")
 
-tab_scans, tab_refs, tab_landscape, tab_maze, tab_pdfs = st.tabs([
+tab_scans, tab_refs, tab_neuropil, tab_maze, tab_pdfs, tab_landscape = st.tabs([
     "Biorxiv Scans",
     "Reference Papers",
-    "Research Landscape",
+    "Neuropil",
     "Maze & Navigation",
     "PDF Library",
+    "Pipeline Landscape",
 ])
 
 # ── Tab 1: Biorxiv scans (blog feed) ─────────────────────────────────────
@@ -129,17 +130,20 @@ with tab_refs:
     else:
         st.info("No `docs/reference-papers.md` found.")
 
-# ── Tab 3: Research landscape ────────────────────────────────────────────
+# ── Tab 3: Neuropil literature review ───────────────────────────────────
 
-with tab_landscape:
-    st.header("Research Landscape")
-    st.caption("Survey of related neuroscience pipelines and tools.")
+with tab_neuropil:
+    st.header("Neuropil Contamination in Two-Photon Calcium Imaging")
+    st.caption(
+        "Literature review of neuropil signals, correction methods, and "
+        "implications for HD tuning analysis in RSP."
+    )
 
-    content = _read_doc("research-landscape.md")
-    if content:
-        st.markdown(content)
+    neuropil_content = _read_doc("neuropil-literature-review.md")
+    if neuropil_content:
+        st.markdown(neuropil_content)
     else:
-        st.info("No `docs/research-landscape.md` found.")
+        st.info("No `docs/neuropil-literature-review.md` found.")
 
 # ── Tab 4: Maze & navigation ideas ──────────────────────────────────────
 
@@ -174,3 +178,15 @@ with tab_pdfs:
             with st.expander(f"{folder} ({len(pdfs)} papers)", expanded=True):
                 for pdf in pdfs:
                     st.markdown(f"- **{pdf.stem}**")
+
+# ── Tab 6: Pipeline landscape ──────────────────────────────────────────
+
+with tab_landscape:
+    st.header("Pipeline Landscape")
+    st.caption("Survey of related neuroscience pipelines and tools.")
+
+    content = _read_doc("research-landscape.md")
+    if content:
+        st.markdown(content)
+    else:
+        st.info("No `docs/research-landscape.md` found.")
