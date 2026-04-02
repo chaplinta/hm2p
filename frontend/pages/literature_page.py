@@ -1,8 +1,11 @@
-"""Literature Review page — displays markdown notes from docs/papers/ as a blog-style feed.
+"""Literature & Papers — reference papers, biorxiv scans, and research notes.
 
-The RSP science advisor agent writes biorxiv scan notes to docs/papers/ in date-based
-subfolders (e.g. docs/papers/2026-04/biorxiv-scan-2026-04-02.md). This page scans
-that directory recursively and renders each file newest first.
+Displays:
+1. Biorxiv scan blog (newest first) from papers/biorxiv-scans/
+2. Reference papers catalogue from docs/reference-papers.md
+3. Research landscape from docs/research-landscape.md
+4. Maze exploration ideas from docs/maze-exploration-ideas.md
+5. PDF inventory from papers/ (with subfolder organisation)
 """
 
 from __future__ import annotations
@@ -17,28 +20,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 import streamlit as st
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Paths
 # ---------------------------------------------------------------------------
 
-_PAPERS_DIR = Path(__file__).resolve().parent.parent.parent / "docs" / "papers"
+_REPO = Path(__file__).resolve().parent.parent.parent
+_PAPERS_DIR = _REPO / "papers"
+_SCANS_DIR = _PAPERS_DIR / "biorxiv-scans"
+_DOCS_DIR = _REPO / "docs"
 
 _DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
 
 def _extract_date(path: Path) -> str:
-    """Extract a sortable date string from filename or parent folder name.
-
-    Parameters
-    ----------
-    path:
-        Path to a markdown file under docs/papers/.
-
-    Returns
-    -------
-    str
-        ISO date string (YYYY-MM-DD) if found, otherwise the empty string.
-    """
-    # Try filename first, then parent directory name
+    """Extract ISO date from filename or parent folder."""
     for text in (path.stem, path.parent.name):
         m = _DATE_RE.search(text)
         if m:
@@ -46,81 +44,133 @@ def _extract_date(path: Path) -> str:
     return ""
 
 
-def _collect_entries() -> list[tuple[str, Path]]:
-    """Return all markdown files sorted newest first.
-
-    Returns
-    -------
-    list of (date_str, path)
-        Sorted descending by date string, then by filename.
-    """
-    if not _PAPERS_DIR.exists():
+def _collect_scans() -> list[tuple[str, Path]]:
+    """Collect biorxiv scan markdown files, newest first."""
+    if not _SCANS_DIR.exists():
         return []
-
-    entries: list[tuple[str, Path]] = []
-    for md_path in sorted(_PAPERS_DIR.rglob("*.md")):
-        date = _extract_date(md_path)
-        entries.append((date, md_path))
-
-    # Sort: primary key = date descending, secondary = path descending (newest filename)
+    entries = []
+    for md in _SCANS_DIR.rglob("*.md"):
+        entries.append((_extract_date(md), md))
     entries.sort(key=lambda x: (x[0], str(x[1])), reverse=True)
     return entries
 
 
-def _friendly_label(date: str, path: Path) -> str:
-    """Build a human-readable label for use in expander headers.
+def _collect_pdfs() -> dict[str, list[Path]]:
+    """Collect PDFs from papers/ grouped by subfolder."""
+    if not _PAPERS_DIR.exists():
+        return {}
+    groups: dict[str, list[Path]] = {}
+    for pdf in sorted(_PAPERS_DIR.rglob("*.pdf")):
+        rel = pdf.relative_to(_PAPERS_DIR)
+        folder = str(rel.parent) if rel.parent != Path(".") else "General"
+        groups.setdefault(folder, []).append(pdf)
+    return groups
 
-    Parameters
-    ----------
-    date:
-        ISO date string or empty string.
-    path:
-        Path to the file.
 
-    Returns
-    -------
-    str
-        Label combining date and filename stem.
-    """
-    stem = path.stem.replace("-", " ").replace("_", " ")
-    if date:
-        return f"{date} — {stem}"
-    return stem
+def _read_doc(name: str) -> str | None:
+    """Read a docs/ markdown file, return content or None."""
+    path = _DOCS_DIR / name
+    if path.exists():
+        return path.read_text(encoding="utf-8")
+    return None
 
 
 # ---------------------------------------------------------------------------
 # Page
 # ---------------------------------------------------------------------------
 
-st.title("Literature Review")
-st.caption(
-    "Markdown notes from periodic bioRxiv and literature scans, rendered newest first. "
-    "Files are read from `docs/papers/` in the repository."
-)
+st.title("Literature & Papers")
 
-entries = _collect_entries()
+tab_scans, tab_refs, tab_landscape, tab_maze, tab_pdfs = st.tabs([
+    "Biorxiv Scans",
+    "Reference Papers",
+    "Research Landscape",
+    "Maze & Navigation",
+    "PDF Library",
+])
 
-if not entries:
-    st.info(
-        "No literature notes found in `docs/papers/`. "
-        "The science advisor agent will populate this directory when it runs a scan."
+# ── Tab 1: Biorxiv scans (blog feed) ─────────────────────────────────────
+
+with tab_scans:
+    st.header("Biorxiv Scan Feed")
+    st.caption(
+        "Periodic literature scans by the RSP science advisor. "
+        "Newest entries first."
     )
-    st.stop()
 
-st.write(f"{len(entries)} note{'s' if len(entries) != 1 else ''} found.")
-st.markdown("---")
+    scans = _collect_scans()
+    if not scans:
+        st.info(
+            "No biorxiv scan notes yet. "
+            "The science advisor agent writes these to `papers/biorxiv-scans/`."
+        )
+    else:
+        st.write(f"{len(scans)} scan{'s' if len(scans) != 1 else ''} found.")
+        for date, path in scans:
+            label = date if date else path.stem
+            content = path.read_text(encoding="utf-8")
+            line_count = content.count("\n")
+            with st.expander(
+                f"{label} — {path.stem.replace('-', ' ')}",
+                expanded=len(scans) == 1 or line_count < 40,
+            ):
+                st.caption(f"File: `papers/biorxiv-scans/{path.name}`")
+                st.markdown(content)
 
-for date, path in entries:
-    label = _friendly_label(date, path)
-    content = path.read_text(encoding="utf-8")
+# ── Tab 2: Reference papers ──────────────────────────────────────────────
 
-    # Count lines to decide whether to collapse by default
-    line_count = content.count("\n")
-    collapse_by_default = line_count > 40
+with tab_refs:
+    st.header("Reference Papers")
+    st.caption("Papers used in or relevant to the hm2p pipeline.")
 
-    with st.expander(label, expanded=not collapse_by_default):
-        if date:
-            st.caption(f"Date: {date}  |  File: `{path.relative_to(_PAPERS_DIR.parent.parent)}`")
-        else:
-            st.caption(f"File: `{path.relative_to(_PAPERS_DIR.parent.parent)}`")
+    content = _read_doc("reference-papers.md")
+    if content:
         st.markdown(content)
+    else:
+        st.info("No `docs/reference-papers.md` found.")
+
+# ── Tab 3: Research landscape ────────────────────────────────────────────
+
+with tab_landscape:
+    st.header("Research Landscape")
+    st.caption("Survey of related neuroscience pipelines and tools.")
+
+    content = _read_doc("research-landscape.md")
+    if content:
+        st.markdown(content)
+    else:
+        st.info("No `docs/research-landscape.md` found.")
+
+# ── Tab 4: Maze & navigation ideas ──────────────────────────────────────
+
+with tab_maze:
+    st.header("Maze Exploration & Navigation")
+    st.caption(
+        "Literature review and analysis ideas connecting maze behaviour to RSP activity."
+    )
+
+    content = _read_doc("maze-exploration-ideas.md")
+    if content:
+        st.markdown(content)
+    else:
+        st.info("No `docs/maze-exploration-ideas.md` found.")
+
+# ── Tab 5: PDF library ──────────────────────────────────────────────────
+
+with tab_pdfs:
+    st.header("PDF Library")
+    st.caption(
+        "Papers stored in `papers/`. Organised by subfolder."
+    )
+
+    pdf_groups = _collect_pdfs()
+    if not pdf_groups:
+        st.info("No PDFs found in `papers/`.")
+    else:
+        total = sum(len(v) for v in pdf_groups.values())
+        st.write(f"{total} PDFs across {len(pdf_groups)} folder{'s' if len(pdf_groups) != 1 else ''}.")
+
+        for folder, pdfs in sorted(pdf_groups.items()):
+            with st.expander(f"{folder} ({len(pdfs)} papers)", expanded=True):
+                for pdf in pdfs:
+                    st.markdown(f"- **{pdf.stem}**")
