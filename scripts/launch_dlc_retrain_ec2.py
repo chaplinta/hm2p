@@ -58,7 +58,8 @@ echo "=== DLC retrain (GPU enforced, 24h timeout) ==="
 echo "Started: $(date -u)"
 
 trap 'aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_retrain_log.txt || true; \\
-      aws s3 cp /var/log/gpu_monitor.csv s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_monitor.csv || true' EXIT
+      aws s3 cp /var/log/gpu_monitor.csv s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_monitor.csv || true; \\
+      shutdown -h now' EXIT
 
 {creds}
 {DPKG_WAIT_SNIPPET}

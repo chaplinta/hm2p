@@ -71,7 +71,7 @@ print(f'GPU: {torch.cuda.get_device_name(0)}')
 print(f'CUDA tensor test: OK')
 import deeplabcut
 print(f'DLC {deeplabcut.__version__}')
-" || { echo "FATAL: PyTorch/CUDA/DLC verification failed. Aborting."; shutdown -h now; }
+" || { echo "FATAL: PyTorch/CUDA/DLC verification failed. Aborting."; exit 1; }
 """
 
 DPKG_WAIT_SNIPPET = """
