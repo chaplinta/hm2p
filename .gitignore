@@ -56,6 +56,8 @@ brains-reg/
 *.npz
 # But DO track Suite2p classifiers and ops (small, essential project assets)
 !sourcedata/trackers/suite2p/*.npy
+# And DLC label files (small, irreplaceable human annotations)
+!sourcedata/trackers/dlc/**/CollectedData_*.h5
 
 # Secrets / credentials
 .env
@@ -85,9 +87,13 @@ NOTEPAD.md
 # Pipeline results (uploaded to S3)
 results/
 
-# DLC retraining — extracted frames are large, keep only the indices
-retrain_frames/
-sourcedata/trackers/dlc/*/labeled-data/
+# DLC retraining — extracted PNGs are large and regenerable from S3 video + frame indices.
+# Only track the labels (CollectedData) and config, not the images.
+/retrain_frames/
+sourcedata/trackers/dlc/*/labeled-data/**/*.png
+# But DO track CollectedData labels (small, irreplaceable human annotations)
+!sourcedata/trackers/dlc/*/labeled-data/**/*.csv
+!sourcedata/trackers/dlc/*/labeled-data/**/*.h5
 
 # Docker
 docker/.env

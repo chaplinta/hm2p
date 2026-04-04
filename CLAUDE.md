@@ -18,6 +18,14 @@ or similar. State what the code does, not how impressive it is.
 - `/data/brains-sorted/` — serial-2P brain volumes (read-only bind mount)
 - `/data/brains-reg/` — brainreg registered volumes (read-only bind mount)
 - `/data/video-meta-backup/` — video metadata backups (read-only bind mount)
+- `retrain_frames/` — extracted PNGs for DLC retraining (untracked but not regenerated automatically)
+- `sourcedata/trackers/dlc/*/labeled-data/**/*.png` — same PNGs inside DLC project (untracked)
+
+**Do not delete `retrain_frames/` or DLC labeled-data PNGs.** These are regenerable
+from S3 video + frame indices, but regeneration requires downloading ~140 MB per session.
+The PNGs are gitignored (not committed) but should be preserved locally. Only the
+`CollectedData_*.csv/.h5` labels and `config.yaml` are tracked in git. See
+[docs/dlc-retraining.md](docs/dlc-retraining.md) for the full recovery procedure.
 
 You **may copy files from these directories into `/Users/tristan/Neuro/hm2p-v2`** (e.g. to
 bring in metadata CSVs, calibration files, or model weights). Do not delete or modify
