@@ -130,12 +130,13 @@ class TestParseSessionId:
 class TestStagePrefixes:
     """Verify the STAGE_PREFIXES constant."""
 
-    def test_has_six_stages(self):
-        assert len(STAGE_PREFIXES) == 6
+    def test_has_seven_stages(self):
+        assert len(STAGE_PREFIXES) == 7
 
     def test_expected_keys(self):
         assert set(STAGE_PREFIXES.keys()) == {
             "ca_extraction",
+            "dlc_training",
             "pose",
             "kinematics",
             "calcium",
@@ -146,8 +147,11 @@ class TestStagePrefixes:
     def test_ca_extraction_label(self):
         assert STAGE_PREFIXES["ca_extraction"] == "Stage 1 — Suite2p"
 
+    def test_dlc_training_label(self):
+        assert STAGE_PREFIXES["dlc_training"] == "Stage 2a — DLC Training"
+
     def test_pose_label(self):
-        assert STAGE_PREFIXES["pose"] == "Stage 2 — DLC"
+        assert STAGE_PREFIXES["pose"] == "Stage 2b — DLC Inference"
 
     def test_kinematics_label(self):
         assert STAGE_PREFIXES["kinematics"] == "Stage 3 — Kinematics"
@@ -158,9 +162,15 @@ class TestStagePrefixes:
     def test_sync_label(self):
         assert STAGE_PREFIXES["sync"] == "Stage 5 — Sync"
 
-    def test_labels_contain_stage_number(self):
-        for i, key in enumerate(STAGE_PREFIXES, start=1):
-            assert f"Stage {i}" in STAGE_PREFIXES[key]
+    def test_dlc_training_is_inference_dependency(self):
+        from frontend.data import DOWNSTREAM_DEPS
+        assert "pose" in DOWNSTREAM_DEPS["dlc_training"]
+
+    def test_pose_label_says_inference(self):
+        assert "Inference" in STAGE_PREFIXES["pose"]
+
+    def test_dlc_training_label_says_training(self):
+        assert "Training" in STAGE_PREFIXES["dlc_training"]
 
 
 # ===================================================================

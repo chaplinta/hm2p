@@ -106,11 +106,11 @@ git) reference these frames by filename, so everything reconnects automatically.
 
 ## Pipeline dependency
 
-After retraining, the DLC model re-runs inference on all 26 sessions. This
-invalidates all downstream stages:
+After retraining, DLC inference re-runs on all 26 sessions. This invalidates
+all downstream stages:
 
 ```
-DLC (Stage 2) --> Kinematics (Stage 3) --> MoSeq (Stage 3b) --> Sync (Stage 5) --> Analysis (Stage 6)
+DLC Training (Stage 2a) --> DLC Inference (Stage 2b) --> Kinematics (Stage 3) --> MoSeq (Stage 3b) --> Sync (Stage 5) --> Analysis (Stage 6)
 ```
 
 Stage 4 (Calcium) is independent and does not need re-running.

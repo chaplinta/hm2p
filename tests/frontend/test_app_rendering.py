@@ -46,11 +46,11 @@ MOCK_ANIMALS = [
 
 MOCK_PIPELINE_STATUS = {
     "20220804_13_52_02_1117646": {
-        "ca_extraction": True, "pose": True, "kinematics": True,
+        "ca_extraction": True, "dlc_training": True, "pose": True, "kinematics": True,
         "calcium": True, "sync": True, "analysis": True,
     },
     "20221015_10_00_00_1116663": {
-        "ca_extraction": True, "pose": True, "kinematics": False,
+        "ca_extraction": True, "dlc_training": True, "pose": True, "kinematics": False,
         "calcium": True, "sync": False, "analysis": False,
     },
 }
@@ -58,7 +58,8 @@ MOCK_PIPELINE_STATUS = {
 MOCK_STAGE_SUMMARY = {
     "ingest": {"label": "Stage 0 — Ingest", "short": "Ingest", "expected": 26, "done": 26, "status": "Complete", "color": "green"},
     "ca_extraction": {"label": "Stage 1 — Suite2p", "short": "Suite2p", "expected": 26, "done": 26, "status": "Complete", "color": "green"},
-    "pose": {"label": "Stage 2 — DLC", "short": "DLC", "expected": 26, "done": 26, "status": "Complete", "color": "green"},
+    "dlc_training": {"label": "Stage 2a — DLC Training", "short": "DLC Train", "expected": 1, "done": 1, "status": "Complete", "color": "green"},
+    "pose": {"label": "Stage 2b — DLC Inference", "short": "DLC Infer", "expected": 26, "done": 26, "status": "Complete", "color": "green"},
     "kinematics": {"label": "Stage 3 — Kinematics", "short": "Kinematics", "expected": 21, "done": 21, "status": "Complete", "color": "green"},
     "calcium": {"label": "Stage 4 — Calcium", "short": "Calcium", "expected": 26, "done": 26, "status": "Complete", "color": "green"},
     "sync": {"label": "Stage 5 — Sync", "short": "Sync", "expected": 21, "done": 21, "status": "Complete", "color": "green"},

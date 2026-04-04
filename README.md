@@ -84,10 +84,15 @@ Raw Data (Dropbox → S3)
   │
   ├──────────────────────────────────┐
   ▼                                  ▼
-Stage 1 — 2P Extraction          Stage 2 — Pose Estimation
-  Suite2p (default) or CaImAn      DeepLabCut (default) / SLEAP / LightningPose
-  ROI detection, F traces           Keypoint tracking (5 body parts)
-  → derivatives/ca_extraction/      → derivatives/pose/
+Stage 1 — 2P Extraction          Stage 2a — DLC Training (GPU, 24h max)
+  Suite2p (default) or CaImAn      Fine-tune SuperAnimal on labelled frames
+  ROI detection, F traces           → derivatives/dlc_training/models/
+  → derivatives/ca_extraction/      │
+                                     ▼
+                                   Stage 2b — DLC Inference
+                                     DeepLabCut (default) / SLEAP / LightningPose
+                                     Keypoint tracking (5 body parts)
+                                     → derivatives/pose/
   │                                  │
   ▼ Stage 4 — Calcium Processing   Stage 3 — Kinematics
   │  Neuropil subtraction             movement library

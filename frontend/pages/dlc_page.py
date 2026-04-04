@@ -27,7 +27,7 @@ from frontend.data import (
 
 log = logging.getLogger("hm2p.frontend.dlc")
 
-st.title("DLC Pose Estimation")
+st.title("DLC Inference (Stage 2b)")
 
 # --- Progress overview (from actual S3 file counts) ---
 st.header("Processing Progress")

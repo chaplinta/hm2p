@@ -1,6 +1,7 @@
-"""Stage 2 — pose estimation (DLC default, SLEAP/LP alt).
+"""Stage 2b — DLC inference / pose estimation (DLC default, SLEAP/LP alt).
 
 GPU required. Run with local-gpu or aws-batch profile.
+Depends on Stage 2a (DLC Training) when using a fine-tuned model.
 """
 
 from pathlib import Path

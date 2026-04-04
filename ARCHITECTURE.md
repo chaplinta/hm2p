@@ -32,9 +32,13 @@ flowchart TB
         CAI --> ROIEX
     end
 
-    MP4 --> S2
+    MP4 --> S2B
 
-    subgraph S2["🐭 Stage 2 — Pose Estimation  (GPU)"]
+    subgraph S2A["🏋 Stage 2a — DLC Training  (GPU, 24h max)"]
+        TRAIN["Fine-tune SuperAnimal\nmodel weights"]
+    end
+
+    subgraph S2B["🐭 Stage 2b — DLC Inference  (GPU)"]
         direction LR
         DLC["DeepLabCut\ndefault"]
         SLP["SLEAP\nalt"]
@@ -45,9 +49,11 @@ flowchart TB
         LPO --> MOV
     end
 
+    S2A -->|"model weights"| S2B
+
     S0  -->|"timestamps.h5"| S3
     S0  -->|"timestamps.h5"| S4
-    S2  -->|"pose/ native"| S3
+    S2B  -->|"pose/ native"| S3
 
     subgraph S3["🏃 Stage 3 — Kinematics  (CPU)"]
         KIN["HD · position · speed\nAHV · light_on · bad_behav\nmaze coords  →  kinematics.h5"]
@@ -82,7 +88,8 @@ flowchart TB
     style RAW fill:#dbeafe,stroke:#2563eb,color:#1e3a5f
     style S0  fill:#fef3c7,stroke:#d97706,color:#78350f
     style S1  fill:#f3e8ff,stroke:#7c3aed,color:#3b0764
-    style S2  fill:#f3e8ff,stroke:#7c3aed,color:#3b0764
+    style S2A fill:#f3e8ff,stroke:#7c3aed,color:#3b0764
+    style S2B fill:#f3e8ff,stroke:#7c3aed,color:#3b0764
     style S3  fill:#dcfce7,stroke:#16a34a,color:#14532d
     style S4  fill:#dcfce7,stroke:#16a34a,color:#14532d
     style S5  fill:#dcfce7,stroke:#16a34a,color:#14532d
@@ -124,7 +131,8 @@ flowchart LR
 | --- | --- | --- | --- | --- |
 | 0 | Ingest & DAQ | CPU | `timestamps.h5` | TDMS → frame times, light pulses; raw file validation |
 | 1 | 2P Extraction | GPU | `ca_extraction/` | Suite2p (default) or CaImAn via roiextractors |
-| 2 | Pose Estimation | GPU | `pose/` | DLC (default), SLEAP, or LightningPose via movement |
+| 2a | DLC Training | GPU (24h max) | `dlc_training/models/` | Fine-tune SuperAnimal on manually labelled frames; GPU required |
+| 2b | DLC Inference | GPU | `pose/` | DLC (default), SLEAP, or LightningPose via movement; depends on 2a |
 | 3 | Kinematics | CPU | `kinematics.h5` | HD, position, speed, AHV, light_on, bad_behav |
 | 3b | Syllables (optional) | CPU | `syllables.npz` | keypoint-MoSeq (AR-HMM) or VAME — zero-label segmentation |
 | 4 | Calcium Processing | CPU | `ca.h5` | Neuropil subtraction → dF/F → CASCADE spike inference |
@@ -136,7 +144,7 @@ Stage 4b is separated from Stage 4 in the runner because CASCADE can be re-run i
 (e.g. with a different model) without repeating neuropil subtraction or dF/F computation.
 The `scripts/run_cascade.py` runner targets Stage 4b alone.
 
-**Dependency chain:** Stage 2 (pose) → Stage 3 → Stage 3b → Stage 5 → Stage 6. Stage 4 / 4b
+**Dependency chain:** Stage 2a (DLC Training) → Stage 2b (DLC Inference) → Stage 3 → Stage 3b → Stage 5 → Stage 6. Stage 4 / 4b
 are independent of pose data and do not need re-running when pose is updated.
 
 ---

@@ -203,7 +203,8 @@ Optional Stage 3b outputs (exploratory — deferred until Stages 0–5 complete)
 | --- | --- | --- | --- |
 | 0 — Ingest | ✓ | ✓ | ✓ |
 | 1 — 2P extraction | slow | ✓ | ✓ |
-| 2 — Pose estimation | ✗ | ✓ | ✓ |
+| 2a — DLC Training | ✗ | ✓ | ✓ |
+| 2b — DLC Inference | ✗ | ✓ | ✓ |
 | 3 — Kinematics | ✓ | ✓ | ✓ |
 | 4 — Calcium processing | ✓ | ✓ | ✓ |
 | 5 — Sync | ✓ | ✓ | ✓ |
@@ -215,19 +216,21 @@ Compute profile set in `config/compute.yaml`: `local`, `local-gpu`, or `aws-batc
 ## Processing Pipeline (summary)
 
 ```text
-Stage 0  Ingest + validate + DAQ parse  CPU    DataShuttle → S3; TDMS → timestamps.h5
-Stage 1  2P extraction (pluggable)      GPU    TIFF → ca_extraction/ via roiextractors
-Stage 2  Pose estimation (pluggable)    GPU    .mp4 → pose/ (DLC / SLEAP / LP)
-Stage 3  Kinematics (movement)          CPU    pose → kinematics.h5 (HD, position, speed)
-Stage 3b MoSeq syllables (kpms)         CPU    pose → syllables.npz (keypoint-MoSeq AR-HMM)
-Stage 4  Calcium processing             CPU    roiextractors → FISSA → CASCADE → ca.h5
-Stage 5  Sync                           CPU    kinematics + ca → sync.h5
-Stage 6  Analysis                       CPU    sync → analysis.h5 (tuning, decoding, etc.)
+Stage 0   Ingest + validate + DAQ parse  CPU           DataShuttle → S3; TDMS → timestamps.h5
+Stage 1   2P extraction (pluggable)      GPU           TIFF → ca_extraction/ via roiextractors
+Stage 2a  DLC Training                   GPU (24h max)  labeled frames → dlc_training/models/
+Stage 2b  DLC Inference (pluggable)      GPU           .mp4 → pose/ (DLC / SLEAP / LP); depends on 2a
+Stage 3   Kinematics (movement)          CPU           pose → kinematics.h5 (HD, position, speed)
+Stage 3b  MoSeq syllables (kpms)         CPU           pose → syllables.npz (keypoint-MoSeq AR-HMM)
+Stage 4   Calcium processing             CPU           roiextractors → FISSA → CASCADE → ca.h5
+Stage 5   Sync                           CPU           kinematics + ca → sync.h5
+Stage 6   Analysis                       CPU           sync → analysis.h5 (tuning, decoding, etc.)
 ```
 
-**Dependency chain:** If Stage 2 (DLC) is re-run, **all** downstream stages must
-re-run: Stage 3 → Stage 3b (MoSeq) → Stage 5 → Stage 6. Stage 4 is independent
-of pose data and does not need re-running.
+**Dependency chain:** If Stage 2a (DLC Training) is re-run, Stage 2b and all
+downstream stages must re-run: Stage 2b → Stage 3 → Stage 3b (MoSeq) → Stage 5 → Stage 6.
+If only Stage 2b (DLC Inference) is re-run: Stage 3 → Stage 3b → Stage 5 → Stage 6.
+Stage 4 is independent of pose data and does not need re-running.
 
 **Process ALL sessions:** Pipeline stages must process **all 26 sessions** regardless
 of `exclude` or `primary_exp` flags. Those flags are for analysis-time filtering
@@ -239,7 +242,8 @@ invalidated** and their completion status resets to 0/26. Stale data from
 invalidated stages must NOT be shown in the frontend — pages should check
 whether upstream stages have completed more recently than the data they display.
 The pipeline status page and all analysis pages must reflect the true state:
-- If DLC (Stage 2) is re-running → Stages 3, 3b, 5, 6 show as "pending re-run"
+- If DLC Training (Stage 2a) is re-running → Stages 2b, 3, 3b, 5, 6 show as "pending re-run"
+- If DLC Inference (Stage 2b) is re-running → Stages 3, 3b, 5, 6 show as "pending re-run"
 - Stale sync.h5 / analysis.h5 from before the re-run should be flagged or hidden
 - Frontend pages loading stale data should show a warning banner
 

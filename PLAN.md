@@ -256,7 +256,43 @@ plus `bad_frames.npy` for bad-frame masking in Stage 4.
 
 ---
 
-### Stage 2 — Pose Estimation (pluggable tracker)
+### Stage 2a — DLC Training (GPU, 24h maximum)
+
+**Input:** Manually labelled frames uploaded to `s3://hm2p-derivatives/dlc-retrain/`
+
+Fine-tunes the DeepLabCut SuperAnimal TopViewMouse model on labelled hm2p frames.
+This stage is run when tracking quality is poor for one or more sessions and
+requires retraining. It is not run for every session — it produces one trained
+model used by Stage 2b.
+
+Steps:
+1. Download labeled data (`config.yaml`, `CollectedData_*.csv`, `CollectedData_*.h5`) from S3
+2. Create training dataset with SuperAnimal transfer weights
+3. Fine-tune network for up to `maxiters` iterations (default 50,000)
+4. Evaluate and upload model weights to `s3://hm2p-derivatives/dlc_training/models/`
+
+**Hard requirements:**
+- GPU verified at startup — instance terminates if CUDA is unavailable
+- GPU utilization monitored every 30s; if 0% for 5 consecutive minutes during processing, instance terminates
+- 24-hour hard timeout — instance terminates after 24h regardless
+- Instance self-terminates on completion (`InstanceInitiatedShutdownBehavior=terminate`)
+
+**Output:** Trained model weights in `derivatives/dlc_training/models/`.
+Stage 2b uses these weights for inference.
+
+**Tools:** DeepLabCut 3.x (PyTorch), SuperAnimal TopViewMouse + HRNet-W32 + FasterRCNN
+**Compute:** GPU required — EC2 g5.xlarge (A10G) or local GPU machine
+
+**Launch:**
+```bash
+uv run python scripts/launch_dlc_retrain_ec2.py
+```
+
+---
+
+### Stage 2b — DLC Inference / Pose Estimation (pluggable tracker)
+
+**Depends on:** Stage 2a (DLC Training) for fine-tuned model weights when retraining has been performed.
 
 **Input:** Pre-processed behavioural `.mp4` video per session
 

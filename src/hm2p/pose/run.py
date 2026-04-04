@@ -1,8 +1,10 @@
-"""Stage 2 — dispatch pose estimation to tracker backend.
+"""Stage 2b — dispatch pose estimation (DLC inference) to tracker backend.
 
-The tracker is selected from session.tracker (set in experiments.csv).
-All trackers produce a native pose file in derivatives/pose/<sub>/<ses>/.
-Stage 3 then loads the result via movement regardless of tracker used.
+Depends on Stage 2a (DLC Training) for fine-tuned model weights when
+retraining has been performed. The tracker is selected from session.tracker
+(set in experiments.csv). All trackers produce a native pose file in
+derivatives/pose/<sub>/<ses>/. Stage 3 then loads the result via movement
+regardless of tracker used.
 
 Current backends:
     dlc   — DeepLabCut 3.x (default)

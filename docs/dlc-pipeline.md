@@ -1,4 +1,4 @@
-# DLC Training and Inference Pipeline
+# DLC Pipeline — Training (Stage 2a) and Inference (Stage 2b)
 
 ## Hard Requirements
 

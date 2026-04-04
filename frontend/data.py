@@ -124,7 +124,8 @@ def signal_type_selector(
 
 STAGE_PREFIXES = {
     "ca_extraction": "Stage 1 — Suite2p",
-    "pose": "Stage 2 — DLC",
+    "dlc_training": "Stage 2a — DLC Training",
+    "pose": "Stage 2b — DLC Inference",
     "kinematics": "Stage 3 — Kinematics",
     "calcium": "Stage 4 — Calcium",
     "sync": "Stage 5 — Sync",
@@ -148,9 +149,15 @@ PIPELINE_STAGES = {
         "s3_prefix": "ca_extraction",
         "expected": 26,
     },
+    "dlc_training": {
+        "label": "Stage 2a — DLC Training",
+        "short": "DLC Train",
+        "s3_prefix": "dlc_training",
+        "expected": 1,  # one trained model, not per-session
+    },
     "pose": {
-        "label": "Stage 2 — DLC",
-        "short": "DLC",
+        "label": "Stage 2b — DLC Inference",
+        "short": "DLC Infer",
         "s3_prefix": "pose",
         "expected": 26,
     },
@@ -197,6 +204,7 @@ PIPELINE_STAGES = {
 # all downstream stages are stale and should show as "pending re-run".
 # This is checked by looking for a pipeline_rerun.json marker on S3.
 DOWNSTREAM_DEPS: dict[str, list[str]] = {
+    "dlc_training": ["pose", "kinematics", "kpms", "sync", "analysis"],
     "pose": ["kinematics", "kpms", "sync", "analysis"],
     "ca_extraction": ["calcium", "cascade", "sync", "analysis"],
     "kinematics": ["sync", "analysis"],
@@ -232,10 +240,18 @@ def _get_rerun_status() -> dict:
                 if inst["state"] != "running":
                     continue
                 name = inst.get("project", "").lower()
+                if "dlc-retrain" in name or "dlc_retrain" in name:
+                    # DLC training instance — invalidates inference + all downstream
+                    result = {
+                        "rerunning": ["dlc_training"],
+                        "reason": f"DLC training running on {inst['id']}",
+                    }
+                    break
                 if "dlc" in name:
+                    # DLC inference-only instance
                     result = {
                         "rerunning": ["pose"],
-                        "reason": f"DLC running on {inst['id']}",
+                        "reason": f"DLC inference running on {inst['id']}",
                     }
                     break
                 if "suite2p" in name:
@@ -273,6 +289,9 @@ def get_stage_summary() -> dict[str, dict]:
         elif key == "ingest":
             # Ingest: count timestamps.h5 on rawdata bucket
             done = expected  # always 26/26 (already uploaded)
+        elif key == "dlc_training":
+            # DLC Training: check for trained model weights on S3
+            done = _count_dlc_training_outputs()
         else:
             done = sum(
                 1 for s in pipeline_status.values() if s.get(key, False)
@@ -331,6 +350,7 @@ def _count_new_outputs(stage_key: str, since_iso: str) -> int:
         return 0
 
     prefix_map = {
+        "dlc_training": "dlc_training/",
         "pose": "pose/",
         "kinematics": "kinematics/",
         "calcium": "calcium/",
@@ -375,6 +395,27 @@ def _count_cascade_outputs() -> int:
                 if "spikes" in f:
                     return 26  # CASCADE runs all-or-nothing
         return 0
+    except Exception:
+        return 0
+
+
+@st.cache_data(ttl=300)
+def _count_dlc_training_outputs() -> int:
+    """Check S3 for trained DLC model weights (dlc_training/ prefix).
+
+    Returns 1 if at least one model checkpoint exists, 0 otherwise.
+    The DLC Training stage produces one model (not per-session), so expected=1.
+    """
+    try:
+        s3 = get_s3_client()
+        resp = s3.list_objects_v2(
+            Bucket=DERIVATIVES_BUCKET, Prefix="dlc_training/models/",
+        )
+        has_model = any(
+            obj["Key"].endswith((".pb", ".index", ".data-00000-of-00001", ".pkl"))
+            for obj in resp.get("Contents", [])
+        )
+        return 1 if has_model else 0
     except Exception:
         return 0
 

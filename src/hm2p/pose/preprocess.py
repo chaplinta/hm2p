@@ -1,4 +1,4 @@
-"""Stage 2 — video pre-processing utilities for pose trackers.
+"""Stage 2b — video pre-processing utilities for pose trackers (DLC inference).
 
 **All 26 sessions already have pre-processed videos** (undistorted then
 cropped by the legacy pipeline).  The `.mp4` files uploaded to S3 /
