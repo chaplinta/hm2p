@@ -8,7 +8,9 @@ Search date: 2026-04-04. Searches covered: retrosplenial cortex, Penk/enkephalin
 cortex, head direction + two-photon, head direction + darkness/landmarks/drift, spatial
 navigation + maze (rodents), visual processing in RSP, spatial navigation in RSP,
 head-mounted two-photon microscopy, calcium imaging + maze navigation, neuropil
-contamination + two-photon.
+contamination + two-photon, visual cues + head direction + cue removal + path
+integration, angular head velocity + cortex + calcium imaging, cell-type-specific
+calcium imaging + freely moving mouse.
 
 Papers already listed in the 2026-04-02 scan are not repeated here.
 
