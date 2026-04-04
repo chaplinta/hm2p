@@ -44,6 +44,20 @@ def _extract_date(path: Path) -> str:
     return ""
 
 
+_REVIEWS_DIR = _PAPERS_DIR / "reviews"
+
+
+def _collect_reviews() -> list[tuple[str, Path]]:
+    """Collect paper review/summary markdown files from papers/reviews/."""
+    if not _REVIEWS_DIR.exists():
+        return []
+    entries = []
+    for md in _REVIEWS_DIR.glob("*-summary.md"):
+        entries.append((md.stem.replace("-summary", ""), md))
+    entries.sort(key=lambda x: x[0])
+    return entries
+
+
 def _collect_scans() -> list[tuple[str, Path]]:
     """Collect biorxiv scan markdown files, newest first."""
     if not _SCANS_DIR.exists():
@@ -81,8 +95,9 @@ def _read_doc(name: str) -> str | None:
 
 st.title("Literature & Papers")
 
-tab_scans, tab_refs, tab_neuropil, tab_maze, tab_pdfs, tab_landscape = st.tabs([
+tab_scans, tab_reviews, tab_refs, tab_neuropil, tab_maze, tab_pdfs, tab_landscape = st.tabs([
     "Biorxiv Scans",
+    "Paper Reviews",
     "Reference Papers",
     "Neuropil",
     "Maze & Navigation",
@@ -118,7 +133,32 @@ with tab_scans:
                 st.caption(f"File: `papers/biorxiv-scans/{path.name}`")
                 st.markdown(content)
 
-# ── Tab 2: Reference papers ──────────────────────────────────────────────
+# ── Tab 2: Paper reviews ─────────────────────────────────────────────────
+
+with tab_reviews:
+    st.header("Paper Reviews")
+    st.caption(
+        "Summaries of key papers written by the RSP science advisor. "
+        "Source PDFs are in `papers/reviews/`."
+    )
+
+    reviews = _collect_reviews()
+    if not reviews:
+        st.info(
+            "No paper review summaries yet. "
+            "Add PDFs to `papers/reviews/` and the RSP agent will summarise them."
+        )
+    else:
+        st.write(f"{len(reviews)} review{'s' if len(reviews) != 1 else ''} found.")
+        for name, path in reviews:
+            content = path.read_text(encoding="utf-8")
+            # Use first markdown heading as label, fallback to filename
+            first_line = content.strip().split("\n")[0].lstrip("# ").strip()
+            label = first_line if first_line else name
+            with st.expander(label, expanded=len(reviews) == 1):
+                st.markdown(content)
+
+# ── Tab 3: Reference papers ──────────────────────────────────────────────
 
 with tab_refs:
     st.header("Reference Papers")
@@ -130,7 +170,7 @@ with tab_refs:
     else:
         st.info("No `docs/reference-papers.md` found.")
 
-# ── Tab 3: Neuropil literature review ───────────────────────────────────
+# ── Tab 4: Neuropil literature review ───────────────────────────────────
 
 with tab_neuropil:
     st.header("Neuropil Contamination in Two-Photon Calcium Imaging")
@@ -145,7 +185,7 @@ with tab_neuropil:
     else:
         st.info("No `docs/neuropil-literature-review.md` found.")
 
-# ── Tab 4: Maze & navigation ideas ──────────────────────────────────────
+# ── Tab 5: Maze & navigation ideas ──────────────────────────────────────
 
 with tab_maze:
     st.header("Maze Exploration & Navigation")
@@ -159,7 +199,7 @@ with tab_maze:
     else:
         st.info("No `docs/maze-exploration-ideas.md` found.")
 
-# ── Tab 5: PDF library ──────────────────────────────────────────────────
+# ── Tab 6: PDF library ──────────────────────────────────────────────────
 
 with tab_pdfs:
     st.header("PDF Library")
@@ -179,7 +219,7 @@ with tab_pdfs:
                 for pdf in pdfs:
                     st.markdown(f"- **{pdf.stem}**")
 
-# ── Tab 6: Pipeline landscape ──────────────────────────────────────────
+# ── Tab 7: Pipeline landscape ──────────────────────────────────────────
 
 with tab_landscape:
     st.header("Pipeline Landscape")
