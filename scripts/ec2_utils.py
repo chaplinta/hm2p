@@ -53,14 +53,15 @@ pip3 install --break-system-packages \\
     torch torchvision torchaudio \\
     --index-url https://download.pytorch.org/whl/cu121
 
-# Step 2: DLC without deps (avoids overwriting CUDA PyTorch)
-pip3 install --break-system-packages --quiet --pre --no-deps deeplabcut
+# Step 2: Install DLC with all deps (--pre for 3.0rc)
+# PyTorch CUDA was installed in Step 1 with --index-url pinning.
+# DLC's pip install may pull CPU torch — we re-verify CUDA afterwards.
+pip3 install --break-system-packages --quiet --pre deeplabcut
 
-# Step 3: Remaining DLC deps (excluding torch*)
-pip3 install --break-system-packages --quiet \\
-    pandas numpy scipy matplotlib albumentations \\
-    timm dlclibrary tables huggingface_hub scikit-image scikit-learn \\
-    filterpy numba imgaug segment-anything pyyaml 2>/dev/null || true
+# Step 3: Re-install CUDA PyTorch if DLC overwrote it
+pip3 install --break-system-packages \\
+    torch torchvision torchaudio \\
+    --index-url https://download.pytorch.org/whl/cu121
 
 # Step 4: HARD VERIFY — abort if CUDA not working
 python3 -c "
