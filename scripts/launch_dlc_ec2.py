@@ -147,6 +147,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False, fo
         # while keeping the existing CUDA PyTorch.
         pip3 install --break-system-packages --quiet --pre --no-deps deeplabcut
         pip3 install --break-system-packages --quiet \
+            pandas numpy scipy matplotlib \
             timm torchvision torchaudio \
             dlclibrary tables huggingface_hub scikit-image scikit-learn \
             filterpy numba imgaug segment-anything 2>/dev/null || true

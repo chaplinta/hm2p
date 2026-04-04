@@ -58,6 +58,7 @@ pip3 install --break-system-packages --quiet --pre --no-deps deeplabcut
 
 # Step 3: Remaining DLC deps (excluding torch*)
 pip3 install --break-system-packages --quiet \\
+    pandas numpy scipy matplotlib \\
     timm dlclibrary tables huggingface_hub scikit-image scikit-learn \\
     filterpy numba imgaug segment-anything pyyaml 2>/dev/null || true
 
@@ -66,11 +67,11 @@ python3 -c "
 import torch
 assert torch.cuda.is_available(), 'FATAL: CUDA not available'
 t = torch.randn(100, 100, device='cuda')
-print(f'GPU: {{torch.cuda.get_device_name(0)}}')
+print(f'GPU: {torch.cuda.get_device_name(0)}')
 print(f'CUDA tensor test: OK')
 import deeplabcut
-print(f'DLC {{deeplabcut.__version__}}')
-" || {{ echo "FATAL: PyTorch/CUDA/DLC verification failed. Aborting."; shutdown -h now; }}
+print(f'DLC {deeplabcut.__version__}')
+" || { echo "FATAL: PyTorch/CUDA/DLC verification failed. Aborting."; shutdown -h now; }
 """
 
 DPKG_WAIT_SNIPPET = """
