@@ -58,7 +58,7 @@ pip3 install --break-system-packages --quiet --pre --no-deps deeplabcut
 
 # Step 3: Remaining DLC deps (excluding torch*)
 pip3 install --break-system-packages --quiet \\
-    pandas numpy scipy matplotlib \\
+    pandas numpy scipy matplotlib albumentations \\
     timm dlclibrary tables huggingface_hub scikit-image scikit-learn \\
     filterpy numba imgaug segment-anything pyyaml 2>/dev/null || true
 
