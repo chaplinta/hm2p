@@ -5,12 +5,21 @@ per-session camera rotation correction, filters low-confidence detections,
 computes HD, position, speed, AHV, movement state, light epoch alignment,
 and maze-coordinate positions. Writes kinematics.h5.
 
-SuperAnimal keypoints used: left_ear, right_ear, mid_back, mouse_center, tail_base.
-HD = forward vector from left_ear → right_ear, unwrapped (degrees).
+Keypoints used: nose_tip, left_ear, right_ear, implant_centre, neck,
+mid_back, mouse_center, tail_base.
+
+HD is computed by fusing up to three independent estimates from the head
+keypoints, weighted by availability (NaN = below confidence threshold):
+  1. Ear vector: perpendicular to left_ear → right_ear (primary).
+  2. Nose-implant axis: nose_tip → implant_centre direction.
+  3. Nose-neck axis: nose_tip → neck direction.
+Falls back gracefully when keypoints are occluded (e.g. nose behind the
+2P implant). Backwards-compatible: works with ears-only pose data.
 """
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -20,6 +29,8 @@ from hm2p.constants import SPEED_ACTIVE_THRESHOLD
 
 if TYPE_CHECKING:
     import xarray as xr
+
+_log = logging.getLogger("hm2p.kinematics")
 
 # Maze is a 7×5 unit rose-maze grid.
 # This shapely Polygon clips out-of-bounds positions.
@@ -65,9 +76,12 @@ _TRACKER_MAP: dict[str, str] = {
     "lp": "LightningPose",
 }
 
-# SuperAnimal TopViewMouse keypoint names
+# Keypoint names
 _EAR_LEFT: str = "left_ear"
 _EAR_RIGHT: str = "right_ear"
+_NOSE: str = "nose_tip"
+_IMPLANT: str = "implant_centre"
+_NECK: str = "neck"
 
 # Keypoints used for body centroid position
 _BODY_KEYPOINTS: tuple[str, ...] = ("mid_back", "mouse_center", "tail_base")
@@ -137,6 +151,73 @@ def median_filter_dataset(ds: xr.Dataset, window: int = 5) -> xr.Dataset:
     return ds
 
 
+def _vector_angle_deg(
+    from_x: np.ndarray,
+    from_y: np.ndarray,
+    to_x: np.ndarray,
+    to_y: np.ndarray,
+) -> np.ndarray:
+    """Compute per-frame angle (degrees) of the vector from→to.
+
+    Returns (N,) float64 — 180 + degrees(atan2(dx, dy)). May exceed [0, 360)
+    (e.g. exactly 360.0 for south). NaN where either point is NaN.
+    """
+    dx = to_x - from_x
+    dy = to_y - from_y
+    return 180.0 + np.degrees(np.arctan2(dx, dy))
+
+
+def _ear_perpendicular_angle(
+    ear_left_x: np.ndarray,
+    ear_left_y: np.ndarray,
+    ear_right_x: np.ndarray,
+    ear_right_y: np.ndarray,
+) -> np.ndarray:
+    """HD from perpendicular to ear-ear line (original method).
+
+    Returns (N,) float64. NaN where either ear is NaN.
+    """
+    angle_rad = np.arctan2(
+        ear_left_x - ear_right_x, ear_left_y - ear_right_y
+    )
+    return 180.0 + np.degrees(angle_rad)
+
+
+def _unwrap_and_smooth(
+    angle_deg: np.ndarray,
+    median_filter_win: int = 5,
+) -> np.ndarray:
+    """Unwrap a wrapped angle timeseries and apply median smoothing.
+
+    Args:
+        angle_deg: (N,) wrapped angle in degrees (may contain NaN).
+        median_filter_win: Window for post-unwrap median filter.
+
+    Returns:
+        (N,) float32 — unwrapped, smoothed HD in degrees.
+    """
+    nan_mask = np.isnan(angle_deg)
+    if nan_mask.all():
+        return np.full(len(angle_deg), np.nan, dtype=np.float32)
+
+    angle_filled = angle_deg.copy()
+    if nan_mask.any():
+        idx = np.arange(len(angle_deg), dtype=float)
+        valid = ~nan_mask
+        angle_filled[nan_mask] = np.interp(
+            idx[nan_mask], idx[valid], angle_deg[valid]
+        )
+
+    rad_unwrapped = np.unwrap(np.deg2rad(angle_filled), discont=np.pi)
+    deg_unwrapped = np.degrees(rad_unwrapped)
+
+    # Post-unwrap median filter (1D scalar — movement doesn't cover this).
+    deg_unwrapped = _median_filter_1d(deg_unwrapped, median_filter_win)
+
+    deg_unwrapped[nan_mask] = np.nan
+    return deg_unwrapped.astype(np.float32)
+
+
 def _compute_hd_deg(
     ear_left_x: np.ndarray,
     ear_left_y: np.ndarray,
@@ -144,48 +225,87 @@ def _compute_hd_deg(
     ear_right_y: np.ndarray,
     median_filter_win: int = 5,
 ) -> np.ndarray:
-    """Compute unwrapped head direction from ear vectors.
+    """Compute unwrapped HD from ear vectors only (legacy interface).
 
-    Formula: arctan2(left_x - right_x, left_y - right_y) → 180 + degrees.
+    Kept for backwards compatibility and unit tests.
+    """
+    angle_deg = _ear_perpendicular_angle(
+        ear_left_x, ear_left_y, ear_right_x, ear_right_y
+    )
+    return _unwrap_and_smooth(angle_deg, median_filter_win)
 
-    Ear positions should already be median-filtered via
-    ``median_filter_dataset()`` (movement's rolling_filter) before calling
-    this function. A post-unwrap median filter is applied to the HD signal
-    to smooth angle jitter (1D scalar, not covered by movement).
+
+def _fused_hd_wrapped(
+    ear_left_x: np.ndarray,
+    ear_left_y: np.ndarray,
+    ear_right_x: np.ndarray,
+    ear_right_y: np.ndarray,
+    nose_x: np.ndarray | None = None,
+    nose_y: np.ndarray | None = None,
+    implant_x: np.ndarray | None = None,
+    implant_y: np.ndarray | None = None,
+    neck_x: np.ndarray | None = None,
+    neck_y: np.ndarray | None = None,
+) -> np.ndarray:
+    """Fuse multiple HD estimates via circular mean, falling back gracefully.
+
+    Estimates used (when keypoints are available and not NaN):
+      1. Ear perpendicular: perpendicular to left_ear→right_ear.
+      2. Nose→implant: direction from nose_tip to implant_centre.
+      3. Nose→neck: direction from nose_tip to neck.
+
+    At each frame, all non-NaN estimates are combined via circular mean.
+    If only ears are available (legacy pose data), this reduces to the
+    original ear-only method.
 
     Args:
-        ear_left_x: (N,) x coordinate of ear-left keypoint (pre-filtered).
-        ear_left_y: (N,) y coordinate of ear-left keypoint (pre-filtered).
-        ear_right_x: (N,) x coordinate of ear-right keypoint (pre-filtered).
-        ear_right_y: (N,) y coordinate of ear-right keypoint (pre-filtered).
-        median_filter_win: Window for post-unwrap HD smoothing (default 5).
+        ear_left_x/y: (N,) ear positions (required).
+        nose_x/y: (N,) nose positions (optional).
+        implant_x/y: (N,) implant positions (optional).
+        neck_x/y: (N,) neck positions (optional).
 
     Returns:
-        (N,) float32 — HD in degrees, unwrapped.
+        (N,) float64 — fused wrapped HD in [0, 360) degrees. NaN where
+        no estimate is available.
     """
-    angle_rad = np.arctan2(ear_left_x - ear_right_x, ear_left_y - ear_right_y)
-    angle_deg = 180.0 + np.degrees(angle_rad)
+    n = len(ear_left_x)
 
-    nan_mask = np.isnan(angle_deg)
-    if nan_mask.all():
-        return np.full(len(angle_deg), np.nan, dtype=np.float32)
+    # Estimate 1: ear perpendicular (always available)
+    est_ear = _ear_perpendicular_angle(
+        ear_left_x, ear_left_y, ear_right_x, ear_right_y
+    )
 
-    # Fill NaN with linear interpolation so unwrap works cleanly
-    angle_filled = angle_deg.copy()
-    if nan_mask.any():
-        indices = np.arange(len(angle_deg), dtype=float)
-        valid = ~nan_mask
-        angle_filled[nan_mask] = np.interp(indices[nan_mask], indices[valid], angle_deg[valid])
+    # Estimate 2: nose → implant
+    est_nose_implant = np.full(n, np.nan)
+    if nose_x is not None and implant_x is not None:
+        est_nose_implant = _vector_angle_deg(
+            implant_x, implant_y, nose_x, nose_y
+        )
 
-    rad_unwrapped = np.unwrap(np.deg2rad(angle_filled), discont=np.pi)
-    deg_unwrapped = np.degrees(rad_unwrapped)
+    # Estimate 3: nose → neck
+    est_nose_neck = np.full(n, np.nan)
+    if nose_x is not None and neck_x is not None:
+        est_nose_neck = _vector_angle_deg(neck_x, neck_y, nose_x, nose_y)
 
-    # Post-unwrap median filter on the 1D HD signal (movement doesn't
-    # cover scalar 1D filtering — this is the only remaining scipy call).
-    deg_unwrapped = _median_filter_1d(deg_unwrapped, median_filter_win)
+    # Circular mean of all available estimates per frame.
+    # Convert to unit vectors, average, take angle.
+    estimates = [est_ear, est_nose_implant, est_nose_neck]
+    sin_sum = np.zeros(n, dtype=np.float64)
+    cos_sum = np.zeros(n, dtype=np.float64)
+    count = np.zeros(n, dtype=np.float64)
 
-    deg_unwrapped[nan_mask] = np.nan
-    return deg_unwrapped.astype(np.float32)
+    for est in estimates:
+        valid = ~np.isnan(est)
+        rad = np.deg2rad(est)
+        sin_sum[valid] += np.sin(rad[valid])
+        cos_sum[valid] += np.cos(rad[valid])
+        count[valid] += 1.0
+
+    fused = np.full(n, np.nan)
+    has_any = count > 0
+    mean_angle = np.degrees(np.arctan2(sin_sum[has_any], cos_sum[has_any]))
+    fused[has_any] = mean_angle % 360.0
+    return fused
 
 
 def _rotate_xy(
@@ -376,8 +496,27 @@ def interpolate_gaps(ds: xr.Dataset, max_gap_frames: int = 5) -> xr.Dataset:
     return ds.assign(position=interp_pos)
 
 
+def _get_keypoint_xy(
+    pos: "xr.DataArray", name: str
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Extract (x, y) arrays for a keypoint, or None if not in the dataset."""
+    kps = list(pos.coords["keypoints"].values)
+    if name not in kps:
+        return None
+    kp = pos.sel(keypoints=name)
+    return kp.sel(space="x").values, kp.sel(space="y").values
+
+
 def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
-    """Compute unwrapped head direction from left_ear → right_ear forward vector.
+    """Compute unwrapped head direction by fusing available head keypoints.
+
+    Uses circular mean of up to three independent HD estimates:
+      1. Ear perpendicular (left_ear, right_ear) — primary.
+      2. Nose→implant axis (nose_tip, implant_centre).
+      3. Nose→neck axis (nose_tip, neck).
+
+    Falls back to ears-only if other keypoints are absent (backwards
+    compatible with pose data that only has 5 bodyparts).
 
     Args:
         ds: movement Dataset (filtered + interpolated).
@@ -386,15 +525,41 @@ def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
         (N,) float32 — HD in degrees, unwrapped, referenced to camera frame.
     """
     pos = ds.position.isel(individuals=0)  # (time, space, keypoints)
-    ear_left = pos.sel(keypoints=_EAR_LEFT)
-    ear_right = pos.sel(keypoints=_EAR_RIGHT)
+    available_kps = list(pos.coords["keypoints"].values)
 
-    return _compute_hd_deg(
-        ear_left_x=ear_left.sel(space="x").values,
-        ear_left_y=ear_left.sel(space="y").values,
-        ear_right_x=ear_right.sel(space="x").values,
-        ear_right_y=ear_right.sel(space="y").values,
+    ear_left = _get_keypoint_xy(pos, _EAR_LEFT)
+    ear_right = _get_keypoint_xy(pos, _EAR_RIGHT)
+    if ear_left is None or ear_right is None:
+        raise ValueError(
+            f"Ears required for HD. Available keypoints: {available_kps}"
+        )
+
+    nose = _get_keypoint_xy(pos, _NOSE)
+    implant = _get_keypoint_xy(pos, _IMPLANT)
+    neck = _get_keypoint_xy(pos, _NECK)
+
+    # Log which estimates will be used
+    methods = ["ear_perpendicular"]
+    if nose is not None and implant is not None:
+        methods.append("nose_implant")
+    if nose is not None and neck is not None:
+        methods.append("nose_neck")
+    _log.info("HD fusion using %d estimates: %s", len(methods), methods)
+
+    fused_wrapped = _fused_hd_wrapped(
+        ear_left_x=ear_left[0],
+        ear_left_y=ear_left[1],
+        ear_right_x=ear_right[0],
+        ear_right_y=ear_right[1],
+        nose_x=nose[0] if nose else None,
+        nose_y=nose[1] if nose else None,
+        implant_x=implant[0] if implant else None,
+        implant_y=implant[1] if implant else None,
+        neck_x=neck[0] if neck else None,
+        neck_y=neck[1] if neck else None,
     )
+
+    return _unwrap_and_smooth(fused_wrapped)
 
 
 def compute_position_mm(
