@@ -79,14 +79,22 @@ def _load_gpu_monitor() -> list[dict] | None:
 
 @st.cache_data(ttl=120)
 def _check_model_exists() -> bool:
-    """Check whether trained model weights exist on S3 under dlc_training/models/."""
+    """Check whether trained model weights exist on S3.
+
+    Checks both dlc_training/models/ and dlc-retrain/models/ since the
+    retrain script uploads to the latter.
+    """
     try:
         s3 = get_s3_client()
-        resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=f"{TRAINING_MODEL_PREFIX}/")
-        return any(
-            obj["Key"].endswith((".pb", ".index", ".data-00000-of-00001", ".pkl"))
-            for obj in resp.get("Contents", [])
-        )
+        model_suffixes = (".pt", ".pth", ".pb", ".index", ".data-00000-of-00001", ".pkl")
+        for prefix in (f"{TRAINING_MODEL_PREFIX}/", f"{RETRAIN_PREFIX}/models/"):
+            resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=prefix)
+            if any(
+                obj["Key"].endswith(model_suffixes)
+                for obj in resp.get("Contents", [])
+            ):
+                return True
+        return False
     except Exception:
         return False
 
@@ -98,12 +106,28 @@ with st.spinner("Checking S3 for training status..."):
 
 # Model completion status
 if model_exists:
-    st.success("Trained model weights found on S3 (dlc_training/models/).")
+    st.success("Trained model weights found on S3.")
 else:
-    st.warning(
-        "No trained model found. "
-        "Run `scripts/launch_dlc_retrain_ec2.py` to start training."
-    )
+    # Check if training completed but model upload failed
+    _curves = _parse_training_curves()
+    if _curves and len(_curves) > 0:
+        last_epoch = _curves[-1]
+        if last_epoch["epoch"] == last_epoch["total_epochs"]:
+            st.warning(
+                f"Training completed ({last_epoch['epoch']} epochs) but model weights "
+                f"are not on S3. The upload may have failed. Re-run with `--train-only` "
+                f"or manually upload from the instance."
+            )
+        else:
+            st.info(
+                f"Training in progress or interrupted at epoch "
+                f"{last_epoch['epoch']}/{last_epoch['total_epochs']}."
+            )
+    else:
+        st.info(
+            "No trained model or training log found. "
+            "Run `scripts/launch_dlc_retrain_ec2.py` to start training."
+        )
 
 # Training progress
 if progress_data:
