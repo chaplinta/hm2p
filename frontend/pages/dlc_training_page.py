@@ -63,11 +63,13 @@ def _load_gpu_monitor() -> list[dict] | None:
     rows = []
     for row in reader:
         try:
-            gpu_col = row.get("utilization.gpu [%]", "0").strip().replace(" %", "")
-            mem_used = row.get("memory.used [MiB]", "0").strip().replace(" MiB", "")
-            mem_total = row.get("memory.total [MiB]", "0").strip().replace(" MiB", "")
+            # nvidia-smi CSV has leading spaces in headers and values
+            vals = {k.strip(): v.strip() for k, v in row.items()}
+            gpu_col = vals.get("utilization.gpu [%]", "0").replace(" %", "").replace("%", "")
+            mem_used = vals.get("memory.used [MiB]", "0").replace(" MiB", "").replace("MiB", "")
+            mem_total = vals.get("memory.total [MiB]", "0").replace(" MiB", "").replace("MiB", "")
             rows.append({
-                "timestamp": row.get("timestamp", "").strip(),
+                "timestamp": vals.get("timestamp", ""),
                 "gpu_util_pct": int(gpu_col),
                 "mem_used_mb": int(mem_used),
                 "mem_total_mb": int(mem_total),
