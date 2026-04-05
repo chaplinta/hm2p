@@ -3,6 +3,7 @@ SuperAnimalConversionTables:
     nose_tip: nose
     left_ear: left_ear
     right_ear: right_ear
+    neck: neck
     mid_back: spine_center
     mouse_center: spine_mid
     tail_base: tail_base
@@ -15,6 +16,7 @@ bodyparts:
 - nose_tip
 - left_ear
 - right_ear
+- neck
 - mid_back
 - mouse_center
 - tail_base
@@ -45,7 +47,11 @@ skeleton:
   - right_ear
 - - left_ear
   - right_ear
+- - left_ear
+  - neck
 - - right_ear
+  - neck
+- - neck
   - mid_back
 - - mid_back
   - mouse_center

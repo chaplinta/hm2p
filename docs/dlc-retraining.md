@@ -11,19 +11,22 @@ workflow from frame selection to retraining.
 
 ## Bodyparts
 
-6 of SuperAnimal's ~20+ bodyparts are labelled and tracked:
+7 of SuperAnimal's ~13 bodyparts are labelled and tracked:
 
 | Bodypart | Purpose |
 |---|---|
-| `nose_tip` | Secondary HD estimate, head-body dissociation, exploration |
-| `left_ear` | Head direction (ear vector angle) |
-| `right_ear` | Head direction (ear vector angle) |
+| `nose_tip` | HD estimate (nose→neck midline), exploration |
+| `left_ear` | Primary HD (ear vector perpendicular) |
+| `right_ear` | Primary HD (ear vector perpendicular) |
+| `neck` | HD fallback (nose→neck axis), head-body dissociation |
 | `mid_back` | Body axis |
 | `mouse_center` | Position, speed |
 | `tail_base` | Body orientation |
 
-These are used for HD computation and kinematics. The
-`SuperAnimalConversionTables` in `config.yaml` maps these 6 to the matching
+4 head keypoints (nose, ears, neck) enable robust HD fusion with
+confidence-weighted fallback when individual points are occluded
+(e.g. nose behind the 2P implant). The
+`SuperAnimalConversionTables` in `config.yaml` maps these 7 to the matching
 SuperAnimal keypoints, so fine-tuning transfers the pre-trained backbone
 weights for just these bodyparts.
 
