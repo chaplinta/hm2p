@@ -11,18 +11,19 @@ workflow from frame selection to retraining.
 
 ## Bodyparts
 
-Only 5 of SuperAnimal's ~20+ bodyparts are labelled and tracked:
+6 of SuperAnimal's ~20+ bodyparts are labelled and tracked:
 
 | Bodypart | Purpose |
 |---|---|
+| `nose_tip` | Secondary HD estimate, head-body dissociation, exploration |
 | `left_ear` | Head direction (ear vector angle) |
 | `right_ear` | Head direction (ear vector angle) |
 | `mid_back` | Body axis |
 | `mouse_center` | Position, speed |
 | `tail_base` | Body orientation |
 
-These are the minimum required for HD computation and kinematics. The
-`SuperAnimalConversionTables` in `config.yaml` maps these 5 to the matching
+These are used for HD computation and kinematics. The
+`SuperAnimalConversionTables` in `config.yaml` maps these 6 to the matching
 SuperAnimal keypoints, so fine-tuning transfers the pre-trained backbone
 weights for just these bodyparts.
 

@@ -1,16 +1,18 @@
 SuperAnimalConversionTables:
   superanimal_topviewmouse:
-    left_ear: right_hip
-    mid_back: mid_backend3
-    mouse_center: mid_backend2
-    right_ear: tail_base
-    tail_base: mid_backend
+    nose_tip: nose
+    left_ear: left_ear
+    right_ear: right_ear
+    mid_back: spine_center
+    mouse_center: spine_mid
+    tail_base: tail_base
 Task: hm2p-retrain
 TrainingFraction:
 - 0.95
 alphavalue: 0.7
 batch_size: 8
 bodyparts:
+- nose_tip
 - left_ear
 - right_ear
 - mid_back
@@ -37,6 +39,10 @@ pcutoff: 0.6
 project_path: /Users/tristan/Neuro/hm2p-v2/sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20
 scorer: tristan
 skeleton:
+- - nose_tip
+  - left_ear
+- - nose_tip
+  - right_ear
 - - left_ear
   - right_ear
 - - right_ear
