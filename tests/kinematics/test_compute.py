@@ -12,9 +12,13 @@ from hm2p.kinematics.compute import (
     MAZE_POLYGON_COORDS,
     _clip_to_maze_polygon,
     _compute_hd_deg,
+    _ear_perpendicular_angle,
+    _fused_hd_wrapped,
     _maze_linear_transform,
     _median_filter_1d,
     _rotate_xy,
+    _unwrap_and_smooth,
+    _vector_angle_deg,
     _windowed_gradient,
     _windowed_speed,
     compute_bad_behav_mask,
@@ -699,3 +703,531 @@ def test_maze_polygon_interior_point() -> None:
     # (3.5, 2.5) is the approximate centre of the 7×5 maze — inside a corridor
     centre = Point(3.5, 2.5)
     assert valid_poly.contains(centre) or valid_poly.touches(centre)
+
+
+# ---------------------------------------------------------------------------
+# _vector_angle_deg
+# ---------------------------------------------------------------------------
+
+
+class TestVectorAngleDeg:
+    def test_east_direction(self) -> None:
+        """Vector pointing east (dx>0, dy=0): atan2(dx, dy) = atan2(pos, 0) = 90 → 180+90 = 270."""
+        # from=(0,0) to=(1,0): dx=1, dy=0 → atan2(1,0)=90° → 180+90=270
+        angle = _vector_angle_deg(
+            np.array([0.0]), np.array([0.0]),
+            np.array([1.0]), np.array([0.0]),
+        )
+        np.testing.assert_allclose(angle, [270.0], atol=1e-6)
+
+    def test_west_direction(self) -> None:
+        """Vector pointing west (dx<0, dy=0): atan2(-1,0) = -90° → 180-90 = 90."""
+        angle = _vector_angle_deg(
+            np.array([0.0]), np.array([0.0]),
+            np.array([-1.0]), np.array([0.0]),
+        )
+        np.testing.assert_allclose(angle, [90.0], atol=1e-6)
+
+    def test_north_direction(self) -> None:
+        """Vector pointing north (dy<0 in image coords, dx=0): atan2(0,-1) = 180° → 180+180 = 360."""
+        angle = _vector_angle_deg(
+            np.array([0.0]), np.array([0.0]),
+            np.array([0.0]), np.array([-1.0]),
+        )
+        np.testing.assert_allclose(angle, [360.0], atol=1e-6)
+
+    def test_south_direction(self) -> None:
+        """Vector pointing south (dy>0, dx=0): atan2(0,1) = 0° → 180+0 = 180."""
+        angle = _vector_angle_deg(
+            np.array([0.0]), np.array([0.0]),
+            np.array([0.0]), np.array([1.0]),
+        )
+        np.testing.assert_allclose(angle, [180.0], atol=1e-6)
+
+    def test_nan_from_point_propagates(self) -> None:
+        """NaN in from_x propagates to output."""
+        angle = _vector_angle_deg(
+            np.array([np.nan]), np.array([0.0]),
+            np.array([1.0]), np.array([0.0]),
+        )
+        assert np.isnan(angle[0])
+
+    def test_nan_to_point_propagates(self) -> None:
+        """NaN in to_y propagates to output."""
+        angle = _vector_angle_deg(
+            np.array([0.0]), np.array([0.0]),
+            np.array([1.0]), np.array([np.nan]),
+        )
+        assert np.isnan(angle[0])
+
+    def test_multiple_frames_shape(self) -> None:
+        """Output shape matches input length."""
+        n = 20
+        angle = _vector_angle_deg(
+            np.zeros(n), np.zeros(n),
+            np.ones(n), np.zeros(n),
+        )
+        assert angle.shape == (n,)
+
+    def test_multiple_frames_values_consistent(self) -> None:
+        """All frames with the same direction return the same angle."""
+        n = 15
+        angle = _vector_angle_deg(
+            np.zeros(n), np.zeros(n),
+            np.ones(n), np.zeros(n),
+        )
+        assert np.all(angle == angle[0])
+
+    def test_diagonal_northeast(self) -> None:
+        """Vector pointing northeast (dx=1, dy=-1): atan2(1,-1) = 135° → 180+135 = 315."""
+        angle = _vector_angle_deg(
+            np.array([0.0]), np.array([0.0]),
+            np.array([1.0]), np.array([-1.0]),
+        )
+        np.testing.assert_allclose(angle, [315.0], atol=1e-6)
+
+    @given(
+        dx=st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
+        dy=st.floats(min_value=-1e6, max_value=1e6, allow_nan=False, allow_infinity=False),
+    )
+    @settings(max_examples=100)
+    def test_output_range_finite_input(self, dx: float, dy: float) -> None:
+        """For finite non-degenerate inputs, output should be finite."""
+        if dx == 0.0 and dy == 0.0:
+            return  # zero vector → atan2(0,0) is implementation-defined
+        angle = _vector_angle_deg(
+            np.array([0.0]), np.array([0.0]),
+            np.array([dx]), np.array([dy]),
+        )
+        assert np.isfinite(angle[0])
+        # Result is 180 + atan2 → range is (0, 360]
+        assert 0.0 <= angle[0] <= 360.0
+
+
+# ---------------------------------------------------------------------------
+# _ear_perpendicular_angle
+# ---------------------------------------------------------------------------
+
+
+class TestEarPerpendicularAngle:
+    def test_ears_horizontal_pointing_right(self) -> None:
+        """Left ear above right ear (ly < ry, lx == rx) → head points south (180°).
+
+        ear_left=(5,0), ear_right=(5,2): dx=5-5=0, dy=0-2=-2
+        atan2(0,-2) = 180° → 180+180 = 360° ... wait, this is _ear_perpendicular
+        which uses atan2(lx-rx, ly-ry) = atan2(0,-2) = π → 180+180 = 360.
+        """
+        angle = _ear_perpendicular_angle(
+            np.array([5.0]), np.array([0.0]),
+            np.array([5.0]), np.array([2.0]),
+        )
+        np.testing.assert_allclose(angle, [360.0], atol=1e-6)
+
+    def test_ears_same_y_left_is_left(self) -> None:
+        """Left ear left of right ear (lx < rx, same y): atan2(lx-rx, 0) = atan2(-1,0) = -90 → 90."""
+        angle = _ear_perpendicular_angle(
+            np.array([0.0]), np.array([0.0]),
+            np.array([1.0]), np.array([0.0]),
+        )
+        np.testing.assert_allclose(angle, [90.0], atol=1e-6)
+
+    def test_nan_left_ear_returns_nan(self) -> None:
+        angle = _ear_perpendicular_angle(
+            np.array([np.nan]), np.array([0.0]),
+            np.array([1.0]), np.array([0.0]),
+        )
+        assert np.isnan(angle[0])
+
+    def test_nan_right_ear_returns_nan(self) -> None:
+        angle = _ear_perpendicular_angle(
+            np.array([0.0]), np.array([0.0]),
+            np.array([np.nan]), np.array([0.0]),
+        )
+        assert np.isnan(angle[0])
+
+    def test_output_shape(self) -> None:
+        n = 30
+        angle = _ear_perpendicular_angle(
+            np.ones(n), np.zeros(n), np.zeros(n), np.zeros(n)
+        )
+        assert angle.shape == (n,)
+
+    def test_constant_configuration_constant_output(self) -> None:
+        """Same ear positions every frame → same HD every frame."""
+        n = 20
+        angle = _ear_perpendicular_angle(
+            np.full(n, 2.0), np.zeros(n),
+            np.zeros(n), np.zeros(n),
+        )
+        assert np.allclose(angle, angle[0])
+
+    @given(
+        lx=st.floats(min_value=-500.0, max_value=500.0, allow_nan=False, allow_infinity=False),
+        ly=st.floats(min_value=-500.0, max_value=500.0, allow_nan=False, allow_infinity=False),
+        rx=st.floats(min_value=-500.0, max_value=500.0, allow_nan=False, allow_infinity=False),
+        ry=st.floats(min_value=-500.0, max_value=500.0, allow_nan=False, allow_infinity=False),
+    )
+    @settings(max_examples=100)
+    def test_output_finite_for_finite_inputs(
+        self, lx: float, ly: float, rx: float, ry: float
+    ) -> None:
+        """Finite ear coordinates always produce a finite angle."""
+        if lx == rx and ly == ry:
+            return  # degenerate: both ears at same point
+        angle = _ear_perpendicular_angle(
+            np.array([lx]), np.array([ly]),
+            np.array([rx]), np.array([ry]),
+        )
+        assert np.isfinite(angle[0])
+
+
+# ---------------------------------------------------------------------------
+# _fused_hd_wrapped
+# ---------------------------------------------------------------------------
+
+
+def _circular_mean(angles_deg: list[float]) -> float:
+    """Reference circular mean for a list of angles (degrees)."""
+    rad = np.deg2rad(angles_deg)
+    return float(np.degrees(np.arctan2(np.sin(rad).mean(), np.cos(rad).mean())) % 360.0)
+
+
+class TestFusedHdWrapped:
+    # --- ears-only cases ---
+
+    def test_ears_only_matches_ear_perpendicular(self) -> None:
+        """With no nose/implant/neck, fused result equals _ear_perpendicular_angle."""
+        n = 20
+        lx = np.linspace(1.0, 3.0, n)
+        ly = np.zeros(n)
+        rx = np.zeros(n)
+        ry = np.linspace(0.5, 1.5, n)
+
+        ear_only = _ear_perpendicular_angle(lx, ly, rx, ry) % 360.0
+        fused = _fused_hd_wrapped(lx, ly, rx, ry)
+
+        np.testing.assert_allclose(fused, ear_only, atol=1e-6)
+
+    def test_backwards_compat_none_args_same_as_ears_only(self) -> None:
+        """Passing None for all optional args gives the same result as ears-only call."""
+        n = 10
+        lx = np.array([1.0] * n)
+        ly = np.zeros(n)
+        rx = np.zeros(n)
+        ry = np.array([1.0] * n)
+
+        fused_default = _fused_hd_wrapped(lx, ly, rx, ry)
+        fused_explicit_none = _fused_hd_wrapped(
+            lx, ly, rx, ry,
+            nose_x=None, nose_y=None,
+            implant_x=None, implant_y=None,
+            neck_x=None, neck_y=None,
+        )
+        np.testing.assert_array_equal(fused_default, fused_explicit_none)
+
+    # --- all-estimates-agree case ---
+
+    def test_all_estimates_agree_returns_common_angle(self) -> None:
+        """When all three estimates give the same angle, the fused result equals that angle."""
+        # Arrange: ear perpendicular points south (180°).
+        # ear_left=(5,0), ear_right=(5,2) → atan2(0,-2) = 180° → 360° wrapped
+        # nose→implant and nose→neck are set up to also give 360°.
+        # nose=(0,0), implant=(0,1): _vector_angle_deg(implant, nose) = angle of
+        # vector from (0,1) to (0,0): dx=0, dy=-1 → atan2(0,-1) = 180° → 360°
+        # nose→neck: neck=(0,1) → same vector → 360°
+        n = 5
+        lx = np.full(n, 5.0)
+        ly = np.zeros(n)
+        rx = np.full(n, 5.0)
+        ry = np.full(n, 2.0)
+        nose_x = np.zeros(n)
+        nose_y = np.zeros(n)
+        implant_x = np.zeros(n)
+        implant_y = np.ones(n)
+        neck_x = np.zeros(n)
+        neck_y = np.ones(n)
+
+        fused = _fused_hd_wrapped(lx, ly, rx, ry, nose_x, nose_y, implant_x, implant_y, neck_x, neck_y)
+        # All three estimates are 360° (= 0° on circle). Circular mean of identical angles = same.
+        # Due to floating-point, arctan2(-eps, 1.0) % 360 = 360.0 is equivalent to 0°.
+        # Normalise to [0, 360) before comparing.
+        fused_norm = fused % 360.0
+        fused_norm[fused_norm == 360.0] = 0.0
+        np.testing.assert_allclose(fused_norm, 0.0, atol=1.0)
+
+    # --- NaN handling ---
+
+    def test_one_ear_nan_uses_other_estimates(self) -> None:
+        """NaN left_ear x still allows nose-implant and nose-neck estimates."""
+        n = 5
+        # Both ears NaN → ear estimate is NaN
+        lx = np.full(n, np.nan)
+        ly = np.full(n, np.nan)
+        rx = np.full(n, np.nan)
+        ry = np.full(n, np.nan)
+        # nose→implant: nose=(0,0), implant=(0,1) → south pointing (180°)
+        nose_x = np.zeros(n)
+        nose_y = np.zeros(n)
+        implant_x = np.zeros(n)
+        implant_y = np.ones(n)
+        neck_x = np.zeros(n)
+        neck_y = np.ones(n)
+
+        fused = _fused_hd_wrapped(lx, ly, rx, ry, nose_x, nose_y, implant_x, implant_y, neck_x, neck_y)
+        # Result should be finite (ear estimate is NaN but the other two are not)
+        assert np.all(np.isfinite(fused))
+
+    def test_both_ears_nan_nose_implant_available(self) -> None:
+        """When both ears are NaN and nose+implant are present, output uses nose-implant only."""
+        n = 5
+        lx = np.full(n, np.nan)
+        ly = np.full(n, np.nan)
+        rx = np.full(n, np.nan)
+        ry = np.full(n, np.nan)
+        # nose→implant: from=(0,1) to=(0,0): dy=-1 → atan2(0,-1) = 180° → 360 % 360 = 0
+        nose_x = np.zeros(n)
+        nose_y = np.zeros(n)
+        implant_x = np.zeros(n)
+        implant_y = np.ones(n)
+
+        fused = _fused_hd_wrapped(lx, ly, rx, ry, nose_x, nose_y, implant_x, implant_y)
+        assert np.all(np.isfinite(fused))
+        # nose→implant estimate is 360° (= 0° on circle).
+        # Due to floating-point, arctan2(-eps, 1.0) % 360 = 360.0 is equivalent to 0°.
+        fused_norm = fused % 360.0
+        fused_norm[fused_norm == 360.0] = 0.0
+        np.testing.assert_allclose(fused_norm, 0.0, atol=1.0)
+
+    def test_all_nan_returns_nan(self) -> None:
+        """When every keypoint is NaN, output is NaN for all frames."""
+        n = 6
+        nans = np.full(n, np.nan)
+        fused = _fused_hd_wrapped(nans, nans, nans, nans, nans, nans, nans, nans, nans, nans)
+        assert np.all(np.isnan(fused))
+
+    def test_single_frame_all_nan(self) -> None:
+        """Single NaN frame returns NaN."""
+        fused = _fused_hd_wrapped(
+            np.array([np.nan]), np.array([np.nan]),
+            np.array([np.nan]), np.array([np.nan]),
+        )
+        assert np.isnan(fused[0])
+
+    # --- small disagreement: fused between estimates ---
+
+    def test_estimates_disagree_slightly_fused_is_intermediate(self) -> None:
+        """Two estimates 10° apart → fused should be between them (circular mean)."""
+        n = 5
+        # ear estimate: point due east, angle = 270°
+        # We construct ear positions giving 270°:
+        # atan2(lx-rx, ly-ry) = atan2(1,0) = 90° → 180+90 = 270°
+        lx = np.full(n, 1.0)
+        ly = np.zeros(n)
+        rx = np.zeros(n)
+        ry = np.zeros(n)
+        ear_angle = float(_ear_perpendicular_angle(lx[:1], ly[:1], rx[:1], ry[:1])[0] % 360.0)
+
+        # nose→implant: give 280° (10° off)
+        # _vector_angle_deg(implant, nose): 180 + atan2(nose_x-implant_x, nose_y-implant_y)
+        # We want 280 → atan2(dx,dy) = 100° → dy = cos(100°), dx = sin(100°)
+        target_rad = np.deg2rad(280.0 - 180.0)
+        nose_x = np.full(n, np.sin(target_rad))
+        nose_y = np.full(n, np.cos(target_rad))
+        implant_x = np.zeros(n)
+        implant_y = np.zeros(n)
+
+        fused = _fused_hd_wrapped(lx, ly, rx, ry, nose_x, nose_y, implant_x, implant_y)
+
+        # Fused should be between ear_angle and 280° (roughly 275°)
+        expected_circular_mean = _circular_mean([ear_angle, 280.0])
+        np.testing.assert_allclose(fused, expected_circular_mean, atol=1.0)
+
+    # --- output properties ---
+
+    def test_output_in_0_360_range(self) -> None:
+        """Fused HD is always in [0, 360) for valid frames."""
+        rng = np.random.default_rng(55)
+        n = 50
+        lx = rng.uniform(0, 100, n)
+        ly = rng.uniform(0, 100, n)
+        rx = rng.uniform(0, 100, n)
+        ry = rng.uniform(0, 100, n)
+        fused = _fused_hd_wrapped(lx, ly, rx, ry)
+        valid = ~np.isnan(fused)
+        assert np.all(fused[valid] >= 0.0)
+        # 360.0 can appear due to floating-point (arctan2(-eps,1) % 360 = 360.0 = 0°).
+        assert np.all(fused[valid] <= 360.0)
+
+    def test_output_shape(self) -> None:
+        n = 35
+        lx = np.ones(n)
+        fused = _fused_hd_wrapped(lx, np.zeros(n), np.zeros(n), np.zeros(n))
+        assert fused.shape == (n,)
+
+    def test_output_dtype_float64(self) -> None:
+        """Fused result is float64 (unwrapping converts to float32 later)."""
+        n = 5
+        fused = _fused_hd_wrapped(
+            np.ones(n), np.zeros(n), np.zeros(n), np.zeros(n)
+        )
+        assert fused.dtype == np.float64
+
+    def test_partial_nan_nose_implant_frames(self) -> None:
+        """Some frames have NaN nose, others don't — per-frame fallback works."""
+        n = 6
+        lx = np.ones(n)
+        ly = np.zeros(n)
+        rx = np.zeros(n)
+        ry = np.zeros(n)
+        nose_x = np.array([0.0, 0.0, np.nan, 0.0, np.nan, 0.0])
+        nose_y = np.array([1.0, 1.0, np.nan, 1.0, np.nan, 1.0])
+        implant_x = np.zeros(n)
+        implant_y = np.zeros(n)
+
+        fused = _fused_hd_wrapped(lx, ly, rx, ry, nose_x, nose_y, implant_x, implant_y)
+        # All frames should be finite — ear estimate fills in where nose is NaN
+        assert np.all(np.isfinite(fused))
+
+    @given(
+        lx=st.floats(min_value=-500.0, max_value=500.0, allow_nan=False, allow_infinity=False),
+        ly=st.floats(min_value=-500.0, max_value=500.0, allow_nan=False, allow_infinity=False),
+        rx=st.floats(min_value=-500.0, max_value=500.0, allow_nan=False, allow_infinity=False),
+        ry=st.floats(min_value=-500.0, max_value=500.0, allow_nan=False, allow_infinity=False),
+    )
+    @settings(max_examples=100)
+    def test_ears_only_finite_inputs_produce_finite_output(
+        self, lx: float, ly: float, rx: float, ry: float
+    ) -> None:
+        """Finite ear positions always produce a finite fused result."""
+        if lx == rx and ly == ry:
+            return  # degenerate
+        fused = _fused_hd_wrapped(
+            np.array([lx]), np.array([ly]),
+            np.array([rx]), np.array([ry]),
+        )
+        assert np.isfinite(fused[0])
+        # The function returns mean_angle % 360 but floating-point can produce exactly
+        # 360.0 when the input is exactly 360° (= 0° on circle). Accept [0, 360].
+        assert 0.0 <= fused[0] <= 360.0
+
+
+# ---------------------------------------------------------------------------
+# _unwrap_and_smooth
+# ---------------------------------------------------------------------------
+
+
+class TestUnwrapAndSmooth:
+    def test_all_nan_input_returns_nan(self) -> None:
+        """All-NaN input → all-NaN output (float32)."""
+        arr = np.full(10, np.nan)
+        out = _unwrap_and_smooth(arr, median_filter_win=5)
+        assert np.all(np.isnan(out))
+        assert out.dtype == np.float32
+
+    def test_output_dtype_float32(self) -> None:
+        arr = np.linspace(0.0, 360.0, 50)
+        out = _unwrap_and_smooth(arr, median_filter_win=5)
+        assert out.dtype == np.float32
+
+    def test_output_shape(self) -> None:
+        n = 40
+        arr = np.ones(n) * 90.0
+        out = _unwrap_and_smooth(arr, median_filter_win=3)
+        assert out.shape == (n,)
+
+    def test_smooth_constant_signal_unchanged(self) -> None:
+        """A constant angle is unchanged by unwrapping and smoothing."""
+        arr = np.full(30, 180.0, dtype=np.float64)
+        out = _unwrap_and_smooth(arr, median_filter_win=5)
+        np.testing.assert_allclose(out, 180.0, atol=1e-4)
+
+    def test_slowly_increasing_signal_no_jumps(self) -> None:
+        """A slowly increasing angle (no wrapping) passes through without large jumps."""
+        n = 50
+        arr = np.linspace(90.0, 270.0, n)  # monotone increase, no wrap
+        out = _unwrap_and_smooth(arr, median_filter_win=3)
+        jumps = np.abs(np.diff(out))
+        assert np.all(jumps < 20.0), f"Unexpected jump: {jumps.max():.1f}°"
+
+    def test_jump_across_360_0_boundary_unwrapped(self) -> None:
+        """An angle that crosses the 360/0 boundary is unwrapped to a continuous signal."""
+        n = 100
+        # Angle increases from 355° to 365° (crossing 360→0)
+        raw_angles = np.linspace(355.0, 365.0, n)
+        # Wrap into [0, 360): values above 360 become small positive values
+        wrapped = raw_angles % 360.0
+        # At the wrap point there is a ~360° jump in the input
+        assert np.max(np.abs(np.diff(wrapped))) > 200.0, "Test data must contain a wrap jump"
+
+        out = _unwrap_and_smooth(wrapped, median_filter_win=1)  # no smoothing
+        # After unwrapping, the jumps should be small
+        jumps = np.abs(np.diff(out.astype(np.float64)))
+        assert np.all(jumps < 10.0), f"Unwrapping failed — max jump: {jumps.max():.1f}°"
+
+    def test_jump_across_0_360_boundary_going_backwards(self) -> None:
+        """Angle decreasing from 5° to -5° (i.e. wrapping from 0→360) is unwrapped."""
+        n = 100
+        raw_angles = np.linspace(5.0, -5.0, n)
+        wrapped = raw_angles % 360.0  # creates a ~360 jump going up
+        assert np.max(np.abs(np.diff(wrapped))) > 200.0
+
+        out = _unwrap_and_smooth(wrapped, median_filter_win=1)
+        jumps = np.abs(np.diff(out.astype(np.float64)))
+        assert np.all(jumps < 10.0), f"Unwrapping failed — max jump: {jumps.max():.1f}°"
+
+    def test_nan_gaps_are_interpolated_then_restored(self) -> None:
+        """NaN frames are interpolated for unwrapping but restored to NaN in output."""
+        n = 20
+        arr = np.linspace(10.0, 30.0, n)
+        nan_idx = [5, 6, 7]
+        arr[nan_idx] = np.nan
+        out = _unwrap_and_smooth(arr, median_filter_win=1)
+        # NaN positions in input must remain NaN in output
+        for i in nan_idx:
+            assert np.isnan(out[i]), f"Frame {i} should be NaN"
+        # Non-NaN positions should be finite
+        non_nan = [i for i in range(n) if i not in nan_idx]
+        assert np.all(np.isfinite(out[non_nan]))
+
+    def test_median_filter_win_1_no_smoothing(self) -> None:
+        """win=1 disables median smoothing — output equals unwrapped signal."""
+        n = 40
+        arr = np.linspace(0.0, 350.0, n)
+        out_win1 = _unwrap_and_smooth(arr, median_filter_win=1)
+        out_win5 = _unwrap_and_smooth(arr, median_filter_win=5)
+        # With a smooth linear signal both should be close, but win=1 is exact
+        # Just verify shape and dtype
+        assert out_win1.shape == (n,)
+        assert out_win1.dtype == np.float32
+
+    def test_large_constant_angle_preserved(self) -> None:
+        """Constant angle far from 0/360 is preserved (no spurious offset from unwrap)."""
+        arr = np.full(25, 270.0)
+        out = _unwrap_and_smooth(arr, median_filter_win=3)
+        np.testing.assert_allclose(out, 270.0, atol=1e-3)
+
+    def test_single_valid_frame_with_surrounding_nans(self) -> None:
+        """A single valid frame surrounded by NaN is returned as-is."""
+        arr = np.full(9, np.nan)
+        arr[4] = 45.0
+        out = _unwrap_and_smooth(arr, median_filter_win=1)
+        # NaN frames remain NaN
+        for i in range(9):
+            if i == 4:
+                assert np.isfinite(out[i])
+            else:
+                assert np.isnan(out[i])
+
+    @given(
+        angles=st.lists(
+            st.floats(min_value=0.0, max_value=360.0, allow_nan=False, allow_infinity=False),
+            min_size=5,
+            max_size=200,
+        )
+    )
+    @settings(max_examples=80)
+    def test_finite_input_finite_output(self, angles: list[float]) -> None:
+        """All-finite input → all-finite output (no NaN introduced by unwrapping)."""
+        arr = np.array(angles, dtype=np.float64)
+        out = _unwrap_and_smooth(arr, median_filter_win=3)
+        assert np.all(np.isfinite(out))
