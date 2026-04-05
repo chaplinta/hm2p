@@ -99,6 +99,36 @@ def _check_model_exists() -> bool:
         return False
 
 
+@st.cache_data(ttl=120)
+def _parse_training_curves() -> list[dict] | None:
+    """Parse epoch-level train/valid loss from the run log on S3."""
+    import re
+
+    data = download_s3_bytes(DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/_run_log.txt")
+    if data is None:
+        return None
+    text = data.decode(errors="replace")
+    pattern = re.compile(
+        r"Epoch\s+(\d+)/(\d+)\s+\(lr=([\d.e+-]+)\),\s+train loss\s+([\d.]+)"
+        r"(?:,\s+valid loss\s+([\d.]+))?"
+    )
+    rows = []
+    for m in pattern.finditer(text):
+        epoch = int(m.group(1))
+        total = int(m.group(2))
+        lr = float(m.group(3))
+        train_loss = float(m.group(4))
+        valid_loss = float(m.group(5)) if m.group(5) else None
+        rows.append({
+            "epoch": epoch,
+            "total_epochs": total,
+            "lr": lr,
+            "train_loss": train_loss,
+            "valid_loss": valid_loss,
+        })
+    return rows if rows else None
+
+
 with st.spinner("Checking S3 for training status..."):
     progress_data = _load_retrain_progress()
     gpu_data = _load_gpu_monitor()
@@ -148,37 +178,6 @@ else:
 
 # ── Training curves ─────────────────────────────────────────────────────────
 st.header("Training Curves")
-
-
-@st.cache_data(ttl=120)
-def _parse_training_curves() -> list[dict] | None:
-    """Parse epoch-level train/valid loss from the run log on S3."""
-    import re
-
-    data = download_s3_bytes(DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/_run_log.txt")
-    if data is None:
-        return None
-    text = data.decode(errors="replace")
-    pattern = re.compile(
-        r"Epoch\s+(\d+)/(\d+)\s+\(lr=([\d.e+-]+)\),\s+train loss\s+([\d.]+)"
-        r"(?:,\s+valid loss\s+([\d.]+))?"
-    )
-    rows = []
-    for m in pattern.finditer(text):
-        epoch = int(m.group(1))
-        total = int(m.group(2))
-        lr = float(m.group(3))
-        train_loss = float(m.group(4))
-        valid_loss = float(m.group(5)) if m.group(5) else None
-        rows.append({
-            "epoch": epoch,
-            "total_epochs": total,
-            "lr": lr,
-            "train_loss": train_loss,
-            "valid_loss": valid_loss,
-        })
-    return rows if rows else None
-
 
 curve_data = _parse_training_curves()
 
