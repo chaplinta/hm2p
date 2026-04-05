@@ -122,6 +122,83 @@ else:
         "Training has not been started or the log has not been uploaded yet."
     )
 
+# ── Training curves ─────────────────────────────────────────────────────────
+st.header("Training Curves")
+
+
+@st.cache_data(ttl=120)
+def _parse_training_curves() -> list[dict] | None:
+    """Parse epoch-level train/valid loss from the run log on S3."""
+    import re
+
+    data = download_s3_bytes(DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/_run_log.txt")
+    if data is None:
+        return None
+    text = data.decode(errors="replace")
+    pattern = re.compile(
+        r"Epoch\s+(\d+)/(\d+)\s+\(lr=([\d.e+-]+)\),\s+train loss\s+([\d.]+)"
+        r"(?:,\s+valid loss\s+([\d.]+))?"
+    )
+    rows = []
+    for m in pattern.finditer(text):
+        epoch = int(m.group(1))
+        total = int(m.group(2))
+        lr = float(m.group(3))
+        train_loss = float(m.group(4))
+        valid_loss = float(m.group(5)) if m.group(5) else None
+        rows.append({
+            "epoch": epoch,
+            "total_epochs": total,
+            "lr": lr,
+            "train_loss": train_loss,
+            "valid_loss": valid_loss,
+        })
+    return rows if rows else None
+
+
+curve_data = _parse_training_curves()
+
+if curve_data:
+    import pandas as pd
+
+    df_curves = pd.DataFrame(curve_data).set_index("epoch")
+    total_epochs = curve_data[-1]["total_epochs"]
+    final_train = curve_data[-1]["train_loss"]
+    valid_rows = [r for r in curve_data if r["valid_loss"] is not None]
+    best_valid = min(valid_rows, key=lambda r: r["valid_loss"]) if valid_rows else None
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Epochs", f"{len(curve_data)}/{total_epochs}")
+    col2.metric("Final train loss", f"{final_train:.5f}")
+    if best_valid:
+        col3.metric("Best valid loss", f"{best_valid['valid_loss']:.5f}")
+        col4.metric("Best valid epoch", best_valid["epoch"])
+
+    # Plot train + valid loss
+    chart_df = df_curves[["train_loss"]].copy()
+    if valid_rows:
+        valid_df = pd.DataFrame(valid_rows).set_index("epoch")[["valid_loss"]]
+        chart_df = chart_df.join(valid_df)
+    st.line_chart(chart_df, use_container_width=True)
+
+    # Overfitting warning
+    if best_valid and valid_rows:
+        last_valid = valid_rows[-1]
+        if last_valid["valid_loss"] > best_valid["valid_loss"] * 1.2:
+            st.warning(
+                f"Validation loss increased from {best_valid['valid_loss']:.5f} "
+                f"(epoch {best_valid['epoch']}) to {last_valid['valid_loss']:.5f} "
+                f"(epoch {last_valid['epoch']}). The model may be overfitting — "
+                f"consider using the checkpoint from epoch {best_valid['epoch']}."
+            )
+
+    # LR schedule
+    with st.expander("Learning rate schedule"):
+        lr_df = df_curves[["lr"]].copy()
+        st.line_chart(lr_df, use_container_width=True)
+else:
+    st.info("No training log on S3. Training curves will appear after training starts.")
+
 # ── GPU utilization ──────────────────────────────────────────────────────────
 st.header("GPU Utilization")
 
