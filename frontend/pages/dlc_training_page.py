@@ -190,19 +190,54 @@ if curve_data:
     valid_rows = [r for r in curve_data if r["valid_loss"] is not None]
     best_valid = min(valid_rows, key=lambda r: r["valid_loss"]) if valid_rows else None
 
+    import plotly.graph_objects as go
+
+    final_train = curve_data[-1]["train_loss"]
+    valid_rows = [r for r in curve_data if r["valid_loss"] is not None]
+    best_valid = min(valid_rows, key=lambda r: r["valid_loss"]) if valid_rows else None
+
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Epochs", f"{len(curve_data)}/{total_epochs}")
+    col1.metric("Epochs completed", f"{len(curve_data)}/{total_epochs}")
     col2.metric("Final train loss", f"{final_train:.5f}")
     if best_valid:
         col3.metric("Best valid loss", f"{best_valid['valid_loss']:.5f}")
-        col4.metric("Best valid epoch", best_valid["epoch"])
+        col4.metric("Best checkpoint", f"Epoch {best_valid['epoch']}")
 
-    # Plot train + valid loss
-    chart_df = df_curves[["train_loss"]].copy()
+    # Plot train + valid loss with plotly
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(
+        x=df_curves.index,
+        y=df_curves["train_loss"],
+        mode="lines",
+        name="Train loss",
+        line=dict(color="#1f77b4", width=1.5),
+    ))
     if valid_rows:
-        valid_df = pd.DataFrame(valid_rows).set_index("epoch")[["valid_loss"]]
-        chart_df = chart_df.join(valid_df)
-    st.line_chart(chart_df, use_container_width=True)
+        fig.add_trace(go.Scatter(
+            x=[r["epoch"] for r in valid_rows],
+            y=[r["valid_loss"] for r in valid_rows],
+            mode="lines+markers",
+            name="Valid loss",
+            line=dict(color="#d62728", width=2),
+            marker=dict(size=6),
+        ))
+        if best_valid:
+            fig.add_trace(go.Scatter(
+                x=[best_valid["epoch"]],
+                y=[best_valid["valid_loss"]],
+                mode="markers",
+                name=f"Best (epoch {best_valid['epoch']})",
+                marker=dict(size=12, color="#2ca02c", symbol="star"),
+                showlegend=True,
+            ))
+    fig.update_layout(
+        xaxis_title="Epoch",
+        yaxis_title="Loss (MSE)",
+        height=400,
+        margin=dict(l=40, r=20, t=30, b=40),
+        legend=dict(x=0.7, y=0.95),
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
     # Overfitting warning
     if best_valid and valid_rows:
@@ -211,14 +246,22 @@ if curve_data:
             st.warning(
                 f"Validation loss increased from {best_valid['valid_loss']:.5f} "
                 f"(epoch {best_valid['epoch']}) to {last_valid['valid_loss']:.5f} "
-                f"(epoch {last_valid['epoch']}). The model may be overfitting — "
-                f"consider using the checkpoint from epoch {best_valid['epoch']}."
+                f"(epoch {last_valid['epoch']}). The model is overfitting — "
+                f"DLC selected the best checkpoint at epoch {best_valid['epoch']}."
             )
 
     # LR schedule
     with st.expander("Learning rate schedule"):
-        lr_df = df_curves[["lr"]].copy()
-        st.line_chart(lr_df, use_container_width=True)
+        lr_fig = go.Figure()
+        lr_fig.add_trace(go.Scatter(
+            x=df_curves.index, y=df_curves["lr"],
+            mode="lines", name="Learning rate",
+        ))
+        lr_fig.update_layout(
+            xaxis_title="Epoch", yaxis_title="LR", yaxis_type="log",
+            height=250, margin=dict(l=40, r=20, t=20, b=40),
+        )
+        st.plotly_chart(lr_fig, use_container_width=True)
 else:
     st.info("No training log on S3. Training curves will appear after training starts.")
 
@@ -227,18 +270,59 @@ st.header("GPU Utilization")
 
 if gpu_data:
     import pandas as pd
+    import plotly.graph_objects as go  # noqa: may be imported above
 
     df = pd.DataFrame(gpu_data)
-    mean_util = df["gpu_util_pct"].mean()
+    # Parse timestamps for proper x-axis
+    df["time"] = pd.to_datetime(df["timestamp"], format="%Y/%m/%d %H:%M:%S.%f", errors="coerce")
+    active_mask = df["gpu_util_pct"] > 0
+    mean_all = df["gpu_util_pct"].mean()
+    mean_active = df.loc[active_mask, "gpu_util_pct"].mean() if active_mask.any() else 0
     max_util = df["gpu_util_pct"].max()
     n_readings = len(df)
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Mean GPU util", f"{mean_util:.0f}%")
-    col2.metric("Peak GPU util", f"{max_util}%")
-    col3.metric("Readings", n_readings)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Mean GPU util (all)", f"{mean_all:.0f}%")
+    col2.metric("Mean GPU util (active)", f"{mean_active:.0f}%")
+    col3.metric("Peak GPU util", f"{max_util}%")
+    col4.metric("Readings", n_readings)
 
-    st.line_chart(df.set_index("timestamp")["gpu_util_pct"], use_container_width=True)
+    gpu_fig = go.Figure()
+    gpu_fig.add_trace(go.Scatter(
+        x=df["time"],
+        y=df["gpu_util_pct"],
+        mode="lines",
+        name="GPU %",
+        line=dict(color="#ff7f0e", width=1.5),
+        fill="tozeroy",
+        fillcolor="rgba(255, 127, 14, 0.2)",
+    ))
+    gpu_fig.update_layout(
+        xaxis_title="Time",
+        yaxis_title="GPU Utilization (%)",
+        yaxis=dict(range=[0, 105]),
+        height=350,
+        margin=dict(l=40, r=20, t=20, b=40),
+        xaxis=dict(
+            dtick=600_000,  # tick every 10 minutes
+            tickformat="%H:%M",
+        ),
+    )
+    st.plotly_chart(gpu_fig, use_container_width=True)
+
+    # Memory usage
+    with st.expander("GPU memory usage"):
+        mem_fig = go.Figure()
+        mem_fig.add_trace(go.Scatter(
+            x=df["time"], y=df["mem_used_mb"],
+            mode="lines", name="Used (MiB)",
+        ))
+        mem_fig.update_layout(
+            xaxis_title="Time", yaxis_title="GPU Memory (MiB)",
+            height=250, margin=dict(l=40, r=20, t=20, b=40),
+            xaxis=dict(dtick=600_000, tickformat="%H:%M"),
+        )
+        st.plotly_chart(mem_fig, use_container_width=True)
 else:
     st.info("No GPU monitoring data on S3 yet.")
 
