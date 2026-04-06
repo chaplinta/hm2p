@@ -9,12 +9,12 @@ Hard requirements:
 - Instance self-terminates on completion (InstanceInitiatedShutdownBehavior=terminate)
 
 Usage:
-    uv run python scripts/launch_dlc_retrain_ec2.py
-    uv run python scripts/launch_dlc_retrain_ec2.py --progress
-    uv run python scripts/launch_dlc_retrain_ec2.py --status
-    uv run python scripts/launch_dlc_retrain_ec2.py --terminate
-    uv run python scripts/launch_dlc_retrain_ec2.py --maxiters 100000
-    uv run python scripts/launch_dlc_retrain_ec2.py --dry-run
+    uv run python scripts/launch_dlc_finetune_ec2.py
+    uv run python scripts/launch_dlc_finetune_ec2.py --progress
+    uv run python scripts/launch_dlc_finetune_ec2.py --status
+    uv run python scripts/launch_dlc_finetune_ec2.py --terminate
+    uv run python scripts/launch_dlc_finetune_ec2.py --maxiters 100000
+    uv run python scripts/launch_dlc_finetune_ec2.py --dry-run
 """
 
 from __future__ import annotations

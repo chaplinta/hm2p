@@ -3,7 +3,7 @@
 
 Downloads labeled data from S3, fine-tunes DLC from SuperAnimal weights,
 then re-runs inference on all 26 sessions. Called by the EC2 user-data
-script (launch_dlc_retrain_ec2.py).
+script (launch_dlc_finetune_ec2.py).
 
 Usage (on EC2):
     python scripts/run_dlc_retrain.py --train --infer

@@ -300,7 +300,7 @@ hm2p-v2/
 │   │                              # DLC retraining workflow (see DLC Retraining Pipeline section):
 │   ├── prepare_retrain_frames.py  # Extract frames + create DLC project for labeling
 │   ├── upload_dlc_labels.py       # Upload labeled data + config to S3
-│   ├── launch_dlc_retrain_ec2.py  # Launch g4dn for DLC training + re-inference
+│   ├── launch_dlc_finetune_ec2.py  # Launch g4dn for DLC training + re-inference
 │   ├── run_dlc_retrain.py         # Training + re-inference script (runs on EC2)
 │   ├── promote_finetuned_pose.py  # Copy pose-finetuned/ → pose/ after QC
 │   │                              # Infrastructure scripts (AWS setup — run once):
@@ -596,7 +596,7 @@ s3://hm2p-derivatives/
 |--------|---------|---------|
 | `scripts/prepare_retrain_frames.py` | Mac | Downloads video, extracts frames, creates DLC project, copies frames into labeled-data |
 | `scripts/upload_dlc_labels.py` | Mac | Uploads labeled data + config to S3 |
-| `scripts/launch_dlc_retrain_ec2.py` | Mac | Launches g4dn.xlarge for training + re-inference |
+| `scripts/launch_dlc_finetune_ec2.py` | Mac | Launches g4dn.xlarge for training + re-inference |
 | `scripts/run_dlc_retrain.py` | EC2 | Training + re-inference (called by user-data) |
 | `scripts/promote_finetuned_pose.py` | Mac | Copies pose-finetuned → pose on S3 after QC |
 
@@ -614,7 +614,7 @@ s3://hm2p-derivatives/
 4. Mac: uv run python scripts/upload_dlc_labels.py
         → uploads labeled-data + config.yaml to S3
                                            ↓
-5. Mac: uv run python scripts/launch_dlc_retrain_ec2.py
+5. Mac: uv run python scripts/launch_dlc_finetune_ec2.py
         → launches g4dn.xlarge which:
           a. Downloads labels from S3
           b. Runs deeplabcut.create_training_dataset(superanimal_transfer=True)

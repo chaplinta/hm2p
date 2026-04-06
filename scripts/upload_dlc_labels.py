@@ -115,7 +115,7 @@ def main() -> None:
     )
 
     print(f"\nUploaded to s3://{BUCKET}/{S3_PREFIX}/")
-    print("Next: uv run python scripts/launch_dlc_retrain_ec2.py")
+    print("Next: uv run python scripts/launch_dlc_finetune_ec2.py")
 
 
 if __name__ == "__main__":

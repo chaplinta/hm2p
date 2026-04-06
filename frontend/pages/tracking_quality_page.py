@@ -510,7 +510,7 @@ if "retrain_frames" in st.session_state:
     st.code(
         f"# Upload labels and launch training on AWS (GPU)\n"
         f"uv run python scripts/upload_dlc_labels.py\n"
-        f"uv run python scripts/launch_dlc_retrain_ec2.py",
+        f"uv run python scripts/launch_dlc_finetune_ec2.py",
         language="bash",
     )
 

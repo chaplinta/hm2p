@@ -26,7 +26,7 @@
 | Script | Purpose |
 |--------|---------|
 | `scripts/ec2_utils.py` | Shared bash snippets: GPU guard, timeout, PyTorch install, credentials |
-| `scripts/launch_dlc_retrain_ec2.py` | Launch training + inference on EC2 |
+| `scripts/launch_dlc_finetune_ec2.py` | Launch training + inference on EC2 |
 | `scripts/run_dlc_retrain.py` | On-instance: training + inference logic |
 | `scripts/launch_dlc_ec2.py` | Launch inference-only (SuperAnimal, no fine-tuning) |
 | `scripts/prepare_retrain_frames.py` | Local: download video, extract frames, open labeling GUI |
@@ -68,10 +68,10 @@ download/upload phases.
    uv run python scripts/upload_dlc_labels.py
 
 3. Launch training on AWS:
-   uv run python scripts/launch_dlc_retrain_ec2.py
+   uv run python scripts/launch_dlc_finetune_ec2.py
 
 4. Monitor progress:
-   uv run python scripts/launch_dlc_retrain_ec2.py --progress
+   uv run python scripts/launch_dlc_finetune_ec2.py --progress
 
 5. After completion, review tracking in frontend:
    Tracking QC page > compare SuperAnimal vs fine-tuned

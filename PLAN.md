@@ -285,7 +285,7 @@ Stage 2b uses these weights for inference.
 
 **Launch:**
 ```bash
-uv run python scripts/launch_dlc_retrain_ec2.py
+uv run python scripts/launch_dlc_finetune_ec2.py
 ```
 
 ---

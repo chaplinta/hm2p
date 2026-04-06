@@ -3,5 +3,20 @@
     "n_frames": 15,
     "has_csv": true,
     "has_h5": true
+  },
+  "20221004_10_43_03_1118023_maze-rose_overhead.camera-cropped": {
+    "n_frames": 16,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20221116_14_31_17_1118320_maze-rose_overhead.camera-cropped": {
+    "n_frames": 15,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20221117_13_20_37_1118317_maze-rose_overhead.camera-cropped": {
+    "n_frames": 15,
+    "has_csv": true,
+    "has_h5": true
   }
 }

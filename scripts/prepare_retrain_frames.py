@@ -251,7 +251,7 @@ def main() -> None:
     print("     uv run python scripts/upload_dlc_labels.py\n")
     print("2. Launch GPU training on AWS (fine-tunes SuperAnimal on your labels,")
     print("   then re-runs inference on all 26 sessions):")
-    print("     uv run python scripts/launch_dlc_retrain_ec2.py")
+    print("     uv run python scripts/launch_dlc_finetune_ec2.py")
     print(f"{'='*60}")
 
 

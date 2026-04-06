@@ -72,7 +72,7 @@ uv run python scripts/upload_dlc_labels.py --dry-run   # check first
 uv run python scripts/upload_dlc_labels.py              # upload
 
 # Launch GPU retraining on EC2 (fine-tunes SuperAnimal, re-runs all 26 sessions)
-uv run python scripts/launch_dlc_retrain_ec2.py
+uv run python scripts/launch_dlc_finetune_ec2.py
 ```
 
 ## Version control strategy

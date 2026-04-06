@@ -158,7 +158,7 @@ else:
     else:
         st.info(
             "No trained model or training log found. "
-            "Run `scripts/launch_dlc_retrain_ec2.py` to start training."
+            "Run `scripts/launch_dlc_finetune_ec2.py` to start training."
         )
 
 # Training progress
@@ -367,13 +367,13 @@ with st.expander("How to start training"):
 
 **Launch training (24h max, GPU enforced):**
 ```bash
-uv run python scripts/launch_dlc_retrain_ec2.py
+uv run python scripts/launch_dlc_finetune_ec2.py
 ```
 
 **Monitor progress:**
 ```bash
-uv run python scripts/launch_dlc_retrain_ec2.py --progress
-uv run python scripts/launch_dlc_retrain_ec2.py --status
+uv run python scripts/launch_dlc_finetune_ec2.py --progress
+uv run python scripts/launch_dlc_finetune_ec2.py --status
 ```
 
 **After training:**
