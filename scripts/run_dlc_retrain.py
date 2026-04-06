@@ -190,11 +190,12 @@ def infer(s3, config_path: Path) -> None:
             # Run inference
             out_dir = work / "output"
             out_dir.mkdir(exist_ok=True)
-            print(f"  Running DLC inference...")
+            print(f"  Running DLC inference (batch_size=32)...")
             deeplabcut.analyze_videos(
                 str(config_path),
                 [str(dlc_video)],
                 destfolder=str(out_dir),
+                batch_size=32,
             )
 
             # Upload results
