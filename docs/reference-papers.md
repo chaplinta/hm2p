@@ -166,8 +166,8 @@ experiments. Exploration is explained by local turning rules (forward bias +
 alternation) without requiring a global cognitive map.
 
 **Relevance to hm2p:** The maze analysis module (`src/hm2p/maze/`) adapts
-Rosenberg's behavioural metrics for the hm2p Rosenberg maze (7×5 grid, 23
-accessible cells, 7 T-junctions, 9 dead ends). The Rosenberg maze is much
+Rosenberg's behavioural metrics for the hm2p q-rose maze (7×5 grid, 23
+accessible cells, 7 T-junctions, 9 dead ends). The q-rose maze is much
 simpler (~1/8th the size) and has no reward, but the same analytical
 framework applies.
 
@@ -185,7 +185,7 @@ framework applies.
 | Markov model | 1st and 2nd order transition matrices | Same (`maze/analysis.py:transition_matrix`) |
 
 **Key difference:** Rosenberg's maze is a binary tree (each junction has
-exactly 2 forward options). The hm2p Rosenberg maze has T-junctions with 3
+exactly 2 forward options). The hm2p q-rose maze has T-junctions with 3
 options (left/right/back) and corridors with 2 options (forward/back). The
 topology analysis accounts for this.
 

@@ -57,7 +57,7 @@ Last updated: 2026-03-19
 - [x] Light on/off alignment from DAQ timestamps
 - [x] `bad_behav` mask from `experiments.csv`
 - [x] Confidence filtering (< 0.9 -> NaN) and short-gap interpolation
-- [x] Maze coordinate positions (7x5 Rosenberg maze grid)
+- [x] Maze coordinate positions (7x5 q-rose maze grid)
 - [x] `kinematics.h5` output with full schema
 - [x] Run script (`scripts/run_stage3_kinematics.py`)
 - [x] Perspective correction for overhead camera parallax (`src/hm2p/kinematics/perspective.py`)

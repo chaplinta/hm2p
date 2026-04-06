@@ -1,4 +1,4 @@
-"""Rosenberg maze topology — graph representation of the 7×5 Rosenberg maze.
+"""q-rose maze topology — graph representation of the 7×5 q-rose maze.
 
 The maze is a 7×5 unit grid with internal walls creating corridors.
 This module defines:
@@ -7,7 +7,7 @@ This module defines:
   - Junction classification (dead-end, corridor, T-junction, crossroads)
   - Shortest-path distances between all cells
 
-Inspired by Rosenberg et al. (2021) eLife, adapted for the hm2p Rosenberg maze.
+Inspired by Rosenberg et al. (2021) eLife, adapted for the hm2p q-rose maze.
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ MAZE_POLYGON_COORDS: list[tuple[int, int]] = [
 # the cell spans [col, col+1) × [row, row+1).  The cell center is at
 # (col+0.5, row+0.5).
 #
-# The Rosenberg maze corridor layout (y increases upward, shown as grid):
+# The q-rose maze corridor layout (y increases upward, shown as grid):
 #
 #   Row 4: [0,4] [_,_] [2,4] [3,4] [_,_] [5,4] [6,4]
 #   Row 3: [0,3] [_,_] [2,3] [3,3] [_,_] [5,3] [6,3]
@@ -101,7 +101,7 @@ def get_accessible_cells() -> set[tuple[int, int]]:
 _DIRECTIONS = [(1, 0), (-1, 0), (0, 1), (0, -1)]
 
 # Internal walls — pairs of cells that are both accessible but separated
-# by a physical wall in the Rosenberg maze.  Each entry is a frozenset of two
+# by a physical wall in the q-rose maze.  Each entry is a frozenset of two
 # cells so lookup is order-independent.
 _BLOCKED_EDGES: set[frozenset[tuple[int, int]]] = {
     frozenset({(2, 4), (3, 4)}),  # wall between columns 2–3 in top row
@@ -229,7 +229,7 @@ def shortest_path(
 
 @dataclass
 class RoseMaze:
-    """Complete Rosenberg maze topology.
+    """Complete q-rose maze topology.
 
     Attributes:
         cells: set of accessible (col, row) cells.
@@ -272,7 +272,7 @@ class RoseMaze:
 
 
 def build_rose_maze() -> RoseMaze:
-    """Construct the complete Rosenberg maze topology."""
+    """Construct the complete q-rose maze topology."""
     cells = get_accessible_cells()
     adj = build_adjacency(cells)
     node_types = classify_nodes(adj)

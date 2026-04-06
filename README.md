@@ -7,7 +7,7 @@ Cloud-based analysis pipeline for freely-moving mouse experiments combining
 
 ## What This Is
 
-Mice explore a Rosenberg maze (or open field / linear track) while we record:
+Mice explore a q-rose maze (or open field / linear track) while we record:
 
 - **2P calcium imaging** (~9.6 Hz, GCaMP) of **retrosplenial cortex (RSP)** and nearby cortex — a region with prominent head-direction cells
 - **Overhead video** (~100 fps) of the mouse, synchronised to imaging via DAQ

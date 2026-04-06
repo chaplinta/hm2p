@@ -105,5 +105,5 @@ st.markdown("---")
 st.caption(
     "hm2p v2 — ground-up redesign of the head direction tuning pipeline. "
     "RSP Penk+ (Cre-ON) vs Penk⁻CamKII+ (Cre-OFF) neurons. "
-    "26 sessions, ~391 ROIs, freely-moving Rosenberg maze with 1-min light on/off cycles."
+    "26 sessions, ~391 ROIs, freely-moving q-rose maze with 1-min light on/off cycles."
 )

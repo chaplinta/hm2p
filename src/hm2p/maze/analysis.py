@@ -346,7 +346,7 @@ def segment_modes(
 ) -> list[dict]:
     """Segment trajectory into goal-directed and exploratory modes.
 
-    Adapted from Rosenberg et al. SplitModeClips. Since the Rosenberg maze has
+    Adapted from Rosenberg et al. SplitModeClips. Since the q-rose maze has
     no water reward, we detect goal-directed runs toward any dead end and
     classify everything else as exploration.
 

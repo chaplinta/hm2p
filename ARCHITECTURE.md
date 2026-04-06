@@ -217,7 +217,7 @@ hm2p-v2/
 │       │   └── save.py               # Write analysis.h5 outputs
 │       ├── maze/
 │       │   ├── __init__.py
-│       │   ├── topology.py        # Rosenberg maze graph: 7×5 grid, adjacency, dead ends
+│       │   ├── topology.py        # q-rose maze graph: 7×5 grid, adjacency, dead ends
 │       │   ├── discretize.py      # Continuous x/y → maze cell assignment
 │       │   └── analysis.py        # Occupancy, exploration, turn bias, sequences
 │       ├── anatomy/
@@ -365,7 +365,7 @@ seconds since session start. Units and session_id are stored as HDF5 attributes.
 /syllable_prob       (N, S) float32 — OPTIONAL: posterior over S syllables
 ```
 
-Maze coordinate system: the Rosenberg maze is 7 × 5 units. The shapely Polygon boundary is
+Maze coordinate system: the q-rose maze is 7 × 5 units. The shapely Polygon boundary is
 used to clip out-of-bounds positions (`fix_oob`). Maze units are derived from pixel
 positions via scale calibration and video ROI crop metadata.
 

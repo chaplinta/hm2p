@@ -1,6 +1,6 @@
 # Maze Exploration and RSP Neural Activity: Working Notes
 
-Working document for ideas connecting Rosenberg maze exploration behaviour to RSP
+Working document for ideas connecting q-rose maze exploration behaviour to RSP
 neural population activity. Scientific notes, not polished prose.
 
 ---
@@ -43,9 +43,9 @@ framework:
    decreases at every step, indicating goal-directed behaviour. Already
    implemented.
 
-### Mapping to the Rosenberg maze
+### Mapping to the q-rose maze
 
-The Rosenberg maze is much smaller than Rosenberg's labyrinth: 23 accessible
+The q-rose maze is much smaller than Rosenberg's labyrinth: 23 accessible
 cells, 7 T-junctions, 9 dead ends, 7 corridors, 0 crossroads. Maximum
 graph diameter is ~9 steps. This has important consequences:
 
@@ -95,7 +95,7 @@ The `maze/analysis.py` module already contains:
 - `maze_exploration_summary()` — comprehensive per-session summary
 
 This is a fairly complete implementation of the Rosenberg framework adapted
-for the Rosenberg maze. The main gaps are in connecting these behavioural metrics
+for the q-rose maze. The main gaps are in connecting these behavioural metrics
 to neural data.
 
 ---
@@ -189,7 +189,7 @@ laminar positions, or particular projection targets remains unknown.
 
 ---
 
-## 2b. The Rosenberg Maze as a Natural Decision-Making Paradigm
+## 2b. The Q-Rose Maze as a Natural Decision-Making Paradigm
 
 ### Every T-junction is a free binary choice
 
@@ -202,7 +202,7 @@ available sensory cues.
 
 In a standard trained 2AFC task, mice need weeks of shaping and thousands
 of trials to reach criterion, typically generating 100–200 decisions per
-session under artificial reward contingencies. In the Rosenberg maze, 7
+session under artificial reward contingencies. In the q-rose maze, 7
 T-junctions are visited repeatedly across a ~20-minute session, producing
 **hundreds of decision points per session** — each one a free,
 intrinsically motivated choice. There is no reward shaping the decisions,
