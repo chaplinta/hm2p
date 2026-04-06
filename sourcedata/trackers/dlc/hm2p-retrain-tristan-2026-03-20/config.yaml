@@ -16,7 +16,7 @@ bodyparts:
 - nose_tip
 - left_ear
 - right_ear
-- implant_centre
+- implant_base_rear
 - neck
 - mid_back
 - mouse_center
@@ -43,18 +43,18 @@ project_path: /Users/tristan/Neuro/hm2p-v2/sourcedata/trackers/dlc/hm2p-retrain-
 scorer: tristan
 skeleton:
 - - nose_tip
-  - implant_centre
+  - implant_base_rear
 - - nose_tip
   - left_ear
 - - nose_tip
   - right_ear
 - - left_ear
-  - implant_centre
+  - implant_base_rear
 - - right_ear
-  - implant_centre
+  - implant_base_rear
 - - left_ear
   - right_ear
-- - implant_centre
+- - implant_base_rear
   - neck
 - - neck
   - mid_back

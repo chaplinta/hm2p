@@ -5,13 +5,13 @@ per-session camera rotation correction, filters low-confidence detections,
 computes HD, position, speed, AHV, movement state, light epoch alignment,
 and maze-coordinate positions. Writes kinematics.h5.
 
-Keypoints used: nose_tip, left_ear, right_ear, implant_centre, neck,
+Keypoints used: nose_tip, left_ear, right_ear, implant_base_rear, neck,
 mid_back, mouse_center, tail_base.
 
 HD is computed by fusing up to three independent estimates from the head
 keypoints, weighted by availability (NaN = below confidence threshold):
   1. Ear vector: perpendicular to left_ear → right_ear (primary).
-  2. Nose-implant axis: nose_tip → implant_centre direction.
+  2. Nose-implant axis: nose_tip → implant_base_rear direction.
   3. Nose-neck axis: nose_tip → neck direction.
 Falls back gracefully when keypoints are occluded (e.g. nose behind the
 2P implant). Backwards-compatible: works with ears-only pose data.
@@ -80,7 +80,7 @@ _TRACKER_MAP: dict[str, str] = {
 _EAR_LEFT: str = "left_ear"
 _EAR_RIGHT: str = "right_ear"
 _NOSE: str = "nose_tip"
-_IMPLANT: str = "implant_centre"
+_IMPLANT: str = "implant_base_rear"
 _NECK: str = "neck"
 
 # Keypoints used for body centroid position
@@ -251,7 +251,7 @@ def _fused_hd_wrapped(
 
     Estimates used (when keypoints are available and not NaN):
       1. Ear perpendicular: perpendicular to left_ear→right_ear.
-      2. Nose→implant: direction from nose_tip to implant_centre.
+      2. Nose→implant: direction from nose_tip to implant_base_rear.
       3. Nose→neck: direction from nose_tip to neck.
 
     At each frame, all non-NaN estimates are combined via circular mean.
@@ -512,7 +512,7 @@ def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
 
     Uses circular mean of up to three independent HD estimates:
       1. Ear perpendicular (left_ear, right_ear) — primary.
-      2. Nose→implant axis (nose_tip, implant_centre).
+      2. Nose→implant axis (nose_tip, implant_base_rear).
       3. Nose→neck axis (nose_tip, neck).
 
     Falls back to ears-only if other keypoints are absent (backwards

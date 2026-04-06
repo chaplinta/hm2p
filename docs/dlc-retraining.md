@@ -18,7 +18,7 @@ workflow from frame selection to retraining.
 | `nose_tip` | `nose` | HD estimate (nose→neck midline), exploration |
 | `left_ear` | `left_ear` | Primary HD (ear vector perpendicular) |
 | `right_ear` | `right_ear` | Primary HD (ear vector perpendicular) |
-| `implant_centre` | *(custom)* | Skull reference (rigid, high-contrast 2P headstage) |
+| `implant_base_rear` | *(custom)* | Skull reference (rigid, high-contrast 2P headstage) |
 | `neck` | `neck` | HD fallback (nose→neck axis), head-body dissociation |
 | `mid_back` | `spine_center` | Body axis |
 | `mouse_center` | `spine_mid` | Position, speed |
@@ -26,7 +26,7 @@ workflow from frame selection to retraining.
 
 5 head keypoints (nose, ears, implant, neck) enable robust HD fusion
 with confidence-weighted fallback when individual points are occluded.
-`implant_centre` is trained from scratch (no SuperAnimal equivalent) but
+`implant_base_rear` is trained from scratch (no SuperAnimal equivalent) but
 tracks reliably due to the high visual contrast of the headstage. The
 `SuperAnimalConversionTables` in `config.yaml` maps the other 7 to the matching
 SuperAnimal keypoints, so fine-tuning transfers the pre-trained backbone
