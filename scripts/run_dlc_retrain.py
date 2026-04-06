@@ -225,6 +225,30 @@ def infer(s3, config_path: Path) -> None:
     )
     print(f"\nDone: {len(completed)}/{total} completed, {len(failed)} failed")
 
+    # Auto-promote: copy pose-finetuned/ → pose/ on S3
+    if failed:
+        print(f"\nSkipping auto-promote: {len(failed)} sessions failed.")
+        return
+
+    print(f"\nPromoting finetuned pose → pose/ on S3...")
+    for ses in sessions:
+        sub, ses_id = ses["sub"], ses["ses"]
+        src_prefix = f"{FINETUNED_PREFIX}/{sub}/{ses_id}/"
+        dst_prefix = f"pose/{sub}/{ses_id}/"
+        resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=src_prefix)
+        for obj in resp.get("Contents", []):
+            src_key = obj["Key"]
+            dst_key = src_key.replace(FINETUNED_PREFIX, "pose", 1)
+            s3.copy_object(
+                Bucket=DERIVATIVES_BUCKET,
+                CopySource={"Bucket": DERIVATIVES_BUCKET, "Key": src_key},
+                Key=dst_key,
+            )
+        print(f"  {sub}/{ses_id}: promoted")
+
+    update_progress(s3, "Promoted to pose/", completed=len(completed), total=total)
+    print("Promotion complete. Downstream stages (3, 3b, 5, 6) need re-running.")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="DLC retraining + inference")
