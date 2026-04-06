@@ -244,10 +244,37 @@ def main() -> None:
 
     if do_infer:
         if config_path is None:
-            # Download config from S3 (training was done in a previous run)
-            config_path = Path("/tmp/dlc-retrain/config.yaml")
-            config_path.parent.mkdir(parents=True, exist_ok=True)
+            # Download config + model weights from S3 (training was done in a previous run)
+            work = Path("/tmp/dlc-retrain")
+            work.mkdir(parents=True, exist_ok=True)
+            config_path = work / "config.yaml"
             s3.download_file(DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/config.yaml", str(config_path))
+
+            # Download model weights
+            print("Downloading model weights from S3...")
+            resp = s3.list_objects_v2(
+                Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/"
+            )
+            model_files = resp.get("Contents", [])
+            if not model_files:
+                print("ERROR: no model weights on S3. Run training first.")
+                sys.exit(1)
+            for obj in model_files:
+                key = obj["Key"]
+                rel = key[len(f"{RETRAIN_PREFIX}/models/"):]
+                dest = work / "dlc-models-pytorch" / rel
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                s3.download_file(DERIVATIVES_BUCKET, key, str(dest))
+            print(f"  Downloaded {len(model_files)} model files")
+
+            # Fix project_path in config
+            import yaml
+            with open(config_path) as f:
+                cfg = yaml.safe_load(f)
+            cfg["project_path"] = str(work)
+            with open(config_path, "w") as f:
+                yaml.dump(cfg, f)
+
         infer(s3, config_path)
 
 
