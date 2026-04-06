@@ -102,16 +102,23 @@ def train(s3, maxiters: int = 50000, batch_size: int = 8) -> Path:
     print("Evaluating network...")
     deeplabcut.evaluate_network(str(config_path))
 
-    # Upload model weights
+    # Upload model weights via boto3 (aws CLI may not be available)
     print("Uploading model weights to S3...")
-    dlc_train_dir = work / "dlc-models"
-    if dlc_train_dir.exists():
-        subprocess.run(
-            ["aws", "s3", "sync",
-             str(dlc_train_dir),
-             f"s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/"],
-            check=True,
-        )
+    # DLC 3.0 PyTorch uses dlc-models-pytorch; legacy uses dlc-models
+    for model_dir_name in ("dlc-models-pytorch", "dlc-models"):
+        dlc_train_dir = work / model_dir_name
+        if dlc_train_dir.exists():
+            print(f"  Found {model_dir_name}/")
+            for f in dlc_train_dir.rglob("*"):
+                if f.is_file():
+                    rel = f.relative_to(dlc_train_dir)
+                    key = f"{RETRAIN_PREFIX}/models/{rel}"
+                    s3.upload_file(str(f), DERIVATIVES_BUCKET, key)
+            n_files = sum(1 for _ in dlc_train_dir.rglob("*") if _.is_file())
+            print(f"  Uploaded {n_files} files to s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/")
+            break
+    else:
+        print("  WARNING: no model directory found")
 
     update_progress(s3, "Training complete", maxiters=maxiters)
     return config_path

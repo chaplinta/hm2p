@@ -88,7 +88,7 @@ def _check_model_exists() -> bool:
     """
     try:
         s3 = get_s3_client()
-        model_suffixes = (".pt", ".pth", ".pb", ".index", ".data-00000-of-00001", ".pkl")
+        model_suffixes = (".pt", ".pth", ".pb", ".index", ".data-00000-of-00001", ".pkl", ".json")
         for prefix in (f"{TRAINING_MODEL_PREFIX}/", f"{RETRAIN_PREFIX}/models/"):
             resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=prefix)
             if any(

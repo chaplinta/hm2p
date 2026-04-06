@@ -401,21 +401,23 @@ def _count_cascade_outputs() -> int:
 
 @st.cache_data(ttl=300)
 def _count_dlc_training_outputs() -> int:
-    """Check S3 for trained DLC model weights (dlc_training/ prefix).
+    """Check S3 for trained DLC model weights.
 
-    Returns 1 if at least one model checkpoint exists, 0 otherwise.
-    The DLC Training stage produces one model (not per-session), so expected=1.
+    Checks both dlc_training/models/ and dlc-retrain/models/ since the
+    retrain script uploads to the latter. Returns 1 if any model or
+    training-complete marker exists, 0 otherwise.
     """
     try:
         s3 = get_s3_client()
-        resp = s3.list_objects_v2(
-            Bucket=DERIVATIVES_BUCKET, Prefix="dlc_training/models/",
-        )
-        has_model = any(
-            obj["Key"].endswith((".pb", ".index", ".data-00000-of-00001", ".pkl"))
-            for obj in resp.get("Contents", [])
-        )
-        return 1 if has_model else 0
+        model_suffixes = (".pt", ".pth", ".pb", ".index", ".data-00000-of-00001", ".pkl", ".json")
+        for prefix in ("dlc_training/models/", "dlc-retrain/models/"):
+            resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=prefix)
+            if any(
+                obj["Key"].endswith(model_suffixes)
+                for obj in resp.get("Contents", [])
+            ):
+                return 1
+        return 0
     except Exception:
         return 0
 
