@@ -197,7 +197,7 @@ effects rather than cell-type specific.
 
 ### H4.2 Maze exploration strategy differs between genotypes
 **Prediction:** Animals with different labelled populations explore the
-rose maze differently — occupancy distribution, coverage rate, time to
+Rosenberg maze differently — occupancy distribution, coverage rate, time to
 explore all arms, dead-end dwell time, turn bias.
 **Metric:** From `maze/analysis.py`: `occupancy_entropy`, `coverage_rate`,
 `dead_end_visits`, `turn_bias`, `exploration_efficiency`.

@@ -1,4 +1,4 @@
-"""Maze Animation — animated replay of mouse trajectory through the rose maze.
+"""Maze Animation — animated replay of mouse trajectory through the Rosenberg maze.
 
 Shows the mouse position and head direction arrow as it moves through the maze,
 with a trail showing recent trajectory. Uses Plotly animation frames for smooth
@@ -19,14 +19,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from frontend.data import load_all_sync_data, session_filter_sidebar
 
-# ── Maze boundary polygon (7×5 rose maze) ────────────────────────────────
+# ── Maze boundary polygon (7×5 Rosenberg maze) ───────────────────────────
 # This traces the outer wall of the 23 accessible cells.
 _MAZE_WALLS_X = [0, 3, 3, 2, 2, 5, 5, 4, 4, 7, 7, 6, 6, 7, 7, 4, 4, 5, 5, 4, 4, 3, 3, 2, 2, 3, 3, 0, 0, 1, 1, 0, 0]
 _MAZE_WALLS_Y = [0, 0, 1, 1, 2, 2, 1, 1, 0, 0, 1, 1, 4, 4, 5, 5, 4, 4, 3, 3, 5, 5, 3, 3, 4, 4, 5, 5, 4, 4, 1, 1, 0]
 
 
 def _draw_maze(fig: go.Figure) -> None:
-    """Add the rose maze boundary walls to a Plotly figure."""
+    """Add the Rosenberg maze boundary walls to a Plotly figure."""
     fig.add_trace(go.Scatter(
         x=_MAZE_WALLS_X, y=_MAZE_WALLS_Y,
         mode="lines",
@@ -236,7 +236,7 @@ def _page() -> None:
     """Render the maze animation page (called by Streamlit runner)."""
     st.title("Maze Animation")
     st.caption(
-        "Animated replay of mouse trajectory through the rose maze. "
+        "Animated replay of mouse trajectory through the Rosenberg maze. "
         "Shows head position, facing direction (blue arrow), and recent trail. "
         "Colour indicates light state (orange = lights on, grey = dark)."
     )

@@ -8,7 +8,7 @@ Written from inspection of the legacy code (`hm2p-analysis/`) and raw data
 
 ## 1. Experiment Overview
 
-**Experiment type:** Freely-moving mouse in a rose-maze (also open field and linear
+**Experiment type:** Freely-moving mouse in a Rosenberg maze (also open field and linear
 track variants). Two-photon GCaMP calcium imaging recorded simultaneously with overhead
 behavioural video.
 
@@ -597,7 +597,7 @@ x_maze = (x_mm - roi_x1_mm) / roi_width_mm * maze_square_w   # maze_square_w = 7
 y_maze = (y_mm - roi_y1_mm) / roi_height_mm * maze_square_h   # maze_square_h = 5.0
 ```
 
-Out-of-bounds positions are clipped to the nearest point inside the rose-maze boundary
+Out-of-bounds positions are clipped to the nearest point inside the Rosenberg maze boundary
 using a `shapely.geometry.Polygon`:
 
 ```python
@@ -606,7 +606,7 @@ Polygon([(0,0),(3,0),(3,1),(2,1),(2,2),(5,2),(5,1),(4,1),(4,0),(7,0),(7,1),(6,1)
          (2,4),(3,4),(3,5),(0,5),(0,4),(1,4),(1,1),(0,1)])
 ```
 
-This polygon encodes the rose-maze shape (a 7 × 5 unit grid with corridors). Positions
+This polygon encodes the Rosenberg maze shape (a 7 × 5 unit grid with corridors). Positions
 outside this polygon are clamped to the nearest boundary point.
 
 ---
@@ -682,7 +682,7 @@ Columns:
 | Column | Type | Notes |
 | --- | --- | --- |
 | `exp_index` | int | Sequential index |
-| `exp_id` | str | Session ID (`YYYYMMDD_HH_MM_SS_<animal_id>`) — all sessions are rose-maze type |
+| `exp_id` | str | Session ID (`YYYYMMDD_HH_MM_SS_<animal_id>`) — all sessions are Rosenberg maze type |
 | `implant_date` | date | Surgery date |
 | `zstack_id` | str | Reference z-stack session ID |
 | `fibre` | str | Fibre type (e.g. `SFB`) |

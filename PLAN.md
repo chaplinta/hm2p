@@ -81,7 +81,7 @@ Raw `.raw` files are converted to TIFF via `raw2tif`, then passed to the chosen 
 | Camera | Basler acA1300-200um |
 | Format | `.mp4` (H.264) |
 | Frame rate | ~100 fps, synchronised to imaging via DAQ trigger |
-| Content | Overhead view of mouse in maze (rose-maze / open field / linear track) |
+| Content | Overhead view of mouse in maze (Rosenberg maze / open field / linear track) |
 | Calibration | Lens-specific `.npz` files (4 mm and 6 mm lenses) |
 | Per-session metadata | `meta/meta.txt` — crop region, scale (mm/pixel), maze ROI corners |
 | Current volume | ~900 MB raw video across 26 sessions |
@@ -351,7 +351,7 @@ plus a `confidence` data variable. Downstream code never inspects which tracker 
    - Light follows a **periodic 1 min on / 1 min off** cycle throughout the session
    - Overhead room lights — light off = **total darkness** / full visual cue removal
    - Per-frame `light_on` boolean stored in `kinematics.h5` and `sync.h5`
-7. Compute maze-coordinate positions (7 × 5 unit rose-maze grid):
+7. Compute maze-coordinate positions (7 × 5 unit Rosenberg maze grid):
    - Map pixel position → mm → maze units via scale calibration + ROI metadata
    - Clip out-of-bounds positions to nearest maze boundary point using shapely Polygon
    - Maze polygon (7 × 5 units) defined from `get_maze_poly()` in legacy code

@@ -119,7 +119,7 @@ Do not pin to old versions without a documented compatibility reason.
 
 ## Project Context
 
-**Experiment:** freely-moving mouse in rose-maze
+**Experiment:** freely-moving mouse in Rosenberg maze
 **Brain region:** Retrosplenial cortex (RSP) and nearby cortex — HD cells. NOT subiculum or postsubiculum.
 **Cell types:** Two non-overlapping RSP populations — (1) **Penk+** (Penk-Cre mouse + ADD3 virus, Cre-ON); (2) **Penk⁻CamKII+** (virus 344, Cre-OFF intersectional: Cre in Penk+ cells blocks expression — labels only non-Penk CamKII+ cells). Column `celltype` in `animals.csv`: `"penk"` or `"nonpenk"`. Short labels: "Penk+" and "Penk⁻CamKII+".
 **Imaging:** Single plane per session — soma and dendrite ROIs coexist in one plane; classified post-hoc by shape. No second dendrite plane.
@@ -133,7 +133,7 @@ Do not pin to old versions without a documented compatibility reason.
 **Session ID format:** `YYYYMMDD_HH_MM_SS_<animal_id>` (e.g. `20220804_13_52_02_1117646`).
 **NeuroBlueprint session name:** `ses-{YYYYMMDD}T{HHMMSS}` (e.g. `ses-20220804T135202`) — full timestamp required as multiple sessions per day exist.
 **Ground-truth registry:** `metadata/animals.csv`, `metadata/experiments.csv`.
-**Experiment types:** All sessions are rose-maze only. Side camera (`_side_left.camera.mp4`) is never used — ignore it.
+**Experiment types:** All sessions are Rosenberg maze only. Side camera (`_side_left.camera.mp4`) is never used — ignore it.
 **orientation column:** Per-session rotation angle (degrees) in `experiments.csv` to correct for camera placement variation. Applied as a 2D rotation to all keypoint coordinates before HD computation.
 **New columns needed in experiments.csv:** `extractor` (default `"suite2p"`) and `tracker` (default `"dlc"`) — to be added when setting up the project skeleton (deferred).
 **Data volume:** ~113 GB to upload to S3 (26 sessions × ~4 GB average, excl. side_left and red.tif).

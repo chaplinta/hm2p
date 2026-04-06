@@ -302,7 +302,7 @@ of the significant-ROI sets.
 
 ### Maze analysis
 
-Separate module at `src/hm2p/maze/` (topology, discretize, analysis) for rose-maze
+Separate module at `src/hm2p/maze/` (topology, discretize, analysis) for Rosenberg maze
 navigation analysis (occupancy, exploration efficiency, turn bias, sequence entropy).
 
 ---

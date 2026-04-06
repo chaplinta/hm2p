@@ -127,7 +127,7 @@ class TestClassifyNodes:
             assert types[tj] == "t_junction", f"{tj} should be t_junction"
 
     def test_no_crossroads(self):
-        """Rose maze has no 4-way intersections."""
+        """Rosenberg maze has no 4-way intersections."""
         cells = get_accessible_cells()
         adj = build_adjacency(cells)
         types = classify_nodes(adj)

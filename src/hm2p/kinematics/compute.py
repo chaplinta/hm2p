@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 _log = logging.getLogger("hm2p.kinematics")
 
-# Maze is a 7×5 unit rose-maze grid.
+# Maze is a 7×5 unit Rosenberg maze grid.
 # This shapely Polygon clips out-of-bounds positions.
 MAZE_POLYGON_COORDS: list[tuple[int, int]] = [
     (0, 0),
@@ -366,7 +366,7 @@ def _clip_to_maze_polygon(
     x_maze: np.ndarray,
     y_maze: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Clip maze-unit positions to the rose-maze boundary polygon.
+    """Clip maze-unit positions to the Rosenberg maze boundary polygon.
 
     Points outside the polygon are moved to their nearest point on the
     polygon boundary. NaN positions are preserved unchanged.
@@ -592,7 +592,7 @@ def compute_maze_coords(
     maze_corners_px: np.ndarray,
     scale_mm_per_px: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Map mm positions to rose-maze coordinate units (0–7 × 0–5).
+    """Map mm positions to Rosenberg maze coordinate units (0–7 × 0–5).
 
     Out-of-bounds positions are clipped to the nearest point on the maze
     boundary polygon (MAZE_POLYGON_COORDS).

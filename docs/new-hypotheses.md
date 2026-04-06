@@ -35,7 +35,7 @@ A-P position of our imaging plane constrains interpretation.
 **RSP contains multidirectional cells.** Laurent et al. (2025), from Jacob's
 group, identified RSP cells with room-specific directional tuning alongside
 classical HD cells with stable preferred direction across environments. The
-rose maze geometry (radial arms from a central hub) could support similar
+Rosenberg maze geometry (radial arms from a central hub) could support similar
 heterogeneity.
 
 **Visual landmark anchoring is a learned, stable RSP function.** The bioRxiv
@@ -100,7 +100,7 @@ genetically-defined subpopulations in RSP.
 
 **Whether RSP contains cells with arm-specific or maze-location-dependent HD
 tuning.** Laurent et al. (2025) found multidirectional cells in multi-room
-RSC, but the rose maze is a continuous structure with multiple radiating arms
+RSC, but the Rosenberg maze is a continuous structure with multiple radiating arms
 rather than discrete rooms. Whether similar heterogeneity emerges in a radial
 maze is unknown.
 
@@ -117,7 +117,7 @@ whether this differs by cell type, is untested.
    cue removal in freely-moving mice. This directly tests whether
    subpopulations have distinct roles in visual versus idiothetic HD anchoring.
 
-2. **Freely-moving in a structured maze.** The rose maze provides natural
+2. **Freely-moving in a structured maze.** The Rosenberg maze provides natural
    choice points, dead ends, and forced turns — richer spatial structure
    than open fields or linear tracks. This enables navigation-related analyses
    not possible in simpler environments.
@@ -345,22 +345,22 @@ imaging temporal resolution limits sensitivity.
 
 ---
 
-### H-NEW-5: Multidirectional tuning in the rose maze differs between Penk+ and Penk-CamKII+ populations
+### H-NEW-5: Multidirectional tuning in the Rosenberg maze differs between Penk+ and Penk-CamKII+ populations
 
 **Hypothesis:** Following Laurent et al. (2025), some RSP neurons show
-arm-specific preferred directions in the rose maze rather than a single
+arm-specific preferred directions in the Rosenberg maze rather than a single
 global PD. Penk+ and Penk-CamKII+ populations differ in the proportion
 of globally-tuned versus arm-specific HD cells.
 
 **Motivating literature:**
 - Laurent et al. (2025): RSC contains both classical HD cells and
-  multidirectional cells with environment-specific PD. The rose maze
+  multidirectional cells with environment-specific PD. The Rosenberg maze
   arms could function as distinct spatial contexts.
 - Active pursuit paper (2026 bioRxiv): RSP HD tuning decreases during
   goal-directed movement — suggesting contextual modulation.
 
 **Analysis:**
-1. Segment the rose maze into discrete zones: central hub, each radiating
+1. Segment the Rosenberg maze into discrete zones: central hub, each radiating
    arm, and dead ends.
 2. For each neuron, compute HD tuning curves separately within each zone
    (requires sufficient occupancy per zone per direction bin — likely
@@ -389,7 +389,7 @@ a stable global PD regardless of maze arm.
   underpowered. Must pool across sessions by cell type.
 
 **Priority: LOW.** Conceptually interesting but likely underpowered with
-the current dataset. The rose maze arms are narrow, constraining heading
+the current dataset. The Rosenberg maze arms are narrow, constraining heading
 variability within each arm. This analysis would work better in an
 open field or multi-room environment. Report as exploratory if anything
 emerges, but do not build the paper narrative around it.
@@ -568,7 +568,7 @@ should be non-monotonic.
 - Jayakumar et al. (2025): HD recalibration depends on locomotion state.
   Pauses with head scanning may produce re-anchoring from non-visual cues.
 - Tian et al. (2026): Whisker trimming disrupts MEC HD cells, suggesting
-  tactile cues contribute to HD stability. Our rose maze walls provide
+  tactile cues contribute to HD stability. Our Rosenberg maze walls provide
   tactile landmarks even in darkness.
 
 **Analysis:**
@@ -733,7 +733,7 @@ secondary finding. Show: (1) RSP neuropil carries HD information,
 exceeds the neuropil signal in HD information, confirming genuine somatic
 tuning.
 
-### Theme 4: The rose maze enables navigation decision analysis that open fields cannot
+### Theme 4: The Rosenberg maze enables navigation decision analysis that open fields cannot
 
 Several papers point toward RSP's role in navigation decisions beyond
 simple HD coding:
@@ -745,7 +745,7 @@ simple HD coding:
 - Bech et al. (2026): RSP enables context-dependent sensorimotor
   transformation.
 
-The rose maze, with its forced choice points and dead ends, provides
+The Rosenberg maze, with its forced choice points and dead ends, provides
 something open fields do not: discrete navigational decisions where the
 animal must choose a direction. Whether RSP activity at junctions predicts
 the upcoming turn — and whether this prospective coding differs by cell

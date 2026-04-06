@@ -678,7 +678,7 @@ def test_light_on_alternating_cycle() -> None:
 
 
 def test_maze_polygon_bounds() -> None:
-    """MAZE_POLYGON_COORDS fit within the 7×5 rose-maze grid."""
+    """MAZE_POLYGON_COORDS fit within the 7×5 Rosenberg maze grid."""
     # The polygon has designed self-intersections (corridors) so is_valid=False
     # is expected. Use make_valid() at runtime for clipping.
     shapely = pytest.importorskip("shapely")

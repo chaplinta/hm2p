@@ -1,4 +1,4 @@
-"""Maze Analysis — rose maze topology, exploration, and navigation metrics.
+"""Maze Analysis — Rosenberg maze topology, exploration, and navigation metrics.
 
 Inspired by Rosenberg et al. (2021) eLife.
 Visualizes maze structure, occupancy, exploration efficiency, turn bias,
@@ -48,7 +48,7 @@ CELLTYPE_COLORS = {"penk": "#1f77b4", "nonpenk": "#ff7f0e", "unknown": "#999999"
 
 st.title("Maze Analysis")
 st.caption(
-    "Rose maze topology, exploration efficiency, and navigation metrics. "
+    "Rosenberg maze topology, exploration efficiency, and navigation metrics. "
     "Inspired by Rosenberg et al. (2021) eLife."
 )
 
@@ -61,9 +61,9 @@ tab_topo, tab_explore, tab_turns, tab_markov, tab_compare = st.tabs([
 ])
 
 with tab_topo:
-    st.subheader("Rose Maze Structure")
+    st.subheader("Rosenberg Maze Structure")
     st.markdown(
-        "The rose maze is a **7x5 unit grid** with internal walls creating corridors. "
+        "The Rosenberg maze is a **7x5 unit grid** with internal walls creating corridors. "
         f"It has **{maze.n_cells} accessible cells**, **{len(maze.junctions)} T-junctions**, "
         f"and **{len(maze.dead_ends)} dead ends**."
     )
