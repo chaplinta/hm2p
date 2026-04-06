@@ -223,6 +223,11 @@ st.header("Session Diagnostics")
 selected = st.selectbox("Select session", pose_sessions, key="tq_session")
 sub, ses = selected.split("/")
 
+# Clear stale retrain state when session changes
+if st.session_state.get("retrain_session") != selected:
+    st.session_state.pop("retrain_frames", None)
+    st.session_state.pop("retrain_session", None)
+
 df, meta, bodyparts, scorer = _load_dlc_data(sub, ses)
 if df is None:
     st.warning("Could not load pose data for this session.")
@@ -463,19 +468,22 @@ if "retrain_frames" in st.session_state:
 
     with st.expander("How to label frames in napari", expanded=True):
         st.markdown(
-            "The script opens a **napari** window. For each frame, place 5 keypoints:\n\n"
+            "The script opens a **napari** window. For each frame, place 8 keypoints:\n\n"
             "| Keypoint | Where to click |\n"
             "|----------|---------------|\n"
-            "| **left_ear** | Centre of the left ear (mouse's left, your right when viewed from above) |\n"
+            "| **nose_tip** | Tip of the snout (skip if hidden behind implant) |\n"
+            "| **left_ear** | Centre of the left ear (mouse's left, your right from above) |\n"
             "| **right_ear** | Centre of the right ear |\n"
+            "| **implant_base_rear** | Rear edge of the 2P headstage base |\n"
+            "| **neck** | Base of skull, between ears and mid_back |\n"
             "| **mid_back** | Midpoint of the back, between the shoulders and hips |\n"
-            "| **mouse_center** | Centre of the body, at the hip/lower back (more caudal than mid_back) |\n"
+            "| **mouse_center** | Centre of the body, at the hip/lower back |\n"
             "| **tail_base** | Where the tail meets the body |\n\n"
             "**Steps:**\n"
             "1. Select a bodypart from the **Points layer** dropdown (left panel).\n"
             "2. Click **Add Points** mode (the + icon in the layer controls).\n"
             "3. Click on the image to place the keypoint.\n"
-            "4. Repeat for all 5 bodyparts on this frame.\n"
+            "4. Repeat for all 8 bodyparts on this frame.\n"
             "5. Use the **slider at the bottom** to move to the next frame.\n"
             "6. When done, **close the napari window** (Cmd+Q). Labels save automatically.\n\n"
             "**Tips:**\n"
