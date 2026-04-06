@@ -45,16 +45,30 @@ IAM_PROFILE = "hm2p-ec2-role"
 TAG_NAME = "hm2p-dlc-retrain"
 
 
-def build_user_data(maxiters: int = 50000) -> str:
+def build_user_data(
+    maxiters: int = 50000,
+    infer_only: bool = False,
+    train_only: bool = False,
+) -> str:
     """Build the EC2 user-data script."""
     key_id, secret, region = get_s3_credentials()
     creds = build_creds_block(key_id, secret, region)
     gpu_guard = format_gpu_guard(DERIVATIVES_BUCKET, "dlc-retrain")
     timeout = format_hard_timeout(24)
 
+    if infer_only:
+        mode_flag = "--infer-only"
+        mode_label = "inference only"
+    elif train_only:
+        mode_flag = f"--train-only --maxiters {maxiters}"
+        mode_label = "training only"
+    else:
+        mode_flag = f"--maxiters {maxiters}"
+        mode_label = "train + inference"
+
     return f"""#!/bin/bash
 exec > >(tee /var/log/hm2p-dlc-retrain.log) 2>&1
-echo "=== DLC retrain (GPU enforced, 24h timeout) ==="
+echo "=== DLC retrain ({mode_label}, GPU enforced, 24h timeout) ==="
 echo "Started: $(date -u)"
 
 trap 'aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_retrain_log.txt || true; \\
@@ -78,7 +92,7 @@ cd hm2p
 
 # Mark GPU as active during processing
 touch /tmp/gpu_processing_active
-python3 scripts/run_dlc_retrain.py --maxiters {maxiters}
+python3 scripts/run_dlc_retrain.py {mode_flag}
 rm -f /tmp/gpu_processing_active
 
 echo "=== DLC retrain complete: $(date -u) ==="
@@ -86,7 +100,7 @@ shutdown -h now
 """
 
 
-def launch(maxiters: int, dry_run: bool = False) -> None:
+def launch(maxiters: int, infer_only: bool = False, train_only: bool = False, dry_run: bool = False) -> None:
     """Launch the retraining instance."""
     ec2 = boto3.client("ec2", region_name=REGION)
     s3 = boto3.client("s3", region_name=REGION)
@@ -98,7 +112,7 @@ def launch(maxiters: int, dry_run: bool = False) -> None:
         print("ERROR: no labeled data on S3. Run upload_dlc_labels.py first.")
         sys.exit(1)
 
-    user_data = build_user_data(maxiters)
+    user_data = build_user_data(maxiters, infer_only=infer_only, train_only=train_only)
 
     if dry_run:
         print(user_data)
@@ -197,12 +211,16 @@ def terminate() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Launch DLC retraining on EC2")
-    parser.add_argument("--status", action="store_true")
-    parser.add_argument("--progress", action="store_true")
-    parser.add_argument("--terminate", action="store_true")
-    parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--maxiters", type=int, default=50000)
+    parser = argparse.ArgumentParser(description="Launch DLC training or inference on EC2")
+    parser.add_argument("--status", action="store_true", help="Check running instances")
+    parser.add_argument("--progress", action="store_true", help="Check S3 progress")
+    parser.add_argument("--terminate", action="store_true", help="Terminate running instances")
+    parser.add_argument("--dry-run", action="store_true", help="Print user-data without launching")
+    parser.add_argument("--infer-only", action="store_true",
+                        help="Run inference only (skip training). Uses existing model on S3.")
+    parser.add_argument("--train-only", action="store_true",
+                        help="Run training only (skip inference).")
+    parser.add_argument("--maxiters", type=int, default=50000, help="Training iterations")
     args = parser.parse_args()
 
     if args.status:
@@ -212,7 +230,15 @@ def main() -> None:
     elif args.terminate:
         terminate()
     else:
-        launch(args.maxiters, dry_run=args.dry_run)
+        if args.infer_only and args.train_only:
+            print("ERROR: --infer-only and --train-only are mutually exclusive")
+            sys.exit(1)
+        launch(
+            args.maxiters,
+            infer_only=args.infer_only,
+            train_only=args.train_only,
+            dry_run=args.dry_run,
+        )
 
 
 if __name__ == "__main__":
