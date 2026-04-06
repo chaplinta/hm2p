@@ -198,14 +198,30 @@ def infer(s3, config_path: Path) -> None:
                 batch_size=64,
             )
 
-            # Upload results
-            out_files = list(out_dir.glob("*.h5")) + list(out_dir.glob("*.csv"))
-            if out_files:
-                s3_dest = f"s3://{DERIVATIVES_BUCKET}/{FINETUNED_PREFIX}/{sub}/{ses_id}/"
-                subprocess.run(
-                    ["aws", "s3", "sync", str(out_dir), s3_dest],
-                    check=True, capture_output=True,
+            # Render labelled video for QC / viewer page
+            print(f"  Rendering labelled video...")
+            try:
+                deeplabcut.create_labeled_video(
+                    str(config_path),
+                    [str(dlc_video)],
+                    destfolder=str(out_dir),
+                    draw_skeleton=True,
+                    pcutoff=0.6,
                 )
+            except Exception as vid_err:
+                print(f"  WARNING: labelled video failed: {vid_err}")
+
+            # Upload results via boto3
+            out_files = list(out_dir.rglob("*"))
+            out_files = [f for f in out_files if f.is_file()]
+            if out_files:
+                s3_prefix = f"{FINETUNED_PREFIX}/{sub}/{ses_id}"
+                for f in out_files:
+                    key = f"{s3_prefix}/{f.name}"
+                    # Rename labelled video to standard name for viewer page
+                    if f.suffix == ".mp4" and "labeled" in f.name:
+                        key = f"{s3_prefix}/labelled_30fps.mp4"
+                    s3.upload_file(str(f), DERIVATIVES_BUCKET, key)
                 completed.append(exp_id)
                 print(f"  Uploaded {len(out_files)} files")
             else:
