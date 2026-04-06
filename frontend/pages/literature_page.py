@@ -95,10 +95,9 @@ def _read_doc(name: str) -> str | None:
 
 st.title("Literature & Papers")
 
-tab_scans, tab_reviews, tab_methods, tab_refs, tab_neuropil, tab_maze, tab_pdfs, tab_landscape = st.tabs([
+tab_scans, tab_reviews, tab_refs, tab_neuropil, tab_maze, tab_pdfs, tab_landscape = st.tabs([
     "Biorxiv Scans",
     "Paper Reviews",
-    "Methods",
     "Reference Papers",
     "Neuropil",
     "Maze & Navigation",
@@ -159,24 +158,7 @@ with tab_reviews:
             with st.expander(label, expanded=len(reviews) == 1):
                 st.markdown(content)
 
-# ── Tab 3: Methods documentation ──────────────────────────────────────────
-
-with tab_methods:
-    st.header("Methods Documentation")
-    st.caption("Technical documentation for pipeline methods.")
-
-    methods_docs = [
-        ("hd-computation.md", "Head Direction Computation"),
-    ]
-    for filename, title in methods_docs:
-        content = _read_doc(filename)
-        if content:
-            with st.expander(title, expanded=True):
-                st.markdown(content)
-        else:
-            st.info(f"No `docs/{filename}` found.")
-
-# ── Tab 4: Reference papers ──────────────────────────────────────────────
+# ── Tab 3: Reference papers ──────────────────────────────────────────────
 
 with tab_refs:
     st.header("Reference Papers")

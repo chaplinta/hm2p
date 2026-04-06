@@ -1016,6 +1016,117 @@ def _windowed_speed(
     return np.sqrt(dx_dt**2 + dy_dt**2) / 10.0  # mm/s → cm/s
 
 
+def compute_multipoint_speed(
+    ds: "xr.Dataset",
+    keypoints: list[str],
+    frame_times: np.ndarray,
+    scale_mm_per_px: float,
+    window_s: float = 0.2,
+) -> np.ndarray:
+    """Compute speed (cm/s) as confidence-weighted mean of per-keypoint speeds.
+
+    For each keypoint, computes speed independently using windowed linear
+    regression, then combines via confidence-weighted mean. This is more
+    robust than computing speed from a single centroid because:
+    - A noisy keypoint with low confidence contributes less
+    - Multiple independent speed estimates average out tracking jitter
+    - NaN keypoints are automatically excluded
+
+    Args:
+        ds: movement Dataset (filtered + interpolated) with confidence.
+        keypoints: List of keypoint names to use.
+        frame_times: (N,) timestamps in seconds.
+        scale_mm_per_px: Pixel → mm conversion factor.
+        window_s: Speed smoothing window in seconds.
+
+    Returns:
+        (N,) float32 — confidence-weighted speed in cm/s.
+    """
+    pos = ds.position.isel(individuals=0)
+    available_kps = list(pos.coords["keypoints"].values)
+    has_conf = "confidence" in ds
+    conf_da = ds.confidence.isel(individuals=0) if has_conf else None
+
+    n = len(frame_times)
+    speed_sum = np.zeros(n, dtype=np.float64)
+    weight_sum = np.zeros(n, dtype=np.float64)
+
+    for kp_name in keypoints:
+        if kp_name not in available_kps:
+            continue
+        kp = pos.sel(keypoints=kp_name)
+        x_mm = scale_mm_per_px * kp.sel(space="x").values.astype(np.float64)
+        y_mm = scale_mm_per_px * kp.sel(space="y").values.astype(np.float64)
+
+        spd = _windowed_speed(x_mm, y_mm, frame_times, window_s)
+
+        if has_conf and kp_name in list(conf_da.coords["keypoints"].values):
+            w = conf_da.sel(keypoints=kp_name).values.astype(np.float64)
+        else:
+            w = np.where(np.isnan(x_mm), 0.0, 1.0)
+
+        valid = np.isfinite(spd) & (w > 0)
+        speed_sum[valid] += w[valid] * spd[valid]
+        weight_sum[valid] += w[valid]
+
+    result = np.full(n, np.nan, dtype=np.float64)
+    has_weight = weight_sum > 0
+    result[has_weight] = speed_sum[has_weight] / weight_sum[has_weight]
+    return result.astype(np.float32)
+
+
+def compute_locomotion_speed(
+    ds: "xr.Dataset",
+    frame_times: np.ndarray,
+    scale_mm_per_px: float,
+    window_s: float = 0.2,
+) -> np.ndarray:
+    """Compute locomotion speed from body keypoints, confidence-weighted.
+
+    Uses mid_back, mouse_center, tail_base — body keypoints that reflect
+    whole-body translation rather than head movements.
+
+    Args:
+        ds: movement Dataset.
+        frame_times: (N,) timestamps in seconds.
+        scale_mm_per_px: Pixel → mm scale.
+        window_s: Smoothing window in seconds.
+
+    Returns:
+        (N,) float32 — locomotion speed in cm/s.
+    """
+    return compute_multipoint_speed(
+        ds, list(_BODY_KEYPOINTS), frame_times, scale_mm_per_px, window_s,
+    )
+
+
+def compute_head_speed(
+    ds: "xr.Dataset",
+    frame_times: np.ndarray,
+    scale_mm_per_px: float,
+    window_s: float = 0.2,
+) -> np.ndarray:
+    """Compute head translation speed from head keypoints, confidence-weighted.
+
+    Uses nose_tip, left_ear, right_ear, implant_base_rear, neck — head
+    keypoints that capture head translation independent of body movement.
+    Useful for distinguishing head bobbing/scanning from locomotion.
+
+    Args:
+        ds: movement Dataset.
+        frame_times: (N,) timestamps in seconds.
+        scale_mm_per_px: Pixel → mm scale.
+        window_s: Smoothing window in seconds.
+
+    Returns:
+        (N,) float32 — head translation speed in cm/s.
+    """
+    head_kps = [_NOSE, _EAR_LEFT, _EAR_RIGHT, _IMPLANT, _NECK]
+    return compute_multipoint_speed(
+        ds, head_kps, frame_times, scale_mm_per_px, window_s,
+    )
+
+
 def run(
     pose_path: Path,
     timestamps_h5: Path,

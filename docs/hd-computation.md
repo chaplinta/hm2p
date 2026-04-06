@@ -296,6 +296,110 @@ Useful for detecting rearing, grooming, or head-dip postures.
 
 ---
 
+---
+
+## Speed computation
+
+### Locomotion speed (body)
+
+Confidence-weighted mean of per-keypoint speeds from body keypoints.
+
+```
+                    mid_back ● ─── speed₁ (conf=0.97)
+                             |
+              mouse_center ● ─── speed₂ (conf=0.95)
+                             |
+                  tail_base ● ─── speed₃ (conf=0.98)
+                             
+    Locomotion speed = Σ(conf × speed) / Σ(conf)
+```
+
+Each body keypoint's speed is computed independently using windowed
+linear regression (0.2s window, matching legacy pipeline). The per-keypoint
+speeds are then combined via confidence-weighted mean.
+
+Why not just use a single centroid speed? Because:
+- A noisy keypoint with low confidence gets down-weighted
+- Multiple independent estimates average out tracking jitter
+- If one keypoint is NaN (below threshold), it's excluded automatically
+
+**Keypoints used:** `mid_back`, `mouse_center`, `tail_base`
+**Output:** `kinematics.h5:/speed_cm_s` — cm/s, float32
+
+### Head translation speed
+
+Same method but using head keypoints — captures head movement
+independent of body translation. Useful for detecting head scanning
+at maze junctions (head moves but body stays still).
+
+```
+         nose_tip ● ─── speed₁ (conf=0.92)
+         left_ear ● ─── speed₂ (conf=0.98)
+        right_ear ● ─── speed₃ (conf=0.97)
+  implant_base_rear ● ─── speed₄ (conf=0.99)
+             neck ● ─── speed₅ (conf=0.85)
+
+    Head speed = Σ(conf × speed) / Σ(conf)
+```
+
+**Keypoints used:** `nose_tip`, `left_ear`, `right_ear`, `implant_base_rear`, `neck`
+**Output:** `kinematics.h5:/head_speed_cm_s` — cm/s, float32
+
+### Why separate head and body speed?
+
+```
+    Scenario 1: Walking straight
+    ────────────────────────────
+    head speed ≈ body speed ≈ 10 cm/s
+    head-body angle ≈ 0°
+
+    Scenario 2: Head scanning at junction
+    ──────────────────────────────────────
+    head speed ≈ 5 cm/s (head moving)
+    body speed ≈ 0.5 cm/s (body stationary)
+    head-body angle oscillating ±30°
+
+    Scenario 3: Sharp turn
+    ─────────────────────
+    head speed > body speed (head leads)
+    head-body angle increasing then returning to 0°
+```
+
+The ratio `head_speed / body_speed` and the `head_body_angle` together
+characterise the mouse's movement strategy at each moment.
+
+## Angular head velocity (AHV)
+
+AHV is the time derivative of the **fused HD signal** — so it benefits
+from all the confidence-weighted fusion described above. A cleaner HD
+signal (less frame-to-frame jitter) produces a cleaner AHV.
+
+**Formula:** windowed linear regression on unwrapped HD, same 0.2s window.
+
+```
+    HD (fused, unwrapped):  ...  45.2°  45.8°  46.1°  46.9°  47.3°  ...
+                                 \___________ window ___________/
+                                        slope = AHV (°/s)
+```
+
+**Output:** `kinematics.h5:/ahv_deg_s` — degrees/second, float32.
+Positive = leftward rotation, negative = rightward.
+
+### Movement library integration
+
+The `movement` library provides `compute_speed()` and `compute_velocity()`
+which operate per-keypoint on xarray Datasets. These are used for QC and
+validation. The pipeline's production speed computation uses windowed
+linear regression (matching the legacy pipeline) rather than movement's
+central-difference method, because the windowed approach is more robust
+to frame-to-frame jitter at ~30 fps.
+
+For future work, movement's `compute_kinetic_energy(decompose=True)` could
+provide an alternative locomotion speed estimate based on centre-of-mass
+translational kinetic energy.
+
+---
+
 ## Implementation
 
 Source: `src/hm2p/kinematics/compute.py`
@@ -309,5 +413,8 @@ Key functions:
 - `compute_head_centre()` — confidence-weighted head position
 - `compute_head_body_angle()` — head vs body direction difference
 - `compute_neck_angle()` — neck flexion angle
+- `compute_locomotion_speed()` — body keypoint confidence-weighted speed
+- `compute_head_speed()` — head keypoint confidence-weighted speed
+- `compute_multipoint_speed()` — generic multi-keypoint speed (used by both)
 
 Tests: `tests/kinematics/test_compute.py`
