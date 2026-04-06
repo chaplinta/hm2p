@@ -161,6 +161,12 @@ PIPELINE_STAGES = {
         "s3_prefix": "pose",
         "expected": 26,
     },
+    "pose_finetuned": {
+        "label": "Stage 2b' — DLC Re-inference",
+        "short": "DLC Retrain Infer",
+        "s3_prefix": "pose-finetuned",
+        "expected": 26,
+    },
     "kinematics": {
         "label": "Stage 3 — Kinematics",
         "short": "Kinematics",
@@ -292,6 +298,9 @@ def get_stage_summary() -> dict[str, dict]:
         elif key == "dlc_training":
             # DLC Training: check for trained model weights on S3
             done = _count_dlc_training_outputs()
+        elif key == "pose_finetuned":
+            # DLC Re-inference: count sessions under pose-finetuned/ on S3
+            done = _count_pose_finetuned_outputs()
         else:
             done = sum(
                 1 for s in pipeline_status.values() if s.get(key, False)
@@ -418,6 +427,28 @@ def _count_dlc_training_outputs() -> int:
             ):
                 return 1
         return 0
+    except Exception:
+        return 0
+
+
+@st.cache_data(ttl=60)
+def _count_pose_finetuned_outputs() -> int:
+    """Count sessions with finetuned pose output under pose-finetuned/ on S3."""
+    try:
+        s3 = get_s3_client()
+        experiments = load_experiments()
+        count = 0
+        for exp in experiments:
+            exp_id = exp["exp_id"]
+            sub, ses = parse_session_id(exp_id)
+            resp = s3.list_objects_v2(
+                Bucket=DERIVATIVES_BUCKET,
+                Prefix=f"pose-finetuned/{sub}/{ses}/",
+                MaxKeys=1,
+            )
+            if resp.get("KeyCount", 0) > 0:
+                count += 1
+        return count
     except Exception:
         return 0
 
