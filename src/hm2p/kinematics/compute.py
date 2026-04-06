@@ -157,14 +157,20 @@ def _vector_angle_deg(
     to_x: np.ndarray,
     to_y: np.ndarray,
 ) -> np.ndarray:
-    """Compute per-frame angle (degrees) of the vector from→to.
+    """Compute per-frame heading angle (degrees) of the vector from→to.
 
-    Returns (N,) float64 — 180 + degrees(atan2(dx, dy)). May exceed [0, 360)
-    (e.g. exactly 360.0 for south). NaN where either point is NaN.
+    Applies a -90° correction so the output matches the angular convention
+    used by ``_ear_perpendicular_angle``. The ear perpendicular formula
+    defines the HD coordinate system for the pipeline; all other estimates
+    must be rotated to match.
+
+    Returns (N,) float64. NaN where either point is NaN.
     """
     dx = to_x - from_x
     dy = to_y - from_y
-    return 180.0 + np.degrees(np.arctan2(dx, dy))
+    # Raw atan2 angle, then -90° to match ear perpendicular convention.
+    raw = 180.0 + np.degrees(np.arctan2(dx, dy))
+    return raw - 90.0
 
 
 def _ear_perpendicular_angle(
@@ -246,15 +252,25 @@ def _fused_hd_wrapped(
     implant_y: np.ndarray | None = None,
     neck_x: np.ndarray | None = None,
     neck_y: np.ndarray | None = None,
+    conf_ear_left: np.ndarray | None = None,
+    conf_ear_right: np.ndarray | None = None,
+    conf_nose: np.ndarray | None = None,
+    conf_implant: np.ndarray | None = None,
+    conf_neck: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Fuse multiple HD estimates via circular mean, falling back gracefully.
+    """Fuse multiple HD estimates via confidence-weighted circular mean.
 
-    Estimates used (when keypoints are available and not NaN):
+    Five estimates are computed (when keypoints are available and not NaN):
       1. Ear perpendicular: perpendicular to left_ear→right_ear.
-      2. Nose→implant: direction from nose_tip to implant_base_rear.
-      3. Nose→neck: direction from nose_tip to neck.
+      2. Implant→nose: direction from implant_base_rear to nose_tip.
+      3. Neck→nose: direction from neck to nose_tip.
+      4. Ear midpoint→nose: direction from mean(ears) to nose_tip.
+      5. Neck→implant: direction from neck to implant_base_rear.
 
-    At each frame, all non-NaN estimates are combined via circular mean.
+    Each estimate is weighted by the minimum confidence of the keypoints
+    involved. If no confidence arrays are provided, equal weights are used.
+
+    At each frame, weighted circular mean of all non-NaN estimates is taken.
     If only ears are available (legacy pose data), this reduces to the
     original ear-only method.
 
@@ -263,6 +279,7 @@ def _fused_hd_wrapped(
         nose_x/y: (N,) nose positions (optional).
         implant_x/y: (N,) implant positions (optional).
         neck_x/y: (N,) neck positions (optional).
+        conf_*: (N,) DLC confidence per keypoint (optional, 0-1).
 
     Returns:
         (N,) float64 — fused wrapped HD in [0, 360) degrees. NaN where
@@ -270,42 +287,246 @@ def _fused_hd_wrapped(
     """
     n = len(ear_left_x)
 
+    def _min_conf(*arrays: np.ndarray | None) -> np.ndarray:
+        """Per-frame minimum confidence across keypoints, default 1.0."""
+        valid = [a for a in arrays if a is not None]
+        if not valid:
+            return np.ones(n, dtype=np.float64)
+        return np.minimum.reduce(valid)
+
     # Estimate 1: ear perpendicular (always available)
     est_ear = _ear_perpendicular_angle(
         ear_left_x, ear_left_y, ear_right_x, ear_right_y
     )
+    w_ear = _min_conf(conf_ear_left, conf_ear_right)
 
-    # Estimate 2: nose → implant
-    est_nose_implant = np.full(n, np.nan)
+    # Estimate 2: implant → nose
+    est_implant_nose = np.full(n, np.nan)
+    w_implant_nose = np.ones(n)
     if nose_x is not None and implant_x is not None:
-        est_nose_implant = _vector_angle_deg(
+        est_implant_nose = _vector_angle_deg(
             implant_x, implant_y, nose_x, nose_y
         )
+        w_implant_nose = _min_conf(conf_nose, conf_implant)
 
-    # Estimate 3: nose → neck
-    est_nose_neck = np.full(n, np.nan)
+    # Estimate 3: neck → nose
+    est_neck_nose = np.full(n, np.nan)
+    w_neck_nose = np.ones(n)
     if nose_x is not None and neck_x is not None:
-        est_nose_neck = _vector_angle_deg(neck_x, neck_y, nose_x, nose_y)
+        est_neck_nose = _vector_angle_deg(neck_x, neck_y, nose_x, nose_y)
+        w_neck_nose = _min_conf(conf_nose, conf_neck)
 
-    # Circular mean of all available estimates per frame.
-    # Convert to unit vectors, average, take angle.
-    estimates = [est_ear, est_nose_implant, est_nose_neck]
+    # Estimate 4: ear midpoint → nose
+    est_earmid_nose = np.full(n, np.nan)
+    w_earmid_nose = np.ones(n)
+    if nose_x is not None:
+        mid_x = (ear_left_x + ear_right_x) / 2.0
+        mid_y = (ear_left_y + ear_right_y) / 2.0
+        est_earmid_nose = _vector_angle_deg(mid_x, mid_y, nose_x, nose_y)
+        w_earmid_nose = _min_conf(conf_ear_left, conf_ear_right, conf_nose)
+
+    # Estimate 5: neck → implant (head axis without nose)
+    est_neck_implant = np.full(n, np.nan)
+    w_neck_implant = np.ones(n)
+    if implant_x is not None and neck_x is not None:
+        est_neck_implant = _vector_angle_deg(
+            neck_x, neck_y, implant_x, implant_y
+        )
+        w_neck_implant = _min_conf(conf_neck, conf_implant)
+
+    # Confidence-weighted circular mean of all available estimates.
+    estimates = [
+        est_ear, est_implant_nose, est_neck_nose,
+        est_earmid_nose, est_neck_implant,
+    ]
+    weights = [
+        w_ear, w_implant_nose, w_neck_nose,
+        w_earmid_nose, w_neck_implant,
+    ]
+
     sin_sum = np.zeros(n, dtype=np.float64)
     cos_sum = np.zeros(n, dtype=np.float64)
-    count = np.zeros(n, dtype=np.float64)
+    w_sum = np.zeros(n, dtype=np.float64)
 
-    for est in estimates:
+    for est, w in zip(estimates, weights):
         valid = ~np.isnan(est)
         rad = np.deg2rad(est)
-        sin_sum[valid] += np.sin(rad[valid])
-        cos_sum[valid] += np.cos(rad[valid])
-        count[valid] += 1.0
+        sin_sum[valid] += w[valid] * np.sin(rad[valid])
+        cos_sum[valid] += w[valid] * np.cos(rad[valid])
+        w_sum[valid] += w[valid]
 
     fused = np.full(n, np.nan)
-    has_any = count > 0
+    has_any = w_sum > 0
     mean_angle = np.degrees(np.arctan2(sin_sum[has_any], cos_sum[has_any]))
     fused[has_any] = mean_angle % 360.0
     return fused
+
+
+def compute_head_centre(ds: "xr.Dataset") -> tuple[np.ndarray, np.ndarray]:
+    """Compute head centre position from available head keypoints.
+
+    Uses confidence-weighted mean of all available head keypoints:
+    nose_tip, left_ear, right_ear, implant_base_rear, neck.
+    Falls back to ear midpoint if only ears are available.
+
+    Args:
+        ds: movement Dataset (filtered + interpolated) with confidence.
+
+    Returns:
+        Tuple of (x, y), each (N,) float32 — head centre in pixels.
+    """
+    pos = ds.position.isel(individuals=0)
+    available_kps = list(pos.coords["keypoints"].values)
+
+    # Collect head keypoint positions and confidences
+    head_kp_names = [_NOSE, _EAR_LEFT, _EAR_RIGHT, _IMPLANT, _NECK]
+    xs = []
+    ys = []
+    confs = []
+
+    has_conf = "confidence" in ds
+    conf_da = ds.confidence.isel(individuals=0) if has_conf else None
+
+    for name in head_kp_names:
+        if name not in available_kps:
+            continue
+        kp = pos.sel(keypoints=name)
+        x = kp.sel(space="x").values.astype(np.float64)
+        y = kp.sel(space="y").values.astype(np.float64)
+        if has_conf and name in list(conf_da.coords["keypoints"].values):
+            c = conf_da.sel(keypoints=name).values.astype(np.float64)
+        else:
+            c = np.where(np.isnan(x), 0.0, 1.0)
+        # NaN positions get zero weight
+        c = np.where(np.isnan(x) | np.isnan(y), 0.0, c)
+        xs.append(x)
+        ys.append(y)
+        confs.append(c)
+
+    if not xs:
+        n = len(pos.coords["time"])
+        return np.full(n, np.nan, dtype=np.float32), np.full(n, np.nan, dtype=np.float32)
+
+    xs_arr = np.stack(xs, axis=1)       # (N, K)
+    ys_arr = np.stack(ys, axis=1)       # (N, K)
+    confs_arr = np.stack(confs, axis=1)  # (N, K)
+
+    w_sum = confs_arr.sum(axis=1, keepdims=True)  # (N, 1)
+    w_sum = np.where(w_sum == 0, np.nan, w_sum)
+
+    # Replace NaN positions with 0 for weighted sum (weight is already 0)
+    xs_safe = np.nan_to_num(xs_arr, nan=0.0)
+    ys_safe = np.nan_to_num(ys_arr, nan=0.0)
+
+    cx = (confs_arr * xs_safe).sum(axis=1) / w_sum.squeeze()
+    cy = (confs_arr * ys_safe).sum(axis=1) / w_sum.squeeze()
+
+    return cx.astype(np.float32), cy.astype(np.float32)
+
+
+def compute_head_body_angle(ds: "xr.Dataset") -> np.ndarray:
+    """Compute the angle between head direction and body direction (degrees).
+
+    Head direction: from implant/neck to nose (or ear perpendicular).
+    Body direction: from tail_base to mid_back.
+    Head-body angle: signed difference, positive = head turned left.
+
+    This measures postural state — whether the mouse is looking straight
+    ahead (0°), turning its head left (+) or right (-) relative to its
+    body axis. Useful for detecting head scanning at maze junctions.
+
+    Args:
+        ds: movement Dataset (filtered + interpolated).
+
+    Returns:
+        (N,) float32 — head-body angle in degrees, range (-180, 180].
+        NaN where either direction is unavailable.
+    """
+    pos = ds.position.isel(individuals=0)
+    available_kps = list(pos.coords["keypoints"].values)
+
+    # Head direction (use ear perpendicular — always available)
+    ear_left = _get_keypoint_xy(pos, _EAR_LEFT)
+    ear_right = _get_keypoint_xy(pos, _EAR_RIGHT)
+    if ear_left is None or ear_right is None:
+        n = len(pos.coords["time"])
+        return np.full(n, np.nan, dtype=np.float32)
+
+    hd = _ear_perpendicular_angle(
+        ear_left[0], ear_left[1], ear_right[0], ear_right[1]
+    )
+
+    # Body direction: tail_base → mid_back
+    tail = _get_keypoint_xy(pos, "tail_base")
+    back = _get_keypoint_xy(pos, "mid_back")
+    if tail is None or back is None:
+        n = len(pos.coords["time"])
+        return np.full(n, np.nan, dtype=np.float32)
+
+    # Use same convention as ear perpendicular (atan2(dx, dy) + 180)
+    body_dir = 180.0 + np.degrees(
+        np.arctan2(back[0] - tail[0], back[1] - tail[1])
+    )
+
+    # Signed angular difference
+    diff = hd - body_dir
+    # Wrap to (-180, 180]
+    diff = (diff + 180.0) % 360.0 - 180.0
+
+    return diff.astype(np.float32)
+
+
+def compute_neck_angle(ds: "xr.Dataset") -> np.ndarray:
+    """Compute the neck flexion angle (degrees).
+
+    Angle at the neck keypoint between the head axis (neck→implant or
+    neck→ear_midpoint) and the body axis (neck→mid_back). 180° = straight,
+    <180° = head flexed down/forward, >180° = head extended up/back.
+
+    Args:
+        ds: movement Dataset (filtered + interpolated).
+
+    Returns:
+        (N,) float32 — neck angle in degrees. NaN where keypoints missing.
+    """
+    pos = ds.position.isel(individuals=0)
+
+    neck = _get_keypoint_xy(pos, _NECK)
+    back = _get_keypoint_xy(pos, "mid_back")
+    if neck is None or back is None:
+        n = len(pos.coords["time"])
+        return np.full(n, np.nan, dtype=np.float32)
+
+    # Head end: prefer implant, fallback to ear midpoint
+    implant = _get_keypoint_xy(pos, _IMPLANT)
+    ear_left = _get_keypoint_xy(pos, _EAR_LEFT)
+    ear_right = _get_keypoint_xy(pos, _EAR_RIGHT)
+
+    if implant is not None:
+        head_x, head_y = implant
+    elif ear_left is not None and ear_right is not None:
+        head_x = (ear_left[0] + ear_right[0]) / 2.0
+        head_y = (ear_left[1] + ear_right[1]) / 2.0
+    else:
+        n = len(pos.coords["time"])
+        return np.full(n, np.nan, dtype=np.float32)
+
+    # Vector from neck to head
+    dx_head = head_x - neck[0]
+    dy_head = head_y - neck[1]
+    # Vector from neck to back
+    dx_back = back[0] - neck[0]
+    dy_back = back[1] - neck[1]
+
+    # Angle between vectors via atan2 of cross and dot products
+    cross = dx_head * dy_back - dy_head * dx_back
+    dot = dx_head * dx_back + dy_head * dy_back
+    angle = np.degrees(np.arctan2(cross, dot))
+
+    # Convert to 0-360 range where 180 = straight
+    angle = 180.0 - angle
+
+    return angle.astype(np.float32)
 
 
 def _rotate_xy(
@@ -507,16 +728,32 @@ def _get_keypoint_xy(
     return kp.sel(space="x").values, kp.sel(space="y").values
 
 
+def _get_keypoint_conf(
+    ds: "xr.Dataset", name: str
+) -> np.ndarray | None:
+    """Extract confidence array for a keypoint, or None if unavailable."""
+    if "confidence" not in ds:
+        return None
+    conf = ds.confidence.isel(individuals=0)
+    kps = list(conf.coords["keypoints"].values)
+    if name not in kps:
+        return None
+    return conf.sel(keypoints=name).values.astype(np.float64)
+
+
 def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
     """Compute unwrapped head direction by fusing available head keypoints.
 
-    Uses circular mean of up to three independent HD estimates:
+    Uses confidence-weighted circular mean of up to five independent estimates:
       1. Ear perpendicular (left_ear, right_ear) — primary.
-      2. Nose→implant axis (nose_tip, implant_base_rear).
-      3. Nose→neck axis (nose_tip, neck).
+      2. Implant→nose axis (implant_base_rear → nose_tip).
+      3. Neck→nose axis (neck → nose_tip).
+      4. Ear midpoint→nose (mean(ears) → nose_tip).
+      5. Neck→implant axis (neck → implant_base_rear).
 
-    Falls back to ears-only if other keypoints are absent (backwards
-    compatible with pose data that only has 5 bodyparts).
+    Each estimate is weighted by the minimum DLC confidence of its
+    constituent keypoints. Falls back to ears-only if other keypoints
+    are absent (backwards compatible with legacy 5-bodypart pose data).
 
     Args:
         ds: movement Dataset (filtered + interpolated).
@@ -524,7 +761,7 @@ def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
     Returns:
         (N,) float32 — HD in degrees, unwrapped, referenced to camera frame.
     """
-    pos = ds.position.isel(individuals=0)  # (time, space, keypoints)
+    pos = ds.position.isel(individuals=0)
     available_kps = list(pos.coords["keypoints"].values)
 
     ear_left = _get_keypoint_xy(pos, _EAR_LEFT)
@@ -538,13 +775,28 @@ def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
     implant = _get_keypoint_xy(pos, _IMPLANT)
     neck = _get_keypoint_xy(pos, _NECK)
 
+    # Get confidence arrays for weighting
+    conf_el = _get_keypoint_conf(ds, _EAR_LEFT)
+    conf_er = _get_keypoint_conf(ds, _EAR_RIGHT)
+    conf_nose = _get_keypoint_conf(ds, _NOSE)
+    conf_implant = _get_keypoint_conf(ds, _IMPLANT)
+    conf_neck = _get_keypoint_conf(ds, _NECK)
+
     # Log which estimates will be used
     methods = ["ear_perpendicular"]
     if nose is not None and implant is not None:
-        methods.append("nose_implant")
+        methods.append("implant_nose")
     if nose is not None and neck is not None:
-        methods.append("nose_neck")
-    _log.info("HD fusion using %d estimates: %s", len(methods), methods)
+        methods.append("neck_nose")
+    if nose is not None:
+        methods.append("earmid_nose")
+    if implant is not None and neck is not None:
+        methods.append("neck_implant")
+    has_conf = conf_el is not None
+    _log.info(
+        "HD fusion: %d estimates %s, confidence-weighted=%s",
+        len(methods), methods, has_conf,
+    )
 
     fused_wrapped = _fused_hd_wrapped(
         ear_left_x=ear_left[0],
@@ -557,6 +809,11 @@ def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
         implant_y=implant[1] if implant else None,
         neck_x=neck[0] if neck else None,
         neck_y=neck[1] if neck else None,
+        conf_ear_left=conf_el,
+        conf_ear_right=conf_er,
+        conf_nose=conf_nose,
+        conf_implant=conf_implant,
+        conf_neck=conf_neck,
     )
 
     return _unwrap_and_smooth(fused_wrapped)
