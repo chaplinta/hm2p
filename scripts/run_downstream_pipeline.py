@@ -135,24 +135,30 @@ def run_stage6(session: dict, dry_run: bool = False) -> bool:
     return True
 
 
-def process_session(session: dict, dry_run: bool = False) -> dict:
-    """Run all pending stages for a session."""
+def process_session(session: dict, dry_run: bool = False, force: bool = False) -> dict:
+    """Run all pending stages for a session.
+
+    Args:
+        session: Session dict with pipeline status flags.
+        dry_run: If True, print commands without executing.
+        force: If True, re-run all stages even if outputs exist.
+    """
     results = {"exp_id": session["exp_id"]}
 
     # Stage 3: Kinematics (requires pose)
-    if not session.get("kinematics") and session.get("pose"):
+    if (force or not session.get("kinematics")) and session.get("pose"):
         results["stage3"] = run_stage3(session, dry_run)
     else:
         results["stage3"] = session.get("kinematics", False)
 
     # Stage 5: Sync (requires kinematics + calcium)
-    if not session.get("sync") and results.get("stage3") and session.get("calcium"):
+    if (force or not session.get("sync")) and results.get("stage3") and session.get("calcium"):
         results["stage5"] = run_stage5(session, dry_run)
     else:
         results["stage5"] = session.get("sync", False)
 
     # Stage 6: Analysis (requires sync)
-    if not session.get("analysis") and results.get("stage5"):
+    if (force or not session.get("analysis")) and results.get("stage5"):
         results["stage6"] = run_stage6(session, dry_run)
     else:
         results["stage6"] = session.get("analysis", False)
@@ -164,6 +170,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run downstream pipeline stages")
     parser.add_argument("--session", type=str, help="Process specific session (exp_id)")
     parser.add_argument("--dry-run", action="store_true", help="Show what would run")
+    parser.add_argument("--force", action="store_true", help="Re-run all stages even if outputs exist")
     parser.add_argument("--watch", action="store_true", help="Poll for DLC completions")
     parser.add_argument("--watch-interval", type=int, default=300, help="Poll interval (seconds)")
     args = parser.parse_args()
@@ -207,7 +214,10 @@ def main():
         statuses = get_pipeline_status(s3, sessions)
 
         # Find sessions with work to do
-        pending = [s for s in statuses if s["pose"] and not s["analysis"]]
+        if args.force:
+            pending = [s for s in statuses if s["pose"]]
+        else:
+            pending = [s for s in statuses if s["pose"] and not s["analysis"]]
         if not pending:
             print("No sessions need processing.")
             if args.dry_run:
@@ -219,7 +229,7 @@ def main():
                     print(f"  {s['exp_id']}: pose={p} kin={k} sync={sy} analysis={a}")
             return
 
-        print(f"\n{len(pending)} sessions to process:")
+        print(f"\n{len(pending)} sessions to process{' (--force)' if args.force else ''}:")
         for s in pending:
             p = "Y" if s["pose"] else "N"
             k = "Y" if s["kinematics"] else "N"
@@ -228,7 +238,7 @@ def main():
 
         for s in pending:
             print(f"\n=== {s['exp_id']} ===")
-            result = process_session(s, args.dry_run)
+            result = process_session(s, args.dry_run, force=args.force)
             print(f"  Result: {result}")
 
 

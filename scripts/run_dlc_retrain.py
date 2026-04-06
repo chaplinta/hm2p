@@ -263,7 +263,23 @@ def infer(s3, config_path: Path) -> None:
         print(f"  {sub}/{ses_id}: promoted")
 
     update_progress(s3, "Promoted to pose/", completed=len(completed), total=total)
-    print("Promotion complete. Downstream stages (3, 3b, 5, 6) need re-running.")
+    print("Promotion complete.")
+
+    # Run downstream stages (3 → 5 → 6) on the same instance.
+    # These are CPU-only but running on the GPU instance avoids a separate
+    # launch/setup cycle. The GPU is idle during this phase.
+    print("\n=== Running downstream pipeline (Stages 3, 5, 6) ===")
+    try:
+        subprocess.run(
+            ["python3", "scripts/run_downstream_pipeline.py", "--force"],
+            check=True,
+        )
+        update_progress(s3, "Pipeline complete (pose → kinematics → sync → analysis)",
+                        completed=len(completed), total=total)
+    except Exception as e:
+        print(f"WARNING: downstream pipeline failed: {e}")
+        update_progress(s3, "Promoted but downstream failed",
+                        completed=len(completed), total=total, error=str(e))
 
 
 def main() -> None:
