@@ -204,7 +204,24 @@ def main() -> None:
     print(f"\nSaved frame indices to {indices_file}")
 
     # Step 6: Open labeling GUI
+    # DLC 3.0rc13 bug: label_frames() only shows the first folder under
+    # labeled-data/. Workaround: temporarily stash other session folders
+    # so only the current session is visible during labelling.
     config_path = project_dir / "config.yaml"
+    labeled_base = project_dir / "labeled-data"
+    stash_dir = Path("/tmp/dlc-label-stash")
+    stash_dir.mkdir(parents=True, exist_ok=True)
+    stashed = []
+    for other_dir in labeled_base.iterdir():
+        if other_dir.is_dir() and other_dir.name != video_stem:
+            dest = stash_dir / other_dir.name
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.move(str(other_dir), str(dest))
+            stashed.append(other_dir.name)
+    if stashed:
+        print(f"  Stashed {len(stashed)} other session(s) during labelling")
+
     print(f"\n--- Opening DLC labeling GUI ---")
     print(f"Config: {config_path}")
     print("Label all frames, then close the napari window.\n")
@@ -218,6 +235,15 @@ def main() -> None:
         napari.run()
     except (ImportError, RuntimeError):
         pass
+
+    # Restore stashed sessions
+    for name in stashed:
+        src = stash_dir / name
+        dest = labeled_base / name
+        if src.exists():
+            shutil.move(str(src), str(dest))
+    if stashed:
+        print(f"  Restored {len(stashed)} stashed session(s)")
 
     print(f"\n{'='*60}")
     print("Labeling complete. Next steps:\n")
