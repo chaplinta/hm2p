@@ -279,7 +279,7 @@ if curve_data:
         st.plotly_chart(fig, use_container_width=True)
 
         # Also show heatmap loss in expander
-        with st.expander("Heatmap loss (raw)"):
+        with st.expander("Training loss (heatmap + locref)"):
             loss_fig = go.Figure()
             loss_fig.add_trace(go.Scatter(
                 x=df_curves.index, y=df_curves["train_loss"],
@@ -295,7 +295,7 @@ if curve_data:
                     line=dict(color="#d62728", width=2), marker=dict(size=5),
                 ))
             loss_fig.update_layout(
-                xaxis_title="Epoch", yaxis_title="Heatmap MSE",
+                xaxis_title="Epoch", yaxis_title="Loss",
                 height=300, margin=dict(l=40, r=20, t=20, b=40),
             )
             st.plotly_chart(loss_fig, use_container_width=True)
