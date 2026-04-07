@@ -52,6 +52,7 @@ TAG_NAME = "hm2p-dlc-retrain"
 
 def build_user_data(
     maxiters: int = 50000,
+    epochs: int = 400,
     infer_only: bool = False,
     train_only: bool = False,
 ) -> str:
@@ -65,11 +66,11 @@ def build_user_data(
         mode_flag = "--infer-only"
         mode_label = "inference only"
     elif train_only:
-        mode_flag = f"--train-only --maxiters {maxiters}"
-        mode_label = "training only"
+        mode_flag = f"--train-only --epochs {epochs}"
+        mode_label = f"training only ({epochs} epochs)"
     else:
-        mode_flag = f"--maxiters {maxiters}"
-        mode_label = "train + inference"
+        mode_flag = f"--epochs {epochs}"
+        mode_label = f"train + inference ({epochs} epochs)"
 
     return f"""#!/bin/bash
 exec > >(tee /var/log/hm2p-dlc-retrain.log) 2>&1
@@ -105,7 +106,7 @@ shutdown -h now
 """
 
 
-def launch(maxiters: int, infer_only: bool = False, train_only: bool = False, dry_run: bool = False) -> None:
+def launch(maxiters: int, epochs: int = 400, infer_only: bool = False, train_only: bool = False, dry_run: bool = False) -> None:
     """Launch the retraining instance."""
     ec2 = boto3.client("ec2", region_name=REGION)
     s3 = boto3.client("s3", region_name=REGION)
@@ -140,7 +141,7 @@ def launch(maxiters: int, infer_only: bool = False, train_only: bool = False, dr
             sys.exit(1)
         print(f"Pre-flight: found {len(model_files)} model file(s) at dlc-retrain/models/")
 
-    user_data = build_user_data(maxiters, infer_only=infer_only, train_only=train_only)
+    user_data = build_user_data(maxiters, epochs=epochs, infer_only=infer_only, train_only=train_only)
 
     if dry_run:
         print(user_data)
@@ -248,7 +249,8 @@ def main() -> None:
                         help="Run inference only (skip training). Uses existing model on S3.")
     parser.add_argument("--train-only", action="store_true",
                         help="Run training only (skip inference).")
-    parser.add_argument("--maxiters", type=int, default=50000, help="Training iterations")
+    parser.add_argument("--maxiters", type=int, default=50000, help="Legacy TF iterations (ignored)")
+    parser.add_argument("--epochs", type=int, default=400, help="Training epochs (default 400)")
     args = parser.parse_args()
 
     if args.status:
@@ -263,6 +265,7 @@ def main() -> None:
             sys.exit(1)
         launch(
             args.maxiters,
+            epochs=args.epochs,
             infer_only=args.infer_only,
             train_only=args.train_only,
             dry_run=args.dry_run,

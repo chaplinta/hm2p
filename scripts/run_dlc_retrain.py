@@ -44,7 +44,7 @@ def update_progress(s3, status: str, **extra: object) -> None:
     s3.upload_file(str(tmp), DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/_retrain_progress.json")
 
 
-def train(s3, maxiters: int = 50000, batch_size: int = 8) -> Path:
+def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> Path:
     """Download labels from S3, fine-tune DLC, upload model weights."""
     import deeplabcut
 
@@ -79,7 +79,7 @@ def train(s3, maxiters: int = 50000, batch_size: int = 8) -> Path:
 
     print(f"Config: {config_path}")
     print(f"Bodyparts: {cfg.get('bodyparts', [])}")
-    print(f"Max iterations: {maxiters}")
+    print(f"Epochs: {epochs}")
 
     update_progress(s3, "Training: creating dataset")
 
@@ -87,10 +87,23 @@ def train(s3, maxiters: int = 50000, batch_size: int = 8) -> Path:
     print("Creating training dataset (SuperAnimal transfer)...")
     deeplabcut.create_training_dataset(str(config_path))
 
-    update_progress(s3, "Training: fine-tuning network")
+    # Set epochs in the pytorch config (DLC 3.0 ignores maxiters)
+    pytorch_cfg_candidates = list(work.rglob("pytorch_config.yaml"))
+    for pcfg_path in pytorch_cfg_candidates:
+        with open(pcfg_path) as f:
+            pcfg = yaml.safe_load(f)
+        if "train_settings" in pcfg:
+            pcfg["train_settings"]["epochs"] = epochs
+        else:
+            pcfg["train_settings"] = {"epochs": epochs}
+        with open(pcfg_path, "w") as f:
+            yaml.dump(pcfg, f)
+        print(f"  Set epochs={epochs} in {pcfg_path.name}")
+
+    update_progress(s3, f"Training: fine-tuning network ({epochs} epochs)")
 
     # Train
-    print(f"Training for {maxiters} iterations...")
+    print(f"Training for {epochs} epochs...")
     deeplabcut.train_network(
         str(config_path),
         maxiters=maxiters,
@@ -331,7 +344,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="DLC retraining + inference")
     parser.add_argument("--train-only", action="store_true")
     parser.add_argument("--infer-only", action="store_true")
-    parser.add_argument("--maxiters", type=int, default=50000)
+    parser.add_argument("--maxiters", type=int, default=50000, help="Legacy TF iterations (ignored by PyTorch)")
+    parser.add_argument("--epochs", type=int, default=400, help="Training epochs (DLC 3.0 PyTorch)")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument(
         "--skip-failed",
@@ -347,7 +361,7 @@ def main() -> None:
 
     config_path = None
     if do_train:
-        config_path = train(s3, maxiters=args.maxiters, batch_size=args.batch_size)
+        config_path = train(s3, maxiters=args.maxiters, epochs=args.epochs, batch_size=args.batch_size)
 
     if do_infer:
         if config_path is None:
