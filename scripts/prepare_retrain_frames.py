@@ -206,23 +206,48 @@ def main() -> None:
     # Step 6: Open labeling GUI
     # DLC 3.0rc13 bug: label_frames() only shows the first folder under
     # labeled-data/. Workaround: temporarily stash other session folders
-    # so only the current session is visible during labelling.
+    # AND already-labelled PNGs from this session so only the NEW frames
+    # are visible during labelling.
     config_path = project_dir / "config.yaml"
     labeled_base = project_dir / "labeled-data"
     stash_dir = Path("/tmp/dlc-label-stash")
     stash_dir.mkdir(parents=True, exist_ok=True)
-    stashed = []
+
+    # Stash other sessions
+    stashed_sessions = []
     for other_dir in labeled_base.iterdir():
         if other_dir.is_dir() and other_dir.name != video_stem:
             dest = stash_dir / other_dir.name
             if dest.exists():
                 shutil.rmtree(dest)
             shutil.move(str(other_dir), str(dest))
-            stashed.append(other_dir.name)
-    if stashed:
-        print(f"  Stashed {len(stashed)} other session(s) during labelling")
+            stashed_sessions.append(other_dir.name)
+    if stashed_sessions:
+        print(f"  Stashed {len(stashed_sessions)} other session(s) during labelling")
 
-    print(f"\n--- Opening DLC labeling GUI ---")
+    # Stash already-labelled PNGs from this session (keep only new frames)
+    new_frame_names = {f"frame_{int(idx):06d}.png" for idx in frame_indices}
+    # Also accept img format from fallback extraction
+    new_frame_names |= {f"img{int(idx):06d}.png" for idx in frame_indices}
+    stashed_pngs = []
+    for png in labeled_dir.glob("*.png"):
+        if png.name not in new_frame_names:
+            stash_dest = stash_dir / f"_pngs_{video_stem}" / png.name
+            stash_dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(png), str(stash_dest))
+            stashed_pngs.append(png.name)
+    if stashed_pngs:
+        print(f"  Stashed {len(stashed_pngs)} already-labelled frame(s) from this session")
+
+    # Also stash CollectedData so DLC doesn't try to load old labels
+    stashed_collected = []
+    for cd in labeled_dir.glob("CollectedData_*"):
+        stash_dest = stash_dir / f"_pngs_{video_stem}" / cd.name
+        stash_dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(cd), str(stash_dest))
+        stashed_collected.append(cd.name)
+
+    print(f"\n--- Opening DLC labeling GUI ({len(new_frame_names)} new frames) ---")
     print(f"Config: {config_path}")
     print("Label all frames, then close the napari window.\n")
 
@@ -236,14 +261,44 @@ def main() -> None:
     except (ImportError, RuntimeError):
         pass
 
-    # Restore stashed sessions
-    for name in stashed:
+    # Restore stashed PNGs and CollectedData
+    stash_png_dir = stash_dir / f"_pngs_{video_stem}"
+    if stash_png_dir.exists():
+        for f in stash_png_dir.iterdir():
+            dest = labeled_dir / f.name
+            # Merge: if DLC wrote a new CollectedData, we need to merge old + new
+            if f.name.startswith("CollectedData_") and dest.exists():
+                # DLC created new labels for the new frames; merge with old
+                import pandas as pd
+                try:
+                    old_df = pd.read_csv(str(f), header=[0, 1, 2], index_col=0) if f.suffix == ".csv" else pd.read_hdf(str(f))
+                    new_df = pd.read_csv(str(dest), header=[0, 1, 2], index_col=0) if dest.suffix == ".csv" else pd.read_hdf(str(dest))
+                    merged = pd.concat([old_df, new_df]).sort_index()
+                    merged = merged[~merged.index.duplicated(keep="last")]
+                    if dest.suffix == ".csv":
+                        merged.to_csv(str(dest))
+                    else:
+                        merged.to_hdf(str(dest), key="df_with_missing", mode="w")
+                    print(f"  Merged {f.name}: {len(old_df)} old + {len(new_df)} new = {len(merged)} total")
+                    f.unlink()
+                except Exception as e:
+                    print(f"  WARNING: could not merge {f.name}: {e}")
+                    # Keep the new one, don't overwrite
+                    f.unlink()
+            else:
+                shutil.move(str(f), str(dest))
+        shutil.rmtree(stash_png_dir, ignore_errors=True)
+    if stashed_pngs:
+        print(f"  Restored {len(stashed_pngs)} stashed frame(s)")
+
+    # Restore other sessions
+    for name in stashed_sessions:
         src = stash_dir / name
         dest = labeled_base / name
         if src.exists():
             shutil.move(str(src), str(dest))
-    if stashed:
-        print(f"  Restored {len(stashed)} stashed session(s)")
+    if stashed_sessions:
+        print(f"  Restored {len(stashed_sessions)} stashed session(s)")
 
     print(f"\n{'='*60}")
     print("Labeling complete. Next steps:\n")
