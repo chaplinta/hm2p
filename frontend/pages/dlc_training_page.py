@@ -237,8 +237,8 @@ if curve_data:
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Epochs", f"{len(curve_data)}/{total_epochs}")
-        col2.metric("Test RMSE (all)", f"{last_rmse['rmse_px']:.1f} px")
-        col3.metric("Test RMSE (confident)", f"{last_rmse['rmse_pcutoff_px']:.1f} px")
+        col2.metric("Valid RMSE (all)", f"{last_rmse['rmse_px']:.1f} px")
+        col3.metric("Valid RMSE (confident)", f"{last_rmse['rmse_pcutoff_px']:.1f} px")
         col4.metric("Best checkpoint", f"Epoch {best_rmse['epoch']}")
 
         if last_rmse.get("mAP") is not None:
@@ -250,7 +250,7 @@ if curve_data:
             x=[r["epoch"] for r in rmse_rows],
             y=[r["rmse_px"] for r in rmse_rows],
             mode="lines+markers",
-            name="Test RMSE (all, px)",
+            name="Valid RMSE (all, px)",
             line=dict(color="#d62728", width=2),
             marker=dict(size=5),
         ))
@@ -258,7 +258,7 @@ if curve_data:
             x=[r["epoch"] for r in rmse_rows],
             y=[r["rmse_pcutoff_px"] for r in rmse_rows],
             mode="lines+markers",
-            name="Test RMSE (confident, px)",
+            name="Valid RMSE (confident, px)",
             line=dict(color="#2ca02c", width=2),
             marker=dict(size=5),
         ))
