@@ -43,22 +43,33 @@ DERIV_BUCKET = "hm2p-derivatives"
 
 # Keypoint colours (BGR for OpenCV)
 KEYPOINT_COLORS: dict[str, tuple[int, int, int]] = {
-    "nose": (0, 0, 255),           # red
-    "left_ear": (255, 0, 0),       # blue
-    "right_ear": (255, 255, 0),    # cyan
-    "mid_back": (0, 255, 0),       # green
-    "mouse_center": (0, 255, 255), # yellow
-    "tail_base": (255, 0, 255),    # magenta
+    "nose_tip": (0, 0, 255),            # red
+    "nose": (0, 0, 255),                # red (alias for SuperAnimal output)
+    "left_ear": (255, 0, 0),            # blue
+    "right_ear": (255, 255, 0),         # cyan
+    "implant_base_rear": (0, 165, 255), # orange
+    "neck": (128, 0, 128),              # purple
+    "mid_back": (0, 255, 0),            # green
+    "mouse_center": (0, 255, 255),      # yellow
+    "tail_base": (255, 0, 255),         # magenta
 }
 
 SKELETON: list[tuple[str, str]] = [
-    ("nose", "left_ear"),
+    ("nose_tip", "implant_base_rear"),
+    ("nose_tip", "left_ear"),
+    ("nose_tip", "right_ear"),
+    ("nose", "left_ear"),       # fallback for SuperAnimal "nose" name
     ("nose", "right_ear"),
+    ("left_ear", "implant_base_rear"),
+    ("right_ear", "implant_base_rear"),
     ("left_ear", "right_ear"),
-    ("mouse_center", "mid_back"),
-    ("mid_back", "tail_base"),
+    ("implant_base_rear", "neck"),
+    ("neck", "mid_back"),
+    ("mid_back", "mouse_center"),
+    ("mouse_center", "tail_base"),
 ]
 
+# All possible bodypart names (finetuned + SuperAnimal variants)
 BODYPARTS = list(KEYPOINT_COLORS.keys())
 
 CIRCLE_RADIUS = 4
@@ -460,8 +471,13 @@ def main():
             sys.exit(1)
 
     # Set up S3 client
-    boto_session = boto3.Session(profile_name="hm2p-agent")
-    s3 = boto_session.client("s3", region_name="ap-southeast-2")
+    # Try hm2p-agent profile, fall back to default
+    try:
+        boto_session = boto3.Session(profile_name="hm2p-agent")
+        s3 = boto_session.client("s3", region_name="ap-southeast-2")
+        s3.list_buckets()  # test credentials
+    except Exception:
+        s3 = boto3.client("s3", region_name="ap-southeast-2")
 
     # Process sessions
     results: list[tuple[str, str | None]] = []
