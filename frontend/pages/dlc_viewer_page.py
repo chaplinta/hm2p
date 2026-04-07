@@ -57,14 +57,6 @@ VIDEO_FPS = 30
 st.title("DLC Viewer")
 st.caption("Labelled video playback + frame-by-frame inspection for QC.")
 
-if st.button("Reload video from S3", key="dlcv_reload"):
-    # Clear cached video and DLC data to force fresh download
-    dl_video.clear()
-    dl_dlc.clear()
-    get_median_filtered.clear()
-    dl_kinematics.clear()
-    st.rerun()
-
 # Colour legend for bodyparts
 _legend_html = " &nbsp; ".join(
     f'<span style="color:{color}; font-weight:bold;">●</span> {label}'
@@ -268,7 +260,16 @@ def get_xy(dlc_data: dict, bp: str):
     return x, y, lk
 
 
-# ── Sidebar ──────────────────────────────────────────────────────────────
+# ── Reload button ────────────────────────────────────────────────────────
+
+if st.button("Reload video from S3", key="dlcv_reload"):
+    dl_video.clear()
+    dl_dlc.clear()
+    get_median_filtered.clear()
+    dl_kinematics.clear()
+    st.rerun()
+
+# ── Session selector ─────────────────────────────────────────────────────
 
 experiments = load_experiments()
 animals = load_animals()
