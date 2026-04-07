@@ -66,6 +66,7 @@ MOCK_STAGE_SUMMARY = {
     "analysis": {"label": "Stage 6 — Analysis", "short": "Analysis", "expected": 21, "done": 21, "status": "Complete", "color": "green"},
     "kpms": {"label": "Stage 3b — MoSeq", "short": "MoSeq", "expected": 26, "done": 0, "status": "Not started", "color": "red"},
     "cascade": {"label": "Stage 4b — CASCADE", "short": "CASCADE", "expected": 26, "done": 0, "status": "Not started", "color": "red"},
+    "pose_finetuned": {"label": "Stage 2b' — DLC Re-inference", "short": "DLC Retrain Infer", "expected": 26, "done": 0, "status": "Not started", "color": "red"},
 }
 
 

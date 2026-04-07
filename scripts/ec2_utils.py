@@ -125,10 +125,42 @@ CONF
 
 
 def get_s3_credentials() -> tuple[str, str, str]:
-    """Read AWS credentials from ~/.aws/credentials."""
+    """Read AWS credentials from ~/.aws/credentials.
+
+    Checks ``hm2p-agent`` profile first, then ``default``. Works on both
+    macOS and Linux (including the devcontainer) by using ``Path.home()``.
+
+    Returns
+    -------
+    tuple[str, str, str]
+        ``(aws_access_key_id, aws_secret_access_key, region)``
+
+    Raises
+    ------
+    SystemExit
+        If the credentials file is missing or no usable profile is found.
+    """
     import configparser
+    from pathlib import Path
+
+    creds_path = Path.home() / ".aws" / "credentials"
+    if not creds_path.exists():
+        raise SystemExit(
+            f"AWS credentials file not found at {creds_path}. "
+            "Run 'aws configure' or create ~/.aws/credentials manually."
+        )
+
     config = configparser.ConfigParser()
-    config.read("/home/node/.aws/credentials")
-    key_id = config["default"]["aws_access_key_id"]
-    secret = config["default"]["aws_secret_access_key"]
-    return key_id, secret, "ap-southeast-2"
+    config.read(creds_path)
+
+    for profile in ("hm2p-agent", "default"):
+        if profile in config:
+            key_id = config[profile].get("aws_access_key_id", "")
+            secret = config[profile].get("aws_secret_access_key", "")
+            if key_id and secret:
+                return key_id, secret, "ap-southeast-2"
+
+    raise SystemExit(
+        f"No usable AWS credentials found in {creds_path} "
+        "(checked profiles: hm2p-agent, default)."
+    )

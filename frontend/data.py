@@ -238,29 +238,33 @@ def _get_rerun_status() -> dict:
     except Exception:
         pass
 
-    # Auto-detect from running EC2 instances if no marker exists
+    # Auto-detect from running EC2 instances if no marker exists.
+    # Use the Name tag (inst["name"]) to identify instance type — the Project
+    # tag value varies ("hm2p", "hm2p-dlc", "hm2p-suite2p") and cannot be
+    # used reliably. Name tags are: "hm2p-dlc-retrain", "hm2p-dlc",
+    # "hm2p-dlc-parallel-N", "hm2p-suite2p".
     if not result.get("rerunning"):
         try:
             instances = get_ec2_instances()
             for inst in instances:
                 if inst["state"] != "running":
                     continue
-                name = inst.get("project", "").lower()
-                if "dlc-retrain" in name or "dlc_retrain" in name:
+                inst_name = inst.get("name", "").lower()
+                if "dlc-retrain" in inst_name or "dlc_retrain" in inst_name:
                     # DLC training instance — invalidates inference + all downstream
                     result = {
                         "rerunning": ["dlc_training"],
                         "reason": f"DLC training running on {inst['id']}",
                     }
                     break
-                if "dlc" in name:
+                if "dlc" in inst_name:
                     # DLC inference-only instance
                     result = {
                         "rerunning": ["pose"],
                         "reason": f"DLC inference running on {inst['id']}",
                     }
                     break
-                if "suite2p" in name:
+                if "suite2p" in inst_name:
                     result = {
                         "rerunning": ["ca_extraction"],
                         "reason": f"Suite2p running on {inst['id']}",
@@ -559,13 +563,18 @@ def get_progress(stage: str) -> dict[str, Any] | None:
 
 @st.cache_data(ttl=60)
 def get_ec2_instances() -> list[dict]:
-    """Get running/pending hm2p EC2 instances."""
+    """Get running/pending hm2p EC2 instances.
+
+    Filters by Name tag prefix "hm2p-" to catch all project instances
+    regardless of their Project tag value (which varies across scripts:
+    "hm2p", "hm2p-dlc", "hm2p-suite2p").
+    """
     ec2 = boto3.client("ec2", region_name=REGION)
     try:
         resp = ec2.describe_instances(
             Filters=[
                 {"Name": "instance-state-name", "Values": ["running", "pending"]},
-                {"Name": "tag:Project", "Values": ["hm2p-suite2p", "hm2p-dlc"]},
+                {"Name": "tag:Name", "Values": ["hm2p-*"]},
             ]
         )
         instances = []
@@ -580,6 +589,7 @@ def get_ec2_instances() -> list[dict]:
                         "ip": inst.get("PublicIpAddress", ""),
                         "launch_time": str(inst.get("LaunchTime", "")),
                         "project": tags.get("Project", ""),
+                        "name": tags.get("Name", ""),
                     }
                 )
         log.info("Found %d running EC2 instances", len(instances))

@@ -22,15 +22,18 @@ import textwrap
 from pathlib import Path
 
 import boto3
+from ec2_constants import (
+    AMI_ID,
+    DERIVATIVES_BUCKET,
+    IAM_PROFILE,
+    KEY_NAME,
+    RAWDATA_BUCKET,
+    REGION,
+    SG_NAME,
+)
 
-REGION = "ap-southeast-2"
 INSTANCE_TYPE = "g4dn.xlarge"
-AMI_ID = "ami-05186a30469f66913"  # Deep Learning Base OSS Nvidia (Ubuntu 22.04)
-KEY_NAME = "hm2p-suite2p"
-SG_NAME = "hm2p-suite2p-sg"
-RAWDATA_BUCKET = "hm2p-rawdata"
-DERIVATIVES_BUCKET = "hm2p-derivatives"
-INSTANCE_PROFILE_NAME = "hm2p-ec2-role"
+INSTANCE_PROFILE_NAME = IAM_PROFILE
 TAG = {"Key": "Project", "Value": "hm2p-dlc"}
 STATE_FILE = Path.home() / ".hm2p-dlc-instance.json"
 

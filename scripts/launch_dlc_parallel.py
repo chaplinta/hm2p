@@ -29,16 +29,19 @@ import textwrap
 from pathlib import Path
 
 import boto3
+from ec2_constants import (
+    AMI_ID,
+    DERIVATIVES_BUCKET,
+    IAM_PROFILE,
+    KEY_NAME,
+    RAWDATA_BUCKET,
+    REGION,
+    SG_NAME,
+)
 
-REGION = "ap-southeast-2"
 DEFAULT_INSTANCE_TYPE = "g5.xlarge"  # A10G 24GB — ~2x faster than T4
 FALLBACK_INSTANCE_TYPE = "g4dn.xlarge"  # T4 16GB — fallback
-AMI_ID = "ami-05186a30469f66913"  # Deep Learning Base OSS Nvidia (Ubuntu 22.04)
-KEY_NAME = "hm2p-suite2p"
-SG_NAME = "hm2p-suite2p-sg"
-RAWDATA_BUCKET = "hm2p-rawdata"
-DERIVATIVES_BUCKET = "hm2p-derivatives"
-INSTANCE_PROFILE_NAME = "hm2p-ec2-role"
+INSTANCE_PROFILE_NAME = IAM_PROFILE
 TAG_PROJECT = {"Key": "Project", "Value": "hm2p-dlc"}
 STATE_FILE = Path.home() / ".hm2p-dlc-parallel.json"
 

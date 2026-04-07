@@ -24,7 +24,16 @@ import json
 import sys
 
 import boto3
-
+from ec2_constants import (
+    AMI_ID,
+    DERIVATIVES_BUCKET,
+    IAM_PROFILE,
+    KEY_NAME,
+    RAWDATA_BUCKET,
+    REGION,
+    RETRAIN_PREFIX,
+    SG_ID,
+)
 from ec2_utils import (
     APT_INSTALL_SNIPPET,
     DPKG_WAIT_SNIPPET,
@@ -35,13 +44,9 @@ from ec2_utils import (
     get_s3_credentials,
 )
 
-REGION = "ap-southeast-2"
-DERIVATIVES_BUCKET = "hm2p-derivatives"
+# Keep a local alias for the AMI variable name used below
+AMI = AMI_ID
 INSTANCE_TYPE = "g5.xlarge"
-AMI = "ami-05186a30469f66913"
-KEY_NAME = "hm2p-suite2p"
-SG_ID = "sg-020161fb424325e6b"
-IAM_PROFILE = "hm2p-ec2-role"
 TAG_NAME = "hm2p-dlc-retrain"
 
 
@@ -111,6 +116,29 @@ def launch(maxiters: int, infer_only: bool = False, train_only: bool = False, dr
     except Exception:
         print("ERROR: no labeled data on S3. Run upload_dlc_labels.py first.")
         sys.exit(1)
+
+    # In --infer-only mode, verify model weights exist before launching.
+    # Without this check the instance downloads config.yaml, finds no weights,
+    # exits with sys.exit(1) inside user-data — the instance self-terminates
+    # with no visible error from the local machine.
+    if infer_only:
+        resp = s3.list_objects_v2(
+            Bucket=DERIVATIVES_BUCKET, Prefix="dlc-retrain/models/"
+        )
+        model_files = [
+            obj for obj in resp.get("Contents", [])
+            if not obj["Key"].endswith("_retrain_progress.json")
+            and not obj["Key"].endswith("/")
+        ]
+        if not model_files:
+            print(
+                "ERROR: --infer-only requires model weights on S3 but none were found "
+                "at s3://hm2p-derivatives/dlc-retrain/models/.\n"
+                "Run training first (omit --infer-only, or use --train-only then "
+                "--infer-only after training completes)."
+            )
+            sys.exit(1)
+        print(f"Pre-flight: found {len(model_files)} model file(s) at dlc-retrain/models/")
 
     user_data = build_user_data(maxiters, infer_only=infer_only, train_only=train_only)
 

@@ -18,7 +18,7 @@ import csv
 import json
 import shutil
 import subprocess
-import tempfile
+import sys
 from pathlib import Path
 
 import boto3
@@ -124,8 +124,51 @@ def train(s3, maxiters: int = 50000, batch_size: int = 8) -> Path:
     return config_path
 
 
-def infer(s3, config_path: Path) -> None:
-    """Run inference on all 26 sessions with the fine-tuned model."""
+def _download_session_video(  # noqa: ANN001
+    s3, rawdata_bucket: str, sub: str, ses_id: str, dest_dir: Path
+) -> None:
+    """Download overhead .mp4 files for a session from S3 using boto3.
+
+    Downloads all .mp4 files under ``rawdata/{sub}/{ses_id}/behav/`` except
+    side-camera files (filename contains "side").
+
+    Parameters
+    ----------
+    s3 : boto3 S3 client
+    rawdata_bucket : str
+    sub : str
+        Subject identifier, e.g. ``sub-1114353``.
+    ses_id : str
+        Session identifier, e.g. ``ses-20210823T165950``.
+    dest_dir : Path
+        Local directory to download into.
+    """
+    prefix = f"rawdata/{sub}/{ses_id}/behav/"
+    resp = s3.list_objects_v2(Bucket=rawdata_bucket, Prefix=prefix)
+    for obj in resp.get("Contents", []):
+        key = obj["Key"]
+        filename = key.split("/")[-1]
+        if not filename.endswith(".mp4"):
+            continue
+        if "side" in filename.lower():
+            continue
+        local_path = dest_dir / filename
+        s3.download_file(rawdata_bucket, key, str(local_path))
+        print(f"  Downloaded {filename}")
+
+
+def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
+    """Run inference on all 26 sessions with the fine-tuned model.
+
+    Parameters
+    ----------
+    s3 : boto3 S3 client
+    config_path : Path
+        Local path to the DLC config.yaml.
+    skip_failed : bool
+        If True, promote completed sessions even if some failed.
+        If False (default), auto-promote is skipped when any session fails.
+    """
     import deeplabcut
 
     # Read session list
@@ -156,22 +199,16 @@ def infer(s3, config_path: Path) -> None:
         work.mkdir(parents=True, exist_ok=True)
 
         try:
-            # Download video
+            # Download video via boto3 (no awscli dependency)
             video_dir = work / "behav"
             video_dir.mkdir(parents=True, exist_ok=True)
-            subprocess.run(
-                ["aws", "s3", "sync",
-                 f"s3://{RAWDATA_BUCKET}/rawdata/{sub}/{ses_id}/behav/",
-                 str(video_dir),
-                 "--exclude", "*", "--include", "*.mp4", "--exclude", "*side*"],
-                check=True, capture_output=True,
-            )
+            _download_session_video(s3, RAWDATA_BUCKET, sub, ses_id, video_dir)
 
             mp4s = list(video_dir.glob("*overhead*.mp4")) + list(video_dir.glob("*cropped*.mp4"))
             if not mp4s:
                 mp4s = list(video_dir.glob("*.mp4"))
             if not mp4s:
-                print(f"  No video found, skipping")
+                print("  No video found, skipping")
                 failed.append(exp_id)
                 continue
 
@@ -190,7 +227,7 @@ def infer(s3, config_path: Path) -> None:
             # Run inference
             out_dir = work / "output"
             out_dir.mkdir(exist_ok=True)
-            print(f"  Running DLC inference (batch_size=64)...")
+            print("  Running DLC inference (batch_size=64)...")
             deeplabcut.analyze_videos(
                 str(config_path),
                 [str(dlc_video)],
@@ -199,7 +236,7 @@ def infer(s3, config_path: Path) -> None:
             )
 
             # Render labelled video for QC / viewer page
-            print(f"  Rendering labelled video...")
+            print("  Rendering labelled video...")
             try:
                 deeplabcut.create_labeled_video(
                     str(config_path),
@@ -225,7 +262,7 @@ def infer(s3, config_path: Path) -> None:
                 completed.append(exp_id)
                 print(f"  Uploaded {len(out_files)} files")
             else:
-                print(f"  No output files")
+                print("  No output files")
                 failed.append(exp_id)
 
         except Exception as e:
@@ -242,15 +279,27 @@ def infer(s3, config_path: Path) -> None:
     print(f"\nDone: {len(completed)}/{total} completed, {len(failed)} failed")
 
     # Auto-promote: copy pose-finetuned/ → pose/ on S3
-    if failed:
-        print(f"\nSkipping auto-promote: {len(failed)} sessions failed.")
+    if failed and not skip_failed:
+        print(
+            f"\nSkipping auto-promote: {len(failed)} session(s) failed — "
+            f"{failed}.\n"
+            f"To promote the {len(completed)} successful session(s), pass "
+            f"--skip-failed or run promote_finetuned_pose.py --skip-failed."
+        )
         return
 
-    print(f"\nPromoting finetuned pose → pose/ on S3...")
-    for ses in sessions:
+    if failed and skip_failed:
+        print(
+            f"\nAuto-promoting {len(completed)} completed session(s). "
+            f"Skipping {len(failed)} failed session(s): {failed}"
+        )
+
+    # Only promote sessions that completed successfully
+    sessions_to_promote = [s for s in sessions if s["exp_id"] in completed]
+    print(f"\nPromoting {len(sessions_to_promote)} finetuned sessions → pose/ on S3...")
+    for ses in sessions_to_promote:
         sub, ses_id = ses["sub"], ses["ses"]
         src_prefix = f"{FINETUNED_PREFIX}/{sub}/{ses_id}/"
-        dst_prefix = f"pose/{sub}/{ses_id}/"
         resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=src_prefix)
         for obj in resp.get("Contents", []):
             src_key = obj["Key"]
@@ -262,7 +311,12 @@ def infer(s3, config_path: Path) -> None:
             )
         print(f"  {sub}/{ses_id}: promoted")
 
-    update_progress(s3, "Promoted to pose/", completed=len(completed), total=total)
+    update_progress(
+        s3, "Promoted to pose/",
+        completed=len(completed), total=total,
+        promoted=len(sessions_to_promote), failed=len(failed),
+        failed_sessions=failed,
+    )
     print("Promotion complete.")
 
     # Run downstream stages (3 → 5 → 6) on the same instance.
@@ -288,6 +342,12 @@ def main() -> None:
     parser.add_argument("--infer-only", action="store_true")
     parser.add_argument("--maxiters", type=int, default=50000)
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument(
+        "--skip-failed",
+        action="store_true",
+        help="Promote completed sessions even if some inference sessions failed. "
+             "By default auto-promotion is skipped if any session fails.",
+    )
     args = parser.parse_args()
 
     s3 = boto3.client("s3", region_name=REGION)
@@ -331,7 +391,7 @@ def main() -> None:
             with open(config_path, "w") as f:
                 yaml.dump(cfg, f)
 
-        infer(s3, config_path)
+        infer(s3, config_path, skip_failed=args.skip_failed)
 
 
 if __name__ == "__main__":
