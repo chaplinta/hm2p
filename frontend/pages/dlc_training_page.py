@@ -103,7 +103,44 @@ def _check_model_exists() -> bool:
 
 @st.cache_data(ttl=120)
 def _parse_training_curves() -> list[dict] | None:
-    """Parse epoch-level train/valid loss from the run log on S3."""
+    """Parse training metrics from learning_stats.csv on S3.
+
+    Falls back to parsing the run log if learning_stats.csv is unavailable.
+    Returns pixel-level RMSE when available (from learning_stats.csv),
+    otherwise raw heatmap loss (from run log).
+    """
+    import io
+
+    import pandas as pd
+
+    # Try learning_stats.csv first (has pixel RMSE)
+    for shuffle in ("trainset80shuffle1", "trainset95shuffle1"):
+        key = f"{RETRAIN_PREFIX}/models/iteration-0/hm2p-retrainMar20-{shuffle}/train/learning_stats.csv"
+        csv_data = download_s3_bytes(DERIVATIVES_BUCKET, key)
+        if csv_data is not None:
+            df = pd.read_csv(io.BytesIO(csv_data))
+            rows = []
+            for _, r in df.iterrows():
+                epoch = int(r["step"])
+                train_loss = r.get("losses/train.total_loss", float("nan"))
+                valid_loss = r.get("losses/eval.total_loss", float("nan"))
+                rmse = r.get("metrics/test.rmse", None)
+                rmse_pcut = r.get("metrics/test.rmse_pcutoff", None)
+                mAP = r.get("metrics/test.mAP", None)
+                rows.append({
+                    "epoch": epoch,
+                    "total_epochs": int(df["step"].max()),
+                    "lr": float("nan"),
+                    "train_loss": float(train_loss),
+                    "valid_loss": float(valid_loss) if pd.notna(valid_loss) else None,
+                    "rmse_px": float(rmse) if pd.notna(rmse) else None,
+                    "rmse_pcutoff_px": float(rmse_pcut) if pd.notna(rmse_pcut) else None,
+                    "mAP": float(mAP) if pd.notna(mAP) else None,
+                })
+            if rows:
+                return rows
+
+    # Fallback: parse run log
     import re
 
     data = download_s3_bytes(DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/_run_log.txt")
@@ -116,17 +153,15 @@ def _parse_training_curves() -> list[dict] | None:
     )
     rows = []
     for m in pattern.finditer(text):
-        epoch = int(m.group(1))
-        total = int(m.group(2))
-        lr = float(m.group(3))
-        train_loss = float(m.group(4))
-        valid_loss = float(m.group(5)) if m.group(5) else None
         rows.append({
-            "epoch": epoch,
-            "total_epochs": total,
-            "lr": lr,
-            "train_loss": train_loss,
-            "valid_loss": valid_loss,
+            "epoch": int(m.group(1)),
+            "total_epochs": int(m.group(2)),
+            "lr": float(m.group(3)),
+            "train_loss": float(m.group(4)),
+            "valid_loss": float(m.group(5)) if m.group(5) else None,
+            "rmse_px": None,
+            "rmse_pcutoff_px": None,
+            "mAP": None,
         })
     return rows if rows else None
 
@@ -188,40 +223,130 @@ if curve_data:
 
     df_curves = pd.DataFrame(curve_data).set_index("epoch")
     total_epochs = curve_data[-1]["total_epochs"]
-    final_train = curve_data[-1]["train_loss"]
-    valid_rows = [r for r in curve_data if r["valid_loss"] is not None]
-    best_valid = min(valid_rows, key=lambda r: r["valid_loss"]) if valid_rows else None
 
     import plotly.graph_objects as go
 
-    final_train = curve_data[-1]["train_loss"]
-    valid_rows = [r for r in curve_data if r["valid_loss"] is not None]
-    best_valid = min(valid_rows, key=lambda r: r["valid_loss"]) if valid_rows else None
+    # Check if pixel RMSE is available
+    rmse_rows = [r for r in curve_data if r.get("rmse_px") is not None]
+    has_pixel_metrics = bool(rmse_rows)
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Epochs completed", f"{len(curve_data)}/{total_epochs}")
-    col2.metric("Final train loss", f"{final_train:.5f}")
-    if best_valid:
-        col3.metric("Best valid loss", f"{best_valid['valid_loss']:.5f}")
-        col4.metric("Best checkpoint", f"Epoch {best_valid['epoch']}")
+    if has_pixel_metrics:
+        # Show pixel RMSE (from learning_stats.csv)
+        best_rmse = min(rmse_rows, key=lambda r: r["rmse_pcutoff_px"] or 999)
+        last_rmse = rmse_rows[-1]
 
-    # Plot train + valid loss with plotly
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df_curves.index,
-        y=df_curves["train_loss"],
-        mode="lines",
-        name="Train loss",
-        line=dict(color="#1f77b4", width=1.5),
-    ))
-    if valid_rows:
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Epochs", f"{len(curve_data)}/{total_epochs}")
+        col2.metric("Test RMSE (all)", f"{last_rmse['rmse_px']:.1f} px")
+        col3.metric("Test RMSE (confident)", f"{last_rmse['rmse_pcutoff_px']:.1f} px")
+        col4.metric("Best checkpoint", f"Epoch {best_rmse['epoch']}")
+
+        if last_rmse.get("mAP") is not None:
+            st.caption(f"mAP: {last_rmse['mAP']:.1f}%")
+
+        # Plot pixel RMSE
+        fig = go.Figure()
         fig.add_trace(go.Scatter(
-            x=[r["epoch"] for r in valid_rows],
-            y=[r["valid_loss"] for r in valid_rows],
+            x=[r["epoch"] for r in rmse_rows],
+            y=[r["rmse_px"] for r in rmse_rows],
             mode="lines+markers",
-            name="Valid loss",
+            name="Test RMSE (all, px)",
             line=dict(color="#d62728", width=2),
-            marker=dict(size=6),
+            marker=dict(size=5),
+        ))
+        fig.add_trace(go.Scatter(
+            x=[r["epoch"] for r in rmse_rows],
+            y=[r["rmse_pcutoff_px"] for r in rmse_rows],
+            mode="lines+markers",
+            name="Test RMSE (confident, px)",
+            line=dict(color="#2ca02c", width=2),
+            marker=dict(size=5),
+        ))
+        fig.add_trace(go.Scatter(
+            x=[best_rmse["epoch"]],
+            y=[best_rmse["rmse_pcutoff_px"]],
+            mode="markers",
+            name=f"Best ({best_rmse['rmse_pcutoff_px']:.1f} px, epoch {best_rmse['epoch']})",
+            marker=dict(size=12, color="#2ca02c", symbol="star"),
+        ))
+        fig.update_layout(
+            xaxis_title="Epoch",
+            yaxis_title="RMSE (pixels)",
+            height=400,
+            margin=dict(l=40, r=20, t=30, b=40),
+            legend=dict(x=0.5, y=0.95),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Also show heatmap loss in expander
+        with st.expander("Heatmap loss (raw)"):
+            loss_fig = go.Figure()
+            loss_fig.add_trace(go.Scatter(
+                x=df_curves.index, y=df_curves["train_loss"],
+                mode="lines", name="Train loss",
+                line=dict(color="#1f77b4", width=1.5),
+            ))
+            valid_rows = [r for r in curve_data if r["valid_loss"] is not None]
+            if valid_rows:
+                loss_fig.add_trace(go.Scatter(
+                    x=[r["epoch"] for r in valid_rows],
+                    y=[r["valid_loss"] for r in valid_rows],
+                    mode="lines+markers", name="Valid loss",
+                    line=dict(color="#d62728", width=2), marker=dict(size=5),
+                ))
+            loss_fig.update_layout(
+                xaxis_title="Epoch", yaxis_title="Heatmap MSE",
+                height=300, margin=dict(l=40, r=20, t=20, b=40),
+            )
+            st.plotly_chart(loss_fig, use_container_width=True)
+
+        # mAP over epochs
+        mAP_rows = [r for r in curve_data if r.get("mAP") is not None and r["mAP"] > 0]
+        if mAP_rows:
+            with st.expander("mAP over epochs"):
+                mAP_fig = go.Figure()
+                mAP_fig.add_trace(go.Scatter(
+                    x=[r["epoch"] for r in mAP_rows],
+                    y=[r["mAP"] for r in mAP_rows],
+                    mode="lines+markers", name="mAP (%)",
+                    line=dict(color="#ff7f0e", width=2), marker=dict(size=5),
+                ))
+                mAP_fig.update_layout(
+                    xaxis_title="Epoch", yaxis_title="mAP (%)",
+                    height=250, margin=dict(l=40, r=20, t=20, b=40),
+                )
+                st.plotly_chart(mAP_fig, use_container_width=True)
+
+    else:
+        # Fallback: show raw heatmap loss (no pixel metrics available)
+        final_train = curve_data[-1]["train_loss"]
+        valid_rows = [r for r in curve_data if r["valid_loss"] is not None]
+        best_valid = min(valid_rows, key=lambda r: r["valid_loss"]) if valid_rows else None
+
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Epochs", f"{len(curve_data)}/{total_epochs}")
+        col2.metric("Final train loss", f"{final_train:.5f}")
+        if best_valid:
+            col3.metric("Best valid loss", f"{best_valid['valid_loss']:.5f}")
+            col4.metric("Best checkpoint", f"Epoch {best_valid['epoch']}")
+
+        # Plot train + valid loss with plotly
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            x=df_curves.index,
+            y=df_curves["train_loss"],
+            mode="lines",
+            name="Train loss (heatmap MSE)",
+            line=dict(color="#1f77b4", width=1.5),
+        ))
+        if valid_rows:
+            fig.add_trace(go.Scatter(
+                x=[r["epoch"] for r in valid_rows],
+                y=[r["valid_loss"] for r in valid_rows],
+                mode="lines+markers",
+                name="Valid loss",
+                line=dict(color="#d62728", width=2),
+                marker=dict(size=6),
         ))
         if best_valid:
             fig.add_trace(go.Scatter(
