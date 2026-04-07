@@ -205,15 +205,15 @@ def main() -> None:
 
     # Step 6: Open labeling GUI
     # DLC 3.0rc13 bug: label_frames() only shows the first folder under
-    # labeled-data/. Workaround: temporarily stash other session folders
-    # AND already-labelled PNGs from this session so only the NEW frames
-    # are visible during labelling.
+    # labeled-data/. Workaround: temporarily stash OTHER session folders
+    # so only the current session is visible. All frames (old + new) and
+    # existing labels for this session remain visible in napari.
     config_path = project_dir / "config.yaml"
     labeled_base = project_dir / "labeled-data"
     stash_dir = Path("/tmp/dlc-label-stash")
     stash_dir.mkdir(parents=True, exist_ok=True)
 
-    # Stash other sessions
+    # Stash other sessions only
     stashed_sessions = []
     for other_dir in labeled_base.iterdir():
         if other_dir.is_dir() and other_dir.name != video_stem:
@@ -225,71 +225,22 @@ def main() -> None:
     if stashed_sessions:
         print(f"  Stashed {len(stashed_sessions)} other session(s) during labelling")
 
-    # Stash already-labelled PNGs from this session (keep only new frames)
-    new_frame_names = {f"frame_{int(idx):06d}.png" for idx in frame_indices}
-    # Also accept img format from fallback extraction
-    new_frame_names |= {f"img{int(idx):06d}.png" for idx in frame_indices}
-    stashed_pngs = []
-    for png in labeled_dir.glob("*.png"):
-        if png.name not in new_frame_names:
-            stash_dest = stash_dir / f"_pngs_{video_stem}" / png.name
-            stash_dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(png), str(stash_dest))
-            stashed_pngs.append(png.name)
-    if stashed_pngs:
-        print(f"  Stashed {len(stashed_pngs)} already-labelled frame(s) from this session")
-
-    # Also stash CollectedData so DLC doesn't try to load old labels
-    stashed_collected = []
-    for cd in labeled_dir.glob("CollectedData_*"):
-        stash_dest = stash_dir / f"_pngs_{video_stem}" / cd.name
-        stash_dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(cd), str(stash_dest))
-        stashed_collected.append(cd.name)
-
-    print(f"\n--- Opening DLC labeling GUI ({len(new_frame_names)} new frames) ---")
+    existing_pngs = len(list(labeled_dir.glob("*.png")))
+    new_count = len(frame_indices)
+    print(f"\n--- Opening DLC labeling GUI ---")
+    print(f"  {existing_pngs} existing frames + {new_count} new = {existing_pngs} total")
+    print(f"  Existing labels will be loaded — just label the new frames.")
     print(f"Config: {config_path}")
-    print("Label all frames, then close the napari window.\n")
+    print("Label all new frames, then close the napari window.\n")
 
     import deeplabcut
     deeplabcut.label_frames(str(config_path))
 
-    # Keep napari event loop running until the user closes the window
     try:
         import napari
         napari.run()
     except (ImportError, RuntimeError):
         pass
-
-    # Restore stashed PNGs and CollectedData
-    stash_png_dir = stash_dir / f"_pngs_{video_stem}"
-    if stash_png_dir.exists():
-        for f in stash_png_dir.iterdir():
-            dest = labeled_dir / f.name
-            # Merge: if DLC wrote a new CollectedData, we need to merge old + new
-            if f.name.startswith("CollectedData_") and dest.exists():
-                # DLC created new labels for the new frames; merge with old
-                import pandas as pd
-                try:
-                    old_df = pd.read_csv(str(f), header=[0, 1, 2], index_col=0) if f.suffix == ".csv" else pd.read_hdf(str(f))
-                    new_df = pd.read_csv(str(dest), header=[0, 1, 2], index_col=0) if dest.suffix == ".csv" else pd.read_hdf(str(dest))
-                    merged = pd.concat([old_df, new_df]).sort_index()
-                    merged = merged[~merged.index.duplicated(keep="last")]
-                    if dest.suffix == ".csv":
-                        merged.to_csv(str(dest))
-                    else:
-                        merged.to_hdf(str(dest), key="df_with_missing", mode="w")
-                    print(f"  Merged {f.name}: {len(old_df)} old + {len(new_df)} new = {len(merged)} total")
-                    f.unlink()
-                except Exception as e:
-                    print(f"  WARNING: could not merge {f.name}: {e}")
-                    # Keep the new one, don't overwrite
-                    f.unlink()
-            else:
-                shutil.move(str(f), str(dest))
-        shutil.rmtree(stash_png_dir, ignore_errors=True)
-    if stashed_pngs:
-        print(f"  Restored {len(stashed_pngs)} stashed frame(s)")
 
     # Restore other sessions
     for name in stashed_sessions:
