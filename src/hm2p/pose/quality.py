@@ -498,6 +498,19 @@ def stratified_frame_selection(
 
         bins_result.append((bin_labels[i], np.array(sorted(selected), dtype=np.intp)))
 
+    # Second pass: if we have fewer than n_per_bin * n_bins, fill from all
+    # remaining candidates across all bins (worst-first globally).
+    target = n_per_bin * n_bins
+    if len(all_selected) < target:
+        remaining_order = np.argsort(mean_lik)
+        for idx in remaining_order:
+            if len(all_selected) >= target:
+                break
+            if idx in all_selected:
+                continue
+            if all(abs(int(idx) - int(s)) >= min_spacing for s in all_selected):
+                all_selected.add(idx)
+
     all_indices = np.array(sorted(all_selected), dtype=np.intp)
     return {
         "indices": all_indices,
