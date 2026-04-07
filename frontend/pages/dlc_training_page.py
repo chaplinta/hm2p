@@ -357,38 +357,26 @@ if curve_data:
                 marker=dict(size=12, color="#2ca02c", symbol="star"),
                 showlegend=True,
             ))
-    fig.update_layout(
-        xaxis_title="Epoch",
-        yaxis_title="Loss (MSE)",
-        height=400,
-        margin=dict(l=40, r=20, t=30, b=40),
-        legend=dict(x=0.7, y=0.95),
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    # Overfitting warning
-    if best_valid and valid_rows:
-        last_valid = valid_rows[-1]
-        if last_valid["valid_loss"] > best_valid["valid_loss"] * 1.2:
-            st.warning(
-                f"Validation loss increased from {best_valid['valid_loss']:.5f} "
-                f"(epoch {best_valid['epoch']}) to {last_valid['valid_loss']:.5f} "
-                f"(epoch {last_valid['epoch']}). The model is overfitting — "
-                f"DLC selected the best checkpoint at epoch {best_valid['epoch']}."
-            )
-
-    # LR schedule
-    with st.expander("Learning rate schedule"):
-        lr_fig = go.Figure()
-        lr_fig.add_trace(go.Scatter(
-            x=df_curves.index, y=df_curves["lr"],
-            mode="lines", name="Learning rate",
-        ))
-        lr_fig.update_layout(
-            xaxis_title="Epoch", yaxis_title="LR", yaxis_type="log",
-            height=250, margin=dict(l=40, r=20, t=20, b=40),
+        fig.update_layout(
+            xaxis_title="Epoch",
+            yaxis_title="Loss (MSE)",
+            height=400,
+            margin=dict(l=40, r=20, t=30, b=40),
+            legend=dict(x=0.7, y=0.95),
         )
-        st.plotly_chart(lr_fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Overfitting warning
+        if best_valid and valid_rows:
+            last_valid = valid_rows[-1]
+            if last_valid["valid_loss"] > best_valid["valid_loss"] * 1.2:
+                st.warning(
+                    f"Validation loss increased from {best_valid['valid_loss']:.5f} "
+                    f"(epoch {best_valid['epoch']}) to {last_valid['valid_loss']:.5f} "
+                    f"(epoch {last_valid['epoch']}). The model is overfitting — "
+                    f"DLC selected the best checkpoint at epoch {best_valid['epoch']}."
+                )
+
 else:
     st.info("No training log on S3. Training curves will appear after training starts.")
 
