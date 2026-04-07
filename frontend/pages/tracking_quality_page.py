@@ -407,9 +407,18 @@ if st.button("Select frames", key="select_frames_btn"):
         st.stop()
     lik_matrix = np.column_stack(lik_cols)
 
+    # Build position matrix for duplicate detection
+    pos_cols = []
+    for bp in bodyparts:
+        if bp in kp_data:
+            pos_cols.append(kp_data[bp]["x"])
+            pos_cols.append(kp_data[bp]["y"])
+    pos_matrix = np.column_stack(pos_cols) if pos_cols else None
+
     if method.startswith("Stratified"):
         result = stratified_frame_selection(
             lik_matrix, n_per_bin=max(1, n_frames // 4), min_spacing=min_spacing,
+            positions=pos_matrix,
         )
         selected_indices = result["indices"]
 

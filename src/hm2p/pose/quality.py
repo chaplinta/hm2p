@@ -427,6 +427,8 @@ def stratified_frame_selection(
     n_per_bin: int = 5,
     n_bins: int = 4,
     min_spacing: int = 30,
+    positions: npt.NDArray[np.floating] | None = None,
+    min_position_dist: float = 5.0,
 ) -> dict:
     """Select frames stratified across quality bins for retraining.
 
@@ -442,6 +444,13 @@ def stratified_frame_selection(
         Number of quality bins (e.g. 4 = worst/poor/moderate/good).
     min_spacing : int
         Minimum frames between selected frames.
+    positions : (n_frames, n_keypoints, 2) or (n_frames, n_keypoints*2) float, optional
+        Bodypart x/y positions per frame. If provided, frames with very
+        similar pose (all bodyparts within ``min_position_dist`` pixels)
+        are treated as duplicates and only one is selected.
+    min_position_dist : float
+        Minimum mean bodypart displacement (pixels) between selected
+        frames. Frames closer than this are considered near-identical.
 
     Returns
     -------
@@ -458,6 +467,24 @@ def stratified_frame_selection(
     # Use data-adaptive quantile edges so bins have roughly equal counts.
     # Fixed 0-1 edges fail when all confidences are in a narrow range
     # (e.g. DLC 3.0 PyTorch backend outputs 0.1-0.3 for all frames).
+    # Precompute flattened position vectors for similarity checking
+    _pos_flat = None
+    if positions is not None:
+        p = positions.reshape(len(mean_lik), -1).astype(np.float64)
+        # Replace NaN with 0 for distance computation
+        _pos_flat = np.nan_to_num(p, nan=0.0)
+
+    def _is_too_similar(idx: int, selected_set: set) -> bool:
+        """Check if frame idx is too similar to any already-selected frame."""
+        if _pos_flat is None:
+            return False
+        for s in selected_set:
+            diff = np.abs(_pos_flat[idx] - _pos_flat[s])
+            mean_diff = np.mean(diff)
+            if mean_diff < min_position_dist:
+                return True
+        return False
+
     valid_lik = mean_lik[np.isfinite(mean_lik)]
     if len(valid_lik) > 0:
         bin_edges = np.quantile(valid_lik, np.linspace(0, 1, n_bins + 1))
@@ -491,10 +518,14 @@ def stratified_frame_selection(
         for idx in candidates:
             if len(selected) >= n_per_bin:
                 break
-            if (all(abs(int(idx) - int(s)) >= min_spacing for s in selected)
-                    and idx not in all_selected):
-                selected.append(idx)
-                all_selected.add(idx)
+            if idx in all_selected:
+                continue
+            if not all(abs(int(idx) - int(s)) >= min_spacing for s in selected):
+                continue
+            if _is_too_similar(idx, all_selected):
+                continue
+            selected.append(idx)
+            all_selected.add(idx)
 
         bins_result.append((bin_labels[i], np.array(sorted(selected), dtype=np.intp)))
 
@@ -508,8 +539,11 @@ def stratified_frame_selection(
                 break
             if idx in all_selected:
                 continue
-            if all(abs(int(idx) - int(s)) >= min_spacing for s in all_selected):
-                all_selected.add(idx)
+            if not all(abs(int(idx) - int(s)) >= min_spacing for s in all_selected):
+                continue
+            if _is_too_similar(idx, all_selected):
+                continue
+            all_selected.add(idx)
 
     all_indices = np.array(sorted(all_selected), dtype=np.intp)
     return {
