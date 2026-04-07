@@ -216,6 +216,54 @@ else:
 # ── Training curves ─────────────────────────────────────────────────────────
 st.header("Training Curves")
 
+with st.expander("Understanding the metrics"):
+    st.markdown("""
+**Valid RMSE (all, px)** — Root Mean Square Error in pixels on the
+validation set (20% held-out frames), computed across ALL predicted
+bodypart locations. Includes predictions where the model is uncertain.
+Lower = better. A value of 10 px on an 832×608 image means the average
+prediction is ~10 pixels from the labelled ground truth (~1.2% of
+image width).
+
+**Valid RMSE (confident, px)** — Same as above but only for predictions
+where the model's confidence exceeds the p-cutoff threshold. This
+excludes uncertain predictions (e.g. occluded bodyparts) and is
+typically lower than the all-points RMSE. This is the more relevant
+metric for downstream analysis since low-confidence predictions are
+filtered out by the kinematics pipeline.
+
+**mAP (mean Average Precision)** — A detection metric from the COCO
+object detection benchmark. For each bodypart, it computes Average
+Precision: the area under the precision-recall curve at multiple
+distance thresholds (how close the prediction must be to count as
+correct). mAP is the mean across all bodyparts. Range 0–100%.
+
+- **0%** = model cannot find any bodypart
+- **~30%** = model finds bodyparts but with poor localisation
+- **~60%** = model reliably detects most bodyparts with reasonable accuracy
+- **~80%+** = publication-quality tracking
+
+mAP is more informative than RMSE because it accounts for both
+*detection* (did the model find the bodypart at all?) and
+*localisation* (how close is the prediction to the true position?).
+A model with low RMSE but low mAP is only accurate on the easy frames
+and misses the hard ones.
+
+**Training loss (heatmap + locref)** — The optimisation objective
+during training. Combines two components:
+1. *Heatmap loss*: MSE between predicted and target Gaussian heatmaps
+   at 1/4 resolution. Each bodypart produces a 2D probability map;
+   the loss measures how well the predicted peak matches the label.
+2. *Location refinement (locref) loss*: subpixel offset prediction
+   to refine the heatmap peak to full resolution accuracy.
+
+This loss is NOT in pixels — it's in normalised heatmap space and
+cannot be directly compared to RMSE. Use it to monitor convergence
+(decreasing = learning) and overfitting (train decreasing but valid
+increasing), but interpret the absolute value as pixel RMSE from the
+validation metrics above.
+""")
+
 curve_data = _parse_training_curves()
 
 if curve_data:
