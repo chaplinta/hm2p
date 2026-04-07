@@ -24,15 +24,45 @@ from frontend.data import (
 
 log = logging.getLogger("hm2p.frontend.dlc_viewer")
 
-BODYPARTS = ["nose", "left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"]
+BODYPARTS = [
+    "nose_tip", "nose",  # nose_tip (finetuned) or nose (SuperAnimal)
+    "left_ear", "right_ear",
+    "implant_base_rear", "neck",
+    "mid_back", "mouse_center", "tail_base",
+]
 BP_HEX = {
-    "nose": "#FF0000", "left_ear": "#0000FF", "right_ear": "#00FFFF",
-    "mid_back": "#00CC00", "mouse_center": "#FFD700", "tail_base": "#FF00FF",
+    "nose_tip": "#FF0000",
+    "nose": "#FF0000",
+    "left_ear": "#0000FF",
+    "right_ear": "#00FFFF",
+    "implant_base_rear": "#FFA500",
+    "neck": "#800080",
+    "mid_back": "#00CC00",
+    "mouse_center": "#FFD700",
+    "tail_base": "#FF00FF",
+}
+# Display names for the legend (skip "nose" alias if nose_tip exists)
+BP_LEGEND = {
+    "nose_tip": ("Nose tip", "#FF0000"),
+    "left_ear": ("Left ear", "#0000FF"),
+    "right_ear": ("Right ear", "#00FFFF"),
+    "implant_base_rear": ("Implant base", "#FFA500"),
+    "neck": ("Neck", "#800080"),
+    "mid_back": ("Mid back", "#00CC00"),
+    "mouse_center": ("Mouse centre", "#FFD700"),
+    "tail_base": ("Tail base", "#FF00FF"),
 }
 VIDEO_FPS = 30
 
 st.title("DLC Viewer")
-st.caption("Labelled video playback + frame-by-frame inspection for QC. Select session in sidebar.")
+st.caption("Labelled video playback + frame-by-frame inspection for QC.")
+
+# Colour legend for bodyparts
+_legend_html = " &nbsp; ".join(
+    f'<span style="color:{color}; font-weight:bold;">●</span> {label}'
+    for label, color in BP_LEGEND.values()
+)
+st.markdown(_legend_html, unsafe_allow_html=True)
 
 # ── Cached loaders ───────────────────────────────────────────────────────
 
@@ -435,9 +465,13 @@ if mode == "Inspect":
                     sx = w / 832.0  # original video width
                     sy = h / 608.0  # original video height
                     px, py = int(xv * sx), int(yv * sy)
-                    color_map = {"nose": (0,0,255), "left_ear": (255,0,0),
-                                 "right_ear": (255,255,0), "mid_back": (0,204,0),
-                                 "mouse_center": (0,215,255), "tail_base": (255,0,255)}
+                    color_map = {
+                        "nose_tip": (0,0,255), "nose": (0,0,255),
+                        "left_ear": (255,0,0), "right_ear": (255,255,0),
+                        "implant_base_rear": (0,165,255), "neck": (128,0,128),
+                        "mid_back": (0,204,0), "mouse_center": (0,215,255),
+                        "tail_base": (255,0,255),
+                    }
                     bgr = color_map.get(bp, (255,255,255))
                     # Draw filtered marker as a larger ring (distinguishable from baked-in dots)
                     cv2.circle(frame_bgr, (px, py), 6, bgr, 2, cv2.LINE_AA)
