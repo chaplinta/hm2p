@@ -74,7 +74,10 @@ BODYPARTS = list(KEYPOINT_COLORS.keys())
 
 CIRCLE_RADIUS = 4
 LINE_WIDTH = 2
-CONFIDENCE_THRESHOLD = 0.5
+# DLC 3.0 PyTorch backend produces conservative confidence values (~0.1-0.3).
+# Use a low threshold so keypoints are visible; the pipeline applies its own
+# filtering separately.
+CONFIDENCE_THRESHOLD = 0.05
 
 OUTPUT_WIDTH = 416
 OUTPUT_HEIGHT = 304

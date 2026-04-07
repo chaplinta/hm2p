@@ -293,7 +293,7 @@ with col_pos:
         index=0, key="dlcv_pos", horizontal=True,
     )
 
-conf_thr = 0.5  # fixed threshold — simplifies UI
+conf_thr = 0.05  # DLC 3.0 PyTorch outputs conservative confidences (~0.1-0.3)
 
 eid = dict(opts)[sel]
 sub, ses = parse_session_id(eid)

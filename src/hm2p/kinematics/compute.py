@@ -1137,7 +1137,7 @@ def run(
     maze_corners_px: np.ndarray,
     bad_behav_intervals: list[tuple[float, float]],
     output_path: Path,
-    confidence_threshold: float = 0.9,
+    confidence_threshold: float = 0.05,
     gap_fill_frames: int = 5,
     speed_active_threshold: float = SPEED_ACTIVE_THRESHOLD,
     camera_center_px: tuple[float, float] | None = None,
