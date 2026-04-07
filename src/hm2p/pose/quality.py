@@ -455,7 +455,18 @@ def stratified_frame_selection(
     else:
         mean_lik = likelihood.copy()
 
-    bin_edges = np.linspace(0, 1, n_bins + 1)
+    # Use data-adaptive quantile edges so bins have roughly equal counts.
+    # Fixed 0-1 edges fail when all confidences are in a narrow range
+    # (e.g. DLC 3.0 PyTorch backend outputs 0.1-0.3 for all frames).
+    valid_lik = mean_lik[np.isfinite(mean_lik)]
+    if len(valid_lik) > 0:
+        bin_edges = np.quantile(valid_lik, np.linspace(0, 1, n_bins + 1))
+        # Ensure edges are strictly increasing (can happen with very uniform data)
+        for j in range(1, len(bin_edges)):
+            if bin_edges[j] <= bin_edges[j - 1]:
+                bin_edges[j] = bin_edges[j - 1] + 1e-6
+    else:
+        bin_edges = np.linspace(0, 1, n_bins + 1)
     bin_labels = ["worst", "poor", "moderate", "good"][:n_bins]
     bins_result = []
     all_selected = set()
