@@ -267,6 +267,8 @@ if st.button("Reload video from S3", key="dlcv_reload"):
     dl_dlc.clear()
     get_median_filtered.clear()
     dl_kinematics.clear()
+    _cache_video_path.clear()
+    st.cache_data.clear()
     st.rerun()
 
 # ── Session selector ─────────────────────────────────────────────────────
