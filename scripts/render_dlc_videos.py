@@ -230,14 +230,18 @@ def draw_frame(
     frame: np.ndarray,
     keypoints: dict[str, np.ndarray],
     frame_idx: int,
+    scale_x: float = 1.0,
+    scale_y: float = 1.0,
 ) -> np.ndarray:
     """Draw keypoints and skeleton on a single frame.
 
     Parameters
     ----------
-    frame : BGR image array (original resolution, pre-downscale).
+    frame : BGR image array (at output resolution).
     keypoints : dict of bodypart -> (N, 3) arrays [x, y, likelihood].
-    frame_idx : DLC frame index (after 3x subsampling).
+        Coordinates are in original DLC resolution.
+    frame_idx : DLC frame index.
+    scale_x, scale_y : Scale factors from DLC coords to frame coords.
     """
     # Draw skeleton lines first (under circles)
     for bp1, bp2 in SKELETON:
@@ -247,12 +251,10 @@ def draw_frame(
         kp2 = keypoints[bp2][frame_idx]
         if np.isnan(kp1[:2]).any() or np.isnan(kp2[:2]).any():
             continue
-        # Only draw line if BOTH endpoints are above confidence threshold
         if kp1[2] < CONFIDENCE_THRESHOLD or kp2[2] < CONFIDENCE_THRESHOLD:
             continue
-        pt1 = (int(round(kp1[0])), int(round(kp1[1])))
-        pt2 = (int(round(kp2[0])), int(round(kp2[1])))
-        # Average colour of the two endpoints
+        pt1 = (int(round(kp1[0] * scale_x)), int(round(kp1[1] * scale_y)))
+        pt2 = (int(round(kp2[0] * scale_x)), int(round(kp2[1] * scale_y)))
         c1 = KEYPOINT_COLORS.get(bp1, (255, 255, 255))
         c2 = KEYPOINT_COLORS.get(bp2, (255, 255, 255))
         color = tuple((a + b) // 2 for a, b in zip(c1, c2))
@@ -263,12 +265,12 @@ def draw_frame(
         kp = kp_array[frame_idx]
         if np.isnan(kp[:2]).any():
             continue
-        pt = (int(round(kp[0])), int(round(kp[1])))
+        pt = (int(round(kp[0] * scale_x)), int(round(kp[1] * scale_y)))
         color = KEYPOINT_COLORS.get(bp, (255, 255, 255))
         if kp[2] >= CONFIDENCE_THRESHOLD:
-            cv2.circle(frame, pt, CIRCLE_RADIUS, color, -1, cv2.LINE_AA)  # filled
+            cv2.circle(frame, pt, CIRCLE_RADIUS, color, -1, cv2.LINE_AA)
         else:
-            cv2.circle(frame, pt, CIRCLE_RADIUS, color, 1, cv2.LINE_AA)  # hollow
+            cv2.circle(frame, pt, CIRCLE_RADIUS, color, 1, cv2.LINE_AA)
 
     return frame
 
@@ -355,8 +357,12 @@ def render_session(
             return None
 
         total_video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        log.info("  Video frames: %d (100fps), DLC frames: %d (30fps)",
-                 total_video_frames, n_dlc_frames)
+        orig_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        scale_x = OUTPUT_WIDTH / orig_w
+        scale_y = OUTPUT_HEIGHT / orig_h
+        log.info("  Video: %d frames (%dx%d), DLC: %d frames, scale: %.3f x %.3f",
+                 total_video_frames, orig_w, orig_h, n_dlc_frames, scale_x, scale_y)
 
         # Determine output path
         if no_upload:
@@ -365,61 +371,85 @@ def render_session(
         else:
             out_path = tmp / "labelled_30fps.mp4"
 
-        # Set up writer
-        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        writer = cv2.VideoWriter(str(out_path), fourcc, OUTPUT_FPS,
-                                 (OUTPUT_WIDTH, OUTPUT_HEIGHT))
-        if not writer.isOpened():
-            log.error("  Failed to create video writer")
-            cap.release()
-            return None
-
-        # Process frames: for each DLC frame, seek to the correct raw video
-        # frame.  ffmpeg -r 30 on 100fps picks frame at t = dlc_idx / 30,
-        # which is raw_frame = round(dlc_idx * raw_fps / 30).
+        # Build mapping: DLC frame index → raw video frame index.
+        # ffmpeg -r 30 on 100fps picks evenly spaced frames.
         raw_fps = cap.get(cv2.CAP_PROP_FPS) or 100.0
-        written = 0
+        target_raw_frames = [
+            round(i * raw_fps / OUTPUT_FPS) for i in range(n_dlc_frames)
+        ]
 
-        for dlc_frame_idx in range(n_dlc_frames):
-            target_raw = round(dlc_frame_idx * raw_fps / OUTPUT_FPS)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, target_raw)
+        # Pipe directly to ffmpeg for H.264 encoding (avoids writing huge
+        # intermediate mp4v file then re-encoding).
+        import shutil as _shutil
+        import subprocess
+
+        use_ffmpeg = bool(_shutil.which("ffmpeg"))
+        if use_ffmpeg:
+            ffmpeg_cmd = [
+                "ffmpeg", "-y",
+                "-f", "rawvideo", "-pix_fmt", "bgr24",
+                "-s", f"{OUTPUT_WIDTH}x{OUTPUT_HEIGHT}",
+                "-r", str(OUTPUT_FPS),
+                "-i", "pipe:0",
+                "-c:v", "libx264", "-crf", "28", "-preset", "fast",
+                "-movflags", "+faststart",
+                str(out_path),
+            ]
+            ffproc = subprocess.Popen(
+                ffmpeg_cmd, stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            writer = None
+        else:
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            writer = cv2.VideoWriter(
+                str(out_path), fourcc, OUTPUT_FPS,
+                (OUTPUT_WIDTH, OUTPUT_HEIGHT),
+            )
+            ffproc = None
+
+        # Read frames sequentially (much faster than seeking per frame).
+        # Precompute which raw frames we need as a set for O(1) lookup.
+        needed_raw = {}  # raw_frame_idx → dlc_frame_idx
+        for dlc_idx, raw_idx in enumerate(target_raw_frames):
+            needed_raw[raw_idx] = dlc_idx
+        max_raw = max(needed_raw) if needed_raw else 0
+
+        written = 0
+        raw_idx = 0
+        while raw_idx <= max_raw:
             ret, frame = cap.read()
             if not ret:
                 break
 
-            frame = draw_frame(frame, keypoints, dlc_frame_idx)
-            frame = cv2.resize(frame, (OUTPUT_WIDTH, OUTPUT_HEIGHT),
-                               interpolation=cv2.INTER_AREA)
-            writer.write(frame)
-            written += 1
+            if raw_idx in needed_raw:
+                dlc_frame_idx = needed_raw[raw_idx]
+                # Resize first (smaller = faster drawing)
+                frame = cv2.resize(
+                    frame, (OUTPUT_WIDTH, OUTPUT_HEIGHT),
+                    interpolation=cv2.INTER_AREA,
+                )
+                frame = draw_frame(frame, keypoints, dlc_frame_idx,
+                                   scale_x=scale_x, scale_y=scale_y)
 
-            if written % 5000 == 0:
-                log.info("  Rendered %d / %d frames", written, n_dlc_frames)
+                if ffproc is not None:
+                    ffproc.stdin.write(frame.tobytes())
+                else:
+                    writer.write(frame)
+                written += 1
+
+                if written % 5000 == 0:
+                    log.info("  Rendered %d / %d frames", written, n_dlc_frames)
+
+            raw_idx += 1
 
         cap.release()
-        writer.release()
+        if ffproc is not None:
+            ffproc.stdin.close()
+            ffproc.wait()
+        if writer is not None:
+            writer.release()
         log.info("  Wrote %d frames to %s", written, out_path.name)
-
-        # Compress with ffmpeg H.264 (mp4v from cv2 is huge)
-        import shutil as _shutil
-        if _shutil.which("ffmpeg"):
-            compressed = out_path.with_name("labelled_30fps_h264.mp4")
-            cmd = [
-                "ffmpeg", "-y", "-i", str(out_path),
-                "-c:v", "libx264", "-crf", "28", "-preset", "fast",
-                "-movflags", "+faststart",
-                str(compressed),
-            ]
-            import subprocess
-            result = subprocess.run(cmd, capture_output=True, text=True)
-            if result.returncode == 0:
-                old_size = out_path.stat().st_size / 1024 / 1024
-                new_size = compressed.stat().st_size / 1024 / 1024
-                log.info("  Compressed %.0f MB → %.0f MB (H.264 CRF 28)", old_size, new_size)
-                out_path.unlink()  # Remove uncompressed
-                compressed.rename(out_path)  # Replace with compressed
-            else:
-                log.warning("  ffmpeg compression failed, using uncompressed: %s", result.stderr[-200:])
 
         # Upload
         if no_upload:

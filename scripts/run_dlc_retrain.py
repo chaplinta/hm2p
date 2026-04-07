@@ -235,18 +235,9 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
                 batch_size=64,
             )
 
-            # Render labelled video for QC / viewer page
-            print("  Rendering labelled video...")
-            try:
-                deeplabcut.create_labeled_video(
-                    str(config_path),
-                    [str(dlc_video)],
-                    destfolder=str(out_dir),
-                    draw_skeleton=True,
-                    pcutoff=0.6,
-                )
-            except Exception as vid_err:
-                print(f"  WARNING: labelled video failed: {vid_err}")
+            # Labelled video rendering is handled separately by
+            # render_dlc_videos.py on a CPU instance after promotion
+            # (faster: downscales to 416x304, no DLC dependency needed).
 
             # Upload results via boto3
             out_files = list(out_dir.rglob("*"))
