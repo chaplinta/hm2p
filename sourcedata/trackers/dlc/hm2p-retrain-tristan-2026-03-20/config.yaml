@@ -4,8 +4,8 @@ SuperAnimalConversionTables:
     left_ear: left_ear
     right_ear: right_ear
     neck: neck
-    mid_back: spine_center
-    mouse_center: spine_mid
+    mid_back: mid_back
+    mouse_center: mouse_center
     tail_base: tail_base
 Task: hm2p-retrain
 TrainingFraction:
