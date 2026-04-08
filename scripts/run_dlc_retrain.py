@@ -195,6 +195,22 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
 
     update_progress(s3, f"Training: fine-tuning network ({epochs} epochs)")
 
+    # Monkey-patch torch.nn.Module.load_state_dict to use strict=False
+    # when loading SuperAnimal HRNet weights. The checkpoint may have
+    # different head structure (missing locref, different channels) and
+    # strict loading causes RuntimeError. With strict=False, mismatched
+    # keys are silently ignored and only matching weights transfer.
+    if use_superanimal:
+        import torch.nn as nn
+
+        _original_load_state_dict = nn.Module.load_state_dict
+
+        def _lenient_load_state_dict(self, state_dict, strict=True, **kwargs):
+            return _original_load_state_dict(self, state_dict, strict=False, **kwargs)
+
+        nn.Module.load_state_dict = _lenient_load_state_dict
+        print("  Patched load_state_dict(strict=False) for SuperAnimal transfer")
+
     # Train
     print(f"Training for {epochs} epochs...")
     deeplabcut.train_network(
@@ -203,6 +219,10 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
         displayiters=100,
         saveiters=5000,
     )
+
+    # Restore original load_state_dict
+    if use_superanimal:
+        nn.Module.load_state_dict = _original_load_state_dict
 
     # Evaluate
     print("Evaluating network...")
