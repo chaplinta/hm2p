@@ -142,19 +142,23 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
                 "freeze_bn_weights": False,
             }
             # HRNet-W32 outputs 32 channels (not 2048 like ResNet).
-            # Must also update the head input channels to match.
             pcfg["model"]["backbone_output_channels"] = 32
             if "heads" in pcfg["model"]:
                 for head_name, head_cfg in pcfg["model"]["heads"].items():
                     if "heatmap_config" in head_cfg:
                         head_cfg["heatmap_config"]["channels"][0] = 32
-                        # Match SuperAnimal checkpoint: 1x1 conv, not 3x3 deconv
                         head_cfg["heatmap_config"]["kernel_size"] = [1]
                         head_cfg["heatmap_config"]["strides"] = [1]
                     if "locref_config" in head_cfg:
                         head_cfg["locref_config"]["channels"][0] = 32
                         head_cfg["locref_config"]["kernel_size"] = [1]
                         head_cfg["locref_config"]["strides"] = [1]
+                    # Disable location refinement — SuperAnimal checkpoint
+                    # doesn't have locref head weights, causing load failure.
+                    if "predictor" in head_cfg:
+                        head_cfg["predictor"]["location_refinement"] = False
+                    if "target_generator" in head_cfg:
+                        head_cfg["target_generator"]["generate_locref"] = False
             pcfg["net_type"] = "hrnet_w32"
         else:
             print(f"  Backbone: {backbone}")
