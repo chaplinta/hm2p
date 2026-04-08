@@ -65,7 +65,9 @@ pip3 install --break-system-packages --quiet boto3 pandas numpy tables opencv-py
 cd /home/ubuntu
 git clone https://github.com/chaplinta/hm2p.git
 cd hm2p
-pip3 install --break-system-packages -e .
+# Don't pip install -e . (requires Python >=3.11, AMI has 3.10).
+# Add src/ to PYTHONPATH instead.
+export PYTHONPATH=/home/ubuntu/hm2p/src:$PYTHONPATH
 {downstream_cmd}
 echo "=== Rendering labelled videos ==="
 python3 scripts/render_dlc_videos.py --all -v
