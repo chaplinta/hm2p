@@ -1,8 +1,8 @@
 # SuperAnimal Integration Notes — Lead Developer
 
 **Author:** Lead Developer agent  
-**Date:** 2026-04-02  
-**Status:** Analysis complete — recommendation: stay with HRNet + ImageNet
+**Date:** 2026-04-02 (updated 2026-04-02)  
+**Status:** Analysis complete — two-pass review; revised recommendations at end of document
 
 ---
 
@@ -480,7 +480,181 @@ architectures are supported by the SA backbone pathway if we later want SA trans
 
 ---
 
-## 7. References
+---
+
+## 7. Addendum: 8-Bodypart Context, `convert_weights` Mechanics, and Updated Analysis
+
+This section was added in a second review pass after reading the DLC source more
+thoroughly and cross-referencing against the current project config.yaml (8 bodyparts,
+not 5 as stated in earlier sections of this document — the doc was written with the
+pre-`implant_base_rear` labelling set, but our current config has 8 bodyparts).
+
+### 7.1 Current project state (2026-04-02)
+
+The current `config.yaml` has:
+
+```yaml
+bodyparts:
+- nose_tip
+- left_ear
+- right_ear
+- implant_base_rear   # custom, not in SA
+- neck
+- mid_back
+- mouse_center
+- tail_base
+
+SuperAnimalConversionTables:
+  superanimal_topviewmouse:
+    nose_tip: nose
+    left_ear: left_ear
+    right_ear: right_ear
+    neck: neck
+    mid_back: mid_back
+    mouse_center: mouse_center
+    tail_base: tail_base
+    # implant_base_rear is ABSENT from the table
+```
+
+184 labelled frames across 16 sessions. The conversion table is incomplete: it omits
+`implant_base_rear` entirely. This needs to be fixed to `implant_base_rear: null`
+before calling `build_weight_init(with_decoder=True)`.
+
+### 7.2 `convert_weights` — confirmed source behaviour
+
+From reading `deeplabcut/pose_estimation_pytorch/models/heads/simple_head.py`:
+
+`HeatmapHead` inherits from `WeightConversionMixin`. The `convert_weights` static method:
+
+```python
+# For heatmap channel remapping:
+state_dict[weight_key] = state_dict[weight_key][conversion]
+# where conversion is the conversion_array (integer index tensor)
+# shape before: (27, 256, 1, 1)
+# shape after:  (8, 256, 1, 1)  — for our 8 project bodyparts
+
+# For locref (if present), conversion is doubled:
+locref_conversion = torch.stack([2*conversion, 2*conversion+1], dim=1).reshape(-1)
+state_dict[locref_key] = state_dict[locref_key][locref_conversion]
+```
+
+A `conversion` value of `-1` at position `i` means: zero-initialise output channel `i`.
+This is used for `implant_base_rear`. The SA checkpoint's final Conv2d has shape
+`(27, 256, 1, 1)`. After conversion, our model gets `(8, 256, 1, 1)` with channel 3
+(implant) zero-initialised.
+
+**This is the correct mechanism — it DOES work.** The earlier sections of this document
+(§2.5) concluded that DLC does not implement channel slicing during `load_state_dict`.
+That was partially incorrect. The slicing is implemented inside `convert_weights` on
+`HeatmapHead`, which is called from `PoseModel.build()` during model construction (not
+inside `load_snapshot`). The model head is built with the correct 8-channel output shape
+from the start. Then `convert_weights` remaps the 27-channel SA checkpoint into the 8
+channels before loading. There is no shape mismatch.
+
+**What the earlier analysis missed:** `make_super_animal_finetune_config` (Mode B) is
+responsible for constructing the model with the correct head output size (`num_keypoints=8`)
+AND for passing the `conversion_array` to `PoseModel.build()` so that `convert_weights`
+is called correctly. If `with_decoder=True` is set and the conversion table exists, this
+path is taken. The failures we observed were all upstream of this point — the conversion
+table was incomplete or `default_net_type` was wrong — not a fundamental DLC limitation.
+
+### 7.3 The full SA-TVM 27-keypoint list (from project_configs/superanimal_topviewmouse.yaml)
+
+Confirmed from reading the actual config file at
+`https://raw.githubusercontent.com/DeepLabCut/DeepLabCut/main/deeplabcut/modelzoo/project_configs/superanimal_topviewmouse.yaml`:
+
+| Index | SA name         | hm2p equivalent     |
+|-------|-----------------|---------------------|
+| 0     | nose            | nose_tip            |
+| 1     | left_ear        | left_ear            |
+| 2     | right_ear       | right_ear           |
+| 3     | left_ear_tip    | —                   |
+| 4     | right_ear_tip   | —                   |
+| 5     | left_eye        | —                   |
+| 6     | right_eye       | —                   |
+| 7     | neck            | neck                |
+| 8     | mid_back        | mid_back            |
+| 9     | mouse_center    | mouse_center        |
+| 10    | mid_backend     | —                   |
+| 11    | mid_backend2    | —                   |
+| 12    | mid_backend3    | —                   |
+| 13    | tail_base       | tail_base           |
+| 14    | tail1           | —                   |
+| 15    | tail2           | —                   |
+| 16    | tail3           | —                   |
+| 17    | tail4           | —                   |
+| 18    | tail5           | —                   |
+| 19    | left_shoulder   | —                   |
+| 20    | left_midside    | —                   |
+| 21    | left_hip        | —                   |
+| 22    | right_shoulder  | —                   |
+| 23    | right_midside   | —                   |
+| 24    | right_hip       | —                   |
+| 25    | tail_end        | —                   |
+| 26    | head_midpoint   | —                   |
+
+Note: the YAML lists 27 entries but the comment in the file refers to 28 bodyparts.
+This appears to be 27 canonical bodyparts (indices 0–26) plus a 28th (`head_midpoint`)
+that may have been added after the paper was published. Treat the list above as definitive
+for writing the conversion table.
+
+The `conversion_array` for our 8 bodyparts (in project order) is:
+`[0, 1, 2, -1, 7, 8, 9, 13]`
+
+### 7.4 Revised diagnosis and recommendation
+
+The correct fix for our failed attempts is simpler than the earlier analysis suggested:
+
+1. The `with_decoder=True` path DOES implement channel slicing correctly via
+   `convert_weights`. The earlier section §2.5 was wrong about this.
+
+2. The actual failures were:
+   - `default_net_type: resnet_50` → backbone mismatch (§2.2 was correct about this)
+   - Incomplete conversion table (no `implant_base_rear` entry)
+   - Possibly using a stale API (`superanimal_name` parameter that no longer exists)
+
+3. The correct approach is Mode B (`with_decoder=True, memory_replay=True`) as described
+   in the earlier section §3. This is now confirmed to be technically sound, not blocked
+   by a DLC limitation.
+
+**Revised recommendations:**
+
+**Step 1 (required first):** Change `default_net_type: resnet_50` → `hrnet_w32` in
+`config.yaml`. Commit this change.
+
+**Step 2:** Update the conversion table to explicitly include `implant_base_rear: null`
+using `create_conversion_table()`.
+
+**Step 3:** Run `build_weight_init(with_decoder=True, memory_replay=True)` →
+`create_training_dataset()` → `train_network()`.
+
+**Expected outcome:** Substantially better than the current 34% mAP. The paper reports
+SA-TVM HRNet memory replay achieving 99.6 mAP at 1% data on DLC-Openfield. Our 184
+frames with 8 bodyparts is a different distribution, but the backbone warm-start and 7
+of 8 head channels warm-started from SA should produce a large improvement over training
+from random init (or from a backbone incorrectly initialised as ResNet-50).
+
+### 7.5 Video adaptation (`video_adapt`) — applicability
+
+`deeplabcut.video_inference_superanimal(videos, ..., video_adapt=True)` is the
+unsupervised per-video adaptation described in Figure 3 of the paper. It:
+- Runs zero-shot SA inference on the video.
+- Uses predictions with confidence > 0.7 as pseudo-labels.
+- Fine-tunes for 1000 steps at batch_size=1.
+- Works on the full 27-keypoint SA model — it cannot add `implant_base_rear`.
+
+This mode is NOT a replacement for our fine-tuning workflow. It could be applied as a
+post-processing step on a fine-tuned model to reduce temporal jitter, but the paper
+shows the largest jitter reduction on videos where the animal size differs substantially
+from training data (our rose-maze videos are reasonably similar to the TopViewMouse-5K
+training distribution). The benefit for our use case is marginal.
+
+**Known bug:** GitHub issue #2742 — `video_adapt=True` fails when a folder path is
+passed instead of a full video file path. Always pass absolute paths to video files.
+
+---
+
+## 8. References
 
 Ye et al. 2024. "SuperAnimal pretrained pose estimation models for behavioral analysis."
 *Nature Communications* 15:5165. doi:10.1038/s41467-024-48792-2
@@ -491,6 +665,8 @@ DLC source (inspected 2026-04-02, main branch):
 - `deeplabcut/pose_estimation_pytorch/runners/train.py` — `load_snapshot`
 - `deeplabcut/pose_estimation_pytorch/modelzoo/config.py` — `make_super_animal_finetune_config`
 - `deeplabcut/generate_training_dataset/trainingsetmanipulation.py` — `create_training_dataset`
-- `deeplabcut/modelzoo/project_configs/superanimal_topviewmouse.yaml` — 27-bodypart list
+- `deeplabcut/pose_estimation_pytorch/models/heads/simple_head.py` — `HeatmapHead.convert_weights`
+- `deeplabcut/modelzoo/project_configs/superanimal_topviewmouse.yaml` — 28-entry bodypart list
 - `deeplabcut/modelzoo/conversion_tables/conversion_table_topview.csv` — bodypart name mapping
 - `examples/testscript_superanimal_transfer_learning.py` — stale example (uses removed API)
+- GitHub issue #2742 — `video_adapt=True` folder path bug
