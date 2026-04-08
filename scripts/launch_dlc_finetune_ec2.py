@@ -46,7 +46,7 @@ from ec2_utils import (
 
 # Keep a local alias for the AMI variable name used below
 AMI = AMI_ID
-INSTANCE_TYPE = "g5.xlarge"
+INSTANCE_TYPE = "g4dn.xlarge"  # fallback from g5.xlarge (capacity issues)
 TAG_NAME = "hm2p-dlc-retrain"
 
 
