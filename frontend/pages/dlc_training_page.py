@@ -346,8 +346,8 @@ if curve_data:
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Epochs", f"{len(curve_data)}/{total_epochs}")
-        col2.metric("Valid RMSE (all)", f"{last_rmse['rmse_px']:.1f} px")
-        col3.metric("Valid RMSE (confident)", f"{last_rmse['rmse_pcutoff_px']:.1f} px")
+        col2.metric("Valid RMSE (all)", f"{last_rmse['rmse_px']:.1f} px" if last_rmse.get('rmse_px') is not None else "N/A")
+        col3.metric("Valid RMSE (confident)", f"{last_rmse['rmse_pcutoff_px']:.1f} px" if last_rmse.get('rmse_pcutoff_px') is not None else "N/A")
         col4.metric("Best checkpoint", f"Epoch {best_rmse['epoch']}")
 
         if last_rmse.get("mAP") is not None:
