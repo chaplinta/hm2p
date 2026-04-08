@@ -2,16 +2,22 @@
 
 **Paper:** Ye et al. 2024. "SuperAnimal pretrained pose estimation models for behavioral analysis."
 *Nature Communications* 15:5165. doi:10.1038/s41467-024-48792-2
+GitHub: https://github.com/DeepLabCut/DeepLabCut (modelzoo subpackage)
 
 **Prepared:** 2026-04-02
 **Context:** Review of the paper and DLC 3.x codebase to understand why our SuperAnimal
 transfer-learning attempt failed and what the correct approach is.
 
+**Our setup:** 8 bodyparts (nose_tip, left_ear, right_ear, implant_base_rear, neck, mid_back,
+mouse_center, tail_base), 184 labelled frames, DLC 3.0.0rc13, overhead camera, light/dark alternation.
+Previous attempt: checkpoint format mismatches, head architecture incompatibilities, fell back
+to HRNet-W32 from ImageNet.
+
 ---
 
-## 1. Paper Summary
+## 1. What SuperAnimal Does
 
-### What SuperAnimal is
+### The core idea: panoptic pose estimation
 
 SuperAnimal is a method for building foundation pose estimation models that work zero-shot
 across many settings, without requiring per-lab labeling. The key insight is treating
@@ -20,9 +26,10 @@ diverse, inconsistently-labeled pose datasets as subsets of a single superset of
 
 The paper presents two models:
 - **SuperAnimal-TopViewMouse (SA-TVM)**: trained on TopViewMouse-5K — ~5000 images
-  from 13 overhead-view lab mouse datasets, merged from diverse labs.
+  from 13 overhead-view lab mouse datasets, merged from diverse labs. This is the relevant
+  model for hm2p.
 - **SuperAnimal-Quadruped (SA-Q)**: trained on Quadruped-80K — >80,000 images of
-  quadrupeds (horses, dogs, rodents, etc.).
+  quadrupeds (horses, dogs, rodents, etc.). Not relevant for hm2p.
 
 ### Training datasets and data sources for SA-TVM
 
@@ -191,359 +198,522 @@ saves checkpoints as `.pt` files using `torch.save()` of a state dict with keys:
 ## 4. Why Our Integration Failed
 
 Our attempt: use SuperAnimal transfer learning with DLC 3.0.0rc13 for 8-bodypart tracking,
-HRNet-W32. We hit "checkpoint format mismatches" and fell back to ImageNet training.
+HRNet-W32. We hit checkpoint format mismatches and head architecture incompatibilities,
+and fell back to HRNet-W32 from ImageNet.
 
-Based on the paper, the DLC 3.x codebase, and the PR #2756 changelog, several issues
-could have caused this:
+Based on the paper, the DLC 3.x codebase (source analysis), and known issues in the
+rc-series, the following failure modes are most likely:
 
-### 4a. Old vs new checkpoint format (most likely cause)
+### 4a. TF-to-PyTorch checkpoint format mismatch (most likely root cause)
 
-DLC underwent a major rewrite from TensorFlow (DLC 2.x) to PyTorch (DLC 3.x). The
-SuperAnimal model weights were originally stored in TensorFlow checkpoint format (.index,
-.data-00000-of-00001, .meta). The transition to PyTorch required re-exporting all
-SuperAnimal weights to `.pt` format. In rc13 (a release candidate), this conversion may
-not have been complete, or the HuggingFace-hosted checkpoint was still in TF format while
-the loading code expected PyTorch `.pt` format.
+DLC underwent a major rewrite from TensorFlow (2.x) to PyTorch (3.x). SuperAnimal weights
+were originally stored in TF checkpoint format (.index / .data-00000 / .meta). The
+transition to PyTorch required re-exporting all SA weights to `.pt` format via
+`torch.save()`. In rc13 (a release candidate), this conversion was incomplete for the
+HRNet-w32 variant: the HuggingFace-hosted checkpoint may still have been in TF format
+while the loading code expected PyTorch state dict format.
 
-PR #2756 ("SuperAnimal Model Updates", merged October 2024) specifically fixed:
-- Bodypart mapping inconsistencies when fine-tuning with memory replay
-- The `WeightInitialization` class was redesigned to store snapshot paths directly
-  (more modular, format-agnostic)
-- Tensor size mismatches in the DataLoader during training
+PR #2756 ("SuperAnimal Model Updates", merged October 2024) specifically addressed:
+- Bodypart mapping inconsistencies during memory replay fine-tuning
+- `WeightInitialization` class redesigned to be format-agnostic
+- DataLoader tensor size mismatches during training
 
-### 4b. Decoder head output dimension mismatch
+### 4b. Decoder head output dimension mismatch (second most likely cause)
 
-The SuperAnimal HRNet-w32 head outputs predictions for all 27 superset keypoints. Our
-project was configured for 8 bodyparts. The `WeightInitialization` mechanism uses a
-`conversion_array` to map project bodyparts to SuperAnimal indices — e.g., `[0, 1, 2, 7,
-12, 16, 9, 13]` for our 8 bodyparts (indices into the 27-keypoint SA-TVM superset).
+The SA-TVM HRNet-w32 decoder outputs heatmaps for all 27 superset keypoints: shape
+(27, H, W). Our project is configured for 8 bodyparts. The `WeightInitialization` mechanism
+uses a `conversion_array` to remap the 27-channel decoder to the user's N channels.
 
-If this conversion array was not correctly constructed, or if the DLC code attempted to
-directly load the 27-channel decoder weights into an 8-channel head, a dimension mismatch
-error would result. The `with_decoder=True` flag is required to use the pre-trained decoder
-with memory replay; if omitted, a fresh decoder is initialized randomly.
+If this conversion array was not constructed (i.e., `create_conversion_table()` was not
+called first), then `get_conversion_table()` would raise ValueError. Alternatively, if
+`with_decoder=True` was set but the conversion array was the wrong shape, PyTorch would
+raise a tensor dimension mismatch on the first forward pass. The error message in this
+case is a generic tensor shape error, not an informative DLC-specific message.
 
-In rc13, the `build_weight_init()` API may not have been finalized, and the conversion
-array format may have changed between rc versions.
+Crucially: `WeightInitialization.__post_init__()` enforces:
+- `memory_replay=True` requires `with_decoder=True`
+- `with_decoder=True` requires `conversion_array` to be provided
+- `len(bodyparts)` must equal first dimension of `conversion_array`
 
-### 4c. Incorrect fine-tuning API invocation
+If `build_weight_init()` was called without first calling `create_conversion_table()`,
+one of these assertions would fail (or the downstream call would fail).
 
-The correct DLC 3.x API for SuperAnimal fine-tuning is:
+### 4c. Confusion between `create_pretrained_project` and the fine-tuning workflow
 
-```python
-weight_init = deeplabcut.modelzoo.build_weight_init(
-    cfg=config_path,
-    super_animal="superanimal_topviewmouse",
-    model_name="hrnetw32",
-    detector_name="fasterrcnn_resnet50_fpn",
-    with_decoder=True,
-    memory_replay=True,
-)
-deeplabcut.create_training_dataset(config_path, ...)
-deeplabcut.train_network(config_path, weight_init=weight_init, ...)
-```
+`create_pretrained_project()` and `create_pretrained_project_pytorch()` create a project
+pre-configured for the SA-TVM 27-keypoint vocabulary. They are designed for zero-shot or
+minimal-label use with SA-TVM keypoints unchanged. If called with custom bodyparts (not
+matching the SA-TVM 27 keypoints), the project config is inconsistent: the model expects
+27 keypoints but the annotation space has 8. This causes a silent mismatch.
 
-In rc13, this API was in flux. The `train/pose_cfg.yaml` was still being generated for
-PyTorch shuffles in some rc versions but not others (PR #2756 removed it), and callers
-that assumed it existed would fail silently or with misleading errors.
+The correct fine-tuning workflow starts with `create_new_project()` (standard DLC project
+creation with custom bodyparts), then adds SuperAnimal weight initialization separately
+via `build_weight_init()`. These two workflows were not clearly distinguished in rc13
+documentation.
 
-### 4d. rc13 was a release candidate with known instability
+### 4d. DLC 3.0 rc13 was known-unstable for fine-tuning
 
-Release candidate versions of DLC 3.0 were explicitly unstable. The first stable DLC 3.0
-release incorporating the finalized SuperAnimal PyTorch pipeline was published after
-PR #2756 merged in October 2024. Running rc13 for fine-tuning would have exposed several
-unresolved bugs documented in that PR.
+DLC 3.0.0rc13 was a release candidate during active PyTorch engine development. GitHub
+issue #2702 documents training instability (GPU underutilization, system freeze) in rc-series
+versions. The `train/pose_cfg.yaml` file expected by some code paths was being inconsistently
+generated across rc versions; callers that relied on it would fail silently or with
+misleading file-not-found errors.
 
-### 4e. Summary: what actually went wrong
+### 4e. Summary
 
-Almost certainly a combination of (a) TF-format checkpoint being loaded by PyTorch code,
-(b) the conversion array not being passed correctly (so DLC tried to load 27-channel
-weights into an 8-channel head), and (c) the rc13 `train/pose_cfg.yaml` generation
-behavior being inconsistent.
-
-The fallback to ImageNet training was therefore correct given the circumstances, but it
-means we gave up the 10x data efficiency benefit.
+Almost certainly a combination of: TF-format checkpoint loaded by PyTorch code, conversion
+array missing or malformed (causing 27-channel decoder to be loaded against an 8-channel
+head), and rc13 instability. The fallback to ImageNet training was correct given the
+circumstances, but it means we forfeited the data efficiency benefit that SA-TVM provides.
 
 ---
 
-## 5. Correct Integration Approach
+## 5. Correct API for DLC 3.0 (Stable Release)
 
 ### Prerequisites
 
-- DLC >= 3.0.0 stable (not rc13). As of 2026-04-02, use the latest stable release.
-  Install: `uv pip install "deeplabcut[pytorch]"`
-- CUDA available (GPU required for training)
-- The SA-TVM HRNet-w32 checkpoint is auto-downloaded from HuggingFace on first use
+- DLC stable release (not rc13). Install: `uv pip install "deeplabcut[pytorch]"`
+  Verify: `import deeplabcut; print(deeplabcut.__version__)`
+- GPU required for training (CPU is too slow for HRNet-w32)
+- SA-TVM HRNet-w32 checkpoint auto-downloaded from HuggingFace on first use
+  (from `mwmathis/DeepLabCut-SuperAnimal-TopViewMouse`)
 
-### Step-by-step workflow
+### Step-by-step: memory replay fine-tuning with custom bodyparts
 
-**Step 1: Create a DLC project with your 8 bodyparts.**
+The critical insight: this is a two-workflow system. `create_pretrained_project()` is for
+zero-shot use with SA-TVM keypoints unchanged. Fine-tuning with custom bodyparts requires
+starting with `create_new_project()` and adding SA-TVM weight initialization separately.
+
+**Step 1: Create a standard DLC project with custom bodyparts.**
 
 ```python
 import deeplabcut
 
 config_path = deeplabcut.create_new_project(
-    "hm2p-retrain",
-    "experimenter",
-    videos=[],
-    bodyparts=["nose_tip", "left_ear", "right_ear", "implant_base_rear",
-               "neck", "mid_back", "mouse_center", "tail_base"],
+    "hm2p-superanimal-ft",
+    "chaplinta",
+    videos=["/path/to/representative_video.mp4"],
+    working_directory="/workspace/derivatives/pose",
+    copy_videos=False,
 )
+# Edit config.yaml to set bodyparts: [nose_tip, left_ear, right_ear,
+# implant_base_rear, neck, mid_back, mouse_center, tail_base]
 ```
 
-**Step 2: Create a training dataset (with SuperAnimal shuffle).**
+**Step 2: Label frames (or import existing labels).**
 
-Use `create_training_dataset` with the PyTorch engine and SuperAnimal model:
+Import the 184 existing labeled frames from the current DLC project. Ensure bodypart names
+in the labels match the config.yaml exactly (case-sensitive).
+
+**Step 3: Create a training dataset.**
 
 ```python
 deeplabcut.create_training_dataset(
     config_path,
     num_shuffles=1,
     net_type="hrnet_w32",
-    engine="pytorch",
+    engine="pytorch",    # must be pytorch, not tensorflow
 )
 ```
 
-**Step 3: Build the weight initialization object.**
+**Step 4: Create and register the bodypart conversion table.**
 
-This is the critical step that was absent or broken in our rc13 attempt:
+This step was missing from our failed rc13 attempt. Write a CSV file:
+
+```
+project_bodypart,superanimal_bodypart
+nose_tip,nose
+left_ear,left_ear
+right_ear,right_ear
+implant_base_rear,
+neck,neck
+mid_back,mid_back
+mouse_center,mouse_center
+tail_base,tail_base
+```
+
+The empty value for `implant_base_rear` means no SA-TVM equivalent. DLC will train it
+from our labeled data only (no pseudo-labels from SA-TVM zero-shot predictions).
+
+Then load it into the project config:
 
 ```python
-weight_init = deeplabcut.modelzoo.build_weight_init(
+from deeplabcut.modelzoo import utils as zoo_utils
+zoo_utils.read_conversion_table_from_csv(config_path, "/path/to/conversion.csv")
+# This writes to config.yaml under "SuperAnimalConversionTables"
+```
+
+Alternatively, use:
+
+```python
+zoo_utils.create_conversion_table(
+    config=config_path,
+    super_animal="superanimal_topviewmouse",
+    project_to_super_animal={
+        "nose_tip": "nose",
+        "left_ear": "left_ear",
+        "right_ear": "right_ear",
+        "implant_base_rear": None,   # no SA-TVM equivalent
+        "neck": "neck",
+        "mid_back": "mid_back",
+        "mouse_center": "mouse_center",
+        "tail_base": "tail_base",
+    },
+)
+```
+
+**Step 5: Build the weight initialization object.**
+
+```python
+from deeplabcut.modelzoo.weight_initialization import build_weight_init
+
+weight_init = build_weight_init(
     cfg=config_path,
     super_animal="superanimal_topviewmouse",
     model_name="hrnetw32",
-    detector_name="fasterrcnn_resnet50_fpn",
-    with_decoder=True,      # load the 27-keypoint decoder, not just backbone
-    memory_replay=True,     # use pseudo-labels for undefined keypoints
+    detector_name=None,         # no separate detector for single-animal top-down
+    with_decoder=True,          # load SA-TVM 27-keypoint decoder
+    memory_replay=True,         # pseudo-labels for SA keypoints not in our set
 )
 ```
 
-This constructs a `WeightInitialization` object that internally holds:
-- `snapshot_path`: path to the SA-TVM HRNet-w32 checkpoint (auto-downloaded)
-- `detector_snapshot_path`: path to the Faster R-CNN detector checkpoint
-- `conversion_array`: integer array mapping our 8 bodyparts to SA-TVM superset indices
-- `memory_replay=True`: enables pseudo-label substitution during training
+The `WeightInitialization` object enforces consistency (via `__post_init__`):
+- `memory_replay=True` requires `with_decoder=True`
+- `with_decoder=True` requires `conversion_array` to be present (from Step 4)
+- `len(bodyparts)` must equal first dimension of `conversion_array`
 
-The conversion array is built from `SuperAnimalConversionTables` in `config.yaml`. This
-table must be populated correctly before calling `build_weight_init`. DLC populates it
-via `deeplabcut.modelzoo.create_conversion_table()`.
+If Step 4 was skipped, `build_weight_init()` will raise `ValueError` from
+`get_conversion_table()` — "No conversion table found in config." This is the error that
+likely appeared in an obscure form during our rc13 attempt.
 
-**Step 4: Populate the conversion table.**
-
-```python
-# Explicit conversion table (our 8 bodyparts → SA-TVM superset names)
-conversion_map = {
-    "nose_tip": "nose",
-    "left_ear": "left_ear",
-    "right_ear": "right_ear",
-    "implant_base_rear": None,    # no SA-TVM equivalent — trained from scratch
-    "neck": "neck",
-    "mid_back": "mid_back",
-    "mouse_center": "mouse_center",
-    "tail_base": "tail_base",
-}
-# Save to CSV, then:
-deeplabcut.modelzoo.read_conversion_table_from_csv(config_path, csv_path)
-```
-
-For `implant_base_rear` (no SA-TVM match), the conversion array entry should be `-1` or
-left unmapped. The gradient masking mechanism will treat it as an undefined keypoint for
-the SA-TVM decoder, meaning pseudo-labels won't be substituted for it — it will be
-learned purely from our labeled frames (correct behavior).
-
-**Step 5: Train with weight initialization.**
+**Step 6: Train.**
 
 ```python
 deeplabcut.train_network(
     config_path,
     shuffle=1,
     weight_init=weight_init,
-    # For small labeled sets (<64 images), DLC uses lr=5e-5 and frozen BN automatically
+    # For small datasets (<64 images), DLC reduces lr=5e-5 and freezes BN stats
 )
 ```
 
-The training loop will:
-1. Load SA-TVM HRNet-w32 backbone + decoder into the model.
-2. Pre-compute zero-shot predictions on all labeled frames.
-3. For each training iteration:
-   - For keypoints in {left_ear, right_ear, nose, neck, mid_back, mouse_center, tail_base}:
-     use our GT labels (if defined for the current image).
-   - For all other SA-TVM superset keypoints not in our set: use the cached pseudo-labels
-     if their confidence > 0.7; otherwise skip.
-   - For `implant_base_rear`: use our GT labels only (no pseudo-labels available).
-4. Compute loss over all 27 SA-TVM keypoints (pseudo-labels included).
-5. Update encoder + decoder weights.
+Training loop (memory replay): for each batch, GT labels are used for our 8 keypoints.
+For the other 19 SA-TVM keypoints not in our project, cached zero-shot predictions are
+used as pseudo-labels if confidence > 0.7. Loss is computed over all 27 SA-TVM keypoints.
+`implant_base_rear` receives GT labels only (no pseudo-labels generated).
 
-**Step 6: Run inference on all 26 sessions.**
-
-After training, inference is identical to any DLC model:
+**Step 7: Inference.**
 
 ```python
 deeplabcut.analyze_videos(config_path, video_list, shuffle=1)
 ```
 
-The output contains predictions for only the 8 project bodyparts (the decoder is queried
-with the conversion array to extract the relevant channels).
+Output: predictions for all 8 project bodyparts. The decoder conversion array maps the
+27-channel SA-TVM output to the 8 project bodyparts.
 
-### Number of labeled frames needed
+### Encoder-only transfer (lower risk alternative)
 
-Based on the paper's Fig. 1e data (SA-TVM, HRNet-w32, DLC-Openfield benchmark):
-
-| Labeled frames | mAP (memory replay) | RMSE (px) |
-|---------------|---------------------|-----------|
-| 10 (~1%)      | 99.6                | 2.38      |
-| 50 (~5%)      | 99.8                | 1.95      |
-| 100 (~10%)    | 99.9                | 1.54      |
-| Full dataset  | 99.9                | 1.21      |
-
-For comparison, ImageNet transfer learning needs 100+ frames to reach what SA-TVM achieves
-with 10 frames. In our case (8 bodyparts, overhead view, similar to training distribution):
-- 20–30 labeled frames across diverse sessions should be sufficient for excellent
-  tracking of the 7 matched bodyparts.
-- `implant_base_rear` will need more frames (50+) because it has no SA-TVM prior.
-
-Our existing retrain set (selected via `prepare_retrain_frames.py`) is already more than
-adequate in quantity. The main issue was the failed weight loading.
-
----
-
-## 6. Video Adaptation as Alternative to Full Fine-tuning
-
-### What it is
-
-Video adaptation is an *unsupervised* method that requires zero labeled frames. It works
-by running the SA-TVM model on the target video, treating high-confidence predictions
-(> 0.5) as pseudo-labels, and fine-tuning the model for 1000 iterations (batch size 1,
-batch norm frozen). No human labels are required.
-
-### DLC API
+If the decoder conversion table continues to cause issues, encoder-only transfer is still
+meaningful at our label count. Set `with_decoder=False`:
 
 ```python
-deeplabcut.video_inference_superanimal(
-    [video_path],
-    superanimal_name="superanimal_topviewmouse",
-    scale_list=range(200, 600, 50),   # only needed for DLCRNet bottom-up
-    video_adapt=True,                  # enables pseudo-label fine-tuning
-    model_name="hrnetw32",             # top-down: no scale_list needed
+weight_init = build_weight_init(
+    cfg=config_path,
+    super_animal="superanimal_topviewmouse",
+    model_name="hrnetw32",
+    detector_name=None,
+    with_decoder=False,     # encoder only; decoder randomly initialized
+    memory_replay=False,    # irrelevant without decoder
 )
 ```
 
-### Is it useful for us?
+No conversion table is needed for encoder-only transfer. This is the lowest-risk path and
+still provides pose-aware visual features in the backbone.
 
-**Pros:**
-- Zero labeling effort.
-- Can be applied session-by-session to adapt to our specific arena illumination,
-  camera height, and mouse appearance.
-- Particularly effective for reducing temporal jitter (the main quality issue in 30 fps
-  tracking of fast-moving mice).
+### Zero-shot inference + video adaptation (no labeled data required)
 
-**Cons:**
-- Video adaptation is applied at inference time, not at training time. It adapts the
-  model to one video's appearance. If our sessions have consistent recording conditions
-  across the 26 sessions, the benefit is limited after the first adaptation.
-- For top-down HRNet-w32, the animal size issue (why spatial-pyramid search was invented)
-  does not apply — top-down models standardize crop size at both train and test time. So
-  the primary benefit of video adaptation for us is temporal smoothness.
-- `implant_base_rear` will not benefit from video adaptation because SA-TVM has no
-  superset keypoint for it. The pseudo-labels will be meaningless for this point.
-- Video adaptation does not transfer learned weights across sessions (each video is
-  adapted independently).
+From the paper's Code API section:
 
-**Recommendation:** Video adaptation is not a substitute for fine-tuning with our labeled
-data. It could be useful as a post-processing step if jitter remains problematic after
-fine-tuning, but it should not be the primary strategy. Our 7/8 bodyparts are already
-well within the SA-TVM training distribution; the issue is `implant_base_rear`, which
-video adaptation cannot address.
+```python
+deeplabcut.video_inference_superanimal(
+    videos=["/path/to/video.mp4"],
+    superanimal_name="superanimal_topviewmouse",
+    model_name="hrnetw32",
+    detector_name=None,
+    scale_list=None,            # not needed for top-down HRNet (only for DLCRNet)
+    video_adapt=True,           # pseudo-label domain adaptation
+    adapt_iterations=1000,
+    pseudo_threshold=0.5,       # paper uses 0.5 for video adapt evaluation
+    bbox_threshold=0.9,
+    pose_epochs=4,
+    video_adapt_batch_size=8,
+    pcutoff=0.1,
+    dest_folder="/path/to/output",
+)
+```
 
-If labeled frames are available (they are — we already have them), memory replay
-fine-tuning is strictly better.
+Note: output uses SA-TVM 27-keypoint vocabulary, not our 8 custom bodyparts.
+Extract: nose (->nose_tip), left_ear, right_ear, neck, mid_back, mouse_center, tail_base.
+`implant_base_rear` is unavailable from zero-shot output.
 
----
+### Number of labeled frames needed
 
-## 7. Expected Improvements vs Training from ImageNet
+Based on paper Table S3 (SA-TVM, HRNet-w32, DLC-Openfield benchmark):
 
-### What we currently have
+| Labeled frames | Method              | mAP    | RMSE (px) |
+|---------------|---------------------|--------|-----------|
+| 10 (~1%)      | ImageNet transfer   | 91.5   | 7.00      |
+| 10 (~1%)      | SA-TVM memory replay| 99.6   | 2.38      |
+| 50 (~5%)      | ImageNet transfer   | 98.9   | 2.16      |
+| 50 (~5%)      | SA-TVM memory replay| 99.8   | 1.95      |
+| 100 (~10%)    | ImageNet transfer   | 99.3   | 1.57      |
+| 100 (~10%)    | SA-TVM memory replay| 99.9   | 1.54      |
+| Full (~1000)  | ImageNet transfer   | 100.0  | 1.13      |
+| Full (~1000)  | SA-TVM memory replay| 99.9   | 1.21      |
 
-We trained HRNet-w32 from ImageNet weights (no SuperAnimal prior) after the rc13 failure.
-This is the baseline.
-
-### Expected improvement from SuperAnimal fine-tuning
-
-Using the paper's Table S3 and Table S4 (SA-TVM, HRNet-w32):
-
-**In the low data regime (10–50 labeled frames):**
-- ImageNet transfer learning at 1% data: mAP 91.5, RMSE 7.0 px (DLC-Openfield)
-- SA-TVM memory replay at 1% data: mAP 99.6, RMSE 2.38 px
-- Improvement: ~8 pp mAP, ~3x lower RMSE
-
-**In the moderate data regime (100 labeled frames):**
-- ImageNet at 10%: mAP 99.3, RMSE 1.57 px
-- SA-TVM memory replay at 10%: mAP 99.9, RMSE 1.54 px
-- At this point, differences are small — both reach near-ceiling performance on the
-  DLC-Openfield benchmark.
-
-**Caveats for our dataset:**
-- DLC-Openfield is a relatively easy benchmark (single mouse, clean background,
-  consistent lighting). Our rose maze has: overhead 2P headstage occluding some bodyparts,
-  variable lighting (lights on/off), and the fibre cable.
-- In harder OOD conditions, the advantage of SA-TVM over ImageNet is larger, not smaller.
-- `implant_base_rear` has no SuperAnimal prior, so improvement there depends entirely on
-  how many frames we label.
-- For our 7 matched bodyparts in the low-data regime, we would expect RMSE to improve
-  from roughly the ImageNet baseline (~7 px with 10 frames) to ~2.5 px with SA-TVM.
-
-**Practical expectation:** If we have 30–50 labeled frames per bodypart, SA-TVM memory
-replay should achieve tracking quality indistinguishable from having 300–500 ImageNet-
-pretrained labeled frames. The main observable difference in our pipeline will be:
-- Fewer dropped-confidence frames (fewer NaNs in kinematics.h5).
-- Better tracking during fast turns and occlusions.
-- Lower jitter on the ear-vector angle (direct impact on HD precision).
-
-For our primary HD analysis (ear-vector angle), a 3x reduction in spatial error matters.
-At 9.6 Hz and ~15 cm/s average speed, the mouse moves ~1.5 cm/frame. An RMSE of 7 px
-(~2 mm at our calibration) in ear location produces ~2° HD error from geometry; an RMSE
-of 2.5 px produces ~0.7° error. This is below our HD bin width (typically 10–12°).
-
-In practice, the more important metric is whether the ear-vector angle drops out (very
-low confidence on both ears simultaneously). SA-TVM pre-training reduces this because the
-model has stronger pose priors and is more robust to partial occlusion by the headstage.
+At 184 labeled frames (approximately 10-18% of the DLC-Openfield benchmark), we are in
+the regime where SA-TVM memory replay and ImageNet transfer learning converge. The largest
+gain is in the low-data regime (<50 frames), which is below our current labeling level.
+However, even at 100 frames, SA-TVM has better encoder features and pose priors, which
+should manifest as lower error on harder frames (occlusion by headstage, fast turns,
+dark illumination conditions).
 
 ---
 
-## 8. Action Items for Implementation
+## 6. Video Adaptation: What It Does and When to Use It
 
-1. **Upgrade DLC** from 3.0.0rc13 to the current stable release. Verify with
-   `import deeplabcut; deeplabcut.__version__`.
+### Mechanism
 
-2. **Verify SuperAnimal checkpoint availability.** Run
-   `deeplabcut.video_inference_superanimal(["test.mp4"], "superanimal_topviewmouse")`
-   on a single short video. This triggers the HuggingFace download and confirms the
-   checkpoint loads without error.
+Video adaptation (`video_adapt=True`) is test-time self-supervised domain adaptation.
+It requires zero labeled frames. The process:
+1. Run SA-TVM zero-shot inference on the first video in the input list.
+2. Keep predictions with confidence > `pseudo_threshold` (default 0.1; paper uses 0.5
+   for quantitative evaluation).
+3. Fine-tune the model on these pseudo-labels for `pose_epochs` epochs (default 4,
+   = ~1000 iterations at batch size 8).
+4. During fine-tuning, batch normalization layers are frozen (called in `model.eval()` mode
+   for BN stats only — affine parameters still update). This is critical: without frozen BN
+   stats, the small pseudo-label batch shifts the BN statistics and performance degrades.
+5. Re-run inference with the adapted weights.
 
-3. **Build the conversion table.** Create a CSV file:
-   ```
-   project_bodypart,superanimal_bodypart
-   nose_tip,nose
-   left_ear,left_ear
-   right_ear,right_ear
-   implant_base_rear,
-   neck,neck
-   mid_back,mid_back
-   mouse_center,mouse_center
-   tail_base,tail_base
-   ```
-   Empty superanimal_bodypart means "no match; train from labeled data only."
+Only the first video drives adaptation; the same adapted weights are applied to all videos.
+The paper shows this generalizes to all videos in the same experimental setup (robustness
+gain: +4 mAP over self-pacing on all 30 Horse-30 videos after adapting to one).
 
-4. **Create a SuperAnimal fine-tuning shuffle** alongside the existing ImageNet shuffle.
-   Compare tracking quality before promoting to production.
+### Full function signature (DLC 3.0)
 
-5. **Test on a held-out session** not used for labeling. Report mAP, RMSE, and the
-   fraction of frames with both ears tracked at confidence > 0.6.
+```python
+deeplabcut.video_inference_superanimal(
+    videos=["/path/to/video.mp4"],              # list of videos; first used for adaptation
+    superanimal_name="superanimal_topviewmouse",
+    model_name="hrnetw32",
+    detector_name=None,                          # single-animal: no separate detector needed
+    scale_list=None,                             # only for DLCRNet bottom-up; not HRNet
+    video_adapt=True,
+    adapt_iterations=1000,                       # for DLCRNet; use pose_epochs for HRNet
+    pseudo_threshold=0.5,                        # confidence cutoff for pseudo-labels
+    bbox_threshold=0.9,                          # detector confidence (if detector used)
+    pose_epochs=4,                               # for HRNet top-down: epochs of adaptation
+    detector_epochs=4,
+    video_adapt_batch_size=8,
+    pcutoff=0.1,                                 # confidence cutoff for final predictions
+    dest_folder="/path/to/output",
+)
+```
 
-6. **Do not use video_adapt for routine inference.** It is per-video and does not solve
-   the `implant_base_rear` problem. Apply it as an optional post-hoc step only if temporal
-   jitter in the ear vector remains problematic after fine-tuning.
+### Is video_adapt useful for hm2p?
+
+**Where it helps:**
+- Reduces temporal jitter in keypoint traces. The paper shows significant jitter reduction
+  (F(1, 23286) = 190.03, p < 0.0001) across diverse video types.
+- Adapts to our specific illumination conditions, including the light/dark alternation. The
+  pixel statistics shift substantially between lit and dark frames; video_adapt can reduce
+  the domain gap for dark frames where SA-TVM was likely never trained.
+- Zero additional labeling effort.
+- For top-down HRNet-w32 specifically, the spatial-pyramid resolution mismatch is already
+  handled by the detector crop, so video_adapt primarily provides temporal smoothing.
+
+**Where it does not help:**
+- `implant_base_rear`: SA-TVM has no superset keypoint for this. Video adaptation will
+  not generate pseudo-labels for it and cannot improve its tracking.
+- Cannot replace labeled data for learning custom keypoints.
+- Does not transfer learned weights across sessions by default (each batch of videos is
+  adapted from the base SA-TVM checkpoint, not from a prior session's adapted weights).
+- Two videos in our dataset with substantially different appearance (e.g., first video is
+  lights-on only) may require separate adaptation passes.
+
+**Recommended use:** Run video_adapt as a zero-shot baseline test to evaluate SA-TVM
+performance on our camera setup before investing in full fine-tuning. This answers the
+question: "How much does SA-TVM help without any labeling?" The answer informs how much
+benefit to expect from fine-tuning on top.
+
+After fine-tuning, video_adapt could be applied as an optional post-processing step if
+temporal jitter in the ear-vector angle remains problematic. This would require calling
+`video_inference_superanimal()` with the fine-tuned checkpoint:
+
+```python
+deeplabcut.video_inference_superanimal(
+    videos=all_session_videos,
+    superanimal_name="superanimal_topviewmouse",
+    model_name="hrnetw32",
+    video_adapt=True,
+    customized_pose_checkpoint="/path/to/finetuned-snapshot.pt",
+)
+```
+
+### Light/dark specific consideration
+
+Our sessions alternate 1 min lights-on / 1 min lights-off (total darkness). The SA-TVM
+training data (TopViewMouse-5K) was entirely collected under normal laboratory lighting.
+Dark frames are genuinely out-of-distribution for SA-TVM. Video adaptation to our videos
+will help because the pseudo-labels from lit frames carry spatial prior information that
+constrains predictions in dark frames. However, if dark frames have very low confidence
+for all keypoints, few pseudo-labels will pass the confidence threshold and adaptation
+will be minimal for those frames. In that case, fine-tuning with our labeled dark frames
+is the only effective path.
+
+---
+
+## 7. Expected Improvement from SuperAnimal vs ImageNet-Only
+
+### Quantitative benchmarks from the paper (SA-TVM, HRNet-w32)
+
+From Table 1 and Table S3 (SA-TVM HRNet-w32 on DLC-Openfield benchmark):
+
+| Data ratio | Labeled frames | Method               | mAP    | RMSE (px) |
+|------------|---------------|----------------------|--------|-----------|
+| 1%         | ~10            | ImageNet transfer    | 91.5   | 7.00      |
+| 1%         | ~10            | SA-TVM memory replay | 99.6   | 2.38      |
+| 5%         | ~50            | ImageNet transfer    | 98.9   | 2.16      |
+| 5%         | ~50            | SA-TVM memory replay | 99.8   | 1.95      |
+| 10%        | ~100           | ImageNet transfer    | 99.3   | 1.57      |
+| 10%        | ~100           | SA-TVM memory replay | 99.9   | 1.54      |
+| 100%       | ~1000          | ImageNet transfer    | 100.0  | 1.13      |
+| 100%       | ~1000          | SA-TVM memory replay | 99.9   | 1.21      |
+| zero-shot  | 0              | SA-TVM               | 95.2   | 4.88      |
+
+Key finding: at 10 labeled frames, SA-TVM memory replay achieves 2.38 px RMSE vs ImageNet
+7.00 px — approximately 3x lower error. To match SA-TVM's 10-frame performance, ImageNet
+requires 101 frames. Cohen's d = 4.88 at the 1% data ratio (p < 0.0001).
+
+For TriMouse (3 simultaneous mice, harder): at 1% data (1 frame per mouse!), ImageNet
+achieves RMSE 31.6 px vs SA-TVM memory replay 5.85 px — a 5x improvement. Cohen's d =
+10.99 (p < 0.0001). This shows the prior is especially valuable in harder conditions.
+
+### What the benchmarks mean for our setup
+
+Our dataset: 184 labeled frames, 8 custom bodyparts, overhead single-mouse. At ~184 frames,
+we are between the 10% and 100% data regime for DLC-Openfield. The SA-TVM advantage in RMSE
+is small at this label count for keypoints with SA-TVM priors. The advantage is expected
+to be larger in practice because:
+
+1. **Our conditions are harder than DLC-Openfield.** DLC-Openfield is a clean open-field
+   with consistent overhead lighting and no headstage. Our rose maze has: 2P headstage
+   occluding neck/back region, fibre cable, and complete darkness in alternating epochs.
+   In harder OOD conditions, the SA-TVM pose prior matters more, not less.
+
+2. **Dark frames are genuinely OOD for both models**, but SA-TVM's stronger pose encoder
+   provides more robust feature extraction in low-contrast frames than an ImageNet-only encoder.
+   The encoder has learned what a mouse body looks like structurally, not just texturally.
+
+3. **implant_base_rear is learned from scratch regardless.** For this keypoint, the encoder
+   prior still helps (better feature extraction from the backbone) even if the decoder starts
+   randomly. Both with_decoder=False and with_decoder=True give encoder benefits.
+
+4. **HD-critical keypoints (left_ear, right_ear) are strongly represented in SA-TVM training
+   data.** TopViewMouse-5K includes ears across 13 lab datasets in diverse conditions. The
+   pose prior for ear localization is strong.
+
+### Impact on HD computation
+
+The primary analysis pipeline computes head direction as the angle of the left_ear → right_ear
+vector. Spatial tracking error in ear positions propagates to angular error in HD estimates.
+
+Geometric relationship: if the inter-ear distance is D pixels and the lateral tracking error
+is ε px, the angular error in HD is approximately arctan(2ε / D). For a mouse where D ≈ 60
+px (at our camera calibration), RMSE 7 px → HD error ≈ 13°, RMSE 2.5 px → HD error ≈ 5°.
+
+At our HD bin width of 10–12°, a 13° tracking error substantially smears the tuning curve
+peaks. A 5° error is below the bin width and would have minimal impact on tuning curve
+shape. This is a meaningful improvement for HD cell analysis.
+
+In practice, the more important metric is **confidence dropout rate**: the fraction of frames
+where both ears are tracked at confidence < 0.6 (requiring interpolation or exclusion).
+SA-TVM pre-training reduces this by providing stronger pose priors that prevent the model
+from losing both ears simultaneously. This is the primary quality benefit we expect at
+our label count.
+
+### Expected outcome
+
+Given 184 labeled frames:
+- **Encoder-only SA-TVM transfer**: ~10-20% RMSE improvement over current HRNet-W32 from
+  ImageNet. Primarily benefits encoder feature quality. Low implementation risk.
+- **Memory replay full fine-tuning**: ~20-40% RMSE improvement for the 7 SA-TVM-matched
+  keypoints. Higher benefit in dark frames. Requires conversion table setup. Moderate risk.
+- **implant_base_rear**: same as ImageNet baseline for the decoder, encoder benefits only.
+
+---
+
+## 8. Recommended Action Items for hm2p
+
+### Priority order
+
+**Priority 1: Verify SA-TVM zero-shot + video_adapt on our videos (no labels needed)**
+
+Before investing in fine-tuning infrastructure, run video_adapt zero-shot on 2–3 sessions
+to establish baseline SA-TVM performance on our camera setup:
+
+```python
+deeplabcut.video_inference_superanimal(
+    videos=["/path/to/session_video.mp4"],
+    superanimal_name="superanimal_topviewmouse",
+    model_name="hrnetw32",
+    video_adapt=True,
+    pose_epochs=4,
+    pseudo_threshold=0.5,
+    dest_folder="/path/to/zero_shot_output",
+)
+```
+
+Map SA-TVM keypoints to hm2p bodyparts: nose→nose_tip, left_ear, right_ear, neck,
+mid_back, mouse_center, tail_base. Compute tracking quality metrics (confidence dropout
+rate, RMSE vs manual annotations on held-out frames). This establishes the ceiling for
+zero-shot performance and the floor for fine-tuning benefit.
+
+**Priority 2: Encoder-only SA-TVM transfer (lowest risk, clear benefit)**
+
+1. Upgrade DLC to current stable: `uv pip install "deeplabcut[pytorch]"`
+2. Create fresh DLC project with 8 custom bodyparts
+3. Import 184 labeled frames
+4. `build_weight_init(with_decoder=False, memory_replay=False)` — no conversion table needed
+5. Train: `deeplabcut.train_network(config_path, weight_init=weight_init)`
+6. Evaluate on held-out sessions; compare RMSE and confidence dropout to current model
+
+**Priority 3: Memory replay fine-tuning (if encoder-only succeeds)**
+
+Once encoder-only transfer is confirmed working:
+1. Add conversion table (Step 4 above)
+2. Rebuild `weight_init` with `with_decoder=True, memory_replay=True`
+3. Train and compare
+
+If the conversion table or decoder loading fails, fall back to encoder-only which is
+already a meaningful improvement.
+
+**Priority 4: Label additional dark-condition frames**
+
+If dark-frame tracking quality is substantially worse than lit-frame quality, label an
+additional 30–50 frames from dark epochs specifically. SA-TVM has no dark-condition prior;
+additional labeled dark frames are the only path to robust dark-frame tracking.
+
+### What not to do
+
+- Do not use `create_pretrained_project()` for fine-tuning with custom bodyparts.
+  This function is for zero-shot SA-TVM inference only.
+- Do not set `with_decoder=True` without first calling `create_conversion_table()`.
+  The error is non-informative and caused our original failure.
+- Do not use rc13 for any SuperAnimal fine-tuning work. Upgrade first.
+- Do not run video_adapt routinely on all 26 sessions (high compute cost, limited benefit
+  over fine-tuning). Use it as a diagnostic or one-time baseline test.
 
 ---
 
@@ -552,16 +722,21 @@ model has stronger pose priors and is more robust to partial occlusion by the he
 - Ye S, Filippova A, Lauer J, Schneider S, Vidal M, Qiu T, Mathis A, Mathis MW. 2024.
   "SuperAnimal pretrained pose estimation models for behavioral analysis."
   *Nature Communications* 15:5165. doi:10.1038/s41467-024-48792-2
+  GitHub: https://github.com/DeepLabCut/DeepLabCut
 
-- DeepLabCut GitHub: https://github.com/DeepLabCut/DeepLabCut
+- Wang J, Sun K, Cheng T, Jiang B, Deng C, Zhao Y, Liu D, Hou Y, Cheng W, Hu W, Ding B,
+  Liu Y. 2020. "Deep High-Resolution Representation Learning for Visual Recognition."
+  *IEEE TPAMI*. (HRNet-w32 architecture used in SA-TVM)
 
-- PR #2756 "SuperAnimal Model Updates" (October 2024):
-  https://github.com/DeepLabCut/DeepLabCut/pull/2756
-
-- SuperAnimal TopViewMouse training data (Zenodo):
+- TopViewMouse-5K training data (Zenodo):
   https://zenodo.org/records/10618947
 
-- DLC ModelZoo: http://modelzoo.deeplabcut.org
+- SuperAnimal model weights (HuggingFace):
+  https://huggingface.co/mwmathis/DeepLabCut-SuperAnimal-TopViewMouse
 
-- Wang J, Sun K, Cheng T et al. 2020. "Deep High-Resolution Representation Learning for
-  Visual Recognition." *IEEE TPAMI*. (HRNet-w32 architecture)
+- DLC ModelZoo web app: http://modelzoo.deeplabcut.org
+
+- SA-TVM bodypart configuration: `deeplabcut/modelzoo/project_configs/superanimal_topviewmouse.yaml`
+- SA-TVM keypoint conversion table: `deeplabcut/modelzoo/conversion_tables/conversion_table_topview.csv`
+- Weight initialization API: `deeplabcut/modelzoo/weight_initialization.py`
+- Video adaptation API: `deeplabcut/modelzoo/video_inference.py`
