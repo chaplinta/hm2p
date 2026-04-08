@@ -129,11 +129,30 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
             pcfg["train_settings"] = {}
         pcfg["train_settings"]["epochs"] = epochs
 
-        # Verify backbone after create_training_dataset
+        # If SuperAnimal init succeeded, force the backbone to HRNet-W32.
+        # build_weight_init downloads HRNet weights but create_training_dataset
+        # still writes ResNet50 in the config — causing a state_dict mismatch.
         backbone = pcfg.get("model", {}).get("backbone", {}).get("model_name", "?")
-        print(f"  Backbone: {backbone}")
-        if "resnet" in backbone.lower():
-            print("  WARNING: backbone is ResNet, not HRNet. SuperAnimal transfer may not have worked.")
+        if use_superanimal and "resnet" in backbone.lower():
+            print(f"  Overriding backbone: {backbone} → hrnet_w32")
+            pcfg["model"]["backbone"] = {
+                "model_name": "hrnet_w32",
+                "type": "HRNet",
+                "output_stride": 4,
+                "freeze_bn_stats": False,
+                "freeze_bn_weights": False,
+            }
+            pcfg["model"]["backbone_output_channels"] = 480
+            # Update head input channels to match HRNet output
+            if "heads" in pcfg["model"]:
+                for head_name, head_cfg in pcfg["model"]["heads"].items():
+                    if "heatmap_config" in head_cfg:
+                        head_cfg["heatmap_config"]["channels"][0] = 480
+                    if "locref_config" in head_cfg:
+                        head_cfg["locref_config"]["channels"][0] = 480
+            pcfg["net_type"] = "hrnet_w32"
+        else:
+            print(f"  Backbone: {backbone}")
 
         # Aggressive augmentation for overhead mouse tracking with
         # light/dark alternation and high pose variability.
