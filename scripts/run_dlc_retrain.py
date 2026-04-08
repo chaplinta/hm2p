@@ -83,45 +83,40 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
 
     update_progress(s3, "Training: creating dataset")
 
-    # Delete old training data so create_training_dataset() builds fresh
-    # with SuperAnimal weights instead of reusing a stale ResNet50 split.
-    for old_dir_name in ("dlc-models-pytorch", "dlc-models", "training-datasets"):
-        old_dir = work / old_dir_name
-        if old_dir.exists():
-            shutil.rmtree(old_dir)
-            print(f"  Deleted old {old_dir_name}/")
-
-    # Create training dataset with SuperAnimal HRNet-W32 backbone.
-    # Uses build_weight_init() to initialise from SuperAnimal weights.
-    # with_decoder=True = transfer learning (new decoder head for our
-    # 8 bodyparts; SuperAnimal has 27). Keeps the HRNet-W32 backbone.
-    print("Creating training dataset (SuperAnimal HRNet-W32 transfer)...")
+    # Try SuperAnimal HRNet-W32 transfer. If it fails, fall back to
+    # default ResNet50 (which works reliably).
+    print("Creating training dataset...")
     import traceback as _tb
 
+    use_superanimal = False
     try:
         from deeplabcut.modelzoo import build_weight_init
+
+        # Delete old training data ONLY for the SuperAnimal attempt
+        for old_dir_name in ("dlc-models-pytorch", "dlc-models", "training-datasets"):
+            old_dir = work / old_dir_name
+            if old_dir.exists():
+                shutil.rmtree(old_dir)
+                print(f"  Deleted old {old_dir_name}/")
 
         weight_init = build_weight_init(
             cfg=str(config_path),
             super_animal="superanimal_topviewmouse",
             model_name="hrnet_w32",
             detector_name="fasterrcnn_resnet50_fpn_v2",
-            with_decoder=True,  # transfer learning: new decoder for our 8 bodyparts
+            with_decoder=True,
         )
         print(f"  weight_init: {weight_init}")
         deeplabcut.create_training_dataset(str(config_path), weight_init=weight_init)
-        print("  SUCCESS: Initialised from SuperAnimal HRNet-W32")
+        print("  SUCCESS: SuperAnimal HRNet-W32 transfer learning")
+        use_superanimal = True
     except Exception as e:
-        print(f"  ERROR: SuperAnimal init failed: {e}")
+        print(f"  SuperAnimal failed: {e}")
         _tb.print_exc()
-        print("  Falling back to default create_training_dataset()...")
-        try:
-            deeplabcut.create_training_dataset(str(config_path))
-            print("  Fallback succeeded (ResNet50)")
-        except Exception as e2:
-            print(f"  Fallback also failed: {e2}")
-            _tb.print_exc()
-            raise
+        print("  Falling back to ResNet50...")
+        # Don't delete training data for fallback — let DLC create fresh
+        deeplabcut.create_training_dataset(str(config_path))
+        print("  Fallback: ResNet50 from ImageNet")
 
     # Set epochs in the pytorch config (DLC 3.0 ignores maxiters)
     pytorch_cfg_candidates = list(work.rglob("pytorch_config.yaml"))

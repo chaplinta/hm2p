@@ -91,7 +91,12 @@ set -ex
 {timeout}
 {gpu_guard}
 
-# Clone repo and run
+# Upload log immediately after setup (before Python which may crash)
+aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_run_log.txt || true
+
+# Clone repo and run — disable set -e so Python errors don't kill
+# the script before the EXIT trap can upload logs.
+set +e
 cd /home/ubuntu
 git clone https://github.com/chaplinta/hm2p.git
 cd hm2p
