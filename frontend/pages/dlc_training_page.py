@@ -202,7 +202,18 @@ if progress_data:
     updated = progress_data.get("updated", "")
     col1, col2 = st.columns(2)
     col1.metric("Status", status)
-    col2.metric("Last updated", updated[:19] if updated else "N/A")
+    # Convert UTC to Perth time (UTC+8)
+    if updated:
+        from datetime import datetime, timedelta, timezone
+        try:
+            utc_dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+            perth_dt = utc_dt.astimezone(timezone(timedelta(hours=8)))
+            updated_local = perth_dt.strftime("%Y-%m-%d %H:%M AWST")
+        except Exception:
+            updated_local = updated[:19]
+    else:
+        updated_local = "N/A"
+    col2.metric("Last updated", updated_local)
 
     extra_keys = [k for k in progress_data if k not in {"status", "updated"}]
     if extra_keys:
