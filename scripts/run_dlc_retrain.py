@@ -96,6 +96,8 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
     # with_decoder=True = transfer learning (new decoder head for our
     # 8 bodyparts; SuperAnimal has 27). Keeps the HRNet-W32 backbone.
     print("Creating training dataset (SuperAnimal HRNet-W32 transfer)...")
+    import traceback as _tb
+
     try:
         from deeplabcut.modelzoo import build_weight_init
 
@@ -106,11 +108,20 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
             detector_name="fasterrcnn_resnet50_fpn_v2",
             with_decoder=True,  # transfer learning: new decoder for our 8 bodyparts
         )
+        print(f"  weight_init: {weight_init}")
         deeplabcut.create_training_dataset(str(config_path), weight_init=weight_init)
-        print("  Initialised from SuperAnimal HRNet-W32 (transfer learning mode)")
-    except (ImportError, TypeError, Exception) as e:
-        print(f"  WARNING: SuperAnimal init failed ({e}), falling back to default")
-        deeplabcut.create_training_dataset(str(config_path))
+        print("  SUCCESS: Initialised from SuperAnimal HRNet-W32")
+    except Exception as e:
+        print(f"  ERROR: SuperAnimal init failed: {e}")
+        _tb.print_exc()
+        print("  Falling back to default create_training_dataset()...")
+        try:
+            deeplabcut.create_training_dataset(str(config_path))
+            print("  Fallback succeeded (ResNet50)")
+        except Exception as e2:
+            print(f"  Fallback also failed: {e2}")
+            _tb.print_exc()
+            raise
 
     # Set epochs in the pytorch config (DLC 3.0 ignores maxiters)
     pytorch_cfg_candidates = list(work.rglob("pytorch_config.yaml"))
