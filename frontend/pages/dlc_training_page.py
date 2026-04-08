@@ -251,8 +251,6 @@ else:
 if progress_data:
     status = progress_data.get("status", "unknown")
     updated = progress_data.get("updated", "")
-    col1, col2 = st.columns(2)
-    col1.metric("Status", status)
     # Convert UTC to Perth time (UTC+8)
     if updated:
         from datetime import datetime, timedelta, timezone
@@ -264,7 +262,8 @@ if progress_data:
             updated_local = updated[:19]
     else:
         updated_local = "N/A"
-    col2.metric("Last updated", updated_local)
+    st.markdown(f"**Status:** {status}")
+    st.caption(f"Last updated: {updated_local}")
 
     extra_keys = [k for k in progress_data if k not in {"status", "updated"}]
     if extra_keys:
