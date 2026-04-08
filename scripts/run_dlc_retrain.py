@@ -114,22 +114,31 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
         if "resnet" in backbone.lower():
             print("  WARNING: backbone is ResNet, not HRNet. SuperAnimal transfer may not have worked.")
 
-        # Stronger augmentation for light/dark + overhead camera
+        # Aggressive augmentation for overhead mouse tracking with
+        # light/dark alternation and high pose variability.
         if "data" in pcfg and "train" in pcfg["data"]:
             aug = pcfg["data"]["train"]
-            # Rotation: full 360° (mouse faces any direction)
-            if "affine" in aug:
-                aug["affine"]["rotation"] = 180
-                aug["affine"]["scaling"] = [0.5, 1.5]
-                aug["affine"]["p"] = 0.7
-            # Brightness/contrast: critical for light on/off alternation
-            aug["brightness"] = {"p": 0.5, "limit": 0.4}
-            aug["contrast"] = {"p": 0.5, "limit": 0.4}
-            # Horizontal flip (mouse is symmetric from above)
+            # Affine: full rotation, wide scale range, translation
+            if "affine" not in aug:
+                aug["affine"] = {}
+            aug["affine"]["rotation"] = 180       # full 360° (mouse faces any direction)
+            aug["affine"]["scaling"] = [0.25, 2.5] # extreme scale range
+            aug["affine"]["translation"] = 0.15    # shift up to 15% of image
+            aug["affine"]["p"] = 0.8               # apply most of the time
+            # Brightness/contrast: critical for light on / light off
+            # limit=0.6 means brightness can change by ±60%
+            aug["brightness"] = {"p": 0.7, "limit": 0.6}
+            aug["contrast"] = {"p": 0.7, "limit": 0.6}
+            # Flips: mouse is symmetric from above in both axes
             aug["horizontal_flip"] = {"p": 0.5}
-            # Stronger noise for robustness
-            aug["gaussian_noise"] = 25.0
-            print(f"  Enhanced augmentation: rotation=±180°, brightness/contrast, hflip, noise=25")
+            aug["vertical_flip"] = {"p": 0.5}
+            # Noise and blur
+            aug["gaussian_noise"] = 30.0
+            aug["motion_blur"] = True
+            print(
+                f"  Augmentation: rot=±180°, scale=0.25-2.5x, "
+                f"brightness/contrast=±60%, hflip+vflip, noise=30"
+            )
 
         with open(pcfg_path, "w") as f:
             yaml.dump(pcfg, f)
