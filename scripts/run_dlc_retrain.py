@@ -168,16 +168,18 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
     print("Evaluating network...")
     deeplabcut.evaluate_network(str(config_path), plotting=False)
 
-    # Upload evaluation results (per-bodypart RMSE)
-    eval_dir = work / "evaluation-results"
-    if eval_dir.exists():
-        print("Uploading evaluation results...")
-        for f in eval_dir.rglob("*"):
-            if f.is_file():
-                rel = f.relative_to(work)
-                key = f"{RETRAIN_PREFIX}/models/{rel}"
-                s3.upload_file(str(f), DERIVATIVES_BUCKET, key)
-        print(f"  Uploaded {sum(1 for _ in eval_dir.rglob('*') if _.is_file())} eval files")
+    # Upload evaluation results (per-bodypart RMSE).
+    # DLC may write these in evaluation-results/ or inside the model dir.
+    eval_uploaded = 0
+    for search_dir in [work / "evaluation-results", work]:
+        for csv_file in search_dir.rglob("*results*.csv"):
+            rel = csv_file.relative_to(work)
+            key = f"{RETRAIN_PREFIX}/models/{rel}"
+            s3.upload_file(str(csv_file), DERIVATIVES_BUCKET, key)
+            eval_uploaded += 1
+            print(f"  Uploaded eval: {rel}")
+    if eval_uploaded == 0:
+        print("  No evaluation result CSVs found")
 
     # Upload model weights via boto3 (aws CLI may not be available)
     print("Uploading model weights to S3...")
