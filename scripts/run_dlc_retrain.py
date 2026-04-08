@@ -92,10 +92,29 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
     for pcfg_path in pytorch_cfg_candidates:
         with open(pcfg_path) as f:
             pcfg = yaml.safe_load(f)
-        if "train_settings" in pcfg:
-            pcfg["train_settings"]["epochs"] = epochs
-        else:
-            pcfg["train_settings"] = {"epochs": epochs}
+
+        # Set epochs
+        if "train_settings" not in pcfg:
+            pcfg["train_settings"] = {}
+        pcfg["train_settings"]["epochs"] = epochs
+
+        # Stronger augmentation for light/dark + overhead camera
+        if "data" in pcfg and "train" in pcfg["data"]:
+            aug = pcfg["data"]["train"]
+            # Rotation: full 360° (mouse faces any direction)
+            if "affine" in aug:
+                aug["affine"]["rotation"] = 180
+                aug["affine"]["scaling"] = [0.5, 1.5]
+                aug["affine"]["p"] = 0.7
+            # Brightness/contrast: critical for light on/off alternation
+            aug["brightness"] = {"p": 0.5, "limit": 0.4}
+            aug["contrast"] = {"p": 0.5, "limit": 0.4}
+            # Horizontal flip (mouse is symmetric from above)
+            aug["horizontal_flip"] = {"p": 0.5}
+            # Stronger noise for robustness
+            aug["gaussian_noise"] = 25.0
+            print(f"  Enhanced augmentation: rotation=±180°, brightness/contrast, hflip, noise=25")
+
         with open(pcfg_path, "w") as f:
             yaml.dump(pcfg, f)
         print(f"  Set epochs={epochs} in {pcfg_path.name}")
@@ -113,7 +132,18 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
 
     # Evaluate
     print("Evaluating network...")
-    deeplabcut.evaluate_network(str(config_path))
+    deeplabcut.evaluate_network(str(config_path), plotting=False)
+
+    # Upload evaluation results (per-bodypart RMSE)
+    eval_dir = work / "evaluation-results"
+    if eval_dir.exists():
+        print("Uploading evaluation results...")
+        for f in eval_dir.rglob("*"):
+            if f.is_file():
+                rel = f.relative_to(work)
+                key = f"{RETRAIN_PREFIX}/models/{rel}"
+                s3.upload_file(str(f), DERIVATIVES_BUCKET, key)
+        print(f"  Uploaded {sum(1 for _ in eval_dir.rglob('*') if _.is_file())} eval files")
 
     # Upload model weights via boto3 (aws CLI may not be available)
     print("Uploading model weights to S3...")

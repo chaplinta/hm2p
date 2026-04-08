@@ -166,6 +166,57 @@ def _parse_training_curves() -> list[dict] | None:
     return rows if rows else None
 
 
+@st.cache_data(ttl=300)
+def _load_per_bodypart_eval() -> dict | None:
+    """Load per-bodypart evaluation results from S3."""
+    import io
+
+    for shuffle in ("trainset80shuffle1", "trainset95shuffle1"):
+        prefix = f"{RETRAIN_PREFIX}/models/evaluation-results/"
+        data = download_s3_bytes(DERIVATIVES_BUCKET, prefix)
+        if data is not None:
+            break
+
+    # Try to find any CSV in evaluation-results/
+    try:
+        import boto3 as _boto3
+
+        s3 = _boto3.client("s3", region_name="ap-southeast-2")
+        resp = s3.list_objects_v2(
+            Bucket=DERIVATIVES_BUCKET,
+            Prefix=f"{RETRAIN_PREFIX}/models/evaluation-results/",
+            MaxKeys=20,
+        )
+        csv_keys = [
+            o["Key"]
+            for o in resp.get("Contents", [])
+            if o["Key"].endswith(".csv")
+        ]
+        if not csv_keys:
+            return None
+
+        obj = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key=csv_keys[0])
+        import pandas as _pd
+
+        df = _pd.read_csv(io.BytesIO(obj["Body"].read()))
+
+        # DLC evaluation CSV has columns like: bodyparts, RMSE, RMSE_pcutoff, etc.
+        # Format varies by DLC version — try to extract what we can.
+        if "bodyparts" in df.columns and "RMSE" in df.columns:
+            result = {
+                "bodyparts": df["bodyparts"].tolist(),
+                "rmse": df["RMSE"].tolist(),
+                "rmse_pcutoff": df.get("RMSE_pcutoff", df["RMSE"]).tolist(),
+                "mAP_per_bp": df["mAP"].tolist() if "mAP" in df.columns else None,
+            }
+            return result
+
+        # Fallback: try to parse whatever columns exist
+        return None
+    except Exception:
+        return None
+
+
 with st.spinner("Checking S3 for training status..."):
     progress_data = _load_retrain_progress()
     gpu_data = _load_gpu_monitor()
@@ -375,6 +426,40 @@ if curve_data:
                     height=250, margin=dict(l=40, r=20, t=20, b=40),
                 )
                 st.plotly_chart(mAP_fig, use_container_width=True)
+
+        # Per-bodypart evaluation (from evaluation-results CSV on S3)
+        _eval_data = _load_per_bodypart_eval()
+        if _eval_data is not None:
+            with st.expander("Per-bodypart RMSE"):
+                import plotly.graph_objects as go  # noqa
+
+                bp_names = _eval_data["bodyparts"]
+                bp_rmse = _eval_data["rmse"]
+                bp_rmse_pcut = _eval_data["rmse_pcutoff"]
+
+                fig_bp = go.Figure()
+                fig_bp.add_trace(go.Bar(
+                    x=bp_names, y=bp_rmse,
+                    name="RMSE (all, px)",
+                    marker_color="#d62728",
+                ))
+                if bp_rmse_pcut:
+                    fig_bp.add_trace(go.Bar(
+                        x=bp_names, y=bp_rmse_pcut,
+                        name="RMSE (confident, px)",
+                        marker_color="#2ca02c",
+                    ))
+                fig_bp.update_layout(
+                    xaxis_title="Bodypart", yaxis_title="RMSE (pixels)",
+                    height=350, margin=dict(l=40, r=20, t=20, b=40),
+                    barmode="group",
+                )
+                st.plotly_chart(fig_bp, use_container_width=True)
+
+                if _eval_data.get("mAP_per_bp"):
+                    st.markdown("**Per-bodypart mAP:**")
+                    for bp, val in zip(bp_names, _eval_data["mAP_per_bp"]):
+                        st.caption(f"  {bp}: {val:.1f}%")
 
     else:
         # Fallback: show raw heatmap loss (no pixel metrics available)
