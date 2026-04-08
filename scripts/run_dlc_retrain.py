@@ -126,7 +126,7 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
                 aug["affine"] = {}
             aug["affine"]["rotation"] = 180
             aug["affine"]["scaling"] = [0.25, 2.5]
-            aug["affine"]["translation"] = 0.15
+            aug["affine"]["translation"] = 40  # pixels (not fraction — albumentations needs int)
             aug["affine"]["p"] = 0.8
             aug["brightness"] = {"p": 0.7, "limit": 0.6}
             aug["contrast"] = {"p": 0.7, "limit": 0.6}
