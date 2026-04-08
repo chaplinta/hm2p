@@ -83,105 +83,55 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
 
     update_progress(s3, "Training: creating dataset")
 
-    # Try SuperAnimal HRNet-W32 transfer. If it fails, fall back to
-    # default ResNet50 (which works reliably).
+    # Delete old training data to ensure a clean build.
+    for old_dir_name in ("dlc-models-pytorch", "dlc-models", "training-datasets"):
+        old_dir = work / old_dir_name
+        if old_dir.exists():
+            shutil.rmtree(old_dir)
+            print(f"  Deleted old {old_dir_name}/")
+
+    # Create training dataset (default ResNet50 config — we override below).
     print("Creating training dataset...")
-    import traceback as _tb
+    deeplabcut.create_training_dataset(str(config_path))
 
-    use_superanimal = False
-    try:
-        from deeplabcut.modelzoo import build_weight_init
-
-        # Delete old training data ONLY for the SuperAnimal attempt
-        for old_dir_name in ("dlc-models-pytorch", "dlc-models", "training-datasets"):
-            old_dir = work / old_dir_name
-            if old_dir.exists():
-                shutil.rmtree(old_dir)
-                print(f"  Deleted old {old_dir_name}/")
-
-        weight_init = build_weight_init(
-            cfg=str(config_path),
-            super_animal="superanimal_topviewmouse",
-            model_name="hrnet_w32",
-            detector_name="fasterrcnn_resnet50_fpn_v2",
-            with_decoder=True,
-        )
-        print(f"  weight_init: {weight_init}")
-        deeplabcut.create_training_dataset(str(config_path), weight_init=weight_init)
-        print("  SUCCESS: SuperAnimal HRNet-W32 transfer learning")
-        use_superanimal = True
-    except Exception as e:
-        print(f"  SuperAnimal failed: {e}")
-        _tb.print_exc()
-        print("  Falling back to ResNet50...")
-        # Don't delete training data for fallback — let DLC create fresh
-        deeplabcut.create_training_dataset(str(config_path))
-        print("  Fallback: ResNet50 from ImageNet")
-
-    # Set epochs in the pytorch config (DLC 3.0 ignores maxiters)
+    # Override config: switch to HRNet-W32 backbone (ImageNet pretrained
+    # via timm, NOT SuperAnimal) + aggressive augmentation.
     pytorch_cfg_candidates = list(work.rglob("pytorch_config.yaml"))
     for pcfg_path in pytorch_cfg_candidates:
         with open(pcfg_path) as f:
             pcfg = yaml.safe_load(f)
 
-        # Set epochs
+        # Epochs
         if "train_settings" not in pcfg:
             pcfg["train_settings"] = {}
         pcfg["train_settings"]["epochs"] = epochs
 
-        # If SuperAnimal init succeeded, force the backbone to HRNet-W32.
-        # build_weight_init downloads HRNet weights but create_training_dataset
-        # still writes ResNet50 in the config — causing a state_dict mismatch.
-        backbone = pcfg.get("model", {}).get("backbone", {}).get("model_name", "?")
-        if use_superanimal and "resnet" in backbone.lower():
-            print(f"  Overriding backbone: {backbone} → hrnet_w32")
-            pcfg["model"]["backbone"] = {
-                "model_name": "hrnet_w32",
-                "type": "HRNet",
-                "freeze_bn_stats": False,
-                "freeze_bn_weights": False,
-            }
-            # HRNet-W32 outputs 32 channels (not 2048 like ResNet).
-            pcfg["model"]["backbone_output_channels"] = 32
-            if "heads" in pcfg["model"]:
-                for head_name, head_cfg in pcfg["model"]["heads"].items():
-                    if "heatmap_config" in head_cfg:
-                        head_cfg["heatmap_config"]["channels"][0] = 32
-                        head_cfg["heatmap_config"]["kernel_size"] = [1]
-                        head_cfg["heatmap_config"]["strides"] = [1]
-                    if "locref_config" in head_cfg:
-                        head_cfg["locref_config"]["channels"][0] = 32
-                        head_cfg["locref_config"]["kernel_size"] = [1]
-                        head_cfg["locref_config"]["strides"] = [1]
-                    # Disable location refinement — SuperAnimal checkpoint
-                    # doesn't have locref head weights, causing load failure.
-                    if "predictor" in head_cfg:
-                        head_cfg["predictor"]["location_refinement"] = False
-                    if "target_generator" in head_cfg:
-                        head_cfg["target_generator"]["generate_locref"] = False
-            pcfg["net_type"] = "hrnet_w32"
-        else:
-            print(f"  Backbone: {backbone}")
+        # HRNet-W32 backbone (ImageNet pretrained via timm).
+        # DLC's HRNet implementation uses timm to load pretrained weights.
+        old_backbone = pcfg.get("model", {}).get("backbone", {}).get("model_name", "?")
+        print(f"  Overriding backbone: {old_backbone} → hrnet_w32")
+        pcfg["model"]["backbone"] = {
+            "model_name": "hrnet_w32",
+            "type": "HRNet",
+            "freeze_bn_stats": False,
+            "freeze_bn_weights": False,
+        }
+        pcfg["net_type"] = "hrnet_w32"
 
         # Aggressive augmentation for overhead mouse tracking with
         # light/dark alternation and high pose variability.
         if "data" in pcfg and "train" in pcfg["data"]:
             aug = pcfg["data"]["train"]
-            # Affine: full rotation, wide scale range, translation
             if "affine" not in aug:
                 aug["affine"] = {}
-            aug["affine"]["rotation"] = 180       # full 360° (mouse faces any direction)
-            aug["affine"]["scaling"] = [0.25, 2.5] # extreme scale range
-            aug["affine"]["translation"] = 0.15    # shift up to 15% of image
-            aug["affine"]["p"] = 0.8               # apply most of the time
-            # Brightness/contrast: critical for light on / light off
-            # limit=0.6 means brightness can change by ±60%
+            aug["affine"]["rotation"] = 180
+            aug["affine"]["scaling"] = [0.25, 2.5]
+            aug["affine"]["translation"] = 0.15
+            aug["affine"]["p"] = 0.8
             aug["brightness"] = {"p": 0.7, "limit": 0.6}
             aug["contrast"] = {"p": 0.7, "limit": 0.6}
-            # Flips: mouse is symmetric from above in both axes
             aug["horizontal_flip"] = {"p": 0.5}
             aug["vertical_flip"] = {"p": 0.5}
-            # Noise and blur
             aug["gaussian_noise"] = 30.0
             aug["motion_blur"] = True
             print(
@@ -191,38 +141,18 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
 
         with open(pcfg_path, "w") as f:
             yaml.dump(pcfg, f)
-        print(f"  Set epochs={epochs} in {pcfg_path.name}")
+        print(f"  Config updated: {pcfg_path.name}")
 
-    update_progress(s3, f"Training: fine-tuning network ({epochs} epochs)")
-
-    # Monkey-patch torch.nn.Module.load_state_dict to use strict=False
-    # when loading SuperAnimal HRNet weights. The checkpoint may have
-    # different head structure (missing locref, different channels) and
-    # strict loading causes RuntimeError. With strict=False, mismatched
-    # keys are silently ignored and only matching weights transfer.
-    if use_superanimal:
-        import torch.nn as nn
-
-        _original_load_state_dict = nn.Module.load_state_dict
-
-        def _lenient_load_state_dict(self, state_dict, strict=True, **kwargs):
-            return _original_load_state_dict(self, state_dict, strict=False, **kwargs)
-
-        nn.Module.load_state_dict = _lenient_load_state_dict
-        print("  Patched load_state_dict(strict=False) for SuperAnimal transfer")
+    update_progress(s3, f"Training: HRNet-W32 ({epochs} epochs)")
 
     # Train
-    print(f"Training for {epochs} epochs...")
+    print(f"Training HRNet-W32 for {epochs} epochs...")
     deeplabcut.train_network(
         str(config_path),
         maxiters=maxiters,
         displayiters=100,
         saveiters=5000,
     )
-
-    # Restore original load_state_dict
-    if use_superanimal:
-        nn.Module.load_state_dict = _original_load_state_dict
 
     # Evaluate
     print("Evaluating network...")
