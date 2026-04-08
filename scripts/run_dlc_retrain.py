@@ -83,6 +83,14 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
 
     update_progress(s3, "Training: creating dataset")
 
+    # Delete old training data so create_training_dataset() builds fresh
+    # with SuperAnimal weights instead of reusing a stale ResNet50 split.
+    for old_dir_name in ("dlc-models-pytorch", "dlc-models", "training-datasets"):
+        old_dir = work / old_dir_name
+        if old_dir.exists():
+            shutil.rmtree(old_dir)
+            print(f"  Deleted old {old_dir_name}/")
+
     # Create training dataset with SuperAnimal transfer.
     # The superanimal_name parameter initialises the model from
     # SuperAnimal TopViewMouse weights (HRNet-W32), not default ResNet50.
