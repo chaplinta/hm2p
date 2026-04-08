@@ -20,16 +20,52 @@
 **Current backbone pretrain status:** HRNet run from random init — `pretrained: false` in
 `deeplabcut/modelzoo/model_configs/hrnet_w32.yaml` template; never overridden in training  
 **Confirmed mAP:** ResNet-50 + ImageNet ~57%; HRNet-w32 + random init ~34%  
-**SA conversion table:** Already in `config.yaml` under `SuperAnimalConversionTables`
-(7 of 8 bodyparts mapped; `implant_base_rear` absent = no SA match, correct)
+**Bodypart mapping (hm2p → SuperAnimal TopViewMouse):**
 
-**Discrepancy note:** The lead developer's notes describe a 5-bodypart project
-(`left_ear`, `right_ear`, `mid_back`, `mouse_center`, `tail_base`). The actual DLC project
-has 8 bodyparts. The data scientist's notes are correct. CLAUDE.md's "Body parts tracked"
-lists 5 bodyparts for the kinematic pipeline — `nose_tip`, `neck`, and `implant_base_rear`
-are tracked in DLC but are additional to the primary 5 used in `movement`/`kinematics.h5`.
-The SA conversion table in config.yaml correctly maps 7 of 8; `implant_base_rear` is
-intentionally absent.
+The paper states that users only need to label the bodyparts they care about.
+Gradient masking prevents penalties for unlabelled SA bodyparts, and memory
+replay generates pseudo-labels for the remaining SA keypoints to prevent
+catastrophic forgetting. Our 8 bodyparts map to the SA-TVM 27-keypoint
+superset as follows:
+
+| # | hm2p bodypart | SA-TVM keypoint | SA index | Notes |
+|---|---|---|---|---|
+| 0 | `nose_tip` | `nose` | 0 | Direct match |
+| 1 | `left_ear` | `left_ear` | 1 | Direct match |
+| 2 | `right_ear` | `right_ear` | 2 | Direct match |
+| 3 | `implant_base_rear` | *(none)* | -1 | Custom — no SA equivalent. Zero-initialised, trained from our labels only |
+| 4 | `neck` | `neck` | 7 | Direct match |
+| 5 | `mid_back` | `mid_back` | 8 | Direct match |
+| 6 | `mouse_center` | `mouse_center` | 9 | Direct match |
+| 7 | `tail_base` | `tail_base` | 13 | Direct match |
+
+**conversion_array:** `[0, 1, 2, -1, 7, 8, 9, 13]`
+
+The SA-TVM model's full 27 keypoints (from `superanimal_topviewmouse.yaml`):
+`nose(0)`, `left_ear(1)`, `right_ear(2)`, `left_ear_tip(3)`, `right_ear_tip(4)`,
+`left_eye(5)`, `right_eye(6)`, `neck(7)`, `mid_back(8)`, `mouse_center(9)`,
+`mid_backend(10)`, `mid_backend2(11)`, `mid_backend3(12)`, `tail_base(13)`,
+`tail1-5(14-18)`, `left_shoulder(19)`, `left_midside(20)`, `left_hip(21)`,
+`right_shoulder(22)`, `right_midside(23)`, `right_hip(24)`, `tail_end(25)`,
+`head_midpoint(26)`.
+
+7 of 8 bodyparts have direct SA matches. `implant_base_rear` is handled
+via the `-1` sentinel in the conversion array — the backbone still provides
+features for it, only the head channel is trained from scratch.
+
+**config.yaml `SuperAnimalConversionTables`** (current, needs `implant_base_rear: null` added):
+```yaml
+SuperAnimalConversionTables:
+  superanimal_topviewmouse:
+    nose_tip: nose
+    left_ear: left_ear
+    right_ear: right_ear
+    implant_base_rear: null    # ← add this for SA transfer
+    neck: neck
+    mid_back: mid_back
+    mouse_center: mouse_center
+    tail_base: tail_base
+```
 
 ---
 
