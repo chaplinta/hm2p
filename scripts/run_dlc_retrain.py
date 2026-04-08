@@ -117,6 +117,16 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
             "freeze_bn_weights": False,
         }
         pcfg["net_type"] = "hrnet_w32"
+        # HRNet-W32 outputs 32 channels (ResNet outputs 2048).
+        # Head deconv layers must match the backbone output.
+        n_bodyparts = len(pcfg.get("metadata", {}).get("bodyparts", []))
+        if "heads" in pcfg["model"]:
+            for head_cfg in pcfg["model"]["heads"].values():
+                if "heatmap_config" in head_cfg:
+                    head_cfg["heatmap_config"]["channels"] = [32, n_bodyparts or 8]
+                if "locref_config" in head_cfg:
+                    head_cfg["locref_config"]["channels"] = [32, (n_bodyparts or 8) * 2]
+        print(f"  Head channels: 32 → {n_bodyparts} bodyparts")
 
         # Aggressive augmentation for overhead mouse tracking with
         # light/dark alternation and high pose variability.
