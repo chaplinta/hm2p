@@ -141,14 +141,10 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
                 "freeze_bn_stats": False,
                 "freeze_bn_weights": False,
             }
-            pcfg["model"]["backbone_output_channels"] = 480
-            # Update head input channels to match HRNet output
-            if "heads" in pcfg["model"]:
-                for head_name, head_cfg in pcfg["model"]["heads"].items():
-                    if "heatmap_config" in head_cfg:
-                        head_cfg["heatmap_config"]["channels"][0] = 480
-                    if "locref_config" in head_cfg:
-                        head_cfg["locref_config"]["channels"][0] = 480
+            # Don't override backbone_output_channels or head channels —
+            # let DLC's model builder infer them from the backbone.
+            if "backbone_output_channels" in pcfg["model"]:
+                del pcfg["model"]["backbone_output_channels"]
             pcfg["net_type"] = "hrnet_w32"
         else:
             print(f"  Backbone: {backbone}")
