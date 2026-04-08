@@ -83,9 +83,19 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
 
     update_progress(s3, "Training: creating dataset")
 
-    # Create training dataset with SuperAnimal transfer
-    print("Creating training dataset (SuperAnimal transfer)...")
-    deeplabcut.create_training_dataset(str(config_path))
+    # Create training dataset with SuperAnimal transfer.
+    # The superanimal_name parameter initialises the model from
+    # SuperAnimal TopViewMouse weights (HRNet-W32), not default ResNet50.
+    print("Creating training dataset (SuperAnimal TopViewMouse transfer)...")
+    try:
+        deeplabcut.create_training_dataset(
+            str(config_path),
+            superanimal_name="superanimal_topviewmouse",
+        )
+    except TypeError:
+        # Older DLC versions may not support superanimal_name
+        print("  WARNING: superanimal_name not supported, using default backbone")
+        deeplabcut.create_training_dataset(str(config_path))
 
     # Set epochs in the pytorch config (DLC 3.0 ignores maxiters)
     pytorch_cfg_candidates = list(work.rglob("pytorch_config.yaml"))
@@ -97,6 +107,12 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
         if "train_settings" not in pcfg:
             pcfg["train_settings"] = {}
         pcfg["train_settings"]["epochs"] = epochs
+
+        # Verify backbone after create_training_dataset
+        backbone = pcfg.get("model", {}).get("backbone", {}).get("model_name", "?")
+        print(f"  Backbone: {backbone}")
+        if "resnet" in backbone.lower():
+            print("  WARNING: backbone is ResNet, not HRNet. SuperAnimal transfer may not have worked.")
 
         # Stronger augmentation for light/dark + overhead camera
         if "data" in pcfg and "train" in pcfg["data"]:
