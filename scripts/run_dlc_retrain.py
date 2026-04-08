@@ -323,32 +323,22 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
     )
     print("Promotion complete.")
 
-    # Run downstream stages (3 → 5 → 6) on the same instance.
-    # These are CPU-only but running on the GPU instance avoids a separate
-    # launch/setup cycle. The GPU is idle during this phase.
-    print("\n=== Running downstream pipeline (Stages 3, 5, 6) ===")
+    update_progress(
+        s3, "Inference + promotion complete. Launching CPU instance for downstream + render.",
+        completed=len(completed), total=total,
+    )
+
+    # Launch a CPU instance for downstream stages + video rendering.
+    # These don't need GPU — running them on the GPU instance wastes money.
+    print("\n=== Launching CPU instance for downstream + render ===")
     try:
         subprocess.run(
-            ["python3", "scripts/run_downstream_pipeline.py", "--force"],
+            ["python3", "scripts/launch_downstream_cpu.py"],
             check=True,
         )
     except Exception as e:
-        print(f"WARNING: downstream pipeline failed: {e}")
-        update_progress(s3, "Promoted but downstream failed",
-                        completed=len(completed), total=total, error=str(e))
-
-    # Render labelled videos (416x304, H.264 compressed, ~20-40 MB each).
-    print("\n=== Rendering labelled videos ===")
-    try:
-        subprocess.run(
-            ["python3", "scripts/render_dlc_videos.py", "--all", "-v"],
-            check=True,
-        )
-    except Exception as e:
-        print(f"WARNING: video rendering failed: {e}")
-
-    update_progress(s3, "Pipeline complete",
-                    completed=len(completed), total=total)
+        print(f"WARNING: could not launch CPU instance: {e}")
+        print("Run manually: python3 scripts/launch_downstream_cpu.py")
 
 
 def main() -> None:
