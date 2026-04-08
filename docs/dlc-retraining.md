@@ -20,8 +20,8 @@ workflow from frame selection to retraining.
 | `right_ear` | `right_ear` | Primary HD (ear vector perpendicular) |
 | `implant_base_rear` | *(custom)* | Skull reference (rigid, high-contrast 2P headstage) |
 | `neck` | `neck` | HD fallback (nose→neck axis), head-body dissociation |
-| `mid_back` | `spine_center` | Body axis |
-| `mouse_center` | `spine_mid` | Position, speed |
+| `mid_back` | `mid_back` | Dorsal midline just behind shoulders |
+| `mouse_center` | `mouse_center` | Geometric centre of body, position/speed |
 | `tail_base` | `tail_base` | Body orientation |
 
 5 head keypoints (nose, ears, implant, neck) enable robust HD fusion
