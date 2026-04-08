@@ -91,18 +91,25 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
             shutil.rmtree(old_dir)
             print(f"  Deleted old {old_dir_name}/")
 
-    # Create training dataset with SuperAnimal transfer.
-    # The superanimal_name parameter initialises the model from
-    # SuperAnimal TopViewMouse weights (HRNet-W32), not default ResNet50.
-    print("Creating training dataset (SuperAnimal TopViewMouse transfer)...")
+    # Create training dataset with SuperAnimal HRNet-W32 backbone.
+    # Uses build_weight_init() to initialise from SuperAnimal weights.
+    # with_decoder=True = transfer learning (new decoder head for our
+    # 8 bodyparts; SuperAnimal has 27). Keeps the HRNet-W32 backbone.
+    print("Creating training dataset (SuperAnimal HRNet-W32 transfer)...")
     try:
-        deeplabcut.create_training_dataset(
-            str(config_path),
-            superanimal_name="superanimal_topviewmouse",
+        from deeplabcut.modelzoo import build_weight_init
+
+        weight_init = build_weight_init(
+            cfg=str(config_path),
+            super_animal="superanimal_topviewmouse",
+            model_name="hrnet_w32",
+            detector_name="fasterrcnn_resnet50_fpn_v2",
+            with_decoder=True,  # transfer learning: new decoder for our 8 bodyparts
         )
-    except TypeError:
-        # Older DLC versions may not support superanimal_name
-        print("  WARNING: superanimal_name not supported, using default backbone")
+        deeplabcut.create_training_dataset(str(config_path), weight_init=weight_init)
+        print("  Initialised from SuperAnimal HRNet-W32 (transfer learning mode)")
+    except (ImportError, TypeError, Exception) as e:
+        print(f"  WARNING: SuperAnimal init failed ({e}), falling back to default")
         deeplabcut.create_training_dataset(str(config_path))
 
     # Set epochs in the pytorch config (DLC 3.0 ignores maxiters)
