@@ -332,12 +332,23 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
             ["python3", "scripts/run_downstream_pipeline.py", "--force"],
             check=True,
         )
-        update_progress(s3, "Pipeline complete (pose → kinematics → sync → analysis)",
-                        completed=len(completed), total=total)
     except Exception as e:
         print(f"WARNING: downstream pipeline failed: {e}")
         update_progress(s3, "Promoted but downstream failed",
                         completed=len(completed), total=total, error=str(e))
+
+    # Render labelled videos (416x304, H.264 compressed, ~20-40 MB each).
+    print("\n=== Rendering labelled videos ===")
+    try:
+        subprocess.run(
+            ["python3", "scripts/render_dlc_videos.py", "--all", "-v"],
+            check=True,
+        )
+    except Exception as e:
+        print(f"WARNING: video rendering failed: {e}")
+
+    update_progress(s3, "Pipeline complete",
+                    completed=len(completed), total=total)
 
 
 def main() -> None:
