@@ -38,7 +38,7 @@ iteration: 0
 move2corner: true
 multianimalproject: false
 numframes2pick: 20
-pcutoff: 0.6
+pcutoff: 0.4
 project_path: /Users/tristan/Neuro/hm2p-v2/sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20
 scorer: tristan
 skeleton:
