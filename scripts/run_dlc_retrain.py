@@ -138,7 +138,6 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
             pcfg["model"]["backbone"] = {
                 "model_name": "hrnet_w32",
                 "type": "HRNet",
-                "output_stride": 4,
                 "freeze_bn_stats": False,
                 "freeze_bn_weights": False,
             }
