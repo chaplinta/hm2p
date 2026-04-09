@@ -341,17 +341,16 @@ if curve_data:
 
     if has_pixel_metrics:
         # Show pixel RMSE (from learning_stats.csv)
-        best_rmse = min(rmse_rows, key=lambda r: r["rmse_pcutoff_px"] or 999)
         last_rmse = rmse_rows[-1]
+        # DLC selects best checkpoint by mAP (not RMSE)
+        mAP_rows = [r for r in rmse_rows if r.get("mAP") is not None and r["mAP"] > 0]
+        best_mAP = max(mAP_rows, key=lambda r: r["mAP"]) if mAP_rows else last_rmse
 
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Epochs", f"{len(curve_data)}/{total_epochs}")
         col2.metric("Valid RMSE (all)", f"{last_rmse['rmse_px']:.1f} px" if last_rmse.get('rmse_px') is not None else "N/A")
-        col3.metric("Valid RMSE (confident)", f"{last_rmse['rmse_pcutoff_px']:.1f} px" if last_rmse.get('rmse_pcutoff_px') is not None else "N/A")
-        col4.metric("Best checkpoint", f"Epoch {best_rmse['epoch']}")
-
-        if last_rmse.get("mAP") is not None:
-            st.caption(f"mAP: {last_rmse['mAP']:.1f}%")
+        col3.metric("Best mAP", f"{best_mAP['mAP']:.1f}%" if best_mAP.get('mAP') is not None else "N/A")
+        col4.metric("Best checkpoint", f"Epoch {best_mAP['epoch']} (by mAP)")
 
         # Plot pixel RMSE
         fig = go.Figure()
@@ -371,13 +370,15 @@ if curve_data:
             line=dict(color="#2ca02c", width=2),
             marker=dict(size=5),
         ))
-        fig.add_trace(go.Scatter(
-            x=[best_rmse["epoch"]],
-            y=[best_rmse["rmse_pcutoff_px"]],
-            mode="markers",
-            name=f"Best ({best_rmse['rmse_pcutoff_px']:.1f} px, epoch {best_rmse['epoch']})",
-            marker=dict(size=12, color="#2ca02c", symbol="star"),
-        ))
+        # Star on the best checkpoint (selected by mAP, not RMSE)
+        if best_mAP.get("rmse_px") is not None:
+            fig.add_trace(go.Scatter(
+                x=[best_mAP["epoch"]],
+                y=[best_mAP["rmse_px"]],
+                mode="markers",
+                name=f"Best checkpoint (mAP {best_mAP['mAP']:.1f}%, epoch {best_mAP['epoch']})",
+                marker=dict(size=12, color="#ff7f0e", symbol="star"),
+            ))
         fig.update_layout(
             xaxis_title="Epoch",
             yaxis_title="RMSE (pixels)",
