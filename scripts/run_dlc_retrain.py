@@ -363,12 +363,12 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
             # Run inference
             out_dir = work / "output"
             out_dir.mkdir(exist_ok=True)
-            print("  Running DLC inference (batch_size=64)...")
+            print("  Running DLC inference (batch_size=16)...")
             deeplabcut.analyze_videos(
                 str(config_path),
                 [str(dlc_video)],
                 destfolder=str(out_dir),
-                batch_size=64,
+                batch_size=16,  # HRNet uses more VRAM than ResNet; 64 caused OOM hang
             )
 
             # Labelled video rendering is handled separately by
