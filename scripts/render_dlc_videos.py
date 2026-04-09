@@ -72,12 +72,12 @@ SKELETON: list[tuple[str, str]] = [
 # All possible bodypart names (finetuned + SuperAnimal variants)
 BODYPARTS = list(KEYPOINT_COLORS.keys())
 
-CIRCLE_RADIUS = 4
-LINE_WIDTH = 2
-# DLC 3.0 PyTorch backend produces conservative confidence values (~0.1-0.3).
-# Use a low threshold so keypoints are visible; the pipeline applies its own
-# filtering separately.
-CONFIDENCE_THRESHOLD = 0.05
+CIRCLE_RADIUS = 2
+LINE_WIDTH = 1
+# Always show all keypoints regardless of confidence. High-confidence
+# points are filled circles, low-confidence are hollow. No threshold
+# filtering — every estimated position is drawn.
+CONFIDENCE_THRESHOLD = 0.0
 
 OUTPUT_WIDTH = 416
 OUTPUT_HEIGHT = 304
