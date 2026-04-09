@@ -346,11 +346,38 @@ if curve_data:
         mAP_rows = [r for r in rmse_rows if r.get("mAP") is not None and r["mAP"] > 0]
         best_mAP = max(mAP_rows, key=lambda r: r["mAP"]) if mAP_rows else last_rmse
 
+        # Find the actual best snapshot DLC saved (from S3 filename)
+        _best_epoch_actual = None
+        try:
+            _s3_check = get_s3_client()
+            _resp = _s3_check.list_objects_v2(
+                Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/", MaxKeys=100
+            )
+            _best_files = [
+                o["Key"] for o in _resp.get("Contents", [])
+                if "snapshot-best" in o["Key"]
+            ]
+            if _best_files:
+                # Latest best snapshot (by LastModified would be better but Key works)
+                import re as _re
+                _epochs_found = []
+                for bf in _best_files:
+                    m = _re.search(r"snapshot-best-(\d+)", bf)
+                    if m:
+                        _epochs_found.append(int(m.group(1)))
+                if _epochs_found:
+                    _best_epoch_actual = max(_epochs_found)
+        except Exception:
+            pass
+
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Epochs", f"{len(curve_data)}/{total_epochs}")
         col2.metric("Valid RMSE (all)", f"{last_rmse['rmse_px']:.1f} px" if last_rmse.get('rmse_px') is not None else "N/A")
         col3.metric("Best mAP", f"{best_mAP['mAP']:.1f}%" if best_mAP.get('mAP') is not None else "N/A")
-        col4.metric("Best checkpoint", f"Epoch {best_mAP['epoch']} (by mAP)")
+        if _best_epoch_actual is not None:
+            col4.metric("Selected model", f"Epoch {_best_epoch_actual}")
+        else:
+            col4.metric("Best by mAP", f"Epoch {best_mAP['epoch']}")
 
         # Plot pixel RMSE
         fig = go.Figure()
@@ -370,13 +397,19 @@ if curve_data:
             line=dict(color="#2ca02c", width=2),
             marker=dict(size=5),
         ))
-        # Star on the best checkpoint (selected by mAP, not RMSE)
-        if best_mAP.get("rmse_px") is not None:
+        # Star on the actual selected model epoch
+        _star_epoch = _best_epoch_actual or best_mAP["epoch"]
+        _star_row = next((r for r in rmse_rows if r["epoch"] == _star_epoch), None)
+        if _star_row and _star_row.get("rmse_px") is not None:
+            _star_label = f"Selected model (epoch {_star_epoch}"
+            if _star_row.get("mAP") is not None:
+                _star_label += f", mAP {_star_row['mAP']:.1f}%"
+            _star_label += ")"
             fig.add_trace(go.Scatter(
-                x=[best_mAP["epoch"]],
-                y=[best_mAP["rmse_px"]],
+                x=[_star_epoch],
+                y=[_star_row["rmse_px"]],
                 mode="markers",
-                name=f"Best checkpoint (mAP {best_mAP['mAP']:.1f}%, epoch {best_mAP['epoch']})",
+                name=_star_label,
                 marker=dict(size=12, color="#ff7f0e", symbol="star"),
             ))
         fig.update_layout(
