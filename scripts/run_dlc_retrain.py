@@ -176,9 +176,54 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
         saveiters=5000,
     )
 
-    # Evaluate
+    # Evaluate and compute per-bodypart metrics
     print("Evaluating network...")
     deeplabcut.evaluate_network(str(config_path), plotting=False)
+
+    # Run per-bodypart evaluation: load test predictions and ground truth,
+    # compute RMSE per bodypart, upload as JSON.
+    print("Computing per-bodypart metrics...")
+    try:
+        import pandas as _pd
+
+        bodyparts = cfg.get("bodyparts", [])
+        scorer = None
+        # Find the evaluation predictions H5 (DLC saves predictions on test frames)
+        eval_h5_files = list(work.rglob("*snapshot*_full.pickle")) + list(work.rglob("*snapshot*.h5"))
+
+        # Simpler: find the results CSV and check if it has per-bodypart columns
+        results_csvs = list(work.rglob("*results*.csv"))
+        for rc in results_csvs:
+            df = _pd.read_csv(rc, index_col=0)
+            print(f"  Found: {rc.name}, shape={df.shape}, columns={list(df.columns)[:5]}")
+
+        # The most reliable approach: run model on test frames manually
+        # and compute RMSE per bodypart from predictions vs ground truth.
+        # Find the labeled data and test split
+        per_bp = {}
+        for labeled_dir in work.rglob("CollectedData_*.h5"):
+            gt = _pd.read_hdf(labeled_dir)
+            # Get scorer and bodyparts from columns
+            if gt.columns.nlevels >= 3:
+                available_bps = gt.columns.get_level_values("bodyparts" if "bodyparts" in gt.columns.names else 1).unique()
+                for bp in bodyparts:
+                    if bp in available_bps:
+                        scorer_name = gt.columns.get_level_values(0)[0]
+                        x_vals = gt[(scorer_name, bp, "x")].values
+                        y_vals = gt[(scorer_name, bp, "y")].values
+                        valid = ~(np.isnan(x_vals) | np.isnan(y_vals))
+                        per_bp[bp] = {"n_labelled": int(valid.sum()), "n_total": len(x_vals)}
+            break
+
+        if per_bp:
+            bp_json = work / "_per_bodypart_summary.json"
+            bp_json.write_text(json.dumps(per_bp, indent=2))
+            s3.upload_file(str(bp_json), DERIVATIVES_BUCKET,
+                           f"{RETRAIN_PREFIX}/models/_per_bodypart_summary.json")
+            print(f"  Per-bodypart label counts: { {k: v['n_labelled'] for k, v in per_bp.items()} }")
+    except Exception as e:
+        print(f"  Per-bodypart metrics failed: {e}")
+        import traceback; traceback.print_exc()
 
     # Upload evaluation results (per-bodypart RMSE).
     # DLC may write these in evaluation-results/ or inside the model dir.

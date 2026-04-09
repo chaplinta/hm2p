@@ -460,6 +460,39 @@ if curve_data:
                 )
                 st.plotly_chart(mAP_fig, use_container_width=True)
 
+        # Per-bodypart label counts (from _per_bodypart_summary.json on S3)
+        with st.expander("Per-bodypart label counts"):
+            try:
+                _bp_data = download_s3_bytes(
+                    DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/models/_per_bodypart_summary.json"
+                )
+                if _bp_data:
+                    import plotly.graph_objects as go  # noqa
+
+                    _bp_info = json.loads(_bp_data)
+                    bp_names = list(_bp_info.keys())
+                    bp_counts = [_bp_info[bp]["n_labelled"] for bp in bp_names]
+
+                    fig_bp = go.Figure()
+                    fig_bp.add_trace(go.Bar(
+                        x=bp_names, y=bp_counts,
+                        marker_color=["#d62728" if c < 150 else "#2ca02c" for c in bp_counts],
+                        text=bp_counts, textposition="auto",
+                    ))
+                    fig_bp.update_layout(
+                        xaxis_title="Bodypart", yaxis_title="Labelled frames",
+                        height=300, margin=dict(l=40, r=20, t=20, b=40),
+                    )
+                    st.plotly_chart(fig_bp, use_container_width=True)
+                    st.caption(
+                        "Red bars = fewer than 150 labels (may benefit from more). "
+                        "Bodyparts with fewer labels tend to have higher RMSE."
+                    )
+                else:
+                    st.info("Per-bodypart data not yet available. Will appear after next training run.")
+            except Exception:
+                st.info("Per-bodypart data not yet available.")
+
         # Per-bodypart evaluation (from evaluation-results CSV on S3)
         _eval_data = _load_per_bodypart_eval()
         if _eval_data is not None:
