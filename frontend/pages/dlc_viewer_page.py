@@ -314,6 +314,15 @@ with col_pos:
     pos_source = st.radio(
         "Positions", ["DLC raw", "DLC median filtered", "Pipeline filtered"],
         index=0, key="dlcv_pos", horizontal=True,
+        help=(
+            "**DLC raw**: direct model output. "
+            "**Median filtered**: 5-frame rolling median on x/y. "
+            "**Pipeline filtered**: confidence threshold (0.05) → "
+            "linear interpolation of short gaps (≤5 frames) → "
+            "5-frame median. Approximates the kinematics pipeline "
+            "but without orientation rotation or perspective correction "
+            "(those are coordinate transforms, not relevant for video overlay)."
+        ),
     )
 
 conf_thr = 0.05  # DLC 3.0 PyTorch outputs conservative confidences (~0.1-0.3)
