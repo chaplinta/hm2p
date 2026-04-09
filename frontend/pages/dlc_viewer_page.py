@@ -422,7 +422,9 @@ def make_ts_fig(vline_frame=None, ds_step=50):
 
 if mode == "Playback":
     if vbytes is not None:
-        st.video(vbytes, format="video/mp4")
+        col_vid, _ = st.columns([1, 1])
+        with col_vid:
+            st.video(vbytes, format="video/mp4")
     else:
         st.warning("No labelled video. Run `scripts/render_dlc_videos.py` first.")
 
