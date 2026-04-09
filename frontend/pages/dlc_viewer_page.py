@@ -67,9 +67,21 @@ st.markdown(_legend_html, unsafe_allow_html=True)
 # ── Cached loaders ───────────────────────────────────────────────────────
 
 
+VIDEO_FILENAMES = {
+    "DLC raw": "labelled_30fps.mp4",
+    "DLC median filtered": "labelled_median_30fps.mp4",
+    "Pipeline filtered": "labelled_pipeline_30fps.mp4",
+}
+
+
 @st.cache_data(ttl=3600, show_spinner="Downloading labelled video...")
-def dl_video(sub: str, ses: str) -> bytes | None:
-    return download_s3_bytes(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/labelled_30fps.mp4")
+def dl_video(sub: str, ses: str, mode: str = "DLC raw") -> bytes | None:
+    fname = VIDEO_FILENAMES.get(mode, "labelled_30fps.mp4")
+    data = download_s3_bytes(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/{fname}")
+    if data is None and mode != "DLC raw":
+        # Fall back to raw if filtered version doesn't exist yet
+        data = download_s3_bytes(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/labelled_30fps.mp4")
+    return data
 
 
 @st.cache_data(ttl=3600, show_spinner="Downloading DLC .h5...")
@@ -315,7 +327,7 @@ st.caption(f"Animal {aid} | {ct_label}")
 
 # ── Load data ────────────────────────────────────────────────────────────
 
-vbytes = dl_video(sub, ses)
+vbytes = dl_video(sub, ses, mode=pos_source)
 dlc_data = dl_dlc(sub, ses)
 dlc_filtered = (
     get_median_filtered(sub, ses)

@@ -279,6 +279,88 @@ def draw_frame(
 # Main rendering
 # ---------------------------------------------------------------------------
 
+RENDER_MODES = {
+    "raw": "labelled_30fps.mp4",
+    "median": "labelled_median_30fps.mp4",
+    "pipeline": "labelled_pipeline_30fps.mp4",
+}
+
+
+def _apply_median_filter(keypoints: dict[str, np.ndarray], window: int = 5) -> dict[str, np.ndarray]:
+    """Apply rolling median filter to keypoint x/y, preserving likelihood."""
+    from scipy.ndimage import median_filter
+
+    filtered = {}
+    for bp, arr in keypoints.items():
+        out = arr.copy()
+        for col in range(2):  # x, y only
+            vals = arr[:, col]
+            nan_mask = np.isnan(vals)
+            if nan_mask.all():
+                continue
+            filled = vals.copy()
+            if nan_mask.any():
+                idx = np.arange(len(vals), dtype=float)
+                valid = ~nan_mask
+                filled[nan_mask] = np.interp(idx[nan_mask], idx[valid], vals[valid])
+            out[:, col] = median_filter(filled, size=window, mode="nearest")
+            out[nan_mask, col] = np.nan
+        filtered[bp] = out
+    return filtered
+
+
+def _apply_pipeline_filter(
+    keypoints: dict[str, np.ndarray], conf_threshold: float = 0.05, window: int = 5, max_gap: int = 5,
+) -> dict[str, np.ndarray]:
+    """Apply pipeline-style filtering: confidence threshold → interpolate gaps → median."""
+    filtered = {}
+    for bp, arr in keypoints.items():
+        out = arr.copy()
+        # Set low-confidence to NaN
+        low = out[:, 2] < conf_threshold
+        out[low, 0] = np.nan
+        out[low, 1] = np.nan
+        # Interpolate short gaps
+        for col in range(2):
+            vals = out[:, col]
+            nan_mask = np.isnan(vals)
+            if nan_mask.all() or not nan_mask.any():
+                continue
+            # Find gap lengths
+            idx = np.arange(len(vals))
+            valid = ~nan_mask
+            # Only interpolate gaps <= max_gap
+            interped = vals.copy()
+            interped[nan_mask] = np.interp(idx[nan_mask], idx[valid], vals[valid])
+            # Restore long gaps
+            gap_starts = np.where(np.diff(nan_mask.astype(int)) == 1)[0] + 1
+            gap_ends = np.where(np.diff(nan_mask.astype(int)) == -1)[0] + 1
+            if nan_mask[0]:
+                gap_starts = np.r_[0, gap_starts]
+            if nan_mask[-1]:
+                gap_ends = np.r_[gap_ends, len(vals)]
+            for gs, ge in zip(gap_starts, gap_ends):
+                if ge - gs > max_gap:
+                    interped[gs:ge] = np.nan
+            out[:, col] = interped
+        # Median filter
+        from scipy.ndimage import median_filter as _mf
+        for col in range(2):
+            vals = out[:, col]
+            nan_mask = np.isnan(vals)
+            if nan_mask.all():
+                continue
+            filled = vals.copy()
+            if nan_mask.any():
+                ix = np.arange(len(vals), dtype=float)
+                v = ~nan_mask
+                filled[nan_mask] = np.interp(ix[nan_mask], ix[v], vals[v])
+            out[:, col] = _mf(filled, size=window, mode="nearest")
+            out[nan_mask, col] = np.nan
+        filtered[bp] = out
+    return filtered
+
+
 def render_session(
     s3,
     exp_id: str,
@@ -286,21 +368,31 @@ def render_session(
     dry_run: bool = False,
     skip_existing: bool = False,
     no_upload: bool = False,
+    modes: list[str] | None = None,
 ) -> str | None:
-    """Render labelled video for a single session.
+    """Render labelled video(s) for a single session.
 
-    Returns the S3 key of the uploaded video, local path if no_upload, or
-    "skipped"/"dry-run" for those modes. None on failure.
+    Parameters
+    ----------
+    modes : list of mode names to render. Default: all three
+        ("raw", "median", "pipeline").
+
+    Returns the S3 key of the last uploaded video, or None on failure.
     """
+    if modes is None:
+        modes = list(RENDER_MODES.keys())
+
     sub, ses = parse_exp_id(exp_id)
-    log.info("Processing %s (%s/%s)", exp_id, sub, ses)
+    log.info("Processing %s (%s/%s) modes=%s", exp_id, sub, ses, modes)
 
-    upload_key = f"pose/{sub}/{ses}/labelled_30fps.mp4"
-
-    # Check if already exists on S3
+    # Check if all modes already exist
     if skip_existing and not no_upload:
-        if s3_key_exists(s3, DERIV_BUCKET, upload_key):
-            log.info("  Skipping — already exists on S3")
+        all_exist = all(
+            s3_key_exists(s3, DERIV_BUCKET, f"pose/{sub}/{ses}/{RENDER_MODES[m]}")
+            for m in modes
+        )
+        if all_exist:
+            log.info("  Skipping — all modes exist on S3")
             return "skipped"
 
     # --- Find S3 keys ---
@@ -323,10 +415,9 @@ def render_session(
         return None
 
     if dry_run:
-        log.info("  [DRY RUN] Would process:")
-        log.info("    Video: s3://%s/%s", RAWDATA_BUCKET, video_key)
-        log.info("    Pose:  s3://%s/%s", DERIV_BUCKET, pose_key)
-        log.info("    Output: s3://%s/%s", DERIV_BUCKET, upload_key)
+        for m in modes:
+            log.info("  [DRY RUN] %s → s3://%s/pose/%s/%s/%s",
+                     m, DERIV_BUCKET, sub, ses, RENDER_MODES[m])
         return "dry-run"
 
     log.info("  Video: %s", video_key)
@@ -345,10 +436,17 @@ def render_session(
         log.info("  Loading DLC data...")
         df = pd.read_hdf(pose_local)
         df = convert_madlc_to_single(df)
-        keypoints = extract_keypoints(df)
+        keypoints_raw = extract_keypoints(df)
         n_dlc_frames = len(df)
         log.info("  DLC frames: %d, bodyparts: %s",
-                 n_dlc_frames, list(keypoints.keys()))
+                 n_dlc_frames, list(keypoints_raw.keys()))
+
+        # Build filtered keypoint variants
+        keypoints_by_mode = {"raw": keypoints_raw}
+        if "median" in modes:
+            keypoints_by_mode["median"] = _apply_median_filter(keypoints_raw)
+        if "pipeline" in modes:
+            keypoints_by_mode["pipeline"] = _apply_pipeline_filter(keypoints_raw)
 
         # Open video
         cap = cv2.VideoCapture(str(video_local))
@@ -361,105 +459,107 @@ def render_session(
         orig_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         scale_x = OUTPUT_WIDTH / orig_w
         scale_y = OUTPUT_HEIGHT / orig_h
-        log.info("  Video: %d frames (%dx%d), DLC: %d frames, scale: %.3f x %.3f",
-                 total_video_frames, orig_w, orig_h, n_dlc_frames, scale_x, scale_y)
+        log.info("  Video: %d frames (%dx%d), rendering %d modes",
+                 total_video_frames, orig_w, orig_h, len(modes))
 
-        # Determine output path
-        if no_upload:
-            out_path = LOCAL_OUTPUT_DIR / sub / ses / "labelled_30fps.mp4"
-            out_path.parent.mkdir(parents=True, exist_ok=True)
-        else:
-            out_path = tmp / "labelled_30fps.mp4"
-
-        # Build mapping: DLC frame index → raw video frame index.
-        # ffmpeg -r 30 on 100fps picks evenly spaced frames.
+        # Build frame index mapping
         raw_fps = cap.get(cv2.CAP_PROP_FPS) or 100.0
         target_raw_frames = [
             round(i * raw_fps / OUTPUT_FPS) for i in range(n_dlc_frames)
         ]
-
-        # Pipe directly to ffmpeg for H.264 encoding (avoids writing huge
-        # intermediate mp4v file then re-encoding).
-        import shutil as _shutil
-        import subprocess
-
-        use_ffmpeg = bool(_shutil.which("ffmpeg"))
-        if use_ffmpeg:
-            ffmpeg_cmd = [
-                "ffmpeg", "-y",
-                "-f", "rawvideo", "-pix_fmt", "bgr24",
-                "-s", f"{OUTPUT_WIDTH}x{OUTPUT_HEIGHT}",
-                "-r", str(OUTPUT_FPS),
-                "-i", "pipe:0",
-                "-c:v", "libx264", "-crf", "28", "-preset", "fast",
-                "-movflags", "+faststart",
-                str(out_path),
-            ]
-            ffproc = subprocess.Popen(
-                ffmpeg_cmd, stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            )
-            writer = None
-        else:
-            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-            writer = cv2.VideoWriter(
-                str(out_path), fourcc, OUTPUT_FPS,
-                (OUTPUT_WIDTH, OUTPUT_HEIGHT),
-            )
-            ffproc = None
-
-        # Read frames sequentially (much faster than seeking per frame).
-        # Precompute which raw frames we need as a set for O(1) lookup.
-        needed_raw = {}  # raw_frame_idx → dlc_frame_idx
+        needed_raw = {}
         for dlc_idx, raw_idx in enumerate(target_raw_frames):
             needed_raw[raw_idx] = dlc_idx
         max_raw = max(needed_raw) if needed_raw else 0
 
+        # Open one ffmpeg pipe per mode (single video read, multiple outputs)
+        import shutil as _shutil
+        import subprocess
+
+        use_ffmpeg = bool(_shutil.which("ffmpeg"))
+        pipes = {}  # mode → (out_path, ffproc or writer)
+        for m in modes:
+            fname = RENDER_MODES[m]
+            if no_upload:
+                out_path = LOCAL_OUTPUT_DIR / sub / ses / fname
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+            else:
+                out_path = tmp / fname
+
+            if use_ffmpeg:
+                ffproc = subprocess.Popen(
+                    ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
+                     "-s", f"{OUTPUT_WIDTH}x{OUTPUT_HEIGHT}", "-r", str(OUTPUT_FPS),
+                     "-i", "pipe:0", "-c:v", "libx264", "-crf", "28",
+                     "-preset", "fast", "-movflags", "+faststart", str(out_path)],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                pipes[m] = (out_path, ffproc, None)
+            else:
+                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                writer = cv2.VideoWriter(
+                    str(out_path), fourcc, OUTPUT_FPS,
+                    (OUTPUT_WIDTH, OUTPUT_HEIGHT),
+                )
+                pipes[m] = (out_path, None, writer)
+
+        # Single-pass render: read each frame once, draw for each mode
         written = 0
         raw_idx = 0
         while raw_idx <= max_raw:
-            ret, frame = cap.read()
+            ret, frame_orig = cap.read()
             if not ret:
                 break
 
             if raw_idx in needed_raw:
                 dlc_frame_idx = needed_raw[raw_idx]
-                # Resize first (smaller = faster drawing)
-                frame = cv2.resize(
-                    frame, (OUTPUT_WIDTH, OUTPUT_HEIGHT),
+                frame_resized = cv2.resize(
+                    frame_orig, (OUTPUT_WIDTH, OUTPUT_HEIGHT),
                     interpolation=cv2.INTER_AREA,
                 )
-                frame = draw_frame(frame, keypoints, dlc_frame_idx,
-                                   scale_x=scale_x, scale_y=scale_y)
 
-                if ffproc is not None:
-                    ffproc.stdin.write(frame.tobytes())
-                else:
-                    writer.write(frame)
+                for m in modes:
+                    frame_copy = frame_resized.copy()
+                    kps = keypoints_by_mode[m]
+                    frame_copy = draw_frame(frame_copy, kps, dlc_frame_idx,
+                                            scale_x=scale_x, scale_y=scale_y)
+
+                    out_path, ffproc, writer = pipes[m]
+                    if ffproc is not None:
+                        ffproc.stdin.write(frame_copy.tobytes())
+                    else:
+                        writer.write(frame_copy)
+
                 written += 1
-
                 if written % 5000 == 0:
                     log.info("  Rendered %d / %d frames", written, n_dlc_frames)
 
             raw_idx += 1
 
         cap.release()
-        if ffproc is not None:
-            ffproc.stdin.close()
-            ffproc.wait()
-        if writer is not None:
-            writer.release()
-        log.info("  Wrote %d frames to %s", written, out_path.name)
+        for m in modes:
+            out_path, ffproc, writer = pipes[m]
+            if ffproc is not None:
+                ffproc.stdin.close()
+                ffproc.wait()
+            if writer is not None:
+                writer.release()
+        log.info("  Wrote %d frames × %d modes", written, len(modes))
 
-        # Upload
-        if no_upload:
-            log.info("  Saved locally: %s", out_path)
-            return str(out_path)
+        # Upload all modes
+        last_key = None
+        for m in modes:
+            out_path = pipes[m][0]
+            upload_key = f"pose/{sub}/{ses}/{RENDER_MODES[m]}"
+            if no_upload:
+                log.info("  Saved locally: %s", out_path)
+            else:
+                log.info("  Uploading %s → s3://%s/%s", m, DERIV_BUCKET, upload_key)
+                s3.upload_file(str(out_path), DERIV_BUCKET, upload_key)
+                last_key = upload_key
 
-        log.info("  Uploading to s3://%s/%s", DERIV_BUCKET, upload_key)
-        s3.upload_file(str(out_path), DERIV_BUCKET, upload_key)
-        log.info("  Upload complete")
-        return upload_key
+        return last_key or str(pipes[modes[0]][0])
 
 
 # ---------------------------------------------------------------------------
