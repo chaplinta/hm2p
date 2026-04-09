@@ -68,9 +68,16 @@ cd hm2p
 # Don't pip install -e . (requires Python >=3.11, AMI has 3.10).
 # Add src/ to PYTHONPATH instead.
 export PYTHONPATH=/home/ubuntu/hm2p/src:$PYTHONPATH
+
+# Run downstream stages and video rendering IN PARALLEL.
+# Video rendering only needs pose/ h5 files (already promoted).
+# Downstream needs pose/ for kinematics but doesn't touch videos.
+echo "=== Starting video rendering in background ==="
+python3 scripts/render_dlc_videos.py --all -v &
+RENDER_PID=$!
 {downstream_cmd}
-echo "=== Rendering labelled videos ==="
-python3 scripts/render_dlc_videos.py --all -v
+echo "=== Waiting for video rendering to finish ==="
+wait $RENDER_PID || echo "WARNING: render_dlc_videos.py exited with error"
 
 # Update progress
 python3 -c "
