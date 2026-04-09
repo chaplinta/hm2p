@@ -130,23 +130,37 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
 
         # Aggressive augmentation for overhead mouse tracking with
         # light/dark alternation and high pose variability.
+        # Enable ImageNet pretraining (DLC HRNet template defaults to false)
+        if "model" in pcfg and "backbone" in pcfg["model"]:
+            pcfg["model"]["backbone"]["pretrained"] = True
+            print("  backbone.pretrained = True (ImageNet)")
+
+        # Augmentation: tuned for overhead mouse with light/dark and 184 frames.
+        # Moderate augmentation — strong enough for generalisation but not so
+        # extreme that the model rarely sees natural examples.
         if "data" in pcfg and "train" in pcfg["data"]:
             aug = pcfg["data"]["train"]
             if "affine" not in aug:
                 aug["affine"] = {}
-            aug["affine"]["rotation"] = 180
-            aug["affine"]["scaling"] = [0.25, 2.5]
-            aug["affine"]["translation"] = 40  # pixels (not fraction — albumentations needs int)
-            aug["affine"]["p"] = 0.8
-            aug["brightness"] = {"p": 0.7, "limit": 0.6}
-            aug["contrast"] = {"p": 0.7, "limit": 0.6}
+            aug["affine"]["rotation"] = 45          # ±45° (was ±180° — too extreme)
+            aug["affine"]["scaling"] = [0.7, 1.4]   # ±30-40% (was 0.25-2.5x)
+            aug["affine"]["translation"] = 30       # pixels
+            aug["affine"]["p"] = 0.7
+            # Brightness/contrast: keep strong — critical for light on/off
+            aug["brightness"] = {"p": 0.5, "limit": 0.4}
+            aug["contrast"] = {"p": 0.5, "limit": 0.4}
+            # Flips: keep — mouse is symmetric from above
             aug["horizontal_flip"] = {"p": 0.5}
             aug["vertical_flip"] = {"p": 0.5}
-            aug["gaussian_noise"] = 30.0
+            # Noise: moderate
+            aug["gaussian_noise"] = 15.0            # was 30 — too much
             aug["motion_blur"] = True
+            # Colour jitter: helps with varying illumination across sessions
+            aug["hue_saturation"] = {"p": 0.3, "hue_shift_limit": 10,
+                                     "sat_shift_limit": 20, "val_shift_limit": 20}
             print(
-                f"  Augmentation: rot=±180°, scale=0.25-2.5x, "
-                f"brightness/contrast=±60%, hflip+vflip, noise=30"
+                f"  Augmentation: rot=±45°, scale=0.7-1.4x, "
+                f"brightness/contrast=±40%, hflip+vflip, noise=15, hue/sat jitter"
             )
 
         with open(pcfg_path, "w") as f:
