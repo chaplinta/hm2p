@@ -155,12 +155,10 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
             # Noise: moderate
             aug["gaussian_noise"] = 15.0            # was 30 — too much
             aug["motion_blur"] = True
-            # Colour jitter: helps with varying illumination across sessions
-            aug["hue_saturation"] = {"p": 0.3, "hue_shift_limit": 10,
-                                     "sat_shift_limit": 20, "val_shift_limit": 20}
+            # No hue/saturation jitter — images are grayscale (IR overhead camera)
             print(
                 f"  Augmentation: rot=±45°, scale=0.7-1.4x, "
-                f"brightness/contrast=±40%, hflip+vflip, noise=15, hue/sat jitter"
+                f"brightness/contrast=±40%, hflip+vflip, noise=15"
             )
 
         with open(pcfg_path, "w") as f:
