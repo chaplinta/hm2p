@@ -161,12 +161,6 @@ PIPELINE_STAGES = {
         "s3_prefix": "pose",
         "expected": 26,
     },
-    "pose_finetuned": {
-        "label": "Stage 2b' — DLC Re-inference",
-        "short": "DLC Retrain Infer",
-        "s3_prefix": "pose-finetuned",
-        "expected": 26,
-    },
     "kinematics": {
         "label": "Stage 3 — Kinematics",
         "short": "Kinematics",
@@ -302,9 +296,6 @@ def get_stage_summary() -> dict[str, dict]:
         elif key == "dlc_training":
             # DLC Training: check for trained model weights on S3
             done = _count_dlc_training_outputs()
-        elif key == "pose_finetuned":
-            # DLC Re-inference: count sessions under pose-finetuned/ on S3
-            done = _count_pose_finetuned_outputs()
         else:
             done = sum(
                 1 for s in pipeline_status.values() if s.get(key, False)
