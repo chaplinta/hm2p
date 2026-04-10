@@ -62,6 +62,19 @@ def load_session_data(session_dir: Path) -> dict:
     if not images:
         return None
 
+    # Pad images to the same size (some sessions have mixed resolutions)
+    max_h = max(img.shape[0] for img in images)
+    max_w = max(img.shape[1] for img in images)
+    padded = []
+    for img in images:
+        if img.shape[0] != max_h or img.shape[1] != max_w:
+            pad = np.zeros((max_h, max_w, 3), dtype=img.dtype)
+            pad[:img.shape[0], :img.shape[1]] = img
+            padded.append(pad)
+        else:
+            padded.append(img)
+    images = padded
+
     # Load existing labels
     labels = {}  # bodypart -> list of (frame_idx, x, y) or None per frame
     csv_files = list(session_dir.glob("CollectedData_*.csv"))
