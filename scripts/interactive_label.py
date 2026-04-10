@@ -52,14 +52,22 @@ def scan_sessions() -> list[dict]:
         if not pngs:
             continue
 
-        # Count existing labels
+        # Count existing labels (rows with at least one non-NaN coordinate)
         n_labelled = 0
         for csv_f in d.glob("CollectedData_*.csv"):
             try:
                 df = pd.read_csv(csv_f, header=[0, 1, 2], index_col=0)
-                n_labelled = len(df)
+                # Count rows that have at least one labelled bodypart
+                n_labelled = int((~df.isna().all(axis=1)).sum())
             except Exception:
                 pass
+        if n_labelled == 0:
+            for h5_f in d.glob("CollectedData_*.h5"):
+                try:
+                    df = pd.read_hdf(h5_f)
+                    n_labelled = int((~df.isna().all(axis=1)).sum())
+                except Exception:
+                    pass
 
         sessions.append({
             "dir": d,
