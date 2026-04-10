@@ -214,7 +214,7 @@ def main():
                 pts,
                 name=bp,
                 face_color=COLORS.get(bp, [1, 1, 1, 1]),
-                edge_color="white",
+                border_color="white",
                 size=8,
                 ndim=3,
             )
