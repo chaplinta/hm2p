@@ -336,60 +336,153 @@ def main():
 
     print(f"Total: {total} frames across {len(all_selected)} sessions")
 
-    if args.dry_run:
-        print("\n[DRY RUN] — no frames extracted. Run without --dry-run to extract.")
-        print("\nRun without --dry-run to extract frames.")
-        print("Run with --label to extract AND open napari for each session.")
-        return
-
     # Save selection as JSON
     output_path = Path("retrain_frames/_next_batch.json")
     output_path.parent.mkdir(exist_ok=True)
     output_path.write_text(json.dumps(all_selected, indent=2, default=str))
     print(f"\nSaved selection to {output_path}")
 
-    if not args.label:
-        # Just print commands
-        print(f"\n{'='*60}")
-        print("Run these commands to extract and label the frames:")
-        print(f"{'='*60}\n")
-
-        for tag, info in all_selected.items():
-            frames_str = " ".join(str(f) for f in info["frames"])
-            print(f"uv run python scripts/prepare_retrain_frames.py "
-                  f"{info['sub']}/{info['ses']} {frames_str}")
-
-        print(f"\nOr run with --label to do it all automatically:")
-        print(f"  uv run python scripts/select_labelling_frames.py --n {args.n} --label")
+    if args.dry_run:
+        print("\n[DRY RUN] — no frames extracted.")
         return
 
-    # --label mode: extract frames and open napari for each session
+    # Extract frames for all sessions (no napari unless --label)
     import subprocess
+    import shutil
 
     print(f"\n{'='*60}")
-    print(f"Extracting and labelling {total} frames across {len(all_selected)} sessions.")
-    print(f"Napari will open for each session. Label all frames, then close napari")
-    print(f"to move to the next session.")
+    if args.label:
+        print(f"Extracting and labelling {total} frames across {len(all_selected)} sessions.")
+        print(f"Napari will open for each session — label frames, close to continue.")
+    else:
+        print(f"Extracting {total} frames across {len(all_selected)} sessions.")
     print(f"{'='*60}\n")
 
     for i, (tag, info) in enumerate(all_selected.items(), 1):
-        frames_str = " ".join(str(f) for f in info["frames"])
-        print(f"\n[{i}/{len(all_selected)}] {info['exp_id']} — {len(info['frames'])} frames")
-        print(f"  Running prepare_retrain_frames.py...")
+        print(f"[{i}/{len(all_selected)}] {info['exp_id']} — {len(info['frames'])} frames")
 
-        cmd = [
-            sys.executable, "scripts/prepare_retrain_frames.py",
-            f"{info['sub']}/{info['ses']}", *[str(f) for f in info["frames"]],
-        ]
-        result = subprocess.run(cmd)
-        if result.returncode != 0:
-            print(f"  WARNING: prepare_retrain_frames exited with code {result.returncode}")
+        sub, ses = info["sub"], info["ses"]
+        session_tag = f"{sub}_{ses}"
+
+        # Download video from S3 and extract frames
+        # (reuse prepare_retrain_frames logic but without napari)
+        rf_dir = RETRAIN_DIR / session_tag
+        rf_dir.mkdir(parents=True, exist_ok=True)
+
+        # Check which frames already exist
+        new_frames = []
+        for idx in info["frames"]:
+            png = rf_dir / f"frame_{int(idx):06d}.png"
+            if not png.exists():
+                new_frames.append(idx)
+
+        if not new_frames:
+            print(f"  All {len(info['frames'])} frames already extracted, skipping download")
+        else:
+            print(f"  Extracting {len(new_frames)} new frames ({len(info['frames']) - len(new_frames)} already exist)")
+
+            # Download video
+            video_dir = Path(f"/tmp/{session_tag}")
+            video_dir.mkdir(parents=True, exist_ok=True)
+            s3_prefix = f"rawdata/{sub}/{ses}/behav/"
+            resp = s3.list_objects_v2(Bucket=RAWDATA_BUCKET, Prefix=s3_prefix, MaxKeys=20)
+            video_path = None
+            for obj in resp.get("Contents", []):
+                fn = obj["Key"].split("/")[-1]
+                if fn.endswith(".mp4") and "side" not in fn.lower():
+                    local = video_dir / fn
+                    if not local.exists():
+                        s3.download_file(RAWDATA_BUCKET, obj["Key"], str(local))
+                    if "overhead" in fn or "cropped" in fn:
+                        video_path = local
+                    elif video_path is None:
+                        video_path = local
+
+            if video_path is None:
+                print(f"  ERROR: no video found, skipping")
+                continue
+
+            # Extract frames
+            import cv2
+            cap = cv2.VideoCapture(str(video_path))
+            for idx in sorted(new_frames):
+                cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+                ret, frame = cap.read()
+                if ret:
+                    cv2.imwrite(str(rf_dir / f"frame_{int(idx):06d}.png"), frame)
+            cap.release()
+            print(f"  Extracted {len(new_frames)} frames to {rf_dir}/")
+
+        # Copy frames to labeled-data dir
+        # Find or create the labeled-data session folder
+        if LABELED_DIR.exists():
+            # Find matching video stem
+            video_stem = None
+            for ld in LABELED_DIR.iterdir():
+                if ld.is_dir() and session_tag.split("_")[0].replace("sub-", "") in ld.name:
+                    # Match by date component
+                    ses_date = ses.replace("ses-", "").split("T")[0]
+                    if ses_date in ld.name:
+                        video_stem = ld.name
+                        break
+
+            if video_stem:
+                ld_dir = LABELED_DIR / video_stem
+            else:
+                # Create new — use first mp4 stem
+                if video_path:
+                    video_stem = video_path.stem
+                    ld_dir = LABELED_DIR / video_stem
+                    ld_dir.mkdir(parents=True, exist_ok=True)
+                else:
+                    ld_dir = None
+
+            if ld_dir and ld_dir.exists():
+                copied = 0
+                for png in rf_dir.glob("frame_*.png"):
+                    dest = ld_dir / png.name
+                    if not dest.exists():
+                        shutil.copy2(png, dest)
+                        copied += 1
+                if copied:
+                    print(f"  Copied {copied} new frames to labeled-data/")
+
+        # Save frame indices to metadata
+        meta_dir = Path("metadata/retrain_frames")
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        meta_file = meta_dir / f"{session_tag}.json"
+        existing_indices = set()
+        if meta_file.exists():
+            existing_data = json.loads(meta_file.read_text())
+            existing_indices = set(existing_data.get("frame_indices", []))
+        all_indices = sorted(existing_indices | set(info["frames"]))
+        meta_file.write_text(json.dumps({
+            "session": f"{sub}/{ses}",
+            "frame_indices": all_indices,
+            "n_frames": len(all_indices),
+        }, indent=2))
+
+        # Open napari if --label
+        if args.label:
+            cmd = [
+                sys.executable, "scripts/prepare_retrain_frames.py",
+                f"{sub}/{ses}", *[str(f) for f in info["frames"]],
+            ]
+            subprocess.run(cmd)
 
     print(f"\n{'='*60}")
-    print(f"Labelling complete! {total} frames across {len(all_selected)} sessions.")
-    print(f"\nNext steps:")
-    print(f"  uv run python scripts/upload_dlc_labels.py")
-    print(f"  uv run python scripts/launch_dlc_finetune_ec2.py")
+    print(f"Done! {total} frames across {len(all_selected)} sessions.")
+    if args.label:
+        print(f"\nNext steps:")
+        print(f"  uv run python scripts/upload_dlc_labels.py")
+        print(f"  uv run python scripts/launch_dlc_finetune_ec2.py")
+    else:
+        print(f"\nFrames extracted. To label them:")
+        print(f"  uv run python scripts/select_labelling_frames.py --n {args.n} --label")
+        print(f"\nOr label manually per session:")
+        for tag, info in all_selected.items():
+            frames_str = " ".join(str(f) for f in info["frames"])
+            print(f"  uv run python scripts/prepare_retrain_frames.py {info['sub']}/{info['ses']} {frames_str}")
     print(f"{'='*60}")
 
 
