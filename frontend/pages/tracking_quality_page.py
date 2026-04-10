@@ -544,8 +544,8 @@ st.markdown("**Run on your Mac:**")
 st.code(
     f"# Preview selection (no files created)\n"
     f"uv run python scripts/select_labelling_frames.py --n {n_auto} --dry-run\n\n"
-    f"# Select and show prepare_retrain_frames commands\n"
-    f"uv run python scripts/select_labelling_frames.py --n {n_auto}",
+    f"# Select, extract, and label all frames (opens napari per session)\n"
+    f"uv run python scripts/select_labelling_frames.py --n {n_auto} --label",
     language="bash",
 )
 

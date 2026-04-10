@@ -211,6 +211,8 @@ def main():
                         help="Min frame spacing within a session")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show selection without extracting frames")
+    parser.add_argument("--label", action="store_true",
+                        help="Extract frames AND open napari for each session")
     args = parser.parse_args()
 
     s3 = boto3.client("s3", region_name=REGION)
@@ -336,23 +338,59 @@ def main():
 
     if args.dry_run:
         print("\n[DRY RUN] — no frames extracted. Run without --dry-run to extract.")
+        print("\nRun without --dry-run to extract frames.")
+        print("Run with --label to extract AND open napari for each session.")
         return
 
-    # Generate prepare_retrain_frames commands
-    print(f"\n{'='*60}")
-    print("Run these commands to extract and label the frames:")
-    print(f"{'='*60}\n")
-
-    for tag, info in all_selected.items():
-        frames_str = " ".join(str(f) for f in info["frames"])
-        print(f"uv run python scripts/prepare_retrain_frames.py "
-              f"{info['sub']}/{info['ses']} {frames_str}")
-
-    # Also save as JSON for automation
+    # Save selection as JSON
     output_path = Path("retrain_frames/_next_batch.json")
     output_path.parent.mkdir(exist_ok=True)
     output_path.write_text(json.dumps(all_selected, indent=2, default=str))
     print(f"\nSaved selection to {output_path}")
+
+    if not args.label:
+        # Just print commands
+        print(f"\n{'='*60}")
+        print("Run these commands to extract and label the frames:")
+        print(f"{'='*60}\n")
+
+        for tag, info in all_selected.items():
+            frames_str = " ".join(str(f) for f in info["frames"])
+            print(f"uv run python scripts/prepare_retrain_frames.py "
+                  f"{info['sub']}/{info['ses']} {frames_str}")
+
+        print(f"\nOr run with --label to do it all automatically:")
+        print(f"  uv run python scripts/select_labelling_frames.py --n {args.n} --label")
+        return
+
+    # --label mode: extract frames and open napari for each session
+    import subprocess
+
+    print(f"\n{'='*60}")
+    print(f"Extracting and labelling {total} frames across {len(all_selected)} sessions.")
+    print(f"Napari will open for each session. Label all frames, then close napari")
+    print(f"to move to the next session.")
+    print(f"{'='*60}\n")
+
+    for i, (tag, info) in enumerate(all_selected.items(), 1):
+        frames_str = " ".join(str(f) for f in info["frames"])
+        print(f"\n[{i}/{len(all_selected)}] {info['exp_id']} — {len(info['frames'])} frames")
+        print(f"  Running prepare_retrain_frames.py...")
+
+        cmd = [
+            sys.executable, "scripts/prepare_retrain_frames.py",
+            f"{info['sub']}/{info['ses']}", *[str(f) for f in info["frames"]],
+        ]
+        result = subprocess.run(cmd)
+        if result.returncode != 0:
+            print(f"  WARNING: prepare_retrain_frames exited with code {result.returncode}")
+
+    print(f"\n{'='*60}")
+    print(f"Labelling complete! {total} frames across {len(all_selected)} sessions.")
+    print(f"\nNext steps:")
+    print(f"  uv run python scripts/upload_dlc_labels.py")
+    print(f"  uv run python scripts/launch_dlc_finetune_ec2.py")
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":
