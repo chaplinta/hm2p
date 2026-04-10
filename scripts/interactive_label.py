@@ -52,20 +52,23 @@ def scan_sessions() -> list[dict]:
         if not pngs:
             continue
 
-        # Count existing labels (rows with at least one non-NaN coordinate)
+        # Count existing labels
         n_labelled = 0
-        for csv_f in d.glob("CollectedData_*.csv"):
+        for h5_f in d.glob("CollectedData_*.h5"):
             try:
-                df = pd.read_csv(csv_f, header=[0, 1, 2], index_col=0)
-                # Count rows that have at least one labelled bodypart
+                df = pd.read_hdf(h5_f)
+                # Count rows with at least one non-NaN coordinate
                 n_labelled = int((~df.isna().all(axis=1)).sum())
+                break
             except Exception:
                 pass
         if n_labelled == 0:
-            for h5_f in d.glob("CollectedData_*.h5"):
+            for csv_f in d.glob("CollectedData_*.csv"):
                 try:
-                    df = pd.read_hdf(h5_f)
+                    # DLC CSV: 3 header rows, first 3 columns are tuple index
+                    df = pd.read_csv(csv_f, header=[0, 1, 2], index_col=[0, 1, 2])
                     n_labelled = int((~df.isna().all(axis=1)).sum())
+                    break
                 except Exception:
                     pass
 
@@ -80,7 +83,7 @@ def scan_sessions() -> list[dict]:
 
 
 def label_session(session_dir: Path):
-    """Open napari for a single session with all frames + existing labels."""
+    """Open napari for a single session — single layer, colour-coded bodyparts."""
     import cv2
     import napari
 
@@ -116,24 +119,21 @@ def label_session(session_dir: Path):
 
     stack = np.stack(padded)
 
-    # Load existing labels
-    existing_labels = {}
-    csv_files = list(session_dir.glob("CollectedData_*.csv"))
-    h5_files = list(session_dir.glob("CollectedData_*.h5"))
+    # Load existing labels from H5 (more reliable than CSV parsing)
     df = None
-    if h5_files:
+    for h5_f in session_dir.glob("CollectedData_*.h5"):
         try:
-            df = pd.read_hdf(h5_files[0])
-        except Exception:
-            pass
-    if df is None and csv_files:
-        try:
-            df = pd.read_csv(csv_files[0], header=[0, 1, 2], index_col=0)
+            df = pd.read_hdf(h5_f)
+            break
         except Exception:
             pass
 
-    for bp in BODYPARTS:
-        pts = []
+    # Build single points array: (N, 3) coords + bodypart identity
+    all_pts = []      # [frame, y, x]
+    all_bp_ids = []   # bodypart index
+    all_colors = []   # face color per point
+
+    for bp_idx, bp in enumerate(BODYPARTS):
         for i, fname in enumerate(frame_names):
             if df is not None:
                 matching = [idx for idx in df.index if fname in str(idx)]
@@ -142,47 +142,94 @@ def label_session(session_dir: Path):
                         x = float(df.loc[matching[0], (SCORER, bp, "x")])
                         y = float(df.loc[matching[0], (SCORER, bp, "y")])
                         if not (np.isnan(x) or np.isnan(y)):
-                            pts.append([i, y, x])
+                            all_pts.append([i, y, x])
+                            all_bp_ids.append(bp_idx)
+                            all_colors.append(COLORS.get(bp, [1, 1, 1, 1]))
                     except (KeyError, ValueError):
                         pass
-        existing_labels[bp] = np.array(pts) if pts else np.empty((0, 3))
+
+    pts_array = np.array(all_pts) if all_pts else np.empty((0, 3))
+    colors_array = np.array(all_colors) if all_colors else np.empty((0, 4))
+    bp_ids = np.array(all_bp_ids) if all_bp_ids else np.empty(0, dtype=int)
+
+    # Current bodypart for new points
+    current_bp = [0]
 
     # Open napari
     viewer = napari.Viewer(title=f"Label: {session_dir.name}")
     viewer.add_image(stack, name="frames")
 
-    point_layers = {}
-    for bp in BODYPARTS:
-        layer = viewer.add_points(
-            existing_labels[bp],
-            name=bp,
-            face_color=COLORS.get(bp, [1, 1, 1, 1]),
-            border_color="white",
-            size=8,
-            ndim=3,
-        )
-        point_layers[bp] = layer
+    # Single points layer
+    properties = {"bodypart": [BODYPARTS[i] for i in bp_ids]} if len(bp_ids) > 0 else {"bodypart": []}
+    layer = viewer.add_points(
+        pts_array,
+        name="labels",
+        properties=properties,
+        face_color=colors_array if len(colors_array) > 0 else COLORS[BODYPARTS[0]],
+        border_color="white",
+        size=10,
+        ndim=3,
+    )
+
+    # Status text showing current bodypart
+    def _update_title():
+        bp = BODYPARTS[current_bp[0]]
+        color_name = bp
+        viewer.title = f"Label: {session_dir.name} | Bodypart: {bp} ({current_bp[0]+1}/{len(BODYPARTS)}) | Press 1-8 to switch"
+
+    _update_title()
+
+    # When new points are added, assign current bodypart colour
+    def _on_data_change(event):
+        n_pts = len(layer.data)
+        n_props = len(layer.properties.get("bodypart", []))
+        if n_pts > n_props:
+            # New point(s) added — assign current bodypart
+            bp = BODYPARTS[current_bp[0]]
+            new_props = list(layer.properties.get("bodypart", []))
+            new_colors = list(layer.face_color) if len(layer.face_color) > 0 else []
+            while len(new_props) < n_pts:
+                new_props.append(bp)
+                new_colors.append(COLORS.get(bp, [1, 1, 1, 1]))
+            layer.properties = {"bodypart": new_props}
+            layer.face_color = np.array(new_colors)
+
+    layer.events.data.connect(_on_data_change)
+
+    # Keyboard shortcuts: 1-8 to select bodypart
+    for i in range(min(8, len(BODYPARTS))):
+        bp_idx = i
+        @viewer.bind_key(str(i + 1))
+        def _select_bp(viewer, _idx=bp_idx):
+            current_bp[0] = _idx
+            _update_title()
+
+    print(f"\n  Keyboard: 1-8 select bodypart, close window to save")
+    print(f"  Current: {BODYPARTS[0]} (press 1-8 to switch)")
 
     napari.run()
 
-    # Save on close
+    # Save on close — reconstruct per-bodypart DataFrame from single layer
     columns = pd.MultiIndex.from_tuples(
         [(SCORER, bp, coord) for bp in BODYPARTS for coord in ("x", "y")],
         names=["scorer", "bodyparts", "coords"],
     )
-    index = [
-        f"labeled-data/{session_dir.name}/{fn}"
+    index_tuples = [
+        ("labeled-data", session_dir.name, fn)
         for fn in frame_names
     ]
+    index = pd.MultiIndex.from_tuples(index_tuples)
     data = np.full((len(frame_names), len(BODYPARTS) * 2), np.nan)
 
-    for bp_idx, bp in enumerate(BODYPARTS):
-        if bp in point_layers:
-            for pt in point_layers[bp].data:
-                frame_idx = int(round(pt[0]))
-                if 0 <= frame_idx < len(frame_names):
-                    data[frame_idx, bp_idx * 2] = pt[2]      # x = col
-                    data[frame_idx, bp_idx * 2 + 1] = pt[1]  # y = row
+    bp_names = layer.properties.get("bodypart", [])
+    for pt_idx, pt in enumerate(layer.data):
+        frame_idx = int(round(pt[0]))
+        if 0 <= frame_idx < len(frame_names) and pt_idx < len(bp_names):
+            bp = bp_names[pt_idx]
+            if bp in BODYPARTS:
+                bp_i = BODYPARTS.index(bp)
+                data[frame_idx, bp_i * 2] = pt[2]      # x = col
+                data[frame_idx, bp_i * 2 + 1] = pt[1]  # y = row
 
     df_out = pd.DataFrame(data, index=index, columns=columns)
     df_out.to_csv(session_dir / f"CollectedData_{SCORER}.csv")
