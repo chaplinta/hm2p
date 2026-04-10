@@ -396,7 +396,7 @@ def _count_cascade_outputs() -> int:
         data = download_s3_bytes(DERIVATIVES_BUCKET, sample_key)
         if data:
             with _h5py.File(io.BytesIO(data), "r") as f:
-                if "spikes" in f:
+                if "deconv" in f or "spikes" in f:
                     return 26  # CASCADE runs all-or-nothing
         return 0
     except Exception:
