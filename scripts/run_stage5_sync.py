@@ -168,9 +168,9 @@ def main():
     parser = argparse.ArgumentParser(description="Run Stage 5 sync")
     parser.add_argument(
         "--session",
-        type=int,
+        type=str,
         default=None,
-        help="Process only this session index (0-based)",
+        help="Process only this session (exp_id string or 0-based index)",
     )
     parser.add_argument(
         "--dry-run",
@@ -192,7 +192,13 @@ def main():
     print(f"Work dir: {work_dir}")
 
     if args.session is not None:
-        sessions = [sessions[args.session]]
+        if args.session.isdigit():
+            sessions = [sessions[int(args.session)]]
+        else:
+            sessions = [s for s in sessions if s["exp_id"] == args.session]
+            if not sessions:
+                print(f"Session {args.session} not found")
+                sys.exit(1)
 
     results = {}
     for i, ses in enumerate(sessions):
