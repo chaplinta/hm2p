@@ -523,6 +523,49 @@ if "retrain_frames" in st.session_state:
         language="bash",
     )
 
+st.markdown("---")
+
+# ── Auto frame selection across all sessions ─────────────────────────────
+st.header("Auto-Select Frames Across All Sessions")
+
+st.markdown(
+    "Automatically find the best frames to label across **all 26 sessions** "
+    "by scoring every frame for:\n"
+    "- **Low confidence** — model is uncertain about bodypart positions\n"
+    "- **Temporal jumps** — predictions are inconsistent between consecutive frames\n"
+    "- **Unusual poses** — bodypart spread deviates from the session median\n\n"
+    "Frames are allocated across sessions (worst-tracked sessions get more), "
+    "with constraints to avoid near-duplicates and already-labelled frames."
+)
+
+n_auto = st.slider("Number of frames to select", 20, 200, 60, 10, key="auto_n")
+
+st.markdown("**Run on your Mac:**")
+st.code(
+    f"# Preview selection (no files created)\n"
+    f"uv run python scripts/select_labelling_frames.py --n {n_auto} --dry-run\n\n"
+    f"# Select and show prepare_retrain_frames commands\n"
+    f"uv run python scripts/select_labelling_frames.py --n {n_auto}",
+    language="bash",
+)
+
+with st.expander("How it works"):
+    st.markdown(
+        "The script downloads pose `.h5` files from S3 for all sessions and scores "
+        "every frame (0-1, higher = worse tracking). The score combines:\n\n"
+        "- **Confidence score (50%):** inverted mean DLC likelihood across bodyparts\n"
+        "- **Jump score (30%):** frame-to-frame bodypart displacement normalised by "
+        "median displacement — catches sudden tracking failures\n"
+        "- **Pose score (20%):** deviation of bodypart spread from median — catches "
+        "unusual postures (grooming, rearing, against walls)\n\n"
+        "Frames are then selected per session with:\n"
+        "- 2-8 frames per session (worst sessions get more)\n"
+        "- Minimum 30-frame spacing (no temporal neighbours)\n"
+        "- Position similarity rejection (no visual near-duplicates)\n"
+        "- Already-labelled frames excluded\n\n"
+        "The output is a list of `prepare_retrain_frames.py` commands — "
+        "run each one to extract frames and open napari for labelling."
+    )
 
 st.markdown("---")
 st.caption("Tracking Quality & Retraining | hm2p v2")
