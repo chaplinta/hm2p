@@ -32,14 +32,32 @@ RETRAIN_PREFIX = "dlc-retrain"
 
 
 def _get_instance_id() -> str:
-    """Return the EC2 instance ID from the metadata service, or 'unknown'."""
+    """Return the EC2 instance ID from the metadata service, or 'unknown'.
+
+    Supports IMDSv2 (token-based) with IMDSv1 fallback.
+    """
     try:
-        resp = urllib.request.urlopen(
-            "http://169.254.169.254/latest/meta-data/instance-id", timeout=2
+        # IMDSv2: acquire session token first
+        token_req = urllib.request.Request(
+            "http://169.254.169.254/latest/api/token",
+            method="PUT",
+            headers={"X-aws-ec2-metadata-token-ttl-seconds": "300"},
         )
-        return resp.read().decode().strip()
+        token = urllib.request.urlopen(token_req, timeout=2).read().decode().strip()
+        meta_req = urllib.request.Request(
+            "http://169.254.169.254/latest/meta-data/instance-id",
+            headers={"X-aws-ec2-metadata-token": token},
+        )
+        return urllib.request.urlopen(meta_req, timeout=2).read().decode().strip()
     except Exception:
-        return "unknown"
+        # IMDSv1 fallback
+        try:
+            resp = urllib.request.urlopen(
+                "http://169.254.169.254/latest/meta-data/instance-id", timeout=2
+            )
+            return resp.read().decode().strip()
+        except Exception:
+            return "unknown"
 
 
 def update_downstream_progress(

@@ -26,6 +26,7 @@ from ec2_constants import (
 )
 from ec2_utils import (
     DPKG_WAIT_SNIPPET,
+    IMDS_HELPER_SNIPPET,
     build_creds_block,
     format_cost_record_launch,
     format_cost_record_shutdown,
@@ -76,11 +77,18 @@ exec > >(tee /var/log/hm2p-downstream.log) 2>&1
 echo "=== hm2p downstream + render (CPU) ==="
 echo "Started: $(date -u)"
 
-trap 'aws s3 cp /var/log/hm2p-downstream.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_cpu_run_log.txt || true; \\
-      {cost_shutdown}
-      shutdown -h now' EXIT
-
 {creds}
+{IMDS_HELPER_SNIPPET}
+
+# Define shutdown handler as a function to avoid single-quote
+# nesting issues that break trap '...' syntax.
+_hm2p_shutdown() {{
+    aws s3 cp /var/log/hm2p-downstream.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_cpu_run_log.txt || true
+    {cost_shutdown}
+    shutdown -h now
+}}
+trap _hm2p_shutdown EXIT
+
 {heartbeat}
 {cost_launch}
 {cpu_upload}

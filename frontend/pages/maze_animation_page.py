@@ -122,12 +122,17 @@ def _build_animation_figure(
         surround_fill = "rgba(60, 60, 60, 0.55)" if not light_on[i] else "rgba(0, 0, 0, 0)"
         wall_color = "black" if light_on[i] else "rgba(200, 200, 200, 0.8)"
 
-        # Arrow line (head position → arrow tip)
-        ax = x[i] + dx[i]
-        ay = y[i] + dy[i]
+        # Arrow line (head position → arrow tip) — only if HD is valid
+        has_hd = np.isfinite(hd[i])
+        if has_hd:
+            ax = x[i] + dx[i]
+            ay = y[i] + dy[i]
 
         t_s = frame_times[i] - frame_times[0]
         t_min = t_s / 60.0
+
+        hd_text = f"HD={hd[i]:.0f}°, " if has_hd else ""
+        spd_text = f"speed={speed[i]:.1f} cm/s" if np.isfinite(speed[i]) else ""
 
         frame_data = [
             # Dark surround (grey fill covering area outside maze)
@@ -159,25 +164,25 @@ def _build_animation_figure(
                 mode="markers",
                 marker=dict(size=10, color=head_color, line=dict(color="black" if light_on[i] else "white", width=1)),
                 showlegend=False,
-                hovertext=f"t={t_min:.1f} min, HD={hd[i]:.0f}°, speed={speed[i]:.1f} cm/s",
+                hovertext=f"t={t_min:.1f} min, {hd_text}{spd_text}",
                 hoverinfo="text",
             ),
-            # HD arrow (line from head to arrow tip)
+            # HD arrow (line from head to arrow tip) — empty if HD is NaN
             go.Scatter(
-                x=[x[i], ax], y=[y[i], ay],
+                x=[x[i], ax] if has_hd else [], y=[y[i], ay] if has_hd else [],
                 mode="lines",
                 line=dict(color="deepskyblue" if not light_on[i] else "blue", width=2),
                 showlegend=False, hoverinfo="skip",
             ),
-            # Arrowhead (small triangle marker at tip)
+            # Arrowhead (small triangle marker at tip) — empty if HD is NaN
             go.Scatter(
-                x=[ax], y=[ay],
+                x=[ax] if has_hd else [], y=[ay] if has_hd else [],
                 mode="markers",
                 marker=dict(
                     size=8,
                     color="deepskyblue" if not light_on[i] else "blue",
                     symbol="arrow",
-                    angle=-(hd[i] % 360),  # Plotly arrow angles are CCW from right
+                    angle=-(hd[i] % 360) if has_hd else 0,
                 ),
                 showlegend=False, hoverinfo="skip",
             ),
@@ -185,7 +190,7 @@ def _build_animation_figure(
         frames.append(go.Frame(
             data=frame_data,
             name=str(i),
-            layout=go.Layout(title_text=f"t = {t_min:.1f} min | HD = {hd[i]:.0f}° | {speed[i]:.1f} cm/s | {'Light' if light_on[i] else 'Dark'}"),
+            layout=go.Layout(title_text=f"t = {t_min:.1f} min | {f'HD = {hd[i]:.0f}° | ' if has_hd else ''}{f'{speed[i]:.1f} cm/s | ' if np.isfinite(speed[i]) else ''}{'Light' if light_on[i] else 'Dark'}"),
         ))
 
     # Initial frame
@@ -278,7 +283,7 @@ def _page() -> None:
         with c1:
             trail_s = st.slider("Trail length (s)", 1.0, 30.0, 10.0, 1.0, key="maze_anim_trail")
         with c2:
-            subsample = st.slider("Subsample (every N frames)", 1, 30, 10, 1, key="maze_anim_sub",
+            subsample = st.slider("Subsample (every N frames)", 1, 30, 1, 1, key="maze_anim_sub",
                                   help="Higher = faster animation, fewer frames. At ~9.6 Hz imaging, step=10 gives ~1 Hz playback.")
         with c3:
             arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
@@ -292,10 +297,17 @@ def _page() -> None:
     light_on = ses["light_on"]
     frame_times = ses["frame_times"]
 
-    valid = np.isfinite(x_maze) & np.isfinite(y_maze) & np.isfinite(hd_deg) & ~ses["bad_behav"]
+    valid = np.isfinite(x_maze) & np.isfinite(y_maze) & ~ses["bad_behav"]
     if valid.sum() < 10:
         st.warning("Not enough valid position data for this session.")
         st.stop()
+
+    n_hd_valid = (valid & np.isfinite(hd_deg)).sum()
+    if n_hd_valid < valid.sum() * 0.5:
+        st.info(
+            f"HD data available for {n_hd_valid}/{valid.sum()} position frames. "
+            "Arrow will only appear when HD is valid."
+        )
 
     total_dur_s = frame_times[valid][-1] - frame_times[valid][0]
     total_dur_min = total_dur_s / 60.0
@@ -305,7 +317,7 @@ def _page() -> None:
     time_range = st.slider(
         "Time range (minutes)",
         0.0, float(np.ceil(total_dur_min)),
-        (0.0, min(2.0, float(np.ceil(total_dur_min)))),
+        (0.0, float(np.ceil(total_dur_min))),
         0.1,
         key="maze_anim_time",
         help="Select a time window to animate. Shorter windows render faster.",

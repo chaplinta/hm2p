@@ -35,6 +35,7 @@ from ec2_constants import (
 from ec2_utils import (
     APT_INSTALL_SNIPPET,
     DPKG_WAIT_SNIPPET,
+    IMDS_HELPER_SNIPPET,
     PYTORCH_CUDA_INSTALL_SNIPPET,
     build_creds_block,
     format_cost_record_launch,
@@ -98,12 +99,19 @@ exec > >(tee /var/log/hm2p-dlc-retrain.log) 2>&1
 echo "=== DLC retrain ({mode_label}, GPU enforced, 24h timeout) ==="
 echo "Started: $(date -u)"
 
-trap 'aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_run_log.txt || true; \\
-      aws s3 cp /var/log/gpu_monitor.csv s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_monitor.csv || true; \\
-      {cost_shutdown}
-      shutdown -h now' EXIT
-
 {creds}
+{IMDS_HELPER_SNIPPET}
+
+# Define shutdown handler as a function to avoid single-quote
+# nesting issues that break trap '...' syntax.
+_hm2p_shutdown() {{
+    aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_run_log.txt || true
+    aws s3 cp /var/log/gpu_monitor.csv s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_monitor.csv || true
+    {cost_shutdown}
+    shutdown -h now
+}}
+trap _hm2p_shutdown EXIT
+
 {heartbeat}
 {cost_launch}
 {DPKG_WAIT_SNIPPET}

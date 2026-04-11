@@ -88,9 +88,24 @@ CPU_UPLOAD_PID=$!
 echo "Periodic log upload started (PID=$CPU_UPLOAD_PID, interval=5min)"
 """
 
+IMDS_HELPER_SNIPPET = """
+# === IMDSv2-compatible metadata fetch ===
+_ec2_metadata() {
+    local _TOKEN
+    _TOKEN=$(curl -sX PUT "http://169.254.169.254/latest/api/token" \\
+        -H "X-aws-ec2-metadata-token-ttl-seconds: 300" 2>/dev/null) || true
+    if [ -n "$_TOKEN" ]; then
+        curl -s -H "X-aws-ec2-metadata-token: $_TOKEN" \\
+            "http://169.254.169.254/latest/meta-data/$1" 2>/dev/null
+    else
+        curl -s "http://169.254.169.254/latest/meta-data/$1" 2>/dev/null
+    fi
+}
+"""
+
 HEARTBEAT_SNIPPET = """
 # === Instance heartbeat (60s interval) ===
-INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+INSTANCE_ID=$(_ec2_metadata instance-id)
 LAUNCH_TIME=$(date +%s)
 (while true; do
     UPTIME=$(( $(date +%s) - LAUNCH_TIME ))
@@ -108,7 +123,7 @@ echo "Heartbeat started (PID=$HEARTBEAT_PID)"
 
 COST_RECORD_LAUNCH_SNIPPET = """
 # === Cost record — launch event ===
-_CR_INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+_CR_INSTANCE_ID=$(_ec2_metadata instance-id)
 _CR_LAUNCH_TIME_EPOCH=$(date +%s)
 _CR_LAUNCH_TIME_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 _CR_GIT_SHA=$(git -C /home/ubuntu/hm2p rev-parse --short HEAD 2>/dev/null || echo "unknown")
