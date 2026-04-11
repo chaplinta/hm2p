@@ -568,4 +568,62 @@ with st.expander("How it works"):
     )
 
 st.markdown("---")
+
+# ── Interactive labeller ─────────────────────────────────────────────────
+st.header("Interactive Labeller")
+
+st.markdown(
+    "Open a custom napari labeller that shows all sessions with existing "
+    "labels. Pick a session from a menu, label/edit bodyparts, close napari "
+    "to save, then pick the next session."
+)
+
+st.markdown("**Run on your Mac:**")
+st.code(
+    "# Interactive menu — pick sessions, label in napari\n"
+    "uv run python scripts/interactive_label.py",
+    language="bash",
+)
+
+with st.expander("How it works"):
+    st.markdown(
+        "Opens a terminal menu showing all sessions with frame counts and "
+        "label status. Enter a session number to open napari.\n\n"
+        "**In napari:**\n"
+        "- All bodyparts are in a **single layer**, colour-coded\n"
+        "- Press **1-8** to select which bodypart to place:\n"
+        "  1. nose_tip (red)\n"
+        "  2. left_ear (blue)\n"
+        "  3. right_ear (cyan)\n"
+        "  4. implant_base_rear (orange)\n"
+        "  5. neck (purple)\n"
+        "  6. mid_back (green)\n"
+        "  7. mouse_center (gold)\n"
+        "  8. tail_base (magenta)\n"
+        "- **Click** on the image to place a point\n"
+        "- **Drag** an existing point to move it\n"
+        "- **Delete** key to remove a selected point\n"
+        "- **Close napari** to save and return to the menu\n"
+        "- Enter **'a'** to label all sessions sequentially\n"
+        "- Enter **'q'** to quit\n\n"
+        "Labels are saved to `CollectedData_tristan.csv` + `.h5` in DLC format. "
+        "Existing labels are loaded and editable.\n\n"
+        "**Labelling tips:**\n"
+        "- Label the **centre** of each bodypart, not the edge\n"
+        "- If a bodypart is **occluded but you can infer its position**, label it\n"
+        "- If you **cannot guess** where it is, skip it (leave unlabelled)\n"
+        "- Be **consistent** — always guess occluded parts the same way\n"
+        "- The mouse is sometimes behind **transparent acrylic** walls — "
+        "still label bodyparts if visible through the acrylic"
+    )
+
+st.markdown("**After labelling:**")
+st.code(
+    "# Upload labels to S3 and retrain\n"
+    "uv run python scripts/upload_dlc_labels.py\n"
+    "uv run python scripts/launch_dlc_finetune_ec2.py",
+    language="bash",
+)
+
+st.markdown("---")
 st.caption("Tracking Quality & Retraining | hm2p v2")
