@@ -22,9 +22,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime
+import json
 import logging
 import sys
 import tempfile
+import traceback
+import urllib.request
 from pathlib import Path
 
 import boto3
@@ -94,6 +98,17 @@ LOCAL_OUTPUT_DIR = Path("/tmp/dlc_labelled")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _get_instance_id() -> str:
+    """Return the EC2 instance ID from the metadata service, or 'unknown'."""
+    try:
+        resp = urllib.request.urlopen(
+            "http://169.254.169.254/latest/meta-data/instance-id", timeout=2
+        )
+        return resp.read().decode().strip()
+    except Exception:
+        return "unknown"
 
 def parse_exp_id(exp_id: str) -> tuple[str, str]:
     """Convert exp_id to (sub, ses) NeuroBlueprint names.
@@ -493,7 +508,8 @@ def render_session(
                      "-i", "pipe:0", "-c:v", "libx264", "-crf", "28",
                      "-preset", "fast", "-movflags", "+faststart", str(out_path)],
                     stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,   # capture for error logging
                 )
                 pipes[m] = (out_path, ffproc, None)
             else:
@@ -541,16 +557,31 @@ def render_session(
         for m in modes:
             out_path, ffproc, writer = pipes[m]
             if ffproc is not None:
-                ffproc.stdin.close()
-                ffproc.wait()
+                _, stderr_bytes = ffproc.communicate()
+                rc = ffproc.returncode
+                if rc != 0:
+                    log.error(
+                        "  ffmpeg exited with code %d for mode=%s session=%s",
+                        rc, m, exp_id,
+                    )
+                    log.error(
+                        "  ffmpeg stderr: %s",
+                        stderr_bytes[-500:].decode(errors="replace"),
+                    )
+                    # Remove the partial output; mark mode as failed
+                    out_path.unlink(missing_ok=True)
+                    pipes[m] = (None, ffproc, writer)
             if writer is not None:
                 writer.release()
         log.info("  Wrote %d frames × %d modes", written, len(modes))
 
-        # Upload all modes
+        # Upload all modes that completed successfully (out_path not None)
         last_key = None
         for m in modes:
             out_path = pipes[m][0]
+            if out_path is None:
+                log.warning("  Skipping upload for mode=%s (ffmpeg failed)", m)
+                continue
             upload_key = f"pose/{sub}/{ses}/{RENDER_MODES[m]}"
             if no_upload:
                 log.info("  Saved locally: %s", out_path)
@@ -559,7 +590,7 @@ def render_session(
                 s3.upload_file(str(out_path), DERIV_BUCKET, upload_key)
                 last_key = upload_key
 
-        return last_key or str(pipes[modes[0]][0])
+        return last_key or str(pipes[modes[0]][0]) if pipes[modes[0]][0] else None
 
 
 # ---------------------------------------------------------------------------
@@ -612,6 +643,10 @@ def main():
     except Exception:
         s3 = boto3.client("s3", region_name="ap-southeast-2")
 
+    run_id = datetime.datetime.utcnow().isoformat() + "Z"
+    instance_id = _get_instance_id()
+    error_records: list[dict] = []
+
     # Process sessions
     results: list[tuple[str, str | None]] = []
     for i, s in enumerate(sessions, 1):
@@ -625,9 +660,33 @@ def main():
                 no_upload=args.no_upload,
             )
             results.append((exp_id, result))
-        except Exception:
+        except Exception as exc:
+            tb = traceback.format_exc()
             log.exception("Failed to process %s", exp_id)
+            error_records.append({
+                "session": exp_id,
+                "stage": "render",
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+                "traceback": tb,
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            })
             results.append((exp_id, None))
+
+    # Upload structured error summary — always written, even if empty.
+    errors_payload = json.dumps(
+        {"run_id": run_id, "instance_id": instance_id, "errors": error_records},
+        indent=2,
+    ).encode()
+    try:
+        s3.put_object(
+            Bucket=DERIV_BUCKET,
+            Key="dlc-retrain/_render_errors.json",
+            Body=errors_payload,
+        )
+        log.info("Render error summary uploaded (%d error(s))", len(error_records))
+    except Exception as e:
+        log.warning("Could not upload _render_errors.json: %s", e)
 
     # Summary
     print("\n" + "=" * 60)

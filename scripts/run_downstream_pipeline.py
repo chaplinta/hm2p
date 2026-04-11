@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime
 import json
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 import boto3
@@ -26,6 +28,71 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 REGION = "ap-southeast-2"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
+RETRAIN_PREFIX = "dlc-retrain"
+
+
+def _get_instance_id() -> str:
+    """Return the EC2 instance ID from the metadata service, or 'unknown'."""
+    try:
+        resp = urllib.request.urlopen(
+            "http://169.254.169.254/latest/meta-data/instance-id", timeout=2
+        )
+        return resp.read().decode().strip()
+    except Exception:
+        return "unknown"
+
+
+def update_downstream_progress(
+    s3,
+    session_idx: int,
+    total: int,
+    exp_id: str,
+    stage: str,
+    status: str,
+    completed: int,
+    failed: int,
+) -> None:
+    """Write per-stage downstream progress to S3.
+
+    Writes ``dlc-retrain/_downstream_progress.json``.  Best-effort — upload
+    failures are logged as warnings and do not propagate to the caller.
+
+    Parameters
+    ----------
+    s3 : boto3 S3 client
+    session_idx : int
+        1-based index of the session being processed.
+    total : int
+        Total number of sessions.
+    exp_id : str
+        Session experiment ID.
+    stage : str
+        Stage name, e.g. ``"stage3"``, ``"stage5"``, ``"stage6"``.
+    status : str
+        Human-readable status, e.g. ``"done"`` or ``"failed"``.
+    completed : int
+        Number of fully completed sessions so far.
+    failed : int
+        Number of failed sessions so far.
+    """
+    payload = {
+        "status": status,
+        "updated": datetime.datetime.utcnow().isoformat() + "Z",
+        "session": exp_id,
+        "stage": stage,
+        "session_idx": session_idx,
+        "completed": completed,
+        "failed": failed,
+        "total": total,
+    }
+    try:
+        s3.put_object(
+            Bucket=DERIVATIVES_BUCKET,
+            Key=f"{RETRAIN_PREFIX}/_downstream_progress.json",
+            Body=json.dumps(payload, indent=2).encode(),
+        )
+    except Exception as e:
+        print(f"  WARNING: downstream progress update failed (non-fatal): {e}")
 
 
 def get_sessions() -> list[dict]:
@@ -81,8 +148,14 @@ def get_pipeline_status(s3, sessions: list[dict]) -> list[dict]:
     return statuses
 
 
-def run_stage3(session: dict, dry_run: bool = False) -> bool:
-    """Run Stage 3 (kinematics) for a session."""
+def run_stage3(session: dict, dry_run: bool = False) -> tuple[bool, str]:
+    """Run Stage 3 (kinematics) for a session.
+
+    Returns
+    -------
+    tuple[bool, str]
+        ``(success, stderr_excerpt)``
+    """
     import subprocess
     cmd = [
         sys.executable, "scripts/run_stage3_kinematics.py",
@@ -90,17 +163,24 @@ def run_stage3(session: dict, dry_run: bool = False) -> bool:
     ]
     print(f"  Stage 3 (kinematics): {' '.join(cmd)}")
     if dry_run:
-        return True
+        return True, ""
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"  Stage 3 FAILED: {result.stderr[:500]}")
-        return False
+        stderr = result.stderr[:500]
+        print(f"  Stage 3 FAILED: {stderr}")
+        return False, stderr
     print(f"  Stage 3 DONE")
-    return True
+    return True, ""
 
 
-def run_stage5(session: dict, dry_run: bool = False) -> bool:
-    """Run Stage 5 (sync) for a session."""
+def run_stage5(session: dict, dry_run: bool = False) -> tuple[bool, str]:
+    """Run Stage 5 (sync) for a session.
+
+    Returns
+    -------
+    tuple[bool, str]
+        ``(success, stderr_excerpt)``
+    """
     import subprocess
     cmd = [
         sys.executable, "scripts/run_stage5_sync.py",
@@ -108,17 +188,24 @@ def run_stage5(session: dict, dry_run: bool = False) -> bool:
     ]
     print(f"  Stage 5 (sync): {' '.join(cmd)}")
     if dry_run:
-        return True
+        return True, ""
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"  Stage 5 FAILED: {result.stderr[:500]}")
-        return False
+        stderr = result.stderr[:500]
+        print(f"  Stage 5 FAILED: {stderr}")
+        return False, stderr
     print(f"  Stage 5 DONE")
-    return True
+    return True, ""
 
 
-def run_stage6(session: dict, dry_run: bool = False) -> bool:
-    """Run Stage 6 (analysis) for a session."""
+def run_stage6(session: dict, dry_run: bool = False) -> tuple[bool, str]:
+    """Run Stage 6 (analysis) for a session.
+
+    Returns
+    -------
+    tuple[bool, str]
+        ``(success, stderr_excerpt)``
+    """
     import subprocess
     cmd = [
         sys.executable, "scripts/run_stage6_analysis.py",
@@ -126,44 +213,140 @@ def run_stage6(session: dict, dry_run: bool = False) -> bool:
     ]
     print(f"  Stage 6 (analysis): {' '.join(cmd)}")
     if dry_run:
-        return True
+        return True, ""
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"  Stage 6 FAILED: {result.stderr[:500]}")
-        return False
+        stderr = result.stderr[:500]
+        print(f"  Stage 6 FAILED: {stderr}")
+        return False, stderr
     print(f"  Stage 6 DONE")
-    return True
+    return True, ""
 
 
-def process_session(session: dict, dry_run: bool = False, force: bool = False) -> dict:
-    """Run all pending stages for a session.
+def process_session(
+    session: dict,
+    s3,
+    session_idx: int,
+    total: int,
+    completed_count: int,
+    failed_count: int,
+    error_records: list[dict],
+    dry_run: bool = False,
+    force: bool = False,
+) -> dict:
+    """Run all pending stages for a session, recording errors and progress.
 
-    Args:
-        session: Session dict with pipeline status flags.
-        dry_run: If True, print commands without executing.
-        force: If True, re-run all stages even if outputs exist.
+    Parameters
+    ----------
+    session : dict
+        Session dict with pipeline status flags.
+    s3 : boto3 S3 client
+        Used for progress and error uploads.
+    session_idx : int
+        1-based index of this session in the overall run.
+    total : int
+        Total number of sessions being processed.
+    completed_count : int
+        Number of sessions fully completed before this one.
+    failed_count : int
+        Number of sessions that failed before this one.
+    error_records : list[dict]
+        Mutable list; failed stages append their error record here.
+    dry_run : bool
+        If True, print commands without executing.
+    force : bool
+        If True, re-run all stages even if outputs exist.
     """
-    results = {"exp_id": session["exp_id"]}
+    exp_id = session["exp_id"]
+    results = {"exp_id": exp_id}
 
     # Stage 3: Kinematics (requires pose)
     if (force or not session.get("kinematics")) and session.get("pose"):
-        results["stage3"] = run_stage3(session, dry_run)
+        ok, stderr = run_stage3(session, dry_run)
+        results["stage3"] = ok
+        update_downstream_progress(
+            s3, session_idx, total, exp_id,
+            stage="stage3",
+            status="done" if ok else "failed",
+            completed=completed_count,
+            failed=failed_count,
+        )
+        if not ok:
+            error_records.append({
+                "session": exp_id,
+                "stage": "stage3",
+                "error_type": "SubprocessError",
+                "error_message": stderr,
+                "traceback": "",
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            })
     else:
         results["stage3"] = session.get("kinematics", False)
 
     # Stage 5: Sync (requires kinematics + calcium)
     if (force or not session.get("sync")) and results.get("stage3") and session.get("calcium"):
-        results["stage5"] = run_stage5(session, dry_run)
+        ok, stderr = run_stage5(session, dry_run)
+        results["stage5"] = ok
+        update_downstream_progress(
+            s3, session_idx, total, exp_id,
+            stage="stage5",
+            status="done" if ok else "failed",
+            completed=completed_count,
+            failed=failed_count,
+        )
+        if not ok:
+            error_records.append({
+                "session": exp_id,
+                "stage": "stage5",
+                "error_type": "SubprocessError",
+                "error_message": stderr,
+                "traceback": "",
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            })
     else:
         results["stage5"] = session.get("sync", False)
 
     # Stage 6: Analysis (requires sync)
     if (force or not session.get("analysis")) and results.get("stage5"):
-        results["stage6"] = run_stage6(session, dry_run)
+        ok, stderr = run_stage6(session, dry_run)
+        results["stage6"] = ok
+        update_downstream_progress(
+            s3, session_idx, total, exp_id,
+            stage="stage6",
+            status="done" if ok else "failed",
+            completed=completed_count,
+            failed=failed_count,
+        )
+        if not ok:
+            error_records.append({
+                "session": exp_id,
+                "stage": "stage6",
+                "error_type": "SubprocessError",
+                "error_message": stderr,
+                "traceback": "",
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            })
     else:
         results["stage6"] = session.get("analysis", False)
 
     return results
+
+
+def _upload_error_json(s3, run_id: str, instance_id: str, error_records: list[dict]) -> None:
+    """Upload _downstream_errors.json to S3.  Best-effort — logs warning on failure."""
+    payload = json.dumps(
+        {"run_id": run_id, "instance_id": instance_id, "errors": error_records},
+        indent=2,
+    ).encode()
+    try:
+        s3.put_object(
+            Bucket=DERIVATIVES_BUCKET,
+            Key=f"{RETRAIN_PREFIX}/_downstream_errors.json",
+            Body=payload,
+        )
+        print(f"Downstream error summary uploaded ({len(error_records)} error(s))")
+    except Exception as e:
+        print(f"WARNING: could not upload _downstream_errors.json: {e}")
 
 
 def main():
@@ -175,8 +358,24 @@ def main():
     parser.add_argument("--watch-interval", type=int, default=300, help="Poll interval (seconds)")
     args = parser.parse_args()
 
+    # Pre-flight: verify required stage scripts exist before processing sessions
+    REQUIRED_SCRIPTS = [
+        "scripts/run_stage3_kinematics.py",
+        "scripts/run_stage5_sync.py",
+        "scripts/run_stage6_analysis.py",
+    ]
+    missing = [s for s in REQUIRED_SCRIPTS if not Path(s).exists()]
+    if missing:
+        print(f"ERROR: required scripts not found: {missing}")
+        print("Run from the repo root (cd /home/ubuntu/hm2p).")
+        sys.exit(1)
+
     s3 = boto3.client("s3", region_name=REGION)
     sessions = get_sessions()
+
+    run_id = datetime.datetime.utcnow().isoformat() + "Z"
+    instance_id = _get_instance_id()
+    error_records: list[dict] = []
 
     if args.session:
         sessions = [s for s in sessions if s["exp_id"] == args.session]
@@ -187,6 +386,8 @@ def main():
     if args.watch:
         print(f"Watching for DLC completions (polling every {args.watch_interval}s)...")
         processed = set()
+        session_idx = 0
+        watch_completed = 0
         while True:
             statuses = get_pipeline_status(s3, sessions)
             for status in statuses:
@@ -194,9 +395,20 @@ def main():
                 if exp_id in processed:
                     continue
                 if status["pose"] and not status["sync"]:
+                    session_idx += 1
                     print(f"\n=== Processing {exp_id} ===")
-                    result = process_session(status, args.dry_run)
+                    result = process_session(
+                        status, s3,
+                        session_idx=session_idx,
+                        total=len(sessions),
+                        completed_count=watch_completed,
+                        failed_count=len(error_records),
+                        error_records=error_records,
+                        dry_run=args.dry_run,
+                    )
                     processed.add(exp_id)
+                    if result.get("stage3") and result.get("stage5") and result.get("stage6"):
+                        watch_completed += 1
                     print(f"  Result: {result}")
 
             # Check if all done
@@ -209,6 +421,8 @@ def main():
             n_done = len(processed)
             print(f"\rDLC: {n_pose}/{len(sessions)} | Processed: {n_done}/{len(sessions)}", end="", flush=True)
             time.sleep(args.watch_interval)
+
+        _upload_error_json(s3, run_id, instance_id, error_records)
     else:
         print("Checking pipeline status...")
         statuses = get_pipeline_status(s3, sessions)
@@ -236,10 +450,25 @@ def main():
             sy = "Y" if s["sync"] else "N"
             print(f"  {s['exp_id']}: pose={p} kin={k} sync={sy}")
 
-        for s in pending:
+        completed_count = 0
+        for idx, s in enumerate(pending, 1):
             print(f"\n=== {s['exp_id']} ===")
-            result = process_session(s, args.dry_run, force=args.force)
+            result = process_session(
+                s, s3,
+                session_idx=idx,
+                total=len(pending),
+                completed_count=completed_count,
+                failed_count=len(error_records),
+                error_records=error_records,
+                dry_run=args.dry_run,
+                force=args.force,
+            )
             print(f"  Result: {result}")
+            # A session is "completed" only if all three stages succeeded
+            if result.get("stage3") and result.get("stage5") and result.get("stage6"):
+                completed_count += 1
+
+        _upload_error_json(s3, run_id, instance_id, error_records)
 
 
 if __name__ == "__main__":

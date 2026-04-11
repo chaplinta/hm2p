@@ -23,6 +23,9 @@ import boto3
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from s3_utils import s3_upload_with_verify
 
 REGION = "ap-southeast-2"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
@@ -146,9 +149,10 @@ def run_session(
                 if k in f:
                     print(f"  {k} length: {f[k].shape[0]} (resampled)")
 
-        # Upload to S3
+        # Upload to S3 with verify — raises RuntimeError on failure, ensuring non-zero exit
         print(f"  Uploading to s3://{DERIVATIVES_BUCKET}/{sync_key}")
-        s3.upload_file(str(output_path), DERIVATIVES_BUCKET, sync_key)
+        s3_upload_with_verify(s3, output_path, DERIVATIVES_BUCKET, sync_key)
+
         print(f"  DONE")
 
         return "ok"
@@ -201,12 +205,15 @@ def main():
                 sys.exit(1)
 
     results = {}
-    for i, ses in enumerate(sessions):
-        status = run_session(
-            s3, ses["sub"], ses["ses"], ses["exp_id"], work_dir,
-            dry_run=args.dry_run, force=args.force,
-        )
-        results[ses["exp_id"]] = status
+    try:
+        for i, ses in enumerate(sessions):
+            status = run_session(
+                s3, ses["sub"], ses["ses"], ses["exp_id"], work_dir,
+                dry_run=args.dry_run, force=args.force,
+            )
+            results[ses["exp_id"]] = status
+    finally:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
     # Summary
     print(f"\n{'='*60}")
@@ -223,8 +230,8 @@ def main():
             if status.startswith("error"):
                 print(f"  {exp_id}: {status}")
 
-    # Cleanup
-    shutil.rmtree(work_dir, ignore_errors=True)
+    if err > 0:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

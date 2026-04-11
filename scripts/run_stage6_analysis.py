@@ -23,6 +23,9 @@ import boto3
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from s3_utils import s3_upload_with_verify
 
 from hm2p.analysis.run import AnalysisParams, analyze_cell
 from hm2p.analysis.save import save_analysis_results
@@ -284,9 +287,10 @@ def main():
                     signal_types_available=avail,
                 )
 
-                # Upload to S3
+                # Upload to S3 with verify — raises RuntimeError on failure, ensuring
+                # this session goes to failed rather than appearing complete
                 s3_key = f"analysis/{sub}/{ses}/analysis.h5"
-                s3.upload_file(str(out_path), DERIVATIVES_BUCKET, s3_key)
+                s3_upload_with_verify(s3, out_path, DERIVATIVES_BUCKET, s3_key)
                 log.info("  Uploaded to s3://%s/%s", DERIVATIVES_BUCKET, s3_key)
                 completed.append(exp_id)
 
@@ -316,6 +320,9 @@ def main():
     log.info("Completed: %d/%d", len(completed), len(experiments))
     log.info("Failed: %d", len(failed))
     log.info("Skipped: %d", len(skipped))
+
+    if failed:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

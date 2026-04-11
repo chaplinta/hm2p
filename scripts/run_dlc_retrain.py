@@ -15,13 +15,17 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime
 import json
 import shutil
 import subprocess
 import sys
+import traceback
+import urllib.request
 from pathlib import Path
 
 import boto3
+import numpy as np
 
 REGION = "ap-southeast-2"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
@@ -30,10 +34,23 @@ RETRAIN_PREFIX = "dlc-retrain"
 FINETUNED_PREFIX = "pose-finetuned"
 
 
-def update_progress(s3, status: str, **extra: object) -> None:
-    """Write progress JSON to S3."""
-    import datetime
+def get_instance_id() -> str:
+    """Return the EC2 instance ID from the metadata service, or 'unknown'."""
+    try:
+        resp = urllib.request.urlopen(
+            "http://169.254.169.254/latest/meta-data/instance-id", timeout=2
+        )
+        return resp.read().decode().strip()
+    except Exception:
+        return "unknown"
 
+
+def update_progress(s3, status: str, **extra: object) -> None:
+    """Write progress JSON to S3.
+
+    Progress updates are best-effort — upload failures are logged as warnings
+    and do not propagate to the caller.
+    """
     progress = {
         "status": status,
         "updated": datetime.datetime.utcnow().isoformat() + "Z",
@@ -41,7 +58,10 @@ def update_progress(s3, status: str, **extra: object) -> None:
     }
     tmp = Path("/tmp/_retrain_progress.json")
     tmp.write_text(json.dumps(progress, indent=2))
-    s3.upload_file(str(tmp), DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/_retrain_progress.json")
+    try:
+        s3.upload_file(str(tmp), DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/_retrain_progress.json")
+    except Exception as e:
+        print(f"  WARNING: progress update failed (non-fatal): {e}")
 
 
 def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> Path:
@@ -93,6 +113,7 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
     # Create training dataset (default ResNet50 config — we override below).
     print("Creating training dataset...")
     deeplabcut.create_training_dataset(str(config_path))
+    update_progress(s3, "Training: dataset created")
 
     # Override config: switch to HRNet-W32 backbone (ImageNet pretrained
     # via timm, NOT SuperAnimal) + aggressive augmentation.
@@ -175,10 +196,12 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
         displayiters=100,
         saveiters=5000,
     )
+    update_progress(s3, f"Training: network trained ({epochs} epochs)")
 
     # Evaluate and compute per-bodypart metrics
     print("Evaluating network...")
     deeplabcut.evaluate_network(str(config_path), plotting=False)
+    update_progress(s3, "Training: evaluation complete")
 
     # Run per-bodypart evaluation: load test predictions and ground truth,
     # compute RMSE per bodypart, upload as JSON.
@@ -321,15 +344,23 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
             })
 
     total = len(sessions)
-    completed = []
-    failed = []
+    completed: list[str] = []
+    failed: list[str] = []
+    error_records: list[dict] = []
+    run_id = datetime.datetime.utcnow().isoformat() + "Z"
+    instance_id = get_instance_id()
 
     for i, ses in enumerate(sessions, 1):
         sub, ses_id = ses["sub"], ses["ses"]
         exp_id = ses["exp_id"]
         print(f"\n=== [{i}/{total}] {sub}/{ses_id} ===")
-        update_progress(s3, f"Inference {i}/{total}: {sub}/{ses_id}",
-                        completed=len(completed), failed=len(failed), total=total)
+
+        # Progress: session starting
+        update_progress(
+            s3, f"Inference {i}/{total}: starting {sub}/{ses_id}",
+            completed=len(completed), failed=len(failed), total=total,
+            current_session=exp_id,
+        )
 
         work = Path(f"/tmp/dlc-infer/{sub}/{ses_id}")
         work.mkdir(parents=True, exist_ok=True)
@@ -388,12 +419,28 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
                     s3.upload_file(str(f), DERIVATIVES_BUCKET, key)
                 completed.append(exp_id)
                 print(f"  Uploaded {len(out_files)} files")
+
+                # Progress: session done
+                update_progress(
+                    s3, f"Inference {i}/{total}: done {sub}/{ses_id}",
+                    completed=len(completed), failed=len(failed), total=total,
+                    current_session=exp_id, stage="inference_done",
+                )
             else:
                 print("  No output files")
                 failed.append(exp_id)
 
         except Exception as e:
-            print(f"  ERROR: {e}")
+            error_records.append({
+                "session": exp_id,
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "traceback": traceback.format_exc(),
+                "stage": "inference",
+                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+            })
+            print(f"  ERROR [{type(e).__name__}]: {e}")
+            print(traceback.format_exc())
             failed.append(exp_id)
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -404,6 +451,22 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
         completed_sessions=completed, failed_sessions=failed,
     )
     print(f"\nDone: {len(completed)}/{total} completed, {len(failed)} failed")
+
+    # Upload structured error records — always written, even if empty,
+    # so the frontend can distinguish "no errors" from "file missing".
+    errors_payload = json.dumps(
+        {"run_id": run_id, "instance_id": instance_id, "errors": error_records},
+        indent=2,
+    ).encode()
+    try:
+        s3.put_object(
+            Bucket=DERIVATIVES_BUCKET,
+            Key=f"{RETRAIN_PREFIX}/_inference_errors.json",
+            Body=errors_payload,
+        )
+        print(f"  Error summary uploaded ({len(error_records)} error(s))")
+    except Exception as e:
+        print(f"  WARNING: could not upload _inference_errors.json: {e}")
 
     # Auto-promote: copy pose-finetuned/ → pose/ on S3
     if failed and not skip_failed:

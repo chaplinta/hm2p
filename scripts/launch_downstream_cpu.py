@@ -14,10 +14,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import sys
 
 import boto3
-
 from ec2_constants import (
     AMI_ID,
     DERIVATIVES_BUCKET,
@@ -29,6 +27,11 @@ from ec2_constants import (
 from ec2_utils import (
     DPKG_WAIT_SNIPPET,
     build_creds_block,
+    format_cost_record_launch,
+    format_cost_record_shutdown,
+    format_cpu_log_upload,
+    format_hard_timeout,
+    format_heartbeat,
     get_s3_credentials,
 )
 
@@ -39,6 +42,29 @@ TAG_NAME = "hm2p-downstream-cpu"
 def build_user_data(render_only: bool = False) -> str:
     key_id, secret, region = get_s3_credentials()
     creds = build_creds_block(key_id, secret, region)
+    cpu_upload = format_cpu_log_upload(DERIVATIVES_BUCKET, "dlc-retrain")
+    timeout = format_hard_timeout(12)
+    heartbeat = format_heartbeat(
+        DERIVATIVES_BUCKET,
+        "dlc-retrain",
+        INSTANCE_TYPE,
+        heartbeat_key="_downstream_heartbeat.json",
+    )
+
+    mode = "render-only" if render_only else "downstream+render"
+    cost_launch = format_cost_record_launch(
+        DERIVATIVES_BUCKET,
+        "dlc-retrain",
+        instance_type=INSTANCE_TYPE,
+        pipeline_step="downstream-cpu",
+        mode=mode,
+        launch_key="_downstream_cost_record_launch.json",
+    )
+    cost_shutdown = format_cost_record_shutdown(
+        DERIVATIVES_BUCKET,
+        "dlc-retrain",
+        shutdown_key="_downstream_cost_record_shutdown.json",
+    )
 
     downstream_cmd = "" if render_only else """
 echo "=== Running downstream pipeline (Stages 3, 5, 6) ==="
@@ -50,10 +76,15 @@ exec > >(tee /var/log/hm2p-downstream.log) 2>&1
 echo "=== hm2p downstream + render (CPU) ==="
 echo "Started: $(date -u)"
 
-trap 'aws s3 cp /var/log/hm2p-downstream.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_downstream_log.txt || true; \\
+trap 'aws s3 cp /var/log/hm2p-downstream.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_cpu_run_log.txt || true; \\
+      {cost_shutdown}
       shutdown -h now' EXIT
 
 {creds}
+{heartbeat}
+{cost_launch}
+{cpu_upload}
+{timeout}
 {DPKG_WAIT_SNIPPET}
 
 set -ex
@@ -140,7 +171,7 @@ def launch(render_only: bool = False, dry_run: bool = False) -> None:
     print(f"SSH: ssh -i ~/.ssh/{KEY_NAME}.pem ubuntu@{ip}")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Launch CPU instance for downstream + render")
     parser.add_argument("--render-only", action="store_true", help="Skip downstream, render videos only")
     parser.add_argument("--dry-run", action="store_true")

@@ -26,7 +26,7 @@ GPU_CSV_PID=$!
 (while true; do
     sleep 300
     aws s3 cp /var/log/gpu_monitor.csv s3://{bucket}/{log_prefix}/_gpu_monitor.csv 2>/dev/null || true
-    aws s3 cp /var/log/hm2p-*.log s3://{bucket}/{log_prefix}/_run_log.txt 2>/dev/null || true
+    aws s3 cp /var/log/hm2p-*.log s3://{bucket}/{log_prefix}/_gpu_run_log.txt 2>/dev/null || true
 done) &
 UPLOAD_PID=$!
 
@@ -77,6 +77,56 @@ print(f'DLC {deeplabcut.__version__}')
 " || { echo "FATAL: PyTorch/CUDA/DLC verification failed. Aborting."; exit 1; }
 """
 
+CPU_LOG_UPLOAD_SNIPPET = """
+# === Periodic log upload (CPU instance) ===
+(while true; do
+    sleep 300
+    aws s3 cp /var/log/hm2p-downstream.log \\
+        s3://{bucket}/{log_prefix}/_cpu_run_log.txt 2>/dev/null || true
+done) &
+CPU_UPLOAD_PID=$!
+echo "Periodic log upload started (PID=$CPU_UPLOAD_PID, interval=5min)"
+"""
+
+HEARTBEAT_SNIPPET = """
+# === Instance heartbeat (60s interval) ===
+INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+LAUNCH_TIME=$(date +%s)
+(while true; do
+    UPTIME=$(( $(date +%s) - LAUNCH_TIME ))
+    LOAD=$(cut -d' ' -f1 /proc/loadavg)
+    DISK=$(df / --output=avail -BG | tail -1 | tr -d 'G ')
+    MEM=$(awk '/MemFree/ {{print int($2/1024)}}' /proc/meminfo)
+    printf '{{\\n  "instance_id": "%s",\\n  "instance_type": "{instance_type}",\\n  "uptime_s": %s,\\n  "timestamp": "%s",\\n  "load_avg_1m": %s,\\n  "disk_free_gb": %s,\\n  "memory_free_mb": %s\\n}}' \\
+        "$INSTANCE_ID" "$UPTIME" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$LOAD" "$DISK" "$MEM" \\
+        | aws s3 cp - s3://{bucket}/{log_prefix}/{heartbeat_key} 2>/dev/null || true
+    sleep 60
+done) &
+HEARTBEAT_PID=$!
+echo "Heartbeat started (PID=$HEARTBEAT_PID)"
+"""
+
+COST_RECORD_LAUNCH_SNIPPET = """
+# === Cost record — launch event ===
+_CR_INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+_CR_LAUNCH_TIME_EPOCH=$(date +%s)
+_CR_LAUNCH_TIME_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+_CR_GIT_SHA=$(git -C /home/ubuntu/hm2p rev-parse --short HEAD 2>/dev/null || echo "unknown")
+printf '{{\\n  "event": "launch",\\n  "instance_id": "%s",\\n  "instance_type": "{instance_type}",\\n  "region": "{region}",\\n  "launch_time": "%s",\\n  "pipeline_step": "{pipeline_step}",\\n  "git_sha": "%s",\\n  "mode": "{mode}"\\n}}' \\
+    "$_CR_INSTANCE_ID" "$_CR_LAUNCH_TIME_ISO" "$_CR_GIT_SHA" \\
+    | aws s3 cp - s3://{bucket}/{log_prefix}/{launch_key} 2>/dev/null || true
+echo "Cost record launch written"
+"""
+
+COST_RECORD_SHUTDOWN_SNIPPET = """
+# === Cost record — shutdown event (written in EXIT trap) ===
+_CR_SHUTDOWN_TIME_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+_CR_RUNTIME_S=$(( $(date +%s) - $_CR_LAUNCH_TIME_EPOCH ))
+printf '{{\\n  "event": "shutdown",\\n  "instance_id": "%s",\\n  "shutdown_time": "%s",\\n  "runtime_s": %s\\n}}' \\
+    "$_CR_INSTANCE_ID" "$_CR_SHUTDOWN_TIME_ISO" "$_CR_RUNTIME_S" \\
+    | aws s3 cp - s3://{bucket}/{log_prefix}/{shutdown_key} 2>/dev/null || true
+"""
+
 DPKG_WAIT_SNIPPET = """
 # === Wait for apt locks (DL AMI runs unattended-upgrades on boot) ===
 export DEBIAN_FRONTEND=noninteractive
@@ -105,6 +155,119 @@ def format_gpu_guard(bucket: str, log_prefix: str) -> str:
 def format_hard_timeout(max_hours: int) -> str:
     """Format the hard timeout snippet."""
     return HARD_TIMEOUT_SNIPPET.format(max_hours=max_hours)
+
+
+def format_cpu_log_upload(bucket: str, log_prefix: str) -> str:
+    """Format the periodic CPU log upload snippet with bucket and prefix."""
+    return CPU_LOG_UPLOAD_SNIPPET.format(bucket=bucket, log_prefix=log_prefix)
+
+
+def format_heartbeat(
+    bucket: str,
+    log_prefix: str,
+    instance_type: str,
+    heartbeat_key: str = "_heartbeat.json",
+) -> str:
+    """Format the instance heartbeat snippet.
+
+    The returned bash snippet starts a background loop that uploads a small
+    JSON to S3 every 60 seconds with instance health metrics (uptime, load,
+    disk free, memory free). Failures are silenced so the loop never kills
+    the main script.
+
+    Parameters
+    ----------
+    bucket:
+        S3 bucket name.
+    log_prefix:
+        S3 key prefix (e.g. ``"dlc-retrain"``).
+    instance_type:
+        EC2 instance type string, embedded in the JSON (e.g. ``"c5.xlarge"``).
+    heartbeat_key:
+        S3 object name within ``log_prefix`` (default ``"_heartbeat.json"``).
+        Pass ``"_downstream_heartbeat.json"`` for the CPU instance.
+    """
+    return HEARTBEAT_SNIPPET.format(
+        bucket=bucket,
+        log_prefix=log_prefix,
+        instance_type=instance_type,
+        heartbeat_key=heartbeat_key,
+    )
+
+
+def format_cost_record_launch(
+    bucket: str,
+    log_prefix: str,
+    instance_type: str,
+    pipeline_step: str,
+    mode: str,
+    region: str = "ap-southeast-2",
+    launch_key: str = "_cost_record_launch.json",
+) -> str:
+    """Format the cost record launch snippet.
+
+    The returned bash snippet writes a launch-event JSON to S3 immediately at
+    startup, before the main processing work begins. It captures the instance
+    ID from the EC2 metadata service and the git SHA from the cloned repo.
+
+    Parameters
+    ----------
+    bucket:
+        S3 bucket name.
+    log_prefix:
+        S3 key prefix (e.g. ``"dlc-retrain"``).
+    instance_type:
+        EC2 instance type string (e.g. ``"g4dn.xlarge"``).
+    pipeline_step:
+        Human-readable step label (e.g. ``"dlc-retrain-gpu"``).
+    mode:
+        Run mode string (e.g. ``"train+infer"``, ``"inference only"``).
+    region:
+        AWS region, written into the JSON record.
+    launch_key:
+        S3 object name within ``log_prefix`` (default
+        ``"_cost_record_launch.json"``). Pass
+        ``"_downstream_cost_record_launch.json"`` for the CPU instance.
+    """
+    return COST_RECORD_LAUNCH_SNIPPET.format(
+        bucket=bucket,
+        log_prefix=log_prefix,
+        instance_type=instance_type,
+        pipeline_step=pipeline_step,
+        mode=mode,
+        region=region,
+        launch_key=launch_key,
+    )
+
+
+def format_cost_record_shutdown(
+    bucket: str,
+    log_prefix: str,
+    shutdown_key: str = "_cost_record_shutdown.json",
+) -> str:
+    """Format the cost record shutdown snippet.
+
+    The returned bash snippet is intended for inclusion in the EXIT trap.
+    It writes a shutdown-event JSON to S3 containing the instance ID,
+    shutdown timestamp, and computed runtime in seconds (derived from the
+    ``_CR_LAUNCH_TIME_EPOCH`` variable set by the launch snippet).
+
+    Parameters
+    ----------
+    bucket:
+        S3 bucket name.
+    log_prefix:
+        S3 key prefix (e.g. ``"dlc-retrain"``).
+    shutdown_key:
+        S3 object name within ``log_prefix`` (default
+        ``"_cost_record_shutdown.json"``). Pass
+        ``"_downstream_cost_record_shutdown.json"`` for the CPU instance.
+    """
+    return COST_RECORD_SHUTDOWN_SNIPPET.format(
+        bucket=bucket,
+        log_prefix=log_prefix,
+        shutdown_key=shutdown_key,
+    )
 
 
 def build_creds_block(key_id: str, secret: str, region: str = "ap-southeast-2") -> str:

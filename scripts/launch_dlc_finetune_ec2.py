@@ -29,9 +29,7 @@ from ec2_constants import (
     DERIVATIVES_BUCKET,
     IAM_PROFILE,
     KEY_NAME,
-    RAWDATA_BUCKET,
     REGION,
-    RETRAIN_PREFIX,
     SG_ID,
 )
 from ec2_utils import (
@@ -39,8 +37,11 @@ from ec2_utils import (
     DPKG_WAIT_SNIPPET,
     PYTORCH_CUDA_INSTALL_SNIPPET,
     build_creds_block,
+    format_cost_record_launch,
+    format_cost_record_shutdown,
     format_gpu_guard,
     format_hard_timeout,
+    format_heartbeat,
     get_s3_credentials,
 )
 
@@ -61,27 +62,50 @@ def build_user_data(
     creds = build_creds_block(key_id, secret, region)
     gpu_guard = format_gpu_guard(DERIVATIVES_BUCKET, "dlc-retrain")
     timeout = format_hard_timeout(24)
+    heartbeat = format_heartbeat(
+        DERIVATIVES_BUCKET, "dlc-retrain", INSTANCE_TYPE, heartbeat_key="_heartbeat.json"
+    )
 
     if infer_only:
         mode_flag = "--infer-only"
         mode_label = "inference only"
+        mode = "infer"
     elif train_only:
         mode_flag = f"--train-only --epochs {epochs}"
         mode_label = f"training only ({epochs} epochs)"
+        mode = "train"
     else:
         mode_flag = f"--epochs {epochs}"
         mode_label = f"train + inference ({epochs} epochs)"
+        mode = "train+infer"
+
+    cost_launch = format_cost_record_launch(
+        DERIVATIVES_BUCKET,
+        "dlc-retrain",
+        instance_type=INSTANCE_TYPE,
+        pipeline_step="dlc-retrain-gpu",
+        mode=mode,
+        launch_key="_cost_record_launch.json",
+    )
+    cost_shutdown = format_cost_record_shutdown(
+        DERIVATIVES_BUCKET,
+        "dlc-retrain",
+        shutdown_key="_cost_record_shutdown.json",
+    )
 
     return f"""#!/bin/bash
 exec > >(tee /var/log/hm2p-dlc-retrain.log) 2>&1
 echo "=== DLC retrain ({mode_label}, GPU enforced, 24h timeout) ==="
 echo "Started: $(date -u)"
 
-trap 'aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_retrain_log.txt || true; \\
+trap 'aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_run_log.txt || true; \\
       aws s3 cp /var/log/gpu_monitor.csv s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_monitor.csv || true; \\
+      {cost_shutdown}
       shutdown -h now' EXIT
 
 {creds}
+{heartbeat}
+{cost_launch}
 {DPKG_WAIT_SNIPPET}
 
 set -ex
@@ -92,7 +116,7 @@ set -ex
 {gpu_guard}
 
 # Upload log immediately after setup (before Python which may crash)
-aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_run_log.txt || true
+aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_run_log.txt || true
 
 # Clone repo and run — disable set -e so Python errors don't kill
 # the script before the EXIT trap can upload logs.
@@ -218,12 +242,11 @@ def progress() -> None:
             import csv as _csv
             reader = _csv.reader(lines[1:])
             gpu_pcts = []
+            import contextlib
             for row in reader:
                 if len(row) >= 2:
-                    try:
+                    with contextlib.suppress(ValueError):
                         gpu_pcts.append(int(row[1].strip().replace(" %", "")))
-                    except ValueError:
-                        pass
             if gpu_pcts:
                 print(f"\nGPU utilization: mean={sum(gpu_pcts)/len(gpu_pcts):.0f}%, "
                       f"max={max(gpu_pcts)}%, readings={len(gpu_pcts)}")
