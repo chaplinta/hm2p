@@ -11,6 +11,7 @@ Performance notes:
 
 from __future__ import annotations
 
+import configparser
 import csv
 import io
 import json
@@ -493,6 +494,41 @@ def parse_session_id(exp_id: str) -> tuple[str, str]:
     sub = f"sub-{animal}"
     ses = f"ses-{parts[0]}T{parts[1]}{parts[2]}{parts[3]}"
     return sub, ses
+
+
+@st.cache_data
+def get_mm_per_pix(sub: str, ses: str) -> float | None:
+    """Return the mm-per-pixel scale factor for a session.
+
+    Reads ``metadata/video_meta/{sub}_{ses}_meta.txt`` and parses the
+    ``[scale] mm_per_pix`` key.  The result is cached indefinitely because
+    these calibration files are static.
+
+    Parameters
+    ----------
+    sub:
+        Subject identifier in NeuroBlueprint format, e.g. ``"sub-1114353"``.
+    ses:
+        Session identifier in NeuroBlueprint format, e.g.
+        ``"ses-20210823T165950"``.
+
+    Returns
+    -------
+    float | None
+        Scale factor in mm per pixel, or ``None`` if the file is not found or
+        the key is absent.
+    """
+    meta_path = METADATA_DIR / "video_meta" / f"{sub}_{ses}_meta.txt"
+    if not meta_path.exists():
+        log.warning("No video meta file found: %s", meta_path)
+        return None
+    cfg = configparser.ConfigParser()
+    cfg.read(meta_path)
+    try:
+        return float(cfg["scale"]["mm_per_pix"])
+    except KeyError:
+        log.warning("mm_per_pix key missing in %s", meta_path)
+        return None
 
 
 def get_s3_client():

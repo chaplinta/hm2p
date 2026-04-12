@@ -123,15 +123,20 @@ def _median_filter_1d(arr: np.ndarray, win: int = 5) -> np.ndarray:
     return out
 
 
-def median_filter_dataset(ds: xr.Dataset, window: int = 5) -> xr.Dataset:
+def median_filter_dataset(ds: xr.Dataset, window: int = 3) -> xr.Dataset:
     """Apply movement's rolling median filter to the position DataArray.
 
     This replaces per-coordinate ``_median_filter_1d`` calls with
     movement's native xarray-based filter for all keypoints at once.
 
+    The default window of 3 frames at 30fps gives ~100ms temporal
+    smoothing.  The old pipeline used 5 frames at 100fps = 50ms.
+    If the DLC inference frame rate changes, adjust this window to
+    maintain approximately 100ms smoothing (window = round(0.1 * fps)).
+
     Args:
         ds: movement Dataset with a ``position`` DataArray.
-        window: Rolling window size (default 5, matching legacy pipeline).
+        window: Rolling window size (default 3; ~100ms at 30fps).
 
     Returns:
         Dataset with median-filtered positions.
@@ -1186,7 +1191,7 @@ def run(
     ds = apply_orientation_rotation(ds, orientation_deg)
     ds = filter_low_confidence(ds, threshold=confidence_threshold)
     ds = interpolate_gaps(ds, max_gap_frames=gap_fill_frames)
-    ds = median_filter_dataset(ds, window=5)  # movement rolling median
+    ds = median_filter_dataset(ds, window=3)  # 3 frames at 30fps ≈ 100ms (old pipeline: 5 frames at 100fps = 50ms)
 
     # Perspective correction: project bodypart heights to ground plane.
     # Applied after filtering so corrected positions are based on clean data.

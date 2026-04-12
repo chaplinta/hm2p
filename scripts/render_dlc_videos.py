@@ -301,8 +301,13 @@ RENDER_MODES = {
 }
 
 
-def _apply_median_filter(keypoints: dict[str, np.ndarray], window: int = 5) -> dict[str, np.ndarray]:
-    """Apply rolling median filter to keypoint x/y, preserving likelihood."""
+def _apply_median_filter(keypoints: dict[str, np.ndarray], window: int = 3) -> dict[str, np.ndarray]:
+    """Apply rolling median filter to keypoint x/y, preserving likelihood.
+
+    Default window of 3 frames at 30fps ≈ 100ms temporal smoothing.
+    If the DLC frame rate changes, adjust to maintain ~100ms
+    (window = round(0.1 * fps)).
+    """
     from scipy.ndimage import median_filter
 
     filtered = {}
@@ -325,7 +330,7 @@ def _apply_median_filter(keypoints: dict[str, np.ndarray], window: int = 5) -> d
 
 
 def _apply_pipeline_filter(
-    keypoints: dict[str, np.ndarray], conf_threshold: float = 0.05, window: int = 5, max_gap: int = 5,
+    keypoints: dict[str, np.ndarray], conf_threshold: float = 0.05, window: int = 3, max_gap: int = 5,
 ) -> dict[str, np.ndarray]:
     """Apply pipeline-style filtering: confidence threshold → interpolate gaps → median."""
     filtered = {}

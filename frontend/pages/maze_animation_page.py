@@ -42,6 +42,17 @@ def _subsample(arr: np.ndarray, step: int) -> np.ndarray:
     return arr[::step]
 
 
+def _interpolate_nans(arr: np.ndarray) -> np.ndarray:
+    """Fill NaN gaps with linear interpolation; extrapolate edges with nearest."""
+    out = arr.copy()
+    finite = np.isfinite(out)
+    if finite.all() or not finite.any():
+        return out
+    idx = np.arange(len(out))
+    out[~finite] = np.interp(idx[~finite], idx[finite], out[finite])
+    return out
+
+
 def _build_animation_figure(
     x: np.ndarray,
     y: np.ndarray,
@@ -241,10 +252,28 @@ def _page() -> None:
     """Render the maze animation page (called by Streamlit runner)."""
     st.title("Maze Animation")
     st.caption(
-        "Animated replay of mouse trajectory through the q-rose maze. "
+        "Animated replay of mouse trajectory through the Rosenberg maze. "
         "Shows head position, facing direction (blue arrow), and recent trail. "
         "Colour indicates light state (orange = lights on, grey = dark)."
     )
+
+    with st.expander("How this works"):
+        st.markdown(
+            "**Position** is computed from the DLC `mouse_center` keypoint, "
+            "converted from pixels to maze coordinates (0\u20137 x, 0\u20135 y) "
+            "via camera calibration and perspective correction.\n\n"
+            "**Head direction** is the angle of the ear-to-ear vector "
+            "(`left_ear` \u2192 `right_ear`), shown as a blue arrow.\n\n"
+            "**Raw** shows all imaging frames. Where DLC confidence was below "
+            "threshold (position or ears), gaps are filled with linear "
+            "interpolation between the nearest confident frames. This gives "
+            "continuous playback but interpolated segments may not reflect "
+            "true motion.\n\n"
+            "**Cleaned** shows only frames where the DLC confidence-filtered, "
+            "gap-filled (short gaps only), and median-smoothed position passed "
+            "all quality checks. Frames with low-confidence predictions are "
+            "excluded (shown as NaN in the data)."
+        )
 
     from frontend.data import check_stale_data_warning
     check_stale_data_warning(stages=["kinematics", "sync"], block=True)
@@ -279,13 +308,25 @@ def _page() -> None:
         selected_idx = st.selectbox("Session", range(len(session_labels)), format_func=lambda i: session_labels[i], key="maze_anim_session")
 
     with col_opts:
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3, c4 = st.columns(4)
         with c1:
-            trail_s = st.slider("Trail length (s)", 1.0, 30.0, 10.0, 1.0, key="maze_anim_trail")
+            pos_mode = st.radio(
+                "Position data",
+                ["Raw", "Cleaned"],
+                index=0,
+                key="maze_anim_pos_mode",
+                help=(
+                    "**Raw:** all frames shown; low-confidence gaps filled with "
+                    "linear interpolation. **Cleaned:** only frames that passed "
+                    "confidence filtering and median smoothing."
+                ),
+            )
         with c2:
+            trail_s = st.slider("Trail length (s)", 1.0, 30.0, 10.0, 1.0, key="maze_anim_trail")
+        with c3:
             subsample = st.slider("Subsample (every N frames)", 1, 30, 1, 1, key="maze_anim_sub",
                                   help="Higher = faster animation, fewer frames. At ~9.6 Hz imaging, step=10 gives ~1 Hz playback.")
-        with c3:
+        with c4:
             arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
 
     ses = sessions_with_pos[selected_idx]
@@ -297,22 +338,36 @@ def _page() -> None:
     light_on = ses["light_on"]
     frame_times = ses["frame_times"]
 
-    valid = np.isfinite(x_maze) & np.isfinite(y_maze) & ~ses["bad_behav"]
+    use_interp = pos_mode == "Raw"
+
+    if use_interp:
+        # Interpolate NaN gaps for continuous playback
+        x_maze = _interpolate_nans(x_maze)
+        y_maze = _interpolate_nans(y_maze)
+        hd_deg = _interpolate_nans(hd_deg)
+        speed = _interpolate_nans(speed)
+        # All non-bad-behav frames are valid
+        valid = ~ses["bad_behav"]
+    else:
+        valid = np.isfinite(x_maze) & np.isfinite(y_maze) & ~ses["bad_behav"]
+
     if valid.sum() < 10:
         st.warning("Not enough valid position data for this session.")
         st.stop()
 
-    n_hd_valid = (valid & np.isfinite(hd_deg)).sum()
-    if n_hd_valid < valid.sum() * 0.5:
-        st.info(
-            f"HD data available for {n_hd_valid}/{valid.sum()} position frames. "
-            "Arrow will only appear when HD is valid."
-        )
+    n_total = len(frame_times)
+    n_confident = (np.isfinite(ses["x_maze"]) & np.isfinite(ses["y_maze"]) & ~ses["bad_behav"]).sum()
+    n_valid = valid.sum()
 
-    total_dur_s = frame_times[valid][-1] - frame_times[valid][0]
+    st.markdown(
+        f"**Frames:** {n_valid}/{n_total} "
+        f"({n_confident} confident, {n_total - n_confident} interpolated)"
+        if use_interp else
+        f"**Frames:** {n_valid}/{n_total} (cleaned only)"
+    )
+
+    total_dur_s = frame_times[-1] - frame_times[0]
     total_dur_min = total_dur_s / 60.0
-
-    st.markdown(f"**Session duration:** {total_dur_min:.1f} min ({valid.sum()} valid frames)")
 
     time_range = st.slider(
         "Time range (minutes)",
@@ -323,7 +378,7 @@ def _page() -> None:
         help="Select a time window to animate. Shorter windows render faster.",
     )
 
-    t0 = frame_times[valid][0]
+    t0 = frame_times[0]
     time_mask = valid.copy()
     time_mask &= (frame_times >= t0 + time_range[0] * 60) & (frame_times <= t0 + time_range[1] * 60)
 

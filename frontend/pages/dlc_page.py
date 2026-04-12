@@ -17,6 +17,7 @@ from frontend.data import (
     DERIVATIVES_BUCKET,
     REGION,
     download_s3_bytes,
+    get_mm_per_pix,
     get_progress,
     get_s3_client,
     list_s3_session_files,
@@ -137,6 +138,7 @@ if not pose_sessions:
 else:
     selected = st.selectbox("Session with pose data", pose_sessions, key="dlc_session")
     sub, ses = selected.split("/")
+    mm_per_pix = get_mm_per_pix(sub, ses)
 
     # List files
     files = list_s3_session_files(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/")
@@ -246,9 +248,20 @@ else:
                     col1, col2 = st.columns(2)
 
                     with col1:
+                        if mm_per_pix is not None:
+                            x_plot = x * mm_per_pix
+                            y_plot = y * mm_per_pix
+                            traj_x_label = "x (mm)"
+                            traj_y_label = "y (mm)"
+                        else:
+                            x_plot = x
+                            y_plot = y
+                            traj_x_label = "x (px)"
+                            traj_y_label = "y (px)"
+
                         fig_traj = go.Figure()
                         fig_traj.add_trace(go.Scatter(
-                            x=x[good], y=y[good],
+                            x=x_plot[good], y=y_plot[good],
                             mode="markers",
                             marker=dict(
                                 size=1,
@@ -259,30 +272,40 @@ else:
                         ))
                         fig_traj.update_layout(
                             title=f"{bp_select} trajectory",
-                            xaxis_title="x (px)", yaxis_title="y (px)",
+                            xaxis_title=traj_x_label, yaxis_title=traj_y_label,
                             height=400,
                             yaxis=dict(autorange="reversed"),
                         )
                         st.plotly_chart(fig_traj, use_container_width=True)
 
                     with col2:
-                        # Speed (pixel/frame)
+                        # Speed (pixel/frame → cm/s when scale available)
                         dx = np.diff(x)
                         dy = np.diff(y)
                         speed_px = np.sqrt(dx**2 + dy**2)
                         speed_px[~good[1:]] = np.nan
 
+                        fps_val = meta.get("tracking_fps", 30) if meta_bytes else 30
+                        if mm_per_pix is not None:
+                            speed_display = speed_px * fps_val * mm_per_pix / 10.0
+                            speed_title = "Speed (cm/s)"
+                            speed_y_label = "Speed (cm/s)"
+                        else:
+                            speed_display = speed_px
+                            speed_title = "Speed (px/frame)"
+                            speed_y_label = "Speed (px/frame)"
+
                         # Downsample for display
-                        ds = max(1, len(speed_px) // 2000)
+                        ds = max(1, len(speed_display) // 2000)
                         fig_speed = go.Figure()
                         fig_speed.add_trace(go.Scatter(
-                            y=speed_px[::ds],
+                            y=speed_display[::ds],
                             mode="lines",
                             line=dict(width=0.5),
                         ))
                         fig_speed.update_layout(
-                            title="Speed (px/frame)",
-                            yaxis_title="Speed", xaxis_title="Frame",
+                            title=speed_title,
+                            yaxis_title=speed_y_label, xaxis_title="Frame",
                             height=400,
                         )
                         st.plotly_chart(fig_speed, use_container_width=True)

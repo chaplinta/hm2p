@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from frontend.data import (
     DERIVATIVES_BUCKET,
     download_s3_bytes,
+    get_mm_per_pix,
     list_s3_session_files,
     load_experiments,
     parse_session_id,
@@ -222,6 +223,7 @@ st.header("Session Diagnostics")
 
 selected = st.selectbox("Select session", pose_sessions, key="tq_session")
 sub, ses = selected.split("/")
+mm_per_pix = get_mm_per_pix(sub, ses)
 
 # Clear stale retrain state when session changes
 if st.session_state.get("retrain_session") != selected:
@@ -264,9 +266,18 @@ if report["issues"]:
 
 # --- Jump detection ---
 st.subheader("Jump Detection")
-jump_threshold = st.slider(
-    "Jump threshold (pixels/frame)", 10.0, 200.0, 50.0, 5.0, key="jump_thresh"
-)
+
+if mm_per_pix is not None:
+    # Slider in mm/frame; convert to px/frame for the detection function
+    jump_thr_mm = st.slider(
+        "Jump threshold (mm/frame)", 1.0, 150.0, round(50.0 * mm_per_pix, 1), 0.5,
+        key="jump_thresh",
+    )
+    jump_threshold = jump_thr_mm / mm_per_pix
+else:
+    jump_threshold = st.slider(
+        "Jump threshold (pixels/frame)", 10.0, 200.0, 50.0, 5.0, key="jump_thresh"
+    )
 
 bp_select = st.selectbox("Body part for diagnostics", bodyparts, key="diag_bp")
 
@@ -288,17 +299,28 @@ if bp_select in kp_data:
         dy = np.diff(y)
         displacement = np.sqrt(dx**2 + dy**2)
 
-        ds = max(1, len(displacement) // 3000)
+        if mm_per_pix is not None:
+            disp_display = displacement * mm_per_pix
+            thr_display = jump_threshold * mm_per_pix
+            y_label = "Displacement (mm)"
+            thr_text = f"Threshold: {thr_display:.1f} mm"
+        else:
+            disp_display = displacement
+            thr_display = jump_threshold
+            y_label = "Displacement (px)"
+            thr_text = f"Threshold: {thr_display:.0f} px"
+
+        ds = max(1, len(disp_display) // 3000)
         fig = go.Figure()
         fig.add_trace(go.Scatter(
-            y=displacement[::ds], mode="lines",
+            y=disp_display[::ds], mode="lines",
             line=dict(width=0.5, color="steelblue"), name="Displacement",
         ))
-        fig.add_hline(y=jump_threshold, line_dash="dash", line_color="red",
-                       annotation_text=f"Threshold: {jump_threshold}px")
+        fig.add_hline(y=thr_display, line_dash="dash", line_color="red",
+                       annotation_text=thr_text)
         fig.update_layout(
             title=f"Frame-to-frame displacement — {bp_select}",
-            xaxis_title="Frame", yaxis_title="Pixels",
+            xaxis_title="Frame", yaxis_title=y_label,
             height=300,
         )
         st.plotly_chart(fig, use_container_width=True, key="jump_plot")
@@ -315,25 +337,37 @@ with tab_ears:
             kp_data["right_ear"]["x"], kp_data["right_ear"]["y"],
         )
         c1, c2, c3 = st.columns(3)
-        c1.metric("Median ear distance", f"{ear_result['median']:.1f} px")
-        c2.metric("MAD", f"{ear_result['mad']:.1f} px")
+        if mm_per_pix is not None:
+            c1.metric("Median ear distance", f"{ear_result['median'] * mm_per_pix:.1f} mm")
+            c2.metric("MAD", f"{ear_result['mad'] * mm_per_pix:.1f} mm")
+        else:
+            c1.metric("Median ear distance", f"{ear_result['median']:.1f} px")
+            c2.metric("MAD", f"{ear_result['mad']:.1f} px")
         c3.metric("Outlier frames", ear_result["n_outliers"])
 
         if ear_result["n_outliers"] > 0:
             import plotly.graph_objects as go
 
             dist = ear_result["distance"]
-            ds = max(1, len(dist) // 3000)
+            if mm_per_pix is not None:
+                dist_display = dist * mm_per_pix
+                median_display = ear_result["median"] * mm_per_pix
+                ear_y_label = "Distance (mm)"
+            else:
+                dist_display = dist
+                median_display = ear_result["median"]
+                ear_y_label = "Distance (px)"
+            ds = max(1, len(dist_display) // 3000)
             fig = go.Figure()
             fig.add_trace(go.Scatter(
-                y=dist[::ds], mode="lines",
+                y=dist_display[::ds], mode="lines",
                 line=dict(width=0.5), name="Ear distance",
             ))
-            fig.add_hline(y=ear_result["median"], line_dash="dash", line_color="green",
+            fig.add_hline(y=median_display, line_dash="dash", line_color="green",
                            annotation_text="Median")
             fig.update_layout(
                 title="Inter-ear distance over time",
-                xaxis_title="Frame", yaxis_title="Distance (px)",
+                xaxis_title="Frame", yaxis_title=ear_y_label,
                 height=300,
             )
             st.plotly_chart(fig, use_container_width=True, key="ear_dist_plot")
@@ -352,8 +386,12 @@ with tab_body:
             kp_data[tail_bp]["x"], kp_data[tail_bp]["y"],
         )
         c1, c2, c3 = st.columns(3)
-        c1.metric("Median body length", f"{body_result['median']:.1f} px")
-        c2.metric("MAD", f"{body_result['mad']:.1f} px")
+        if mm_per_pix is not None:
+            c1.metric("Median body length", f"{body_result['median'] * mm_per_pix:.1f} mm")
+            c2.metric("MAD", f"{body_result['mad'] * mm_per_pix:.1f} mm")
+        else:
+            c1.metric("Median body length", f"{body_result['median']:.1f} px")
+            c2.metric("MAD", f"{body_result['mad']:.1f} px")
         c3.metric("Outlier frames", body_result["n_outliers"])
     else:
         st.info(f"Need head ({head_bp}) and tail ({tail_bp}) keypoints.")

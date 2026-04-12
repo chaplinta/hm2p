@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from frontend.data import (
     DERIVATIVES_BUCKET,
     download_s3_bytes,
+    get_mm_per_pix,
     load_animals,
     load_experiments,
     parse_session_id,
@@ -187,8 +188,8 @@ def get_median_filtered(sub: str, ses: str) -> dict | None:
     filtered_pos = filter_by_confidence(
         data=ds.position, confidence=ds.confidence, threshold=0.5,
     )
-    # Apply rolling median filter (window=5, matching pipeline)
-    filtered_pos = rolling_filter(data=filtered_pos, window=5, statistic="median")
+    # Apply rolling median filter (window=3 at 30fps ≈ 100ms, matching pipeline)
+    filtered_pos = rolling_filter(data=filtered_pos, window=3, statistic="median")
 
     # Extract same way as dl_dlc
     individuals = ds.position.coords["individuals"].values.tolist()
@@ -314,15 +315,6 @@ with col_pos:
     pos_source = st.radio(
         "Positions", ["DLC raw", "DLC median filtered", "Pipeline filtered"],
         index=0, key="dlcv_pos", horizontal=True,
-        help=(
-            "**DLC raw**: direct model output. "
-            "**Median filtered**: 5-frame rolling median on x/y. "
-            "**Pipeline filtered**: confidence threshold (0.05) → "
-            "linear interpolation of short gaps (≤5 frames) → "
-            "5-frame median. Approximates the kinematics pipeline "
-            "but without orientation rotation or perspective correction "
-            "(those are coordinate transforms, not relevant for video overlay)."
-        ),
     )
 
 conf_thr = 0.05  # DLC 3.0 PyTorch outputs conservative confidences (~0.1-0.3)
@@ -332,7 +324,32 @@ sub, ses = parse_session_id(eid)
 aid = eid.split("_")[-1]
 ct = amap.get(aid, {}).get("celltype", "?")
 ct_label = "Penk+" if ct == "penk" else "Penk\u207bCamKII+" if ct == "nonpenk" else ct
+mm_per_pix = get_mm_per_pix(sub, ses)
 st.caption(f"Animal {aid} | {ct_label}")
+
+with st.expander("Position modes explained"):
+    st.markdown(
+        "**DLC raw** — Direct DeepLabCut output. Every frame has a prediction "
+        "for every body part, regardless of confidence. No filtering or "
+        "interpolation. Low-confidence predictions may be inaccurate (wrong "
+        "body part, background clutter).\n\n"
+        "**DLC median filtered** — A 3-frame rolling median filter is applied "
+        "to x/y coordinates after setting low-confidence detections "
+        f"(likelihood < {conf_thr}) to NaN. The 3-frame window at 30fps "
+        "gives ~100ms temporal smoothing (the old 100fps pipeline used 5 "
+        "frames = 50ms). This removes single-frame outliers but does not "
+        "interpolate across NaN gaps. Frames where a body part was below "
+        "threshold will show no position for that part.\n\n"
+        "**Pipeline filtered** — The full kinematics pipeline output (from "
+        "sync.h5). Processing steps: confidence threshold → linear "
+        "interpolation of short gaps (up to 5 frames) → 3-frame rolling "
+        "median → orientation rotation → perspective correction → conversion "
+        "to mm. Positions are in physical coordinates (mm). Frames with "
+        "extended low-confidence runs remain as NaN (not interpolated).\n\n"
+        "In Inspect mode, **filled circles** indicate confident detections; "
+        "**open circles** indicate the body part was detected but below the "
+        "confidence threshold."
+    )
 
 # ── Load data ────────────────────────────────────────────────────────────
 
@@ -353,8 +370,20 @@ n_dlc = dlc_data["n_frames"] if dlc_data is not None else 0
 # ── Time series builder ──────────────────────────────────────────────────
 
 
-def make_ts_fig(vline_frame=None, ds_step=50):
-    """Build position + confidence time series."""
+def make_ts_fig(vline_frame=None, ds_step=50, mm_per_pix=None):
+    """Build position + confidence time series.
+
+    Parameters
+    ----------
+    vline_frame:
+        Frame index at which to draw a vertical marker, or None.
+    ds_step:
+        Down-sampling step for display (every Nth frame).
+    mm_per_pix:
+        Scale factor (mm per pixel). When provided and pos_source is
+        "DLC raw" or "DLC median filtered", pixel coordinates are
+        converted to mm for display.
+    """
     fig = go.Figure()
     if dlc_data is None:
         return fig
@@ -382,21 +411,22 @@ def make_ts_fig(vline_frame=None, ds_step=50):
                     name=label,
                 ))
     else:
-        # DLC raw or DLC median filtered — use active_dlc
+        # DLC raw or DLC median filtered — convert to mm if scale is available
         src = active_dlc if active_dlc is not None else dlc_data
+        scale = mm_per_pix if mm_per_pix is not None else 1.0
         if src is not None:
             for bp in src["keypoints"]:
                 x, y, lk = get_xy(src, bp)
                 if x is None:
                     continue
                 fig.add_trace(go.Scattergl(
-                    x=t, y=x[idx], mode="lines",
+                    x=t, y=x[idx] * scale, mode="lines",
                     line=dict(color=BP_HEX.get(bp, "gray"), width=1),
                     name=f"{bp} x", legendgroup=bp,
                     visible="legendonly" if bp != "nose" else True,
                 ))
                 fig.add_trace(go.Scattergl(
-                    x=t, y=y[idx], mode="lines",
+                    x=t, y=y[idx] * scale, mode="lines",
                     line=dict(color=BP_HEX.get(bp, "gray"), width=1, dash="dot"),
                     name=f"{bp} y", legendgroup=bp,
                     visible="legendonly" if bp != "nose" else True,
@@ -418,11 +448,14 @@ def make_ts_fig(vline_frame=None, ds_step=50):
         vt = vline_frame / VIDEO_FPS
         fig.add_vline(x=vt, line_color="lime", line_width=2)
 
-    pos_label = "Position (px)"
     if pos_source == "Pipeline filtered":
         pos_label = "Position (mm)"
-    elif pos_source == "DLC median filtered":
-        pos_label = "Position (px, filtered)"
+    elif mm_per_pix is not None:
+        suffix = ", filtered" if pos_source == "DLC median filtered" else ""
+        pos_label = f"Position (mm{suffix})"
+    else:
+        suffix = ", filtered" if pos_source == "DLC median filtered" else ""
+        pos_label = f"Position (px{suffix})"
 
     fig.update_layout(
         height=400,
@@ -450,7 +483,7 @@ if mode == "Playback":
         st.warning("No labelled video. Run `scripts/render_dlc_videos.py` first.")
 
     st.subheader("Position + Confidence")
-    fig = make_ts_fig(ds_step=50)
+    fig = make_ts_fig(ds_step=50, mm_per_pix=mm_per_pix)
     st.plotly_chart(fig, use_container_width=True, key="dlcv_ts_play")
 
     if n_dlc > 0 and dlc_data is not None:
@@ -478,42 +511,62 @@ if mode == "Inspect":
     )
     st.caption(f"Frame {fi} | t = {fi/VIDEO_FPS:.2f}s | {fi/n_frames*100:.1f}%")
 
-    # Frame image — optionally overlay filtered markers
+    # Frame image — overlay body part markers
     if vbytes is not None:
         rgb = extract_frame(vbytes, fi)
         if rgb is not None:
-            # If using filtered positions, draw filtered markers on top
-            if pos_source != "DLC raw" and active_dlc is not None and fi < active_dlc["n_frames"]:
-                import cv2
-                frame_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-                h, w = frame_bgr.shape[:2]
-                for bp in active_dlc["keypoints"]:
-                    x, y, lk = get_xy(active_dlc, bp)
+            import cv2
+
+            frame_bgr = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+            h, w = frame_bgr.shape[:2]
+            sx = w / 832.0  # original video width
+            sy = h / 608.0  # original video height
+
+            color_map = {
+                "nose_tip": (0,0,255), "nose": (0,0,255),
+                "left_ear": (255,0,0), "right_ear": (255,255,0),
+                "implant_base_rear": (0,165,255), "neck": (128,0,128),
+                "mid_back": (0,204,0), "mouse_center": (0,215,255),
+                "tail_base": (255,0,255),
+            }
+
+            # Always draw raw DLC positions: filled = confident, open = low confidence
+            if dlc_data is not None and fi < dlc_data["n_frames"]:
+                for bp in dlc_data["keypoints"]:
+                    x, y, lk = get_xy(dlc_data, bp)
                     if x is None:
                         continue
                     xv, yv, lkv = float(x[fi]), float(y[fi]), float(lk[fi])
                     if np.isnan(xv) or np.isnan(yv):
                         continue
-                    # Scale from original DLC pixel coords to displayed frame size
-                    # The labelled video is 416x304, DLC coords are in original resolution
-                    sx = w / 832.0  # original video width
-                    sy = h / 608.0  # original video height
                     px, py = int(xv * sx), int(yv * sy)
-                    color_map = {
-                        "nose_tip": (0,0,255), "nose": (0,0,255),
-                        "left_ear": (255,0,0), "right_ear": (255,255,0),
-                        "implant_base_rear": (0,165,255), "neck": (128,0,128),
-                        "mid_back": (0,204,0), "mouse_center": (0,215,255),
-                        "tail_base": (255,0,255),
-                    }
                     bgr = color_map.get(bp, (255,255,255))
-                    # Draw filtered marker as a larger ring (distinguishable from baked-in dots)
-                    cv2.circle(frame_bgr, (px, py), 6, bgr, 2, cv2.LINE_AA)
-                rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-                label = "filtered" if pos_source == "DLC median filtered" else "pipeline"
-                st.image(rgb, caption=f"Frame {fi} (rings = {label} positions)", use_container_width=True)
+                    confident = not np.isnan(lkv) and lkv >= conf_thr
+                    if confident:
+                        cv2.circle(frame_bgr, (px, py), 5, bgr, -1, cv2.LINE_AA)  # filled
+                    else:
+                        cv2.circle(frame_bgr, (px, py), 5, bgr, 1, cv2.LINE_AA)   # open
+
+            # If using filtered positions, draw them as larger rings on top
+            if pos_source != "DLC raw" and active_dlc is not None and fi < active_dlc["n_frames"]:
+                for bp in active_dlc["keypoints"]:
+                    x, y, lk = get_xy(active_dlc, bp)
+                    if x is None:
+                        continue
+                    xv, yv = float(x[fi]), float(y[fi])
+                    if np.isnan(xv) or np.isnan(yv):
+                        continue
+                    px, py = int(xv * sx), int(yv * sy)
+                    bgr = color_map.get(bp, (255,255,255))
+                    cv2.circle(frame_bgr, (px, py), 8, bgr, 2, cv2.LINE_AA)
+
+            rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            if pos_source == "DLC raw":
+                caption = f"Frame {fi} (filled = confident, open = below threshold)"
             else:
-                st.image(rgb, caption=f"Frame {fi}", use_container_width=True)
+                label = "median filtered" if pos_source == "DLC median filtered" else "pipeline"
+                caption = f"Frame {fi} (dots = raw, rings = {label})"
+            st.image(rgb, caption=caption, use_container_width=True)
 
     # Keypoint table (always from raw DLC data for QC)
     if dlc_data is not None and fi < dlc_data["n_frames"]:
@@ -528,15 +581,22 @@ if mode == "Inspect":
             yv = float(y[fi])
             lkv = float(lk[fi])
             flag = "LOW" if (not np.isnan(lkv) and lkv < conf_thr) else ""
-            rows.append({
-                "bodypart": bp, "x": round(xv, 1), "y": round(yv, 1),
-                "likelihood": round(lkv, 4), "flag": flag,
-            })
+            row: dict = {
+                "bodypart": bp,
+                "x_px": round(xv, 1),
+                "y_px": round(yv, 1),
+            }
+            if mm_per_pix is not None:
+                row["x_mm"] = round(xv * mm_per_pix, 2)
+                row["y_mm"] = round(yv * mm_per_pix, 2)
+            row["likelihood"] = round(lkv, 4)
+            row["flag"] = flag
+            rows.append(row)
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     # Time series with vertical line
     st.subheader("Position + Confidence")
-    fig = make_ts_fig(vline_frame=fi, ds_step=50)
+    fig = make_ts_fig(vline_frame=fi, ds_step=50, mm_per_pix=mm_per_pix)
     st.plotly_chart(fig, use_container_width=True, key="dlcv_ts_insp")
 
 # Footer

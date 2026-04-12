@@ -58,6 +58,24 @@ Processing code touches `/tmp/gpu_processing_active` before DLC calls
 and removes it after, so the watchdog doesn't trigger during
 download/upload phases.
 
+## Frame Rate and Median Filter
+
+DLC inference runs on video subsampled to **30fps** (from ~100fps raw).
+The downstream median filter window is set to **3 frames**, giving
+~100ms temporal smoothing. This approximates the old pipeline which
+used 5 frames at 100fps (50ms).
+
+**If the inference frame rate changes**, update the median filter window
+to maintain approximately 100ms smoothing (`window = round(0.1 * fps)`):
+
+| Location | Parameter |
+|----------|-----------|
+| `src/hm2p/kinematics/compute.py` → `median_filter_dataset()` | `window` default |
+| `src/hm2p/kinematics/compute.py` → `compute_kinematics()` | `median_filter_dataset(ds, window=...)` call |
+| `scripts/render_dlc_videos.py` → `_apply_median_filter()` | `window` default |
+| `scripts/render_dlc_videos.py` → `_apply_pipeline_filter()` | `window` default |
+| `frontend/pages/dlc_viewer_page.py` → `get_median_filtered()` | `rolling_filter(..., window=...)` call |
+
 ## Workflow
 
 ```
