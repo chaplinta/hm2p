@@ -246,6 +246,7 @@ kp_data = _extract_keypoint_data(df, scorer, bodyparts)
 from hm2p.pose.quality import (
     body_length_consistency,
     detect_ear_distance_outliers,
+    detect_ear_swaps,
     detect_frozen_keypoint,
     detect_jumps,
     session_quality_report,
@@ -328,7 +329,7 @@ if bp_select in kp_data:
 # --- Anatomical constraints ---
 st.subheader("Anatomical Constraints")
 
-tab_ears, tab_body, tab_frozen = st.tabs(["Ear Distance", "Body Length", "Frozen Keypoints"])
+tab_ears, tab_swap, tab_body, tab_frozen = st.tabs(["Ear Distance", "Ear Swap", "Body Length", "Frozen Keypoints"])
 
 with tab_ears:
     if "left_ear" in kp_data and "right_ear" in kp_data:
@@ -373,6 +374,80 @@ with tab_ears:
             st.plotly_chart(fig, use_container_width=True, key="ear_dist_plot")
     else:
         st.info("Left/right ear keypoints not found.")
+
+with tab_swap:
+    # Need ears + at least one midline keypoint pair for the body axis
+    has_ears = "left_ear" in kp_data and "right_ear" in kp_data
+    # Pick best available midline pair: nose→implant preferred, fallback to others
+    axis_pairs = [
+        ("nose_tip", "implant_base_rear"),
+        ("nose", "implant_base_rear"),
+        ("nose_tip", "neck"),
+        ("nose", "neck"),
+        ("implant_base_rear", "tail_base"),
+        ("neck", "tail_base"),
+    ]
+    axis_bp1, axis_bp2 = None, None
+    for bp1, bp2 in axis_pairs:
+        if bp1 in kp_data and bp2 in kp_data:
+            axis_bp1, axis_bp2 = bp1, bp2
+            break
+
+    if has_ears and axis_bp1 is not None:
+        swap_result = detect_ear_swaps(
+            kp_data["left_ear"]["x"], kp_data["left_ear"]["y"],
+            kp_data["right_ear"]["x"], kp_data["right_ear"]["y"],
+            kp_data[axis_bp1]["x"], kp_data[axis_bp1]["y"],
+            kp_data[axis_bp2]["x"], kp_data[axis_bp2]["y"],
+        )
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Swapped frames", f"{swap_result['n_swapped']:,}")
+        c2.metric("% swapped", f"{swap_result['pct_swapped']*100:.1f}%")
+        c3.metric("Body axis", f"{axis_bp1} → {axis_bp2}")
+
+        if swap_result["n_swapped"] > 0:
+            st.caption(
+                "Frames where the left ear is on the right side of the body "
+                "axis (or vice versa), indicating DLC swapped the ear labels. "
+                f"Body axis defined by {axis_bp1} → {axis_bp2}."
+            )
+
+            import plotly.graph_objects as go
+            left_s = swap_result["left_sign"]
+            ds = max(1, len(left_s) // 3000)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                y=left_s[::ds], mode="lines",
+                line=dict(width=0.5, color="steelblue"),
+                name="Left ear side (+ = left of axis)",
+            ))
+            fig.add_hline(y=0, line_dash="dash", line_color="red")
+            # Highlight swapped regions
+            swapped_idx = np.where(swap_result["is_swapped"])[0]
+            if len(swapped_idx) > 0:
+                fig.add_trace(go.Scatter(
+                    x=swapped_idx[::ds] if len(swapped_idx) > 3000 else swapped_idx,
+                    y=left_s[swapped_idx][::ds] if len(swapped_idx) > 3000 else left_s[swapped_idx],
+                    mode="markers",
+                    marker=dict(size=3, color="red"),
+                    name="Swapped",
+                ))
+            fig.update_layout(
+                title="Left ear signed side relative to body axis",
+                xaxis_title="Frame",
+                yaxis_title="Cross-product (+ = left, − = right)",
+                height=300,
+            )
+            st.plotly_chart(fig, use_container_width=True, key="ear_swap_plot")
+        else:
+            st.success("No ear swaps detected.")
+    else:
+        missing = []
+        if not has_ears:
+            missing.append("left_ear / right_ear")
+        if axis_bp1 is None:
+            missing.append("midline keypoints (nose, implant, neck, tail)")
+        st.info(f"Need {', '.join(missing)} for ear swap detection.")
 
 with tab_body:
     head_bp = "mouse_center" if "mouse_center" in kp_data else (

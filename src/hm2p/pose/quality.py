@@ -211,6 +211,103 @@ def detect_ear_distance_outliers(
     }
 
 
+def detect_ear_swaps(
+    left_ear_x: npt.NDArray[np.floating],
+    left_ear_y: npt.NDArray[np.floating],
+    right_ear_x: npt.NDArray[np.floating],
+    right_ear_y: npt.NDArray[np.floating],
+    axis_x1: npt.NDArray[np.floating],
+    axis_y1: npt.NDArray[np.floating],
+    axis_x2: npt.NDArray[np.floating],
+    axis_y2: npt.NDArray[np.floating],
+) -> dict:
+    """Detect frames where left/right ears are swapped relative to the body axis.
+
+    The body axis is defined by two midline keypoints (e.g. nose→implant,
+    nose→neck, or implant→tail_base).  For each frame, the function
+    computes the signed cross-product of (axis direction) × (ear - axis
+    origin) to determine which side of the axis each ear falls on.
+    If the left ear is on the right side (or vice versa), the ears are
+    flagged as swapped.
+
+    Parameters
+    ----------
+    left_ear_x, left_ear_y : (n_frames,) float
+        Left ear positions.
+    right_ear_x, right_ear_y : (n_frames,) float
+        Right ear positions.
+    axis_x1, axis_y1 : (n_frames,) float
+        Anterior midline keypoint (e.g. nose_tip or implant_base_rear).
+    axis_x2, axis_y2 : (n_frames,) float
+        Posterior midline keypoint (e.g. implant_base_rear or tail_base).
+
+    Returns
+    -------
+    dict
+        ``"is_swapped"`` — (n_frames,) bool, True where ears are on the
+        wrong side of the body axis.
+        ``"n_swapped"`` — count of swapped frames.
+        ``"pct_swapped"`` — fraction of valid frames that are swapped.
+        ``"left_sign"`` — (n_frames,) float, signed side of left ear
+        (positive = left of axis when facing from axis_x1 to axis_x2).
+    """
+    n = len(left_ear_x)
+
+    # Body axis vector: anterior → posterior
+    ax = axis_x2 - axis_x1
+    ay = axis_y2 - axis_y1
+
+    # Vector from axis origin to each ear
+    le_dx = left_ear_x - axis_x1
+    le_dy = left_ear_y - axis_y1
+    re_dx = right_ear_x - axis_x1
+    re_dy = right_ear_y - axis_y1
+
+    # Signed cross product: positive = left of axis, negative = right
+    # (when looking from anterior to posterior)
+    left_sign = ax * le_dy - ay * le_dx
+    right_sign = ax * re_dy - ay * re_dx
+
+    # Ears are swapped when they are on the same side, or when left ear
+    # is on the right side (negative sign) and right ear is on the left
+    # (positive sign).  The canonical arrangement has left_sign > 0 for
+    # the majority of frames.  Determine the expected sign from the
+    # majority vote across valid frames.
+    valid = (
+        np.isfinite(left_sign)
+        & np.isfinite(right_sign)
+        & (np.abs(ax) + np.abs(ay) > 1e-6)  # axis has non-zero length
+    )
+
+    if valid.sum() < 10:
+        return {
+            "is_swapped": np.zeros(n, dtype=bool),
+            "n_swapped": 0,
+            "pct_swapped": 0.0,
+            "left_sign": left_sign,
+        }
+
+    # Majority of frames: left ear should be on one consistent side
+    majority_left_positive = np.sum(left_sign[valid] > 0) > valid.sum() / 2
+
+    if majority_left_positive:
+        # Expected: left_sign > 0, right_sign < 0
+        is_swapped = valid & (left_sign < 0) & (right_sign > 0)
+    else:
+        # Expected: left_sign < 0, right_sign > 0
+        is_swapped = valid & (left_sign > 0) & (right_sign < 0)
+
+    n_swapped = int(is_swapped.sum())
+    pct_swapped = n_swapped / valid.sum() if valid.sum() > 0 else 0.0
+
+    return {
+        "is_swapped": is_swapped,
+        "n_swapped": n_swapped,
+        "pct_swapped": float(pct_swapped),
+        "left_sign": left_sign,
+    }
+
+
 def body_length_consistency(
     head_x: npt.NDArray[np.floating],
     head_y: npt.NDArray[np.floating],
