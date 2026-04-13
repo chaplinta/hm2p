@@ -13,7 +13,7 @@
 ## Context and Starting State
 
 **DLC project:** `sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20/`  
-**Bodyparts (8):** `nose_tip`, `left_ear`, `right_ear`, `implant_base_rear`, `neck`,
+**Bodyparts (8):** `nose_tip`, `left_ear`, `right_ear`, `head_midpoint`, `neck`,
 `mid_back`, `mouse_center`, `tail_base`  
 **Labeled frames:** 183 frames across 16 sessions (confirmed from `CollectedData_tristan.h5` files)  
 **Current `default_net_type`:** `resnet_50` (in `config.yaml`)  
@@ -33,7 +33,7 @@ superset as follows:
 | 0 | `nose_tip` | `nose` | 0 | Direct match |
 | 1 | `left_ear` | `left_ear` | 1 | Direct match |
 | 2 | `right_ear` | `right_ear` | 2 | Direct match |
-| 3 | `implant_base_rear` | *(none)* | -1 | Custom — no SA equivalent. Zero-initialised, trained from our labels only |
+| 3 | `head_midpoint` | *(none)* | -1 | Custom — no SA equivalent. Zero-initialised, trained from our labels only |
 | 4 | `neck` | `neck` | 7 | Direct match |
 | 5 | `mid_back` | `mid_back` | 8 | Direct match |
 | 6 | `mouse_center` | `mouse_center` | 9 | Direct match |
@@ -49,18 +49,18 @@ The SA-TVM model's full 27 keypoints (from `superanimal_topviewmouse.yaml`):
 `right_shoulder(22)`, `right_midside(23)`, `right_hip(24)`, `tail_end(25)`,
 `head_midpoint(26)`.
 
-7 of 8 bodyparts have direct SA matches. `implant_base_rear` is handled
+7 of 8 bodyparts have direct SA matches. `head_midpoint` is handled
 via the `-1` sentinel in the conversion array — the backbone still provides
 features for it, only the head channel is trained from scratch.
 
-**config.yaml `SuperAnimalConversionTables`** (current, needs `implant_base_rear: null` added):
+**config.yaml `SuperAnimalConversionTables`** (current, needs `head_midpoint: null` added):
 ```yaml
 SuperAnimalConversionTables:
   superanimal_topviewmouse:
     nose_tip: nose
     left_ear: left_ear
     right_ear: right_ear
-    implant_base_rear: null    # ← add this for SA transfer
+    head_midpoint: null    # ← add this for SA transfer
     neck: neck
     mid_back: mid_back
     mouse_center: mouse_center
@@ -416,16 +416,16 @@ The `launch_dlc_finetune_ec2.py` forwards arbitrary flags to `run_dlc_retrain.py
 `mode_flag`, so adding `--sa-backbone` there requires only one additional argument in
 `build_user_data` and a new `argparse` argument in `launch_dlc_finetune_ec2.py`.
 
-### Handling `implant_base_rear`
+### Handling `head_midpoint`
 
-`implant_base_rear` has no SA-TVM superset equivalent. In Mode A, this is not a problem:
+`head_midpoint` has no SA-TVM superset equivalent. In Mode A, this is not a problem:
 the head is randomly initialised regardless. All 8 bodyparts train from the same randomly
 initialised head. The SA backbone provides pose-aware features to the head, which helps
-the 7 matched bodyparts learn faster and generalise better. `implant_base_rear` benefits
+the 7 matched bodyparts learn faster and generalise better. `head_midpoint` benefits
 from the backbone features to the same extent as any other novel keypoint — the backbone
 represents spatial relationships and texture features, not keypoint identity.
 
-Expected behaviour for `implant_base_rear`: similar training curve to Phase 1 (ImageNet).
+Expected behaviour for `head_midpoint`: similar training curve to Phase 1 (ImageNet).
 No improvement from SA backbone is expected for this keypoint specifically, but no
 degradation either.
 
@@ -470,9 +470,9 @@ deeplabcut.video_inference_superanimal(
 
 ### Why it is not the primary strategy for this project
 
-1. **`implant_base_rear` is invisible to SA-TVM.** Video adaptation generates pseudo-labels
+1. **`head_midpoint` is invisible to SA-TVM.** Video adaptation generates pseudo-labels
    from SA-TVM's zero-shot predictions. SA-TVM has no superset keypoint for
-   `implant_base_rear`, so no pseudo-labels are generated for it. The headstage is our
+   `head_midpoint`, so no pseudo-labels are generated for it. The headstage is our
    most novel tracking challenge and video adaptation cannot help with it.
 
 2. **Top-down models do not need scale adaptation.** The spatial-pyramid search benefit
@@ -505,7 +505,7 @@ Video adaptation could be applied as a diagnostic step if, after Phase 2:
 
 In this case, apply `video_inference_superanimal` with `video_adapt=True` on the
 affected session, use SA-TVM's output for the 7 matched bodyparts only, and continue
-using the fine-tuned model for `implant_base_rear`. This is a per-session manual
+using the fine-tuned model for `head_midpoint`. This is a per-session manual
 intervention, not a routine pipeline step.
 
 ---
@@ -624,7 +624,7 @@ Phase 2 is accepted if:
 
 1. SA backbone shuffle (shuffle=2) achieves > Phase 1 mAP on the held-out session.
 2. `left_ear` and `right_ear` RMSE is lower than Phase 1.
-3. No regressions on `implant_base_rear` (expected: similar to Phase 1).
+3. No regressions on `head_midpoint` (expected: similar to Phase 1).
 
 If Phase 2 does not improve over Phase 1, keep Phase 1 as production and record the
 negative result in this document.
@@ -714,11 +714,11 @@ This is unaffected by which shuffle is in production — the S3 paths for pose o
    for the list of valid detector names. Using the wrong string will raise a `ValueError`
    or download the wrong checkpoint.
 
-3. **Should `implant_base_rear` frames be weighted more heavily?**
-   With 183 frames and only 16 sessions, `implant_base_rear` has fewer clean examples
+3. **Should `head_midpoint` frames be weighted more heavily?**
+   With 183 frames and only 16 sessions, `head_midpoint` has fewer clean examples
    than the 7 SA-matched bodyparts (the headstage is frequently occluded by the cable).
    Consider whether to add a per-keypoint loss weight in `pytorch_config.yaml` for
-   `implant_base_rear`. This is a DLC-internal config option; its availability and syntax
+   `head_midpoint`. This is a DLC-internal config option; its availability and syntax
    should be verified from the DLC 3.x docs before attempting.
 
 4. **What is the mAP from the most recent training run?**

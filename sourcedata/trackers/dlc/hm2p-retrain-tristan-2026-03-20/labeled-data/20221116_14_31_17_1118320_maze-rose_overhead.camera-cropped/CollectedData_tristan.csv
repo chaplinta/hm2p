@@ -1,5 +1,5 @@
 scorer,,,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan
-bodyparts,,,nose_tip,nose_tip,left_ear,left_ear,right_ear,right_ear,implant_base_rear,implant_base_rear,neck,neck,mid_back,mid_back,mouse_center,mouse_center,tail_base,tail_base
+bodyparts,,,nose_tip,nose_tip,left_ear,left_ear,right_ear,right_ear,head_midpoint,head_midpoint,neck,neck,mid_back,mid_back,mouse_center,mouse_center,tail_base,tail_base
 coords,,,x,y,x,y,x,y,x,y,x,y,x,y,x,y,x,y
 labeled-data,20221116_14_31_17_1118320_maze-rose_overhead.camera-cropped,frame_001844.png,478.83558175044413,470.859471755746,496.07972105923415,493.8516575007993,506.8260687444222,470.3596416308535,,,,,,,,,533.8168954886153,496.6007231877079
 labeled-data,20221116_14_31_17_1118320_maze-rose_overhead.camera-cropped,frame_002607.png,,,625.6185854056757,475.430592909319,620.2164980121443,501.76576895278504,624.0429765825623,486.68494164584297,618.6408891890309,485.1093328227296,586.9036257520333,472.0542882883618,569.3468417230561,470.25359249051803,537.1594043365976,480.60759332812006

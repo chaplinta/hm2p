@@ -223,8 +223,8 @@ def detect_ear_swaps(
 ) -> dict:
     """Detect frames where left/right ears are swapped relative to the body axis.
 
-    The body axis is defined by two midline keypoints (e.g. nose→implant,
-    nose→neck, or implant→tail_base).  For each frame, the function
+    The body axis is defined by two midline keypoints (e.g. nose→head_midpoint,
+    nose→neck, or head_midpoint→tail_base).  For each frame, the function
     computes the signed cross-product of (axis direction) × (ear - axis
     origin) to determine which side of the axis each ear falls on.
     If the left ear is on the right side (or vice versa), the ears are
@@ -237,9 +237,9 @@ def detect_ear_swaps(
     right_ear_x, right_ear_y : (n_frames,) float
         Right ear positions.
     axis_x1, axis_y1 : (n_frames,) float
-        Anterior midline keypoint (e.g. nose_tip or implant_base_rear).
+        Anterior midline keypoint (e.g. nose_tip or head_midpoint).
     axis_x2, axis_y2 : (n_frames,) float
-        Posterior midline keypoint (e.g. implant_base_rear or tail_base).
+        Posterior midline keypoint (e.g. head_midpoint or tail_base).
 
     Returns
     -------

@@ -487,7 +487,7 @@ architectures are supported by the SA backbone pathway if we later want SA trans
 This section was added in a second review pass after reading the DLC source more
 thoroughly and cross-referencing against the current project config.yaml (8 bodyparts,
 not 5 as stated in earlier sections of this document — the doc was written with the
-pre-`implant_base_rear` labelling set, but our current config has 8 bodyparts).
+pre-`head_midpoint` labelling set, but our current config has 8 bodyparts).
 
 ### 7.1 Current project state (2026-04-02)
 
@@ -498,7 +498,7 @@ bodyparts:
 - nose_tip
 - left_ear
 - right_ear
-- implant_base_rear   # custom, not in SA
+- head_midpoint   # custom, not in SA
 - neck
 - mid_back
 - mouse_center
@@ -513,11 +513,11 @@ SuperAnimalConversionTables:
     mid_back: mid_back
     mouse_center: mouse_center
     tail_base: tail_base
-    # implant_base_rear is ABSENT from the table
+    # head_midpoint is ABSENT from the table
 ```
 
 184 labelled frames across 16 sessions. The conversion table is incomplete: it omits
-`implant_base_rear` entirely. This needs to be fixed to `implant_base_rear: null`
+`head_midpoint` entirely. This needs to be fixed to `head_midpoint: null`
 before calling `build_weight_init(with_decoder=True)`.
 
 ### 7.2 `convert_weights` — confirmed source behaviour
@@ -539,7 +539,7 @@ state_dict[locref_key] = state_dict[locref_key][locref_conversion]
 ```
 
 A `conversion` value of `-1` at position `i` means: zero-initialise output channel `i`.
-This is used for `implant_base_rear`. The SA checkpoint's final Conv2d has shape
+This is used for `head_midpoint`. The SA checkpoint's final Conv2d has shape
 `(27, 256, 1, 1)`. After conversion, our model gets `(8, 256, 1, 1)` with channel 3
 (implant) zero-initialised.
 
@@ -610,7 +610,7 @@ The correct fix for our failed attempts is simpler than the earlier analysis sug
 
 2. The actual failures were:
    - `default_net_type: resnet_50` → backbone mismatch (§2.2 was correct about this)
-   - Incomplete conversion table (no `implant_base_rear` entry)
+   - Incomplete conversion table (no `head_midpoint` entry)
    - Possibly using a stale API (`superanimal_name` parameter that no longer exists)
 
 3. The correct approach is Mode B (`with_decoder=True, memory_replay=True`) as described
@@ -622,7 +622,7 @@ The correct fix for our failed attempts is simpler than the earlier analysis sug
 **Step 1 (required first):** Change `default_net_type: resnet_50` → `hrnet_w32` in
 `config.yaml`. Commit this change.
 
-**Step 2:** Update the conversion table to explicitly include `implant_base_rear: null`
+**Step 2:** Update the conversion table to explicitly include `head_midpoint: null`
 using `create_conversion_table()`.
 
 **Step 3:** Run `build_weight_init(with_decoder=True, memory_replay=True)` →
@@ -641,7 +641,7 @@ unsupervised per-video adaptation described in Figure 3 of the paper. It:
 - Runs zero-shot SA inference on the video.
 - Uses predictions with confidence > 0.7 as pseudo-labels.
 - Fine-tunes for 1000 steps at batch_size=1.
-- Works on the full 27-keypoint SA model — it cannot add `implant_base_rear`.
+- Works on the full 27-keypoint SA model — it cannot add `head_midpoint`.
 
 This mode is NOT a replacement for our fine-tuning workflow. It could be applied as a
 post-processing step on a fine-tuned model to reduce temporal jitter, but the paper

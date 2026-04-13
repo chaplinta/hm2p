@@ -129,7 +129,7 @@ ImageNet-generic. Implementation: 2-3 hours.
 
 **Mode B** (`with_decoder=True`, memory replay) is the higher-ceiling path. The lead
 developer's Section 7.2 confirmed that `convert_weights` does handle the 27-to-8
-channel remapping correctly, including zero-initialisation for `implant_base_rear` at
+channel remapping correctly, including zero-initialisation for `head_midpoint` at
 index -1. The data scientist's notes correctly identify this as the path that achieves
 10x data efficiency in the paper. The lead developer's initial "do not pursue" was
 based on an incomplete source analysis that Section 7 corrected.
@@ -144,7 +144,7 @@ based on an incomplete source analysis that Section 7 corrected.
    rebuild.
 
 Mode B requires:
-- Adding `implant_base_rear: null` to the `SuperAnimalConversionTables` in
+- Adding `head_midpoint: null` to the `SuperAnimalConversionTables` in
   `config.yaml` (the plan already notes this).
 - `build_weight_init(with_decoder=True, memory_replay=True)`.
 - The conversion array `[0, 1, 2, -1, 7, 8, 9, 13]` (already documented).
@@ -176,7 +176,7 @@ darkness, all 27 bodyparts labeled). Our out-of-distribution factors:
 
 1. **Headstage and cable** — partially occlude the dorsal body surface. The SA-TVM
    training data includes no headstage. This is a hard domain shift for mid_back, neck,
-   and especially implant_base_rear.
+   and especially head_midpoint.
 2. **Total darkness** — zero visual information in ~50% of frames. SA-TVM was trained
    entirely under normal lighting. Dark frames are genuinely OOD for both ImageNet and
    SA backbones; only our labeled dark frames provide supervision for this domain.

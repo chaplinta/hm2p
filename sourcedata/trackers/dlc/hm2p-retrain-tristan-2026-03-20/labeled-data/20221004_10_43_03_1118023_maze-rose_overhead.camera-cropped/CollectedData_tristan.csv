@@ -1,5 +1,5 @@
 scorer,,,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan
-bodyparts,,,nose_tip,nose_tip,left_ear,left_ear,right_ear,right_ear,implant_base_rear,implant_base_rear,neck,neck,mid_back,mid_back,mouse_center,mouse_center,tail_base,tail_base
+bodyparts,,,nose_tip,nose_tip,left_ear,left_ear,right_ear,right_ear,head_midpoint,head_midpoint,neck,neck,mid_back,mid_back,mouse_center,mouse_center,tail_base,tail_base
 coords,,,x,y,x,y,x,y,x,y,x,y,x,y,x,y,x,y
 labeled-data,20221004_10_43_03_1118023_maze-rose_overhead.camera-cropped,frame_003095.png,602.2170236073229,265.0064039872183,590.9459605783237,286.88552633762845,611.4990755135575,287.8800318990107,601.2225180459405,286.88552633762845,600.8910161921465,289.53754116798115,598.9020050693819,314.40018020253814,596.9129939466173,337.6053099681247,596.2499902390292,370.75549534753407
 labeled-data,20221004_10_43_03_1118023_maze-rose_overhead.camera-cropped,frame_004603.png,260.1179807672985,424.61758581831725,245.9721468572221,398.09414723692396,226.52162523086702,408.11411292322805,238.3098201559307,404.57765444570896,236.54159091717116,402.22001546069623,234.7733616784116,392.7894595206453,231.2369032008925,378.05421586431567,226.52162523086702,350.351957790416

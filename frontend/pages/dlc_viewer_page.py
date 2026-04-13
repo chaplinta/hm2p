@@ -28,7 +28,8 @@ log = logging.getLogger("hm2p.frontend.dlc_viewer")
 BODYPARTS = [
     "nose_tip", "nose",  # nose_tip (finetuned) or nose (SuperAnimal)
     "left_ear", "right_ear",
-    "implant_base_rear", "neck",
+    "head_midpoint", "implant_base_rear",  # head_midpoint preferred; implant_base_rear is legacy alias
+    "neck",
     "mid_back", "mouse_center", "tail_base",
 ]
 BP_HEX = {
@@ -36,7 +37,8 @@ BP_HEX = {
     "nose": "#FF0000",
     "left_ear": "#0000FF",
     "right_ear": "#00FFFF",
-    "implant_base_rear": "#FFA500",
+    "head_midpoint": "#FFA500",
+    "implant_base_rear": "#FFA500",  # legacy alias
     "neck": "#800080",
     "mid_back": "#00CC00",
     "mouse_center": "#FFD700",
@@ -47,7 +49,8 @@ BP_LEGEND = {
     "nose_tip": ("Nose tip", "#FF0000"),
     "left_ear": ("Left ear", "#0000FF"),
     "right_ear": ("Right ear", "#00FFFF"),
-    "implant_base_rear": ("Implant base", "#FFA500"),
+    "head_midpoint": ("Head midpoint", "#FFA500"),
+    "implant_base_rear": ("Head midpoint", "#FFA500"),  # legacy alias
     "neck": ("Neck", "#800080"),
     "mid_back": ("Mid back", "#00CC00"),
     "mouse_center": ("Mouse centre", "#FFD700"),
@@ -525,7 +528,8 @@ if mode == "Inspect":
             color_map = {
                 "nose_tip": (0,0,255), "nose": (0,0,255),
                 "left_ear": (255,0,0), "right_ear": (255,255,0),
-                "implant_base_rear": (0,165,255), "neck": (128,0,128),
+                "head_midpoint": (0,165,255), "implant_base_rear": (0,165,255),  # legacy alias
+                "neck": (128,0,128),
                 "mid_back": (0,204,0), "mouse_center": (0,215,255),
                 "tail_base": (255,0,255),
             }

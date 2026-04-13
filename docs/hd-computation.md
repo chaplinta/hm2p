@@ -20,7 +20,7 @@ keypoints are occluded (e.g. nose hidden behind the 2P implant).
                   /   \
      left_ear ● ── ● ── ● right_ear
                    |
-              implant_base_rear
+              head_midpoint
                    |
                    ● neck
 ```
@@ -30,7 +30,7 @@ keypoints are occluded (e.g. nose hidden behind the 2P implant).
 | `nose_tip` | Front of head — used in estimates 2 and 3 |
 | `left_ear` | Primary HD estimate (ear perpendicular) |
 | `right_ear` | Primary HD estimate (ear perpendicular) |
-| `implant_base_rear` | Rigid skull reference — used in estimate 2 |
+| `head_midpoint` | Rigid skull reference — used in estimate 2 |
 | `neck` | Head-body junction — used in estimate 3 |
 
 ## Five HD estimates
@@ -65,7 +65,7 @@ This is the head midline.
             ●
             ↑  ← HD direction
             |
-            ● implant_base_rear
+            ● head_midpoint
 ```
 
 **Formula:** `atan2(nose_x - implant_x, nose_y - implant_y)`
@@ -116,7 +116,7 @@ single-ear noise.
 Direction from neck to implant (head axis without requiring nose).
 
 ```
-    implant_base_rear
+    head_midpoint
             ●
             ↑  ← HD direction
             |
@@ -214,7 +214,7 @@ The final HD signal is stored as:
 
 The head centre position is computed as the **confidence-weighted mean**
 of all available head keypoints (nose_tip, left_ear, right_ear,
-implant_base_rear, neck).
+head_midpoint, neck).
 
 ```
          nose_tip (conf=0.95)
@@ -285,7 +285,7 @@ The angle at the neck keypoint between the head axis and body axis.
 - **<180°** = head flexed forward/down
 - **>180°** = head extended back/up
 
-Head axis: `neck → implant_base_rear` (or `neck → ear_midpoint`).
+Head axis: `neck → head_midpoint` (or `neck → ear_midpoint`).
 Body axis: `neck → mid_back`.
 
 Useful for detecting rearing, grooming, or head-dip postures.
@@ -336,13 +336,13 @@ at maze junctions (head moves but body stays still).
          nose_tip ● ─── speed₁ (conf=0.92)
          left_ear ● ─── speed₂ (conf=0.98)
         right_ear ● ─── speed₃ (conf=0.97)
-  implant_base_rear ● ─── speed₄ (conf=0.99)
+  head_midpoint ● ─── speed₄ (conf=0.99)
              neck ● ─── speed₅ (conf=0.85)
 
     Head speed = Σ(conf × speed) / Σ(conf)
 ```
 
-**Keypoints used:** `nose_tip`, `left_ear`, `right_ear`, `implant_base_rear`, `neck`
+**Keypoints used:** `nose_tip`, `left_ear`, `right_ear`, `head_midpoint`, `neck`
 **Output:** `kinematics.h5:/head_speed_cm_s` — cm/s, float32
 
 ### Why separate head and body speed?

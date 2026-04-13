@@ -8,7 +8,7 @@ GitHub: https://github.com/DeepLabCut/DeepLabCut (modelzoo subpackage)
 **Context:** Review of the paper and DLC 3.x codebase to understand why our SuperAnimal
 transfer-learning attempt failed and what the correct approach is.
 
-**Our setup:** 8 bodyparts (nose_tip, left_ear, right_ear, implant_base_rear, neck, mid_back,
+**Our setup:** 8 bodyparts (nose_tip, left_ear, right_ear, head_midpoint, neck, mid_back,
 mouse_center, tail_base), 184 labelled frames, DLC 3.0.0rc13, overhead camera, light/dark alternation.
 Previous attempt: checkpoint format mismatches, head architecture incompatibilities, fell back
 to HRNet-W32 from ImageNet.
@@ -175,13 +175,13 @@ Our 8 hm2p bodyparts and their SA-TVM superset equivalents:
 | `nose_tip`          | `nose`                   | Direct match |
 | `left_ear`          | `left_ear`               | Direct match |
 | `right_ear`         | `right_ear`              | Direct match |
-| `implant_base_rear` | *(custom, no match)*     | Headstage — unique to our rig |
+| `head_midpoint` | *(custom, no match)*     | Headstage — unique to our rig |
 | `neck`              | `neck`                   | Direct match |
 | `mid_back`          | `mid_back`               | Direct match |
 | `mouse_center`      | `mouse_center`           | Direct match |
 | `tail_base`         | `tail_base`              | Direct match |
 
-7 of 8 bodyparts map directly to SA-TVM superset keypoints. Only `implant_base_rear`
+7 of 8 bodyparts map directly to SA-TVM superset keypoints. Only `head_midpoint`
 is novel. This is an ideal case for fine-tuning: the model already has strong priors for
 the 7 matched keypoints, and only needs to learn one new keypoint.
 
@@ -297,7 +297,7 @@ config_path = deeplabcut.create_new_project(
     copy_videos=False,
 )
 # Edit config.yaml to set bodyparts: [nose_tip, left_ear, right_ear,
-# implant_base_rear, neck, mid_back, mouse_center, tail_base]
+# head_midpoint, neck, mid_back, mouse_center, tail_base]
 ```
 
 **Step 2: Label frames (or import existing labels).**
@@ -325,14 +325,14 @@ project_bodypart,superanimal_bodypart
 nose_tip,nose
 left_ear,left_ear
 right_ear,right_ear
-implant_base_rear,
+head_midpoint,
 neck,neck
 mid_back,mid_back
 mouse_center,mouse_center
 tail_base,tail_base
 ```
 
-The empty value for `implant_base_rear` means no SA-TVM equivalent. DLC will train it
+The empty value for `head_midpoint` means no SA-TVM equivalent. DLC will train it
 from our labeled data only (no pseudo-labels from SA-TVM zero-shot predictions).
 
 Then load it into the project config:
@@ -353,7 +353,7 @@ zoo_utils.create_conversion_table(
         "nose_tip": "nose",
         "left_ear": "left_ear",
         "right_ear": "right_ear",
-        "implant_base_rear": None,   # no SA-TVM equivalent
+        "head_midpoint": None,   # no SA-TVM equivalent
         "neck": "neck",
         "mid_back": "mid_back",
         "mouse_center": "mouse_center",
@@ -400,7 +400,7 @@ deeplabcut.train_network(
 Training loop (memory replay): for each batch, GT labels are used for our 8 keypoints.
 For the other 19 SA-TVM keypoints not in our project, cached zero-shot predictions are
 used as pseudo-labels if confidence > 0.7. Loss is computed over all 27 SA-TVM keypoints.
-`implant_base_rear` receives GT labels only (no pseudo-labels generated).
+`head_midpoint` receives GT labels only (no pseudo-labels generated).
 
 **Step 7: Inference.**
 
@@ -454,7 +454,7 @@ deeplabcut.video_inference_superanimal(
 
 Note: output uses SA-TVM 27-keypoint vocabulary, not our 8 custom bodyparts.
 Extract: nose (->nose_tip), left_ear, right_ear, neck, mid_back, mouse_center, tail_base.
-`implant_base_rear` is unavailable from zero-shot output.
+`head_midpoint` is unavailable from zero-shot output.
 
 ### Number of labeled frames needed
 
@@ -534,7 +534,7 @@ deeplabcut.video_inference_superanimal(
   handled by the detector crop, so video_adapt primarily provides temporal smoothing.
 
 **Where it does not help:**
-- `implant_base_rear`: SA-TVM has no superset keypoint for this. Video adaptation will
+- `head_midpoint`: SA-TVM has no superset keypoint for this. Video adaptation will
   not generate pseudo-labels for it and cannot improve its tracking.
 - Cannot replace labeled data for learning custom keypoints.
 - Does not transfer learned weights across sessions by default (each batch of videos is
@@ -616,7 +616,7 @@ to be larger in practice because:
    provides more robust feature extraction in low-contrast frames than an ImageNet-only encoder.
    The encoder has learned what a mouse body looks like structurally, not just texturally.
 
-3. **implant_base_rear is learned from scratch regardless.** For this keypoint, the encoder
+3. **head_midpoint is learned from scratch regardless.** For this keypoint, the encoder
    prior still helps (better feature extraction from the backbone) even if the decoder starts
    randomly. Both with_decoder=False and with_decoder=True give encoder benefits.
 
@@ -650,7 +650,7 @@ Given 184 labeled frames:
   ImageNet. Primarily benefits encoder feature quality. Low implementation risk.
 - **Memory replay full fine-tuning**: ~20-40% RMSE improvement for the 7 SA-TVM-matched
   keypoints. Higher benefit in dark frames. Requires conversion table setup. Moderate risk.
-- **implant_base_rear**: same as ImageNet baseline for the decoder, encoder benefits only.
+- **head_midpoint**: same as ImageNet baseline for the decoder, encoder benefits only.
 
 ---
 

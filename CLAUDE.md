@@ -129,7 +129,7 @@ Do not pin to old versions without a documented compatibility reason.
 **Primary science goal:** Compare HD tuning, population HD decoding, and visual cue dependence between Penk+ and Penk⁻CamKII+ RSP neurons. Test whether each population anchors HD to visual vs path-integration cues.
 **Neural recording:** two-photon GCaMP calcium imaging (~9.6 Hz, single plane).
 **Behaviour:** overhead camera (~100 fps, Basler acA1300-200um), DAQ-synchronised to imaging.
-**Body parts tracked:** `nose_tip`, `left_ear`, `right_ear`, `implant_base_rear`, `neck`, `mid_back`, `mouse_center`, `tail_base`. All except `implant_base_rear` map to SuperAnimal TopViewMouse keypoints; `implant_base_rear` is a custom keypoint trained from scratch (high-contrast 2P headstage, easy to detect).
+**Body parts tracked:** `nose_tip`, `left_ear`, `right_ear`, `head_midpoint`, `neck`, `mid_back`, `mouse_center`, `tail_base`. All except `head_midpoint` map to SuperAnimal TopViewMouse keypoints; `head_midpoint` is a custom keypoint trained from scratch (high-contrast 2P headstage, easy to detect). Legacy DLC output files use the old name `implant_base_rear` — the frontend handles both as aliases.
 **Session ID format:** `YYYYMMDD_HH_MM_SS_<animal_id>` (e.g. `20220804_13_52_02_1117646`).
 **NeuroBlueprint session name:** `ses-{YYYYMMDD}T{HHMMSS}` (e.g. `ses-20220804T135202`) — full timestamp required as multiple sessions per day exist.
 **Ground-truth registry:** `metadata/animals.csv`, `metadata/experiments.csv`.

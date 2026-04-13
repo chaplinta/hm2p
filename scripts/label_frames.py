@@ -24,7 +24,7 @@ CONFIG_PATH = DLC_PROJECT / "config.yaml"
 LABELED_DIR = DLC_PROJECT / "labeled-data"
 
 BODYPARTS = [
-    "nose_tip", "left_ear", "right_ear", "implant_base_rear",
+    "nose_tip", "left_ear", "right_ear", "head_midpoint",
     "neck", "mid_back", "mouse_center", "tail_base",
 ]
 
@@ -32,7 +32,7 @@ COLORS = {
     "nose_tip": [1, 0, 0, 1],          # red
     "left_ear": [0, 0, 1, 1],          # blue
     "right_ear": [0, 1, 1, 1],         # cyan
-    "implant_base_rear": [1, 0.65, 0, 1],  # orange
+    "head_midpoint": [1, 0.65, 0, 1],  # orange
     "neck": [0.5, 0, 0.5, 1],          # purple
     "mid_back": [0, 0.8, 0, 1],        # green
     "mouse_center": [1, 0.84, 0, 1],   # gold

@@ -34,12 +34,14 @@ log = logging.getLogger("hm2p.frontend.training_qc")
 DLC_PROJECT = Path("/workspace/sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20")
 LABELED_DATA_DIR = DLC_PROJECT / "labeled-data"
 MANIFEST_PATH = DLC_PROJECT / "_retrain_manifest.json"
+RETRAIN_FRAMES_DIR = Path("/workspace/metadata/retrain_frames")
+VIDEO_META_DIR = Path("/workspace/metadata/video_meta")
 
 BODYPARTS = [
     "nose_tip",
     "left_ear",
     "right_ear",
-    "implant_base_rear",
+    "head_midpoint",
     "neck",
     "mid_back",
     "mouse_center",
@@ -47,11 +49,29 @@ BODYPARTS = [
 ]
 
 # Colors matched to dlc_viewer_page.py BP_HEX
+# Body axis keypoint pairs for ear swap detection, ordered by preference.
+# Anterior → posterior. Falls back through the list until a pair is found
+# where both keypoints are available.
+BODY_AXIS_PAIRS: list[tuple[str, str]] = [
+    ("nose_tip", "head_midpoint"),
+    ("nose_tip", "neck"),
+    ("nose_tip", "mid_back"),
+    ("nose_tip", "mouse_center"),
+    ("head_midpoint", "mid_back"),
+    ("head_midpoint", "mouse_center"),
+    ("head_midpoint", "tail_base"),
+    ("neck", "mid_back"),
+    ("neck", "mouse_center"),
+    ("neck", "tail_base"),
+    ("mid_back", "mouse_center"),
+    ("mid_back", "tail_base"),
+]
+
 BP_HEX: dict[str, str] = {
     "nose_tip": "#FF0000",
     "left_ear": "#0000FF",
     "right_ear": "#00FFFF",
-    "implant_base_rear": "#FFA500",
+    "head_midpoint": "#FFA500",
     "neck": "#800080",
     "mid_back": "#00CC00",
     "mouse_center": "#FFD700",
@@ -63,6 +83,9 @@ BP_HEX: dict[str, str] = {
 # ---------------------------------------------------------------------------
 
 
+RETRAIN_FRAMES_DIR = Path("/workspace/metadata/retrain_frames")
+
+
 @st.cache_data(ttl=60)
 def _load_manifest() -> dict:
     """Load _retrain_manifest.json. Returns {} if not found."""
@@ -70,6 +93,23 @@ def _load_manifest() -> dict:
         return {}
     with open(MANIFEST_PATH) as f:
         return json.load(f)
+
+
+@st.cache_data(ttl=60)
+def _load_retrain_frame_counts() -> dict[str, int]:
+    """Load per-session frame counts from metadata/retrain_frames/*.json.
+
+    Returns mapping from session name (e.g. 'sub-1114353_ses-20210823T165950')
+    to the number of frames selected for labeling.
+    """
+    if not RETRAIN_FRAMES_DIR.exists():
+        return {}
+    counts = {}
+    for f in sorted(RETRAIN_FRAMES_DIR.glob("*.json")):
+        data = json.loads(f.read_text())
+        frames = data.get("frames", data.get("frame_indices", []))
+        counts[f.stem] = len(frames)
+    return counts
 
 
 @st.cache_data(ttl=60)
@@ -125,6 +165,7 @@ def _load_all_labeled_data() -> list[dict]:
                 "bodyparts": bps,
                 "n_rows": len(df),
                 "n_labeled": n_labeled,
+                "mm_per_pix": _get_mm_per_pix_for_clip(clip_dir.name),
             }
         )
 
@@ -155,12 +196,63 @@ def _frame_numbers(df: pd.DataFrame) -> np.ndarray:
     return np.array(frames, dtype=float)
 
 
+def _clip_to_sub_ses(clip: str) -> tuple[str, str] | None:
+    """Map a labeled-data clip directory name to (sub, ses).
+
+    Matches on date + animal ID against metadata/retrain_frames/*.json.
+    """
+    parts = clip.split("_")
+    if len(parts) < 5:
+        return None
+    date = parts[0]
+    animal = parts[4].split("-")[0]
+    for f in RETRAIN_FRAMES_DIR.glob("*.json"):
+        # e.g. sub-1114353_ses-20210823T165950
+        fp = f.stem.split("_")  # ['sub-1114353', 'ses-20210823T165950']
+        if len(fp) < 2:
+            continue
+        f_animal = fp[0].replace("sub-", "")
+        f_date = fp[1].replace("ses-", "")[:8]
+        if f_animal == animal and f_date == date:
+            return fp[0], fp[1]
+    return None
+
+
+def _get_mm_per_pix_for_clip(clip: str) -> float | None:
+    """Get mm_per_pix for a labeled-data clip by mapping to its video meta."""
+    import configparser
+
+    result = _clip_to_sub_ses(clip)
+    if result is None:
+        return None
+    sub, ses = result
+    meta_path = VIDEO_META_DIR / f"{sub}_{ses}_meta.txt"
+    if not meta_path.exists():
+        return None
+    cfg = configparser.ConfigParser()
+    cfg.read(meta_path)
+    try:
+        return float(cfg["scale"]["mm_per_pix"])
+    except (KeyError, ValueError):
+        return None
+
+
 def _short_session(clip: str) -> str:
     """Shorten clip name to '<date>_<animal_id>' for display."""
     parts = clip.split("_")
     if len(parts) >= 5:
         return f"{parts[0]}_{parts[4]}"
     return clip[:30]
+
+
+def _px_to_mm(val_px: float, scale: float | None) -> tuple[float, str]:
+    """Convert a pixel value to mm if scale is available.
+
+    Returns (value, unit_label).
+    """
+    if scale is not None:
+        return val_px * scale, "mm"
+    return val_px, "px"
 
 
 # ---------------------------------------------------------------------------
@@ -183,47 +275,70 @@ if not records:
     st.stop()
 
 manifest = _load_manifest()
+retrain_counts = _load_retrain_frame_counts()
+
+# Compute mean mm_per_pix across all sessions for display
+_all_scales = [r["mm_per_pix"] for r in records if r["mm_per_pix"] is not None]
+pooled_scale: float | None = float(np.mean(_all_scales)) if _all_scales else None
 
 # ---------------------------------------------------------------------------
-# Summary table
+# Summary metrics
 # ---------------------------------------------------------------------------
 
 st.header("Labeled Frame Overview")
 
-summary_rows = []
-for r in records:
-    df = r["df"]
-    scorer = r["scorer"]
-    bps = r["bodyparts"]
-    nan_per_bp = {}
-    for bp in bps:
-        try:
-            nan_per_bp[bp] = int(df[(scorer, bp, "x")].isna().sum())
-        except KeyError:
-            nan_per_bp[bp] = r["n_rows"]
-    manifest_entry = manifest.get(r["clip"], {})
-    manifest_n = manifest_entry.get("n_frames", "—")
-    summary_rows.append(
-        {
-            "Clip": _short_session(r["clip"]),
-            "Labeled frames": r["n_labeled"],
-            "Manifest frames": manifest_n,
-            "Body parts": len(bps),
-            **{f"NaN — {bp}": nan_per_bp.get(bp, "—") for bp in BODYPARTS},
-        }
+total_selected_sessions = len(retrain_counts)
+total_selected_frames = sum(retrain_counts.values())
+total_labeled = sum(r["n_labeled"] for r in records)
+sessions_with_labels = len(records)
+
+col_a, col_b, col_c, col_d = st.columns(4)
+col_a.metric("Sessions selected", total_selected_sessions)
+col_b.metric("Frames selected", total_selected_frames)
+col_c.metric("Sessions labeled", sessions_with_labels)
+col_d.metric("Frames labeled", total_labeled)
+
+if sessions_with_labels < total_selected_sessions:
+    st.warning(
+        f"{total_selected_sessions - sessions_with_labels} sessions have frames "
+        f"selected but no labels yet ({total_selected_frames - total_labeled} "
+        f"frames remaining)."
     )
 
+# Build summary table from retrain_frames (all sessions), not just labeled ones
+summary_rows = []
+# Map retrain_frames keys (sub-xxx_ses-xxx) to records using date+animal matching
+record_by_retrain_key = {}
+for r in records:
+    result = _clip_to_sub_ses(r["clip"])
+    if result is not None:
+        sub, ses = result
+        record_by_retrain_key[f"{sub}_{ses}"] = r
+
+for ses_key in sorted(retrain_counts.keys()):
+    n_selected = retrain_counts[ses_key]
+    r = record_by_retrain_key.get(ses_key)
+    n_labeled = r["n_labeled"] if r else 0
+    row: dict = {
+        "Session": ses_key,
+        "Selected": n_selected,
+        "Labeled": n_labeled,
+        "Status": "Done" if n_labeled >= n_selected else (
+            "Partial" if n_labeled > 0 else "Not started"
+        ),
+    }
+    if r:
+        df = r["df"]
+        scorer = r["scorer"]
+        for bp in BODYPARTS:
+            try:
+                nan_count = int(df[(scorer, bp, "x")].isna().sum())
+                row[f"NaN — {bp}"] = nan_count
+            except KeyError:
+                row[f"NaN — {bp}"] = r["n_rows"]
+    summary_rows.append(row)
+
 summary_df = pd.DataFrame(summary_rows)
-
-# Highlight rows where labeled < manifest (incompletely labeled sessions)
-total_labeled = sum(r["n_labeled"] for r in records)
-total_sessions = len(records)
-
-col_a, col_b, col_c = st.columns(3)
-col_a.metric("Sessions with labels", total_sessions)
-col_b.metric("Total labeled frames", total_labeled)
-col_c.metric("Sessions in manifest", len(manifest))
-
 st.dataframe(summary_df, use_container_width=True, hide_index=True)
 
 # ---------------------------------------------------------------------------
@@ -285,14 +400,23 @@ st.caption(
 
 fig_cov = go.Figure()
 for bp in BODYPARTS:
-    all_x, all_y = [], []
+    all_x, all_y, all_hover = [], [], []
     for r in records:
         if bp not in r["bodyparts"]:
             continue
-        x, y = _extract_xy(r["df"], r["scorer"], bp)
+        df_r = r["df"]
+        any_lab = df_r.notna().any(axis=1)
+        df_lab = df_r[any_lab]
+        x, y = _extract_xy(df_lab, r["scorer"], bp)
         valid = np.isfinite(x) & np.isfinite(y)
-        all_x.extend(x[valid].tolist())
-        all_y.extend(y[valid].tolist())
+        s = r.get("mm_per_pix")
+        short = _short_session(r["clip"])
+        frames = _frame_numbers(df_lab)
+        for i in np.where(valid)[0]:
+            f_label = f"{short} f{int(frames[i])}" if np.isfinite(frames[i]) else short
+            all_hover.append(f_label)
+            all_x.append(float(x[i] * s) if s else float(x[i]))
+            all_y.append(float(y[i] * s) if s else float(y[i]))
 
     if not all_x:
         continue
@@ -303,13 +427,15 @@ for bp in BODYPARTS:
             y=all_y,
             mode="markers",
             marker=dict(size=6, color=BP_HEX.get(bp, "#888888"), opacity=0.7),
+            text=all_hover, hoverinfo="text+x+y",
             name=bp,
         )
     )
 
+cov_unit = "mm" if pooled_scale else "px"
 fig_cov.update_layout(
-    xaxis_title="x (pixels)",
-    yaxis_title="y (pixels)",
+    xaxis_title=f"x ({cov_unit})",
+    yaxis_title=f"y ({cov_unit})",
     yaxis_autorange="reversed",  # image coordinates: y increases downward
     height=500,
     legend=dict(itemsizing="constant"),
@@ -320,6 +446,187 @@ st.plotly_chart(fig_cov, use_container_width=True, key="spatial_coverage_chart")
 # ---------------------------------------------------------------------------
 # Anatomical quality checks — single session
 # ---------------------------------------------------------------------------
+
+st.markdown("---")
+st.header("All-Session Quality Checks")
+
+st.caption(
+    "Anatomical consistency checks pooled across all labeled frames from all sessions."
+)
+
+# Pool all labeled data, tracking session + frame for hover labels
+all_lx, all_ly, all_rx, all_ry = [], [], [], []
+all_ax1x, all_ax1y, all_ax2x, all_ax2y = [], [], [], []
+all_hx, all_hy, all_tx, all_ty = [], [], [], []
+all_ear_labels: list[str] = []  # hover text for ear data
+all_axis_labels: list[str] = []
+all_body_labels: list[str] = []
+has_all_ears = False
+has_all_axis = False
+has_all_body = False
+
+
+for r in records:
+    df_r = r["df"]
+    sc = r["scorer"]
+    bps_r = r["bodyparts"]
+    any_lab = df_r.notna().any(axis=1)
+    df_lab = df_r[any_lab]
+    if len(df_lab) == 0:
+        continue
+
+    short = _short_session(r["clip"])
+    frames = _frame_numbers(df_lab)
+    frame_labels = [f"{short} f{int(f)}" if np.isfinite(f) else short for f in frames]
+
+    if "left_ear" in bps_r and "right_ear" in bps_r:
+        lx, ly = _extract_xy(df_lab, sc, "left_ear")
+        rx, ry = _extract_xy(df_lab, sc, "right_ear")
+        all_lx.append(lx); all_ly.append(ly)
+        all_rx.append(rx); all_ry.append(ry)
+        all_ear_labels.extend(frame_labels)
+        has_all_ears = True
+
+        # Axis for ear swap
+        for bp1, bp2 in BODY_AXIS_PAIRS:
+            if bp1 in bps_r and bp2 in bps_r:
+                a1x, a1y = _extract_xy(df_lab, sc, bp1)
+                a2x, a2y = _extract_xy(df_lab, sc, bp2)
+                all_ax1x.append(a1x); all_ax1y.append(a1y)
+                all_ax2x.append(a2x); all_ax2y.append(a2y)
+                all_axis_labels.extend(frame_labels)
+                has_all_axis = True
+                break
+
+    if "nose_tip" in bps_r and "tail_base" in bps_r:
+        hx, hy = _extract_xy(df_lab, sc, "nose_tip")
+        tx, ty = _extract_xy(df_lab, sc, "tail_base")
+        all_hx.append(hx); all_hy.append(hy)
+        all_tx.append(tx); all_ty.append(ty)
+        all_body_labels.extend(frame_labels)
+        has_all_body = True
+
+tab_all_ears, tab_all_swap, tab_all_body = st.tabs(
+    ["Ear Distance (all)", "Ear Swap (all)", "Body Length (all)"]
+)
+
+with tab_all_ears:
+    if has_all_ears:
+        pool_lx = np.concatenate(all_lx)
+        pool_ly = np.concatenate(all_ly)
+        pool_rx = np.concatenate(all_rx)
+        pool_ry = np.concatenate(all_ry)
+        ear_all = detect_ear_distance_outliers(pool_lx, pool_ly, pool_rx, pool_ry)
+        med_v, med_u = _px_to_mm(ear_all["median"], pooled_scale)
+        mad_v, mad_u = _px_to_mm(ear_all["mad"], pooled_scale)
+        c1, c2, c3 = st.columns(3)
+        c1.metric(f"Median ear distance ({med_u})", f"{med_v:.1f}")
+        c2.metric(f"MAD ({mad_u})", f"{mad_v:.1f}")
+        c3.metric("Outlier frames", ear_all["n_outliers"])
+
+        dist = ear_all["distance"]
+        if pooled_scale is not None:
+            dist = dist * pooled_scale
+        valid = np.isfinite(dist)
+        dist_unit = "mm" if pooled_scale else "px"
+        hover_ear = [all_ear_labels[i] for i in range(len(dist)) if valid[i]]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            y=dist[valid].tolist(), mode="markers",
+            marker=dict(size=6, color=[
+                "#FF0000" if o else "#1f77b4"
+                for o in ear_all["is_outlier"][valid]
+            ]),
+            text=hover_ear, hoverinfo="text+y",
+            name="Ear distance",
+        ))
+        if np.isfinite(ear_all["median"]):
+            fig.add_hline(y=med_v, line_dash="dash", line_color="green",
+                          annotation_text="Median")
+        fig.update_layout(
+            xaxis_title="Frame (pooled)", yaxis_title=f"Distance ({dist_unit})", height=300,
+        )
+        st.plotly_chart(fig, use_container_width=True, key="ear_dist_all")
+    else:
+        st.info("No sessions have both left_ear and right_ear labeled.")
+
+with tab_all_swap:
+    if has_all_ears and has_all_axis:
+        pool_lx = np.concatenate(all_lx)
+        pool_ly = np.concatenate(all_ly)
+        pool_rx = np.concatenate(all_rx)
+        pool_ry = np.concatenate(all_ry)
+        pool_a1x = np.concatenate(all_ax1x)
+        pool_a1y = np.concatenate(all_ax1y)
+        pool_a2x = np.concatenate(all_ax2x)
+        pool_a2y = np.concatenate(all_ax2y)
+        swap_all = detect_ear_swaps(pool_lx, pool_ly, pool_rx, pool_ry,
+                                    pool_a1x, pool_a1y, pool_a2x, pool_a2y)
+        c1, c2 = st.columns(2)
+        c1.metric("Swapped frames", swap_all["n_swapped"])
+        c2.metric("% swapped", f"{swap_all['pct_swapped']*100:.1f}%")
+
+        if swap_all["n_swapped"] == 0:
+            st.success("No ear swaps detected across all labeled frames.")
+        else:
+            st.error(f"{swap_all['n_swapped']} frame(s) with swapped ears across all sessions.")
+
+        left_s = swap_all["left_sign"]
+        valid = np.isfinite(left_s)
+        hover_swap = [all_axis_labels[i] for i in range(len(left_s)) if valid[i]]
+        fig = go.Figure()
+        fig.add_trace(go.Bar(
+            y=left_s[valid].tolist(),
+            marker_color=["#FF0000" if s else "#1f77b4" for s in swap_all["is_swapped"][valid]],
+            text=hover_swap, hoverinfo="text+y",
+        ))
+        fig.add_hline(y=0, line_dash="dash", line_color="black")
+        fig.update_layout(
+            xaxis_title="Frame (pooled)", yaxis_title="Cross-product", height=280,
+        )
+        st.plotly_chart(fig, use_container_width=True, key="ear_swap_all")
+    else:
+        st.info("Need ears + midline keypoints across labeled sessions.")
+
+with tab_all_body:
+    if has_all_body:
+        pool_hx = np.concatenate(all_hx)
+        pool_hy = np.concatenate(all_hy)
+        pool_tx = np.concatenate(all_tx)
+        pool_ty = np.concatenate(all_ty)
+        bl_all = body_length_consistency(pool_hx, pool_hy, pool_tx, pool_ty)
+        bl_med_v, bl_med_u = _px_to_mm(bl_all["median"], pooled_scale)
+        bl_mad_v, bl_mad_u = _px_to_mm(bl_all["mad"], pooled_scale)
+        c1, c2, c3 = st.columns(3)
+        c1.metric(f"Median body length ({bl_med_u})", f"{bl_med_v:.1f}")
+        c2.metric(f"MAD ({bl_mad_u})", f"{bl_mad_v:.1f}")
+        c3.metric("Outlier frames", bl_all["n_outliers"])
+
+        bl_dist = bl_all["length"]
+        if pooled_scale is not None:
+            bl_dist = bl_dist * pooled_scale
+        valid = np.isfinite(bl_dist)
+        bl_unit = "mm" if pooled_scale else "px"
+        hover_bl = [all_body_labels[i] for i in range(len(bl_dist)) if valid[i]]
+        fig = go.Figure()
+        fig.add_trace(go.Scatter(
+            y=bl_dist[valid].tolist(), mode="markers",
+            marker=dict(size=6, color=[
+                "#FF0000" if o else "#2ca02c"
+                for o in bl_all["is_outlier"][valid]
+            ]),
+            text=hover_bl, hoverinfo="text+y",
+            name="Body length",
+        ))
+        if np.isfinite(bl_all["median"]):
+            fig.add_hline(y=bl_med_v, line_dash="dash", line_color="green",
+                          annotation_text="Median")
+        fig.update_layout(
+            xaxis_title="Frame (pooled)", yaxis_title=f"nose_tip → tail_base ({bl_unit})", height=300,
+        )
+        st.plotly_chart(fig, use_container_width=True, key="body_len_all")
+    else:
+        st.info("No sessions have both nose_tip and tail_base labeled.")
 
 st.markdown("---")
 st.header("Per-Session Quality Checks")
@@ -361,14 +668,19 @@ with tab_ear_dist:
         lx, ly = _extract_xy(df_labeled, scorer_sel, "left_ear")
         rx, ry = _extract_xy(df_labeled, scorer_sel, "right_ear")
         result = detect_ear_distance_outliers(lx, ly, rx, ry)
+        s_scale = sel.get("mm_per_pix")
+        ed_med_v, ed_med_u = _px_to_mm(result["median"], s_scale)
+        ed_mad_v, ed_mad_u = _px_to_mm(result["mad"], s_scale)
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Median ear distance (px)", f"{result['median']:.1f}")
-        c2.metric("MAD (px)", f"{result['mad']:.1f}")
+        c1.metric(f"Median ear distance ({ed_med_u})", f"{ed_med_v:.1f}")
+        c2.metric(f"MAD ({ed_mad_u})", f"{ed_mad_v:.1f}")
         c3.metric("Outlier frames", result["n_outliers"])
 
         frames = _frame_numbers(df_labeled)
         dist = result["distance"]
+        if s_scale is not None:
+            dist = dist * s_scale
         valid = np.isfinite(dist)
         fig_ed = go.Figure()
         fig_ed.add_trace(
@@ -389,14 +701,15 @@ with tab_ear_dist:
         )
         if np.isfinite(result["median"]):
             fig_ed.add_hline(
-                y=result["median"],
+                y=ed_med_v,
                 line_dash="dash",
                 line_color="green",
                 annotation_text="Median",
             )
+        ed_unit = "mm" if s_scale else "px"
         fig_ed.update_layout(
             xaxis_title="Frame number",
-            yaxis_title="Distance (px)",
+            yaxis_title=f"Distance ({ed_unit})",
             height=300,
             margin=dict(t=20),
         )
@@ -417,14 +730,8 @@ with tab_ear_swap:
         "body axis. A negative cross-product indicates the ears may be swapped."
     )
     has_ears = "left_ear" in bps_sel and "right_ear" in bps_sel
-    axis_pairs = [
-        ("nose_tip", "implant_base_rear"),
-        ("nose_tip", "neck"),
-        ("implant_base_rear", "tail_base"),
-        ("neck", "tail_base"),
-    ]
     axis_bp1, axis_bp2 = None, None
-    for bp1, bp2 in axis_pairs:
+    for bp1, bp2 in BODY_AXIS_PAIRS:
         if bp1 in bps_sel and bp2 in bps_sel:
             axis_bp1, axis_bp2 = bp1, bp2
             break
@@ -484,7 +791,7 @@ with tab_ear_swap:
         if not has_ears:
             missing.append("left_ear / right_ear")
         if axis_bp1 is None:
-            missing.append("midline keypoints (nose_tip, implant_base_rear, neck)")
+            missing.append("midline keypoints (nose_tip, head_midpoint, neck)")
         st.info(f"Ear swap check requires: {', '.join(missing)}.")
 
 # ---- Body length consistency --------------------------------------------
@@ -501,14 +808,19 @@ with tab_body_len:
         hx, hy = _extract_xy(df_labeled, scorer_sel, head_bp)
         tx, ty = _extract_xy(df_labeled, scorer_sel, tail_bp)
         bl_result = body_length_consistency(hx, hy, tx, ty)
+        s_scale = sel.get("mm_per_pix")
+        bl_s_med_v, bl_s_med_u = _px_to_mm(bl_result["median"], s_scale)
+        bl_s_mad_v, bl_s_mad_u = _px_to_mm(bl_result["mad"], s_scale)
 
         c1, c2, c3 = st.columns(3)
-        c1.metric("Median body length (px)", f"{bl_result['median']:.1f}")
-        c2.metric("MAD (px)", f"{bl_result['mad']:.1f}")
+        c1.metric(f"Median body length ({bl_s_med_u})", f"{bl_s_med_v:.1f}")
+        c2.metric(f"MAD ({bl_s_mad_u})", f"{bl_s_mad_v:.1f}")
         c3.metric("Outlier frames", bl_result["n_outliers"])
 
         frames = _frame_numbers(df_labeled)
-        bl_dist = bl_result["distance"]
+        bl_dist = bl_result["length"]
+        if s_scale is not None:
+            bl_dist = bl_dist * s_scale
         valid = np.isfinite(bl_dist)
 
         fig_bl = go.Figure()
@@ -530,14 +842,15 @@ with tab_body_len:
         )
         if np.isfinite(bl_result["median"]):
             fig_bl.add_hline(
-                y=bl_result["median"],
+                y=bl_s_med_v,
                 line_dash="dash",
                 line_color="green",
                 annotation_text="Median",
             )
+        bl_s_unit = "mm" if s_scale else "px"
         fig_bl.update_layout(
             xaxis_title="Frame number",
-            yaxis_title="nose_tip → tail_base (px)",
+            yaxis_title=f"nose_tip → tail_base ({bl_s_unit})",
             height=300,
             margin=dict(t=20),
         )
@@ -620,8 +933,7 @@ for r in records:
     # Ear swap
     has_ears_r = "left_ear" in bps_r and "right_ear" in bps_r
     axis_r1, axis_r2 = None, None
-    for bp1, bp2 in [("nose_tip", "implant_base_rear"), ("nose_tip", "neck"),
-                     ("implant_base_rear", "tail_base"), ("neck", "tail_base")]:
+    for bp1, bp2 in BODY_AXIS_PAIRS:
         if bp1 in bps_r and bp2 in bps_r:
             axis_r1, axis_r2 = bp1, bp2
             break

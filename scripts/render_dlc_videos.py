@@ -51,7 +51,8 @@ KEYPOINT_COLORS: dict[str, tuple[int, int, int]] = {
     "nose": (0, 0, 255),                # red (alias for SuperAnimal output)
     "left_ear": (255, 0, 0),            # blue
     "right_ear": (255, 255, 0),         # cyan
-    "implant_base_rear": (0, 165, 255), # orange
+    "head_midpoint": (0, 165, 255),      # orange
+    "implant_base_rear": (0, 165, 255), # orange (legacy alias)
     "neck": (128, 0, 128),              # purple
     "mid_back": (0, 255, 0),            # green
     "mouse_center": (0, 255, 255),      # yellow
@@ -59,15 +60,15 @@ KEYPOINT_COLORS: dict[str, tuple[int, int, int]] = {
 }
 
 SKELETON: list[tuple[str, str]] = [
-    ("nose_tip", "implant_base_rear"),
+    ("nose_tip", "head_midpoint"),
     ("nose_tip", "left_ear"),
     ("nose_tip", "right_ear"),
     ("nose", "left_ear"),       # fallback for SuperAnimal "nose" name
     ("nose", "right_ear"),
-    ("left_ear", "implant_base_rear"),
-    ("right_ear", "implant_base_rear"),
+    ("left_ear", "head_midpoint"),
+    ("right_ear", "head_midpoint"),
     ("left_ear", "right_ear"),
-    ("implant_base_rear", "neck"),
+    ("head_midpoint", "neck"),
     ("neck", "mid_back"),
     ("mid_back", "mouse_center"),
     ("mouse_center", "tail_base"),

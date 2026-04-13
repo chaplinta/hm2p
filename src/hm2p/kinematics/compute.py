@@ -5,13 +5,13 @@ per-session camera rotation correction, filters low-confidence detections,
 computes HD, position, speed, AHV, movement state, light epoch alignment,
 and maze-coordinate positions. Writes kinematics.h5.
 
-Keypoints used: nose_tip, left_ear, right_ear, implant_base_rear, neck,
+Keypoints used: nose_tip, left_ear, right_ear, head_midpoint, neck,
 mid_back, mouse_center, tail_base.
 
 HD is computed by fusing up to three independent estimates from the head
 keypoints, weighted by availability (NaN = below confidence threshold):
   1. Ear vector: perpendicular to left_ear → right_ear (primary).
-  2. Nose-implant axis: nose_tip → implant_base_rear direction.
+  2. Nose-head_midpoint axis: nose_tip → head_midpoint direction.
   3. Nose-neck axis: nose_tip → neck direction.
 Falls back gracefully when keypoints are occluded (e.g. nose behind the
 2P implant). Backwards-compatible: works with ears-only pose data.
@@ -80,7 +80,7 @@ _TRACKER_MAP: dict[str, str] = {
 _EAR_LEFT: str = "left_ear"
 _EAR_RIGHT: str = "right_ear"
 _NOSE: str = "nose_tip"
-_IMPLANT: str = "implant_base_rear"
+_IMPLANT: str = "head_midpoint"
 _NECK: str = "neck"
 
 # Keypoints used for body centroid position
@@ -267,10 +267,10 @@ def _fused_hd_wrapped(
 
     Five estimates are computed (when keypoints are available and not NaN):
       1. Ear perpendicular: perpendicular to left_ear→right_ear.
-      2. Implant→nose: direction from implant_base_rear to nose_tip.
+      2. Head midpoint→nose: direction from head_midpoint to nose_tip.
       3. Neck→nose: direction from neck to nose_tip.
       4. Ear midpoint→nose: direction from mean(ears) to nose_tip.
-      5. Neck→implant: direction from neck to implant_base_rear.
+      5. Neck→head midpoint: direction from neck to head_midpoint.
 
     Each estimate is weighted by the minimum confidence of the keypoints
     involved. If no confidence arrays are provided, equal weights are used.
@@ -371,7 +371,7 @@ def compute_head_centre(ds: "xr.Dataset") -> tuple[np.ndarray, np.ndarray]:
     """Compute head centre position from available head keypoints.
 
     Uses confidence-weighted mean of all available head keypoints:
-    nose_tip, left_ear, right_ear, implant_base_rear, neck.
+    nose_tip, left_ear, right_ear, head_midpoint, neck.
     Falls back to ear midpoint if only ears are available.
 
     Args:
@@ -751,10 +751,10 @@ def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
 
     Uses confidence-weighted circular mean of up to five independent estimates:
       1. Ear perpendicular (left_ear, right_ear) — primary.
-      2. Implant→nose axis (implant_base_rear → nose_tip).
+      2. Head midpoint→nose axis (head_midpoint → nose_tip).
       3. Neck→nose axis (neck → nose_tip).
       4. Ear midpoint→nose (mean(ears) → nose_tip).
-      5. Neck→implant axis (neck → implant_base_rear).
+      5. Neck→head midpoint axis (neck → head_midpoint).
 
     Each estimate is weighted by the minimum DLC confidence of its
     constituent keypoints. Falls back to ears-only if other keypoints
@@ -1113,7 +1113,7 @@ def compute_head_speed(
 ) -> np.ndarray:
     """Compute head translation speed from head keypoints, confidence-weighted.
 
-    Uses nose_tip, left_ear, right_ear, implant_base_rear, neck — head
+    Uses nose_tip, left_ear, right_ear, head_midpoint, neck — head
     keypoints that capture head translation independent of body movement.
     Useful for distinguishing head bobbing/scanning from locomotion.
 

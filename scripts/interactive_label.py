@@ -2,8 +2,15 @@
 """Interactive DLC labelling — pick sessions from a menu, label in napari.
 
 Scans labeled-data/ for sessions with frames. Shows an interactive menu.
-Pick a session → napari opens with all frames + existing labels.
+Pick a session → DLC's napari labelling GUI opens with all frames + existing labels.
 Close napari → back to menu. Quit when done.
+
+Uses deeplabcut.label_frames() for the native DLC labelling interface
+(napari-deeplabcut plugin with bodypart dropdown, save widget, etc.).
+
+DLC rc13 bug workaround: label_frames() only shows the first folder under
+labeled-data/. We temporarily stash other session folders so only the
+selected session is visible.
 
 Usage:
     uv run python scripts/interactive_label.py
@@ -11,32 +18,20 @@ Usage:
 
 from __future__ import annotations
 
-import sys
+import shutil
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
 DLC_PROJECT = Path("sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20")
 LABELED_DIR = DLC_PROJECT / "labeled-data"
+CONFIG_PATH = DLC_PROJECT / "config.yaml"
+STASH_DIR = Path("/tmp/dlc-label-stash")
 
 BODYPARTS = [
-    "nose_tip", "left_ear", "right_ear", "implant_base_rear",
+    "nose_tip", "left_ear", "right_ear", "head_midpoint",
     "neck", "mid_back", "mouse_center", "tail_base",
 ]
-
-COLORS = {
-    "nose_tip": [1, 0, 0, 1],
-    "left_ear": [0, 0, 1, 1],
-    "right_ear": [0, 1, 1, 1],
-    "implant_base_rear": [1, 0.65, 0, 1],
-    "neck": [0.5, 0, 0.5, 1],
-    "mid_back": [0, 0.8, 0, 1],
-    "mouse_center": [1, 0.84, 0, 1],
-    "tail_base": [1, 0, 1, 1],
-}
-
-SCORER = "tristan"
 
 
 def scan_sessions() -> list[dict]:
@@ -57,7 +52,6 @@ def scan_sessions() -> list[dict]:
         for h5_f in d.glob("CollectedData_*.h5"):
             try:
                 df = pd.read_hdf(h5_f)
-                # Count rows with at least one non-NaN coordinate
                 n_labelled = int((~df.isna().all(axis=1)).sum())
                 break
             except Exception:
@@ -65,7 +59,6 @@ def scan_sessions() -> list[dict]:
         if n_labelled == 0:
             for csv_f in d.glob("CollectedData_*.csv"):
                 try:
-                    # DLC CSV: 3 header rows, first 3 columns are tuple index
                     df = pd.read_csv(csv_f, header=[0, 1, 2], index_col=[0, 1, 2])
                     n_labelled = int((~df.isna().all(axis=1)).sum())
                     break
@@ -83,166 +76,81 @@ def scan_sessions() -> list[dict]:
 
 
 def label_session(session_dir: Path):
-    """Open napari for a single session — single layer, colour-coded bodyparts."""
-    import cv2
-    import napari
+    """Open DLC's napari labelling GUI for a single session.
 
-    pngs = sorted(session_dir.glob("*.png"))
-    if not pngs:
-        print("  No frames found.")
+    Uses the deeplabcut.label_frames() function which provides the full
+    napari-deeplabcut interface: bodypart dropdown, point placement,
+    save button, navigation controls.
+
+    DLC rc13 workaround: stash other session folders so only the
+    selected session is visible in the GUI.
+    """
+    import deeplabcut
+
+    if not CONFIG_PATH.exists():
+        print(f"  ERROR: config.yaml not found at {CONFIG_PATH}")
         return
 
-    # Load images
-    images = []
-    frame_names = []
-    for png in pngs:
-        img = cv2.imread(str(png))
-        if img is not None:
-            images.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-            frame_names.append(png.name)
+    labeled_base = DLC_PROJECT / "labeled-data"
+    session_name = session_dir.name
+    STASH_DIR.mkdir(parents=True, exist_ok=True)
 
-    if not images:
-        print("  No images loaded.")
-        return
+    # Stash other sessions (DLC rc13 only shows first folder)
+    stashed = []
+    for other_dir in labeled_base.iterdir():
+        if other_dir.is_dir() and other_dir.name != session_name:
+            dest = STASH_DIR / other_dir.name
+            if dest.exists():
+                shutil.rmtree(dest)
+            shutil.move(str(other_dir), str(dest))
+            stashed.append(other_dir.name)
 
-    # Pad to same size
-    max_h = max(img.shape[0] for img in images)
-    max_w = max(img.shape[1] for img in images)
-    padded = []
-    for img in images:
-        if img.shape[0] != max_h or img.shape[1] != max_w:
-            pad = np.zeros((max_h, max_w, 3), dtype=img.dtype)
-            pad[:img.shape[0], :img.shape[1]] = img
-            padded.append(pad)
-        else:
-            padded.append(img)
+    if stashed:
+        print(f"  Stashed {len(stashed)} other session(s) during labelling")
 
-    stack = np.stack(padded)
+    try:
+        print(f"  Opening DLC labelling GUI...")
+        print(f"  - Select bodypart from the dropdown")
+        print(f"  - Click to place labels")
+        print(f"  - Use the slider or arrow keys to navigate frames")
+        print(f"  - Save with Ctrl+S or the save button")
+        print(f"  - Close the napari window when done")
 
-    # Load existing labels from H5 (more reliable than CSV parsing)
-    df = None
-    for h5_f in session_dir.glob("CollectedData_*.h5"):
+        deeplabcut.label_frames(str(CONFIG_PATH))
+
         try:
-            df = pd.read_hdf(h5_f)
-            break
-        except Exception:
+            import napari
+            napari.run()
+        except (ImportError, RuntimeError):
             pass
 
-    # Build single points array: (N, 3) coords + bodypart identity
-    all_pts = []      # [frame, y, x]
-    all_bp_ids = []   # bodypart index
-    all_colors = []   # face color per point
-
-    for bp_idx, bp in enumerate(BODYPARTS):
-        for i, fname in enumerate(frame_names):
-            if df is not None:
-                matching = [idx for idx in df.index if fname in str(idx)]
-                if matching:
-                    try:
-                        x = float(df.loc[matching[0], (SCORER, bp, "x")])
-                        y = float(df.loc[matching[0], (SCORER, bp, "y")])
-                        if not (np.isnan(x) or np.isnan(y)):
-                            all_pts.append([i, y, x])
-                            all_bp_ids.append(bp_idx)
-                            all_colors.append(COLORS.get(bp, [1, 1, 1, 1]))
-                    except (KeyError, ValueError):
-                        pass
-
-    pts_array = np.array(all_pts) if all_pts else np.empty((0, 3))
-    colors_array = np.array(all_colors) if all_colors else np.empty((0, 4))
-    bp_ids = np.array(all_bp_ids) if all_bp_ids else np.empty(0, dtype=int)
-
-    # Current bodypart for new points
-    current_bp = [0]
-
-    # Open napari
-    viewer = napari.Viewer(title=f"Label: {session_dir.name}")
-    viewer.add_image(stack, name="frames")
-
-    # Single points layer
-    properties = {"bodypart": [BODYPARTS[i] for i in bp_ids]} if len(bp_ids) > 0 else {"bodypart": []}
-    layer = viewer.add_points(
-        pts_array,
-        name="labels",
-        properties=properties,
-        face_color=colors_array if len(colors_array) > 0 else COLORS[BODYPARTS[0]],
-        border_color="white",
-        size=10,
-        ndim=3,
-    )
-
-    # Status text showing current bodypart
-    def _update_title():
-        bp = BODYPARTS[current_bp[0]]
-        color_name = bp
-        viewer.title = f"Label: {session_dir.name} | Bodypart: {bp} ({current_bp[0]+1}/{len(BODYPARTS)}) | Press 1-8 to switch"
-
-    _update_title()
-
-    # When new points are added, assign current bodypart colour
-    def _on_data_change(event):
-        n_pts = len(layer.data)
-        n_props = len(layer.properties.get("bodypart", []))
-        if n_pts > n_props:
-            # New point(s) added — assign current bodypart
-            bp = BODYPARTS[current_bp[0]]
-            new_props = list(layer.properties.get("bodypart", []))
-            new_colors = list(layer.face_color) if len(layer.face_color) > 0 else []
-            while len(new_props) < n_pts:
-                new_props.append(bp)
-                new_colors.append(COLORS.get(bp, [1, 1, 1, 1]))
-            layer.properties = {"bodypart": new_props}
-            layer.face_color = np.array(new_colors)
-
-    layer.events.data.connect(_on_data_change)
-
-    # Keyboard shortcuts: 1-8 to select bodypart
-    for i in range(min(8, len(BODYPARTS))):
-        bp_idx = i
-        @viewer.bind_key(str(i + 1))
-        def _select_bp(viewer, _idx=bp_idx):
-            current_bp[0] = _idx
-            _update_title()
-
-    print(f"\n  Keyboard: 1-8 select bodypart, close window to save")
-    print(f"  Current: {BODYPARTS[0]} (press 1-8 to switch)")
-
-    napari.run()
-
-    # Save on close — reconstruct per-bodypart DataFrame from single layer
-    columns = pd.MultiIndex.from_tuples(
-        [(SCORER, bp, coord) for bp in BODYPARTS for coord in ("x", "y")],
-        names=["scorer", "bodyparts", "coords"],
-    )
-    index_tuples = [
-        ("labeled-data", session_dir.name, fn)
-        for fn in frame_names
-    ]
-    index = pd.MultiIndex.from_tuples(index_tuples)
-    data = np.full((len(frame_names), len(BODYPARTS) * 2), np.nan)
-
-    bp_names = layer.properties.get("bodypart", [])
-    for pt_idx, pt in enumerate(layer.data):
-        frame_idx = int(round(pt[0]))
-        if 0 <= frame_idx < len(frame_names) and pt_idx < len(bp_names):
-            bp = bp_names[pt_idx]
-            if bp in BODYPARTS:
-                bp_i = BODYPARTS.index(bp)
-                data[frame_idx, bp_i * 2] = pt[2]      # x = col
-                data[frame_idx, bp_i * 2 + 1] = pt[1]  # y = row
-
-    df_out = pd.DataFrame(data, index=index, columns=columns)
-    df_out.to_csv(session_dir / f"CollectedData_{SCORER}.csv")
-    df_out.to_hdf(session_dir / f"CollectedData_{SCORER}.h5", key="df_with_missing", mode="w")
-
-    labelled = int(np.any(~np.isnan(data), axis=1).sum())
-    print(f"  Saved {labelled}/{len(frame_names)} labelled frames.")
+    finally:
+        # Always restore stashed sessions
+        for name in stashed:
+            src = STASH_DIR / name
+            dest = labeled_base / name
+            if src.exists():
+                shutil.move(str(src), str(dest))
+        if stashed:
+            print(f"  Restored {len(stashed)} stashed session(s)")
 
 
 def main():
     print("=" * 60)
     print("  hm2p Interactive DLC Labeller")
     print("=" * 60)
+
+    # Verify DLC is available
+    try:
+        import deeplabcut  # noqa: F401
+    except ImportError:
+        print("\nERROR: deeplabcut not installed.")
+        print("Install with: uv pip install deeplabcut")
+        return
+
+    if not CONFIG_PATH.exists():
+        print(f"\nERROR: DLC project config not found at {CONFIG_PATH}")
+        return
 
     while True:
         sessions = scan_sessions()

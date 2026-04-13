@@ -378,17 +378,30 @@ with tab_ears:
 with tab_swap:
     # Need ears + at least one midline keypoint pair for the body axis
     has_ears = "left_ear" in kp_data and "right_ear" in kp_data
-    # Pick best available midline pair: nose→implant preferred, fallback to others
-    axis_pairs = [
-        ("nose_tip", "implant_base_rear"),
-        ("nose", "implant_base_rear"),
+    # Pick best available midline pair: anterior→posterior, with fallbacks.
+    _BODY_AXIS_PAIRS = [
+        ("nose_tip", "head_midpoint"),
+        ("nose", "head_midpoint"),
+        ("nose_tip", "implant_base_rear"),  # legacy alias
+        ("nose", "implant_base_rear"),       # legacy alias
         ("nose_tip", "neck"),
         ("nose", "neck"),
-        ("implant_base_rear", "tail_base"),
+        ("nose_tip", "mid_back"),
+        ("nose_tip", "mouse_center"),
+        ("head_midpoint", "mid_back"),
+        ("head_midpoint", "mouse_center"),
+        ("head_midpoint", "tail_base"),
+        ("implant_base_rear", "mid_back"),   # legacy alias
+        ("implant_base_rear", "mouse_center"),  # legacy alias
+        ("implant_base_rear", "tail_base"),  # legacy alias
+        ("neck", "mid_back"),
+        ("neck", "mouse_center"),
         ("neck", "tail_base"),
+        ("mid_back", "mouse_center"),
+        ("mid_back", "tail_base"),
     ]
     axis_bp1, axis_bp2 = None, None
-    for bp1, bp2 in axis_pairs:
+    for bp1, bp2 in _BODY_AXIS_PAIRS:
         if bp1 in kp_data and bp2 in kp_data:
             axis_bp1, axis_bp2 = bp1, bp2
             break
@@ -446,7 +459,7 @@ with tab_swap:
         if not has_ears:
             missing.append("left_ear / right_ear")
         if axis_bp1 is None:
-            missing.append("midline keypoints (nose, implant, neck, tail)")
+            missing.append("midline keypoints (nose, head_midpoint, neck, tail)")
         st.info(f"Need {', '.join(missing)} for ear swap detection.")
 
 with tab_body:
@@ -596,7 +609,7 @@ if "retrain_frames" in st.session_state:
             "| **nose_tip** | Tip of the snout (skip if hidden behind implant) |\n"
             "| **left_ear** | Centre of the left ear (mouse's left, your right from above) |\n"
             "| **right_ear** | Centre of the right ear |\n"
-            "| **implant_base_rear** | Rear edge of the 2P headstage base |\n"
+            "| **head_midpoint** | Rear edge of the 2P headstage base |\n"
             "| **neck** | Base of skull, between ears and mid_back |\n"
             "| **mid_back** | Dorsal midline just behind the shoulders |\n"
             "| **mouse_center** | Geometric centre of the body |\n"
@@ -708,7 +721,7 @@ with st.expander("How it works"):
         "  1. nose_tip (red)\n"
         "  2. left_ear (blue)\n"
         "  3. right_ear (cyan)\n"
-        "  4. implant_base_rear (orange)\n"
+        "  4. head_midpoint (orange)\n"
         "  5. neck (purple)\n"
         "  6. mid_back (green)\n"
         "  7. mouse_center (gold)\n"

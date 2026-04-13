@@ -126,15 +126,15 @@ def main() -> None:
     projects = sorted(dlc_base.glob(f"{args.dlc_project_name}-{args.experimenter}-*"))
 
     # SuperAnimal TopViewMouse bodyparts — must match for fine-tuning
-    BODYPARTS = ["nose_tip", "left_ear", "right_ear", "implant_base_rear", "neck", "mid_back", "mouse_center", "tail_base"]
+    BODYPARTS = ["nose_tip", "left_ear", "right_ear", "head_midpoint", "neck", "mid_back", "mouse_center", "tail_base"]
     SKELETON = [
-        ["nose_tip", "implant_base_rear"],
+        ["nose_tip", "head_midpoint"],
         ["nose_tip", "left_ear"],
         ["nose_tip", "right_ear"],
-        ["left_ear", "implant_base_rear"],
-        ["right_ear", "implant_base_rear"],
+        ["left_ear", "head_midpoint"],
+        ["right_ear", "head_midpoint"],
         ["left_ear", "right_ear"],
-        ["implant_base_rear", "neck"],
+        ["head_midpoint", "neck"],
         ["neck", "mid_back"],
         ["mid_back", "mouse_center"],
         ["mouse_center", "tail_base"],
