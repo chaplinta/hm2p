@@ -312,17 +312,15 @@ total_selected_frames = sum(retrain_counts.values())
 total_labeled = sum(r["n_labeled"] for r in records)
 sessions_with_labels = len(records)
 
-col_a, col_b, col_c, col_d = st.columns(4)
-col_a.metric("Sessions selected", total_selected_sessions)
-col_b.metric("Frames selected", total_selected_frames)
-col_c.metric("Sessions labeled", sessions_with_labels)
-col_d.metric("Frames labeled", total_labeled)
+col_a, col_b, col_c = st.columns(3)
+col_a.metric("Sessions", f"{sessions_with_labels} / {total_selected_sessions}")
+col_b.metric("Frames labeled", total_labeled)
+col_c.metric("Initially selected", total_selected_frames,
+             help="From metadata/retrain_frames/. Extra frames may have been added during labelling.")
 
 if sessions_with_labels < total_selected_sessions:
     st.warning(
-        f"{total_selected_sessions - sessions_with_labels} sessions have frames "
-        f"selected but no labels yet ({total_selected_frames - total_labeled} "
-        f"frames remaining)."
+        f"{total_selected_sessions - sessions_with_labels} session(s) have no labels yet."
     )
 
 # Build summary table from retrain_frames (all sessions), not just labeled ones
