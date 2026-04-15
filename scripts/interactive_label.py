@@ -139,6 +139,54 @@ def scan_sessions() -> list[dict]:
     return sessions
 
 
+def _validate_h5(session_dir: Path) -> None:
+    """Check CollectedData H5 is DLC-compatible; remove if corrupt.
+
+    napari_deeplabcut crashes on H5 files that have:
+    - All-NaN data (no actual labels, just frame placeholders)
+    - Flat string index instead of 3-level MultiIndex
+    - Wrong HDF5 key name (must be readable by pd.read_hdf)
+
+    If the H5 is corrupt or empty, it is deleted so DLC creates a fresh
+    one when napari opens. The CSV is kept as a fallback reference.
+    """
+    h5_path = session_dir / "CollectedData_tristan.h5"
+    if not h5_path.exists():
+        return
+
+    try:
+        df = pd.read_hdf(h5_path)
+    except Exception:
+        print(f"  Removing unreadable H5 (DLC will recreate)")
+        h5_path.unlink()
+        return
+
+    if len(df) == 0:
+        return  # Empty is fine — DLC handles it
+
+    # Check for all-NaN (frame placeholders with no labels)
+    if not df.notna().any().any():
+        print(f"  Removing all-NaN H5 (DLC will recreate with fresh index)")
+        h5_path.unlink()
+        return
+
+    # Check 3-level MultiIndex on rows
+    if df.index.nlevels != 3:
+        print(f"  Removing H5 with flat index (DLC will recreate)")
+        h5_path.unlink()
+        return
+
+    # Check HDF5 key structure matches what napari_deeplabcut expects
+    import h5py
+
+    with h5py.File(h5_path, "r") as f:
+        main_key = list(f.keys())[0]
+        has_axis1_levels = f"{main_key}/axis1_level0" in f
+    if not has_axis1_levels:
+        print(f"  Removing H5 with missing axis1 levels (DLC will recreate)")
+        h5_path.unlink()
+
+
 def label_session(session_dir: Path):
     """Open DLC's napari labelling GUI for a single session.
 
@@ -154,6 +202,9 @@ def label_session(session_dir: Path):
     if not CONFIG_PATH.exists():
         print(f"  ERROR: config.yaml not found at {CONFIG_PATH}")
         return
+
+    # Pre-flight: ensure H5 is DLC-compatible (remove corrupt files)
+    _validate_h5(session_dir)
 
     labeled_base = DLC_PROJECT / "labeled-data"
     session_name = session_dir.name
