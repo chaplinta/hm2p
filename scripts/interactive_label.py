@@ -28,6 +28,7 @@ LABELED_DIR = DLC_PROJECT / "labeled-data"
 CONFIG_PATH = DLC_PROJECT / "config.yaml"
 STASH_DIR = Path("/tmp/dlc-label-stash")
 RETRAIN_FRAMES_DIR = Path("retrain_frames")
+EXPERIMENTS_CSV = Path("metadata/experiments.csv")
 
 BODYPARTS = [
     "nose_tip", "left_ear", "right_ear", "head_midpoint",
@@ -102,11 +103,34 @@ def _ensure_pngs(labeled_dir: Path) -> int:
     return len(list(labeled_dir.glob("*.png")))
 
 
+def _load_experiment_flags() -> dict[tuple[str, str], dict]:
+    """Load exclude/primary_exp flags from experiments.csv.
+
+    Returns mapping from (date, animal_id) to {"exclude": bool, "primary": bool}.
+    """
+    import csv
+
+    flags: dict[tuple[str, str], dict] = {}
+    if not EXPERIMENTS_CSV.exists():
+        return flags
+    with open(EXPERIMENTS_CSV) as f:
+        for row in csv.DictReader(f):
+            parts = row["exp_id"].split("_")
+            date = parts[0]
+            animal = parts[-1]
+            flags[(date, animal)] = {
+                "exclude": str(row.get("exclude", "0")).strip() == "1",
+                "primary": str(row.get("primary_exp", "1")).strip() == "1",
+            }
+    return flags
+
+
 def scan_sessions() -> list[dict]:
     """Find all sessions in labeled-data/ that have PNGs or labels."""
     if not LABELED_DIR.exists():
         return []
 
+    exp_flags = _load_experiment_flags()
     sessions = []
     for d in sorted(LABELED_DIR.iterdir()):
         if not d.is_dir():
@@ -136,12 +160,20 @@ def scan_sessions() -> list[dict]:
         if n_pngs == 0 and n_labelled == 0:
             continue
 
+        # Match to experiments.csv for exclude/primary flags
+        parts = d.name.split("_")
+        date = parts[0] if len(parts) >= 5 else ""
+        animal = parts[4].split("-")[0] if len(parts) >= 5 else ""
+        flags = exp_flags.get((date, animal), {"exclude": False, "primary": True})
+
         sessions.append({
             "dir": d,
             "name": d.name,
             "n_frames": n_pngs,
             "n_labelled": n_labelled,
             "needs_pngs": n_pngs == 0,
+            "exclude": flags["exclude"],
+            "primary": flags["primary"],
         })
 
     return sessions
@@ -311,8 +343,8 @@ def main():
             print("Run scripts/select_labelling_frames.py first to extract frames.")
             break
 
-        print(f"\n  {'#':<4} {'Session':<50} {'PNGs':>6} {'Labels':>7} {'Status':>10}")
-        print("  " + "-" * 80)
+        print(f"\n  {'#':<4} {'Session':<50} {'PNGs':>5} {'Lbl':>5} {'Status':>8} {'Flags':>10}")
+        print("  " + "-" * 86)
         for i, s in enumerate(sessions):
             if s["needs_pngs"]:
                 status = "no PNGs"
@@ -322,7 +354,14 @@ def main():
                 status = "partial"
             else:
                 status = "todo"
-            print(f"  {i:<4} {s['name'][:50]:<50} {s['n_frames']:>6} {s['n_labelled']:>7} {status:>10}")
+            flags = ""
+            if s["exclude"]:
+                flags += "excl"
+            if not s["primary"]:
+                flags += " 2nd" if flags else "2nd"
+            if not flags:
+                flags = "primary"
+            print(f"  {i:<4} {s['name'][:50]:<50} {s['n_frames']:>5} {s['n_labelled']:>5} {status:>8} {flags:>10}")
 
         n_with_pngs = sum(1 for s in sessions if not s["needs_pngs"])
         n_needs_pngs = sum(1 for s in sessions if s["needs_pngs"])
