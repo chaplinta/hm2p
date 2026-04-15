@@ -194,10 +194,15 @@ def label_session(session_dir: Path):
     napari-deeplabcut interface: bodypart dropdown, point placement,
     save button, navigation controls.
 
-    DLC rc13 workaround: stash other session folders so only the
-    selected session is visible in the GUI.
+    DLC rc13 workaround: label_frames() only reads the first folder
+    under labeled-data/. Instead of moving directories (which risks
+    data loss on crash), we create a temporary DLC project directory
+    with a labeled-data/ containing only the target session (via
+    symlink), plus a copy of config.yaml pointing to it.
     """
     import deeplabcut
+    import tempfile
+    import yaml
 
     if not CONFIG_PATH.exists():
         print(f"  ERROR: config.yaml not found at {CONFIG_PATH}")
@@ -206,24 +211,25 @@ def label_session(session_dir: Path):
     # Pre-flight: ensure H5 is DLC-compatible (remove corrupt files)
     _validate_h5(session_dir)
 
-    labeled_base = DLC_PROJECT / "labeled-data"
-    session_name = session_dir.name
-    STASH_DIR.mkdir(parents=True, exist_ok=True)
+    # Create a temporary DLC project with only this session visible.
+    # This avoids moving/stashing real directories (crash-safe).
+    with tempfile.TemporaryDirectory(prefix="dlc-label-") as tmp:
+        tmp_path = Path(tmp)
+        tmp_labeled = tmp_path / "labeled-data" / session_dir.name
+        tmp_labeled.mkdir(parents=True)
 
-    # Stash other sessions (DLC rc13 only shows first folder)
-    stashed = []
-    for other_dir in labeled_base.iterdir():
-        if other_dir.is_dir() and other_dir.name != session_name:
-            dest = STASH_DIR / other_dir.name
-            if dest.exists():
-                shutil.rmtree(dest)
-            shutil.move(str(other_dir), str(dest))
-            stashed.append(other_dir.name)
+        # Symlink all files from the real session dir into the temp one
+        for f in session_dir.iterdir():
+            (tmp_labeled / f.name).symlink_to(f.resolve())
 
-    if stashed:
-        print(f"  Stashed {len(stashed)} other session(s) during labelling")
+        # Copy config.yaml, updating the project_path
+        with open(CONFIG_PATH) as f:
+            config = yaml.safe_load(f)
+        config["project_path"] = str(tmp_path)
+        tmp_config = tmp_path / "config.yaml"
+        with open(tmp_config, "w") as f:
+            yaml.dump(config, f)
 
-    try:
         print(f"  Opening DLC labelling GUI...")
         print(f"  - Select bodypart from the dropdown")
         print(f"  - Click to place labels")
@@ -231,44 +237,45 @@ def label_session(session_dir: Path):
         print(f"  - Save with Ctrl+S or the save button")
         print(f"  - Close the napari window when done")
 
-        deeplabcut.label_frames(str(CONFIG_PATH))
-
         try:
-            import napari
-            napari.run()
-        except (ImportError, RuntimeError):
-            pass
+            deeplabcut.label_frames(str(tmp_config))
+            try:
+                import napari
+                napari.run()
+            except (ImportError, RuntimeError):
+                pass
+        except Exception as exc:
+            print(f"  ERROR in napari: {exc}")
 
-    finally:
-        # Always restore stashed sessions
-        for name in stashed:
-            src = STASH_DIR / name
-            dest = labeled_base / name
-            if src.exists():
-                shutil.move(str(src), str(dest))
-        if stashed:
-            print(f"  Restored {len(stashed)} stashed session(s)")
+        # Copy any new/updated label files back from temp to real dir.
+        # napari writes to the symlinked files directly (symlinks point
+        # to the real files), but if DLC created new files in the temp
+        # dir, copy them over.
+        for f in tmp_labeled.iterdir():
+            if f.name.startswith("CollectedData") and not f.is_symlink():
+                real_dest = session_dir / f.name
+                shutil.copy2(str(f), str(real_dest))
 
-        # Auto-commit labels after each session so work is never lost
-        import subprocess
+    # Auto-commit labels after each session so work is never lost
+    import subprocess
 
-        result = subprocess.run(
-            ["git", "status", "--porcelain", "--", str(session_dir)],
-            capture_output=True, text=True,
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--", str(session_dir)],
+        capture_output=True, text=True,
+    )
+    if result.stdout.strip():
+        subprocess.run(
+            ["git", "add",
+             str(session_dir / "CollectedData_tristan.csv"),
+             str(session_dir / "CollectedData_tristan.h5")],
+            capture_output=True,
         )
-        if result.stdout.strip():
-            subprocess.run(
-                ["git", "add",
-                 str(session_dir / "CollectedData_tristan.csv"),
-                 str(session_dir / "CollectedData_tristan.h5")],
-                capture_output=True,
-            )
-            subprocess.run(
-                ["git", "commit", "-m",
-                 f"Auto-save labels: {session_dir.name[:50]}"],
-                capture_output=True,
-            )
-            print(f"  Labels auto-committed to git.")
+        subprocess.run(
+            ["git", "commit", "-m",
+             f"Auto-save labels: {session_dir.name[:50]}"],
+            capture_output=True,
+        )
+        print(f"  Labels auto-committed to git.")
 
 
 def main():
