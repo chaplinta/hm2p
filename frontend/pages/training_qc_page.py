@@ -312,16 +312,20 @@ total_selected_frames = sum(retrain_counts.values())
 total_labeled = sum(r["n_labeled"] for r in records)
 sessions_with_labels = len(records)
 
+total_pngs = sum(
+    len([p for p in (r["dir"] if "dir" in r else Path()).glob("*.png") if p.exists()])
+    for r in records
+) if records else 0
+# Count PNGs from all labeled-data dirs (including those with no labels yet)
+_all_png_count = 0
+for _d in (Path("sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20/labeled-data")).iterdir():
+    if _d.is_dir():
+        _all_png_count += len([p for p in _d.glob("*.png") if p.exists()])
+
 col_a, col_b, col_c = st.columns(3)
 col_a.metric("Sessions", f"{sessions_with_labels} / {total_selected_sessions}")
-col_b.metric("Frames labeled", total_labeled)
-col_c.metric("Initially selected", total_selected_frames,
-             help="From metadata/retrain_frames/. Extra frames may have been added during labelling.")
-
-if sessions_with_labels < total_selected_sessions:
-    st.warning(
-        f"{total_selected_sessions - sessions_with_labels} session(s) have no labels yet."
-    )
+col_b.metric("Frames available", _all_png_count)
+col_c.metric("Frames labeled", total_labeled)
 
 # Build summary table from retrain_frames (all sessions), not just labeled ones
 summary_rows = []
