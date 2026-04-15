@@ -1,7 +1,8 @@
 {
   "session": "sub-1118023/ses-20221004T104258",
-  "video": "20221004_10_43_03_1118023_maze-rose_overhead.camera-cropped.mp4",
   "frame_indices": [
+    1290,
+    1675,
     3095,
     4603,
     9371,
@@ -19,5 +20,5 @@
     47578,
     54184
   ],
-  "n_frames": 16
+  "n_frames": 18
 }

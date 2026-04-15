@@ -1,21 +1,91 @@
 {
   "20210823_17_00_04_1114353_maze-rose_overhead.camera-cropped": {
-    "n_frames": 15,
+    "n_frames": 43,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20210920_11_09_41_1114356_maze-rose_overhead.camera-cropped": {
+    "n_frames": 9,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20210923_15_05_27_1114356_maze-rose_overhead.camera-cropped": {
+    "n_frames": 12,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20210924_16_09_26_1114356_maze-rose_overhead.camera-cropped": {
+    "n_frames": 8,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20211028_10_22_43_1114356_maze-rose_overhead.camera-cropped": {
+    "n_frames": 10,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20211028_11_25_53_1115465_maze-rose_overhead.camera-cropped": {
+    "n_frames": 8,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20211029_13_50_14_1115465_maze-rose_overhead.camera-cropped": {
+    "n_frames": 18,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20211216_14_36_47_1115816_maze-rose_overhead.camera-cropped": {
+    "n_frames": 7,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20220408_15_02_02_1116663_maze-rose_overhead.camera-cropped": {
+    "n_frames": 9,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20220411_16_45_16_1116663_maze-rose_overhead.camera-cropped": {
+    "n_frames": 2,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20220608_15_27_36_1117217_maze-rose_overhead.camera-cropped": {
+    "n_frames": 4,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20221003_14_36_59_1118020_maze-rose_overhead.camera-cropped": {
+    "n_frames": 22,
     "has_csv": true,
     "has_h5": true
   },
   "20221004_10_43_03_1118023_maze-rose_overhead.camera-cropped": {
-    "n_frames": 16,
+    "n_frames": 18,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20221010_11_43_39_1118018_maze-rose_overhead.camera-cropped": {
+    "n_frames": 12,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20221018_10_56_20_1117788_maze-rose_overhead.camera-cropped": {
+    "n_frames": 12,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20221115_13_27_52_1118213_maze-rose_overhead.camera-cropped": {
+    "n_frames": 12,
     "has_csv": true,
     "has_h5": true
   },
   "20221116_14_31_17_1118320_maze-rose_overhead.camera-cropped": {
-    "n_frames": 15,
+    "n_frames": 17,
     "has_csv": true,
     "has_h5": true
   },
   "20221117_13_20_37_1118317_maze-rose_overhead.camera-cropped": {
-    "n_frames": 15,
+    "n_frames": 17,
     "has_csv": true,
     "has_h5": true
   }

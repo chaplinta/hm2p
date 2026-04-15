@@ -23,3 +23,11 @@ KEY_NAME = "hm2p-suite2p"
 SG_ID = "sg-020161fb424325e6b"
 SG_NAME = "hm2p-suite2p-sg"
 IAM_PROFILE = "hm2p-ec2-role"
+
+# On-demand pricing in ap-southeast-2 (USD/hr) — used by cost page to compute
+# estimated cost from runtime_s without querying Cost Explorer.
+INSTANCE_PRICES: dict[str, float] = {
+    "g4dn.xlarge": 0.736,
+    "g5.xlarge": 1.408,
+    "c5.xlarge": 0.214,
+}

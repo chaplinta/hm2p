@@ -308,6 +308,191 @@ def detect_ear_swaps(
     }
 
 
+def detect_head_midpoint_outside_triangle(
+    nose_x: npt.NDArray[np.floating],
+    nose_y: npt.NDArray[np.floating],
+    left_ear_x: npt.NDArray[np.floating],
+    left_ear_y: npt.NDArray[np.floating],
+    right_ear_x: npt.NDArray[np.floating],
+    right_ear_y: npt.NDArray[np.floating],
+    midpoint_x: npt.NDArray[np.floating],
+    midpoint_y: npt.NDArray[np.floating],
+) -> dict:
+    """Detect frames where head_midpoint is outside the nose-ears triangle.
+
+    head_midpoint should lie within or very close to the triangle formed
+    by nose_tip, left_ear, right_ear (it sits between the ears, behind
+    the nose). If it falls outside, the label is likely wrong.
+
+    Uses the sign-of-cross-product method for point-in-triangle testing.
+
+    Returns
+    -------
+    dict
+        ``"is_outside"`` — (n_frames,) bool.
+        ``"n_outside"`` — count.
+        ``"pct_outside"`` — fraction of valid frames.
+    """
+    n = len(nose_x)
+
+    def _cross(ox, oy, ax, ay, bx, by):
+        return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
+
+    d1 = _cross(midpoint_x, midpoint_y, nose_x, nose_y, left_ear_x, left_ear_y)
+    d2 = _cross(midpoint_x, midpoint_y, left_ear_x, left_ear_y, right_ear_x, right_ear_y)
+    d3 = _cross(midpoint_x, midpoint_y, right_ear_x, right_ear_y, nose_x, nose_y)
+
+    has_neg = (d1 < 0) | (d2 < 0) | (d3 < 0)
+    has_pos = (d1 > 0) | (d2 > 0) | (d3 > 0)
+
+    valid = (
+        np.isfinite(nose_x) & np.isfinite(left_ear_x)
+        & np.isfinite(right_ear_x) & np.isfinite(midpoint_x)
+    )
+
+    is_outside = valid & has_neg & has_pos  # mixed signs = outside triangle
+    n_outside = int(is_outside.sum())
+    n_valid = int(valid.sum())
+
+    return {
+        "is_outside": is_outside,
+        "n_outside": n_outside,
+        "pct_outside": n_outside / n_valid if n_valid > 0 else 0.0,
+    }
+
+
+def detect_anterior_posterior_violations(
+    keypoints: dict[str, tuple[npt.NDArray[np.floating], npt.NDArray[np.floating]]],
+    order: list[str] | None = None,
+) -> dict:
+    """Detect frames where body parts are out of anterior-posterior order.
+
+    Projects each keypoint onto the body axis (first → last keypoint in
+    ``order``) and checks that the projections are monotonically increasing
+    from anterior to posterior.
+
+    Parameters
+    ----------
+    keypoints : dict
+        Mapping from body part name to ``(x, y)`` arrays.
+    order : list[str]
+        Expected anterior → posterior ordering.
+        Default: ``["nose_tip", "head_midpoint", "neck", "mid_back",
+        "mouse_center", "tail_base"]``.
+
+    Returns
+    -------
+    dict
+        ``"is_violated"`` — (n_frames,) bool, True where ordering is wrong.
+        ``"n_violated"`` — count.
+        ``"pct_violated"`` — fraction of valid frames.
+        ``"violations_per_pair"`` — dict mapping ``"A>B"`` to count of frames
+        where A was posterior to B (should be anterior).
+    """
+    if order is None:
+        order = ["nose_tip", "head_midpoint", "neck", "mid_back",
+                 "mouse_center", "tail_base"]
+
+    # Keep only keypoints that are available
+    available = [bp for bp in order if bp in keypoints]
+    if len(available) < 2:
+        n = len(next(iter(keypoints.values()))[0]) if keypoints else 0
+        return {
+            "is_violated": np.zeros(n, dtype=bool),
+            "n_violated": 0,
+            "pct_violated": 0.0,
+            "violations_per_pair": {},
+        }
+
+    # Body axis: first available → last available
+    first_bp = available[0]
+    last_bp = available[-1]
+    ax_x = keypoints[last_bp][0] - keypoints[first_bp][0]
+    ax_y = keypoints[last_bp][1] - keypoints[first_bp][1]
+    ax_len = np.sqrt(ax_x**2 + ax_y**2)
+    ax_len[ax_len < 1e-6] = np.nan  # avoid division by zero
+
+    # Project each keypoint onto the axis
+    projections = {}
+    for bp in available:
+        dx = keypoints[bp][0] - keypoints[first_bp][0]
+        dy = keypoints[bp][1] - keypoints[first_bp][1]
+        proj = (dx * ax_x + dy * ax_y) / (ax_len**2)
+        projections[bp] = proj
+
+    n = len(ax_x)
+    is_violated = np.zeros(n, dtype=bool)
+    violations_per_pair: dict[str, int] = {}
+    valid_all = np.isfinite(ax_len)
+
+    for i in range(len(available) - 1):
+        bp_a = available[i]  # should be anterior (smaller projection)
+        bp_b = available[i + 1]  # should be posterior (larger projection)
+        pair_valid = valid_all & np.isfinite(projections[bp_a]) & np.isfinite(projections[bp_b])
+        wrong = pair_valid & (projections[bp_a] > projections[bp_b])
+        is_violated |= wrong
+        n_wrong = int(wrong.sum())
+        if n_wrong > 0:
+            violations_per_pair[f"{bp_a}>{bp_b}"] = n_wrong
+
+    n_valid = int(valid_all.sum())
+    n_violated = int(is_violated.sum())
+
+    return {
+        "is_violated": is_violated,
+        "n_violated": n_violated,
+        "pct_violated": n_violated / n_valid if n_valid > 0 else 0.0,
+        "violations_per_pair": violations_per_pair,
+    }
+
+
+def detect_ear_asymmetry(
+    left_ear_x: npt.NDArray[np.floating],
+    left_ear_y: npt.NDArray[np.floating],
+    right_ear_x: npt.NDArray[np.floating],
+    right_ear_y: npt.NDArray[np.floating],
+    axis_x1: npt.NDArray[np.floating],
+    axis_y1: npt.NDArray[np.floating],
+    axis_x2: npt.NDArray[np.floating],
+    axis_y2: npt.NDArray[np.floating],
+    ratio_threshold: float = 3.0,
+) -> dict:
+    """Detect frames where ears are asymmetrically placed about the body axis.
+
+    Computes the perpendicular distance of each ear from the body axis.
+    If one ear is more than ``ratio_threshold`` times further from the
+    axis than the other, the frame is flagged.
+
+    Returns
+    -------
+    dict
+        ``"is_asymmetric"`` — (n_frames,) bool.
+        ``"n_asymmetric"`` — count.
+        ``"ratio"`` — (n_frames,) float, max(d_left, d_right) / min(...).
+    """
+    ax = axis_x2 - axis_x1
+    ay = axis_y2 - axis_y1
+    ax_len = np.sqrt(ax**2 + ay**2)
+    ax_len[ax_len < 1e-6] = np.nan
+
+    # Perpendicular distance = |cross product| / axis length
+    d_left = np.abs(ax * (left_ear_y - axis_y1) - ay * (left_ear_x - axis_x1)) / ax_len
+    d_right = np.abs(ax * (right_ear_y - axis_y1) - ay * (right_ear_x - axis_x1)) / ax_len
+
+    min_d = np.minimum(d_left, d_right)
+    min_d[min_d < 1e-6] = np.nan
+    ratio = np.maximum(d_left, d_right) / min_d
+
+    valid = np.isfinite(ratio)
+    is_asymmetric = valid & (ratio > ratio_threshold)
+
+    return {
+        "is_asymmetric": is_asymmetric,
+        "n_asymmetric": int(is_asymmetric.sum()),
+        "ratio": ratio,
+    }
+
+
 def body_length_consistency(
     head_x: npt.NDArray[np.floating],
     head_y: npt.NDArray[np.floating],

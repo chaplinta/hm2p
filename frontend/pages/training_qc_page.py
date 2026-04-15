@@ -21,8 +21,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from hm2p.pose.quality import (
     body_length_consistency,
+    detect_anterior_posterior_violations,
+    detect_ear_asymmetry,
     detect_ear_distance_outliers,
     detect_ear_swaps,
+    detect_head_midpoint_outside_triangle,
 )
 
 log = logging.getLogger("hm2p.frontend.training_qc")
@@ -245,6 +248,22 @@ def _short_session(clip: str) -> str:
     return clip[:30]
 
 
+def _format_flagged(labels: list[str]) -> str:
+    """Group flagged frame labels by session into a readable markdown table."""
+    from collections import defaultdict
+    grouped: defaultdict[str, list[str]] = defaultdict(list)
+    for lbl in labels:
+        parts = lbl.rsplit(" #", 1)
+        session = parts[0] if len(parts) == 2 else "unknown"
+        frame = f"#{parts[1]}" if len(parts) == 2 else lbl
+        grouped[session].append(frame)
+    lines = ["| Session | Frames |", "|---------|--------|"]
+    for ses in sorted(grouped):
+        frames_str = ", ".join(grouped[ses])
+        lines.append(f"| {ses} | {frames_str} |")
+    return "\n".join(lines)
+
+
 def _px_to_mm(val_px: float, scale: float | None) -> tuple[float, str]:
     """Convert a pixel value to mm if scale is available.
 
@@ -413,7 +432,7 @@ for bp in BODYPARTS:
         short = _short_session(r["clip"])
         frames = _frame_numbers(df_lab)
         for i in np.where(valid)[0]:
-            f_label = f"{short} f{int(frames[i])}" if np.isfinite(frames[i]) else short
+            f_label = f"{short} #{i+1}"
             all_hover.append(f_label)
             all_x.append(float(x[i] * s) if s else float(x[i]))
             all_y.append(float(y[i] * s) if s else float(y[i]))
@@ -477,7 +496,7 @@ for r in records:
 
     short = _short_session(r["clip"])
     frames = _frame_numbers(df_lab)
-    frame_labels = [f"{short} f{int(f)}" if np.isfinite(f) else short for f in frames]
+    frame_labels = [f"{short} #{i+1}" for i, f in enumerate(frames)]
 
     if "left_ear" in bps_r and "right_ear" in bps_r:
         lx, ly = _extract_xy(df_lab, sc, "left_ear")
@@ -506,8 +525,8 @@ for r in records:
         all_body_labels.extend(frame_labels)
         has_all_body = True
 
-tab_all_ears, tab_all_swap, tab_all_body = st.tabs(
-    ["Ear Distance (all)", "Ear Swap (all)", "Body Length (all)"]
+tab_all_ears, tab_all_swap, tab_all_body, tab_all_triangle, tab_all_order, tab_all_symmetry = st.tabs(
+    ["Ear Distance", "Ear Swap", "Body Length", "Head in Triangle", "Body Order", "Ear Symmetry"]
 )
 
 with tab_all_ears:
@@ -544,7 +563,7 @@ with tab_all_ears:
             fig.add_hline(y=med_v, line_dash="dash", line_color="green",
                           annotation_text="Median")
         fig.update_layout(
-            xaxis_title="Frame (pooled)", yaxis_title=f"Distance ({dist_unit})", height=300,
+            xaxis_title="Labeled frame", yaxis_title=f"Distance ({dist_unit})", height=300,
         )
         st.plotly_chart(fig, use_container_width=True, key="ear_dist_all")
     else:
@@ -582,7 +601,7 @@ with tab_all_swap:
         ))
         fig.add_hline(y=0, line_dash="dash", line_color="black")
         fig.update_layout(
-            xaxis_title="Frame (pooled)", yaxis_title="Cross-product", height=280,
+            xaxis_title="Labeled frame", yaxis_title="Cross-product", height=280,
         )
         st.plotly_chart(fig, use_container_width=True, key="ear_swap_all")
     else:
@@ -622,11 +641,172 @@ with tab_all_body:
             fig.add_hline(y=bl_med_v, line_dash="dash", line_color="green",
                           annotation_text="Median")
         fig.update_layout(
-            xaxis_title="Frame (pooled)", yaxis_title=f"nose_tip → tail_base ({bl_unit})", height=300,
+            xaxis_title="Labeled frame", yaxis_title=f"nose_tip → tail_base ({bl_unit})", height=300,
         )
         st.plotly_chart(fig, use_container_width=True, key="body_len_all")
     else:
         st.info("No sessions have both nose_tip and tail_base labeled.")
+
+with tab_all_triangle:
+    st.caption(
+        "head_midpoint should lie within the triangle formed by nose_tip, "
+        "left_ear, and right_ear. Frames where it falls outside suggest "
+        "the head_midpoint label is misplaced."
+    )
+    # Pool triangle data
+    pool_tri_nose_x, pool_tri_nose_y = [], []
+    pool_tri_lx, pool_tri_ly = [], []
+    pool_tri_rx, pool_tri_ry = [], []
+    pool_tri_mx, pool_tri_my = [], []
+    pool_tri_labels: list[str] = []
+    for r in records:
+        sc = r["scorer"]
+        bps_r = r["bodyparts"]
+        df_r = r["df"]
+        any_lab = df_r.notna().any(axis=1)
+        df_lab = df_r[any_lab]
+        if len(df_lab) == 0:
+            continue
+        needed = ["nose_tip", "left_ear", "right_ear"]
+        midpoint_bp = "head_midpoint" if "head_midpoint" in bps_r else (
+            "implant_base_rear" if "implant_base_rear" in bps_r else None
+        )
+        if not all(bp in bps_r for bp in needed) or midpoint_bp is None:
+            continue
+        nx, ny = _extract_xy(df_lab, sc, "nose_tip")
+        lx, ly = _extract_xy(df_lab, sc, "left_ear")
+        rx, ry = _extract_xy(df_lab, sc, "right_ear")
+        mx, my = _extract_xy(df_lab, sc, midpoint_bp)
+        pool_tri_nose_x.append(nx); pool_tri_nose_y.append(ny)
+        pool_tri_lx.append(lx); pool_tri_ly.append(ly)
+        pool_tri_rx.append(rx); pool_tri_ry.append(ry)
+        pool_tri_mx.append(mx); pool_tri_my.append(my)
+        short = _short_session(r["clip"])
+        pool_tri_labels.extend([f"{short} #{i+1}" for i in range(len(df_lab))])
+
+    if pool_tri_nose_x:
+        tri_result = detect_head_midpoint_outside_triangle(
+            np.concatenate(pool_tri_nose_x), np.concatenate(pool_tri_nose_y),
+            np.concatenate(pool_tri_lx), np.concatenate(pool_tri_ly),
+            np.concatenate(pool_tri_rx), np.concatenate(pool_tri_ry),
+            np.concatenate(pool_tri_mx), np.concatenate(pool_tri_my),
+        )
+        c1, c2 = st.columns(2)
+        c1.metric("Outside triangle", tri_result["n_outside"])
+        c2.metric("% outside", f"{tri_result['pct_outside']*100:.1f}%")
+        if tri_result["n_outside"] == 0:
+            st.success("head_midpoint is inside the nose-ears triangle for all labeled frames.")
+        else:
+            flagged = [pool_tri_labels[i] for i in range(len(tri_result["is_outside"])) if tri_result["is_outside"][i]]
+            st.error(f"head_midpoint outside triangle in {tri_result['n_outside']} frame(s):")
+            st.markdown(_format_flagged(flagged))
+    else:
+        st.info("Need nose_tip, left_ear, right_ear, and head_midpoint for this check.")
+
+with tab_all_order:
+    st.caption(
+        "Checks that body parts are in the correct anterior→posterior order "
+        "along the body axis: nose_tip → head_midpoint → neck → mid_back → "
+        "mouse_center → tail_base. Violations indicate a body part is labeled "
+        "on the wrong side of its neighbour."
+    )
+    # Pool order data
+    pool_order_kps: dict[str, list] = {}
+    pool_order_labels: list[str] = []
+    order_list = ["nose_tip", "head_midpoint", "neck", "mid_back", "mouse_center", "tail_base"]
+    for r in records:
+        sc = r["scorer"]
+        bps_r = r["bodyparts"]
+        df_r = r["df"]
+        any_lab = df_r.notna().any(axis=1)
+        df_lab = df_r[any_lab]
+        if len(df_lab) == 0:
+            continue
+        avail = [bp for bp in order_list if bp in bps_r]
+        if len(avail) < 2:
+            continue
+        short = _short_session(r["clip"])
+        for bp in avail:
+            x, y = _extract_xy(df_lab, sc, bp)
+            pool_order_kps.setdefault(bp, ([], []))
+            pool_order_kps[bp][0].append(x)
+            pool_order_kps[bp][1].append(y)
+        pool_order_labels.extend([f"{short} #{i+1}" for i in range(len(df_lab))])
+
+    if pool_order_kps:
+        concat_kps = {
+            bp: (np.concatenate(xs), np.concatenate(ys))
+            for bp, (xs, ys) in pool_order_kps.items()
+        }
+        order_result = detect_anterior_posterior_violations(concat_kps, order=order_list)
+        c1, c2 = st.columns(2)
+        c1.metric("Frames with ordering violations", order_result["n_violated"])
+        c2.metric("% violated", f"{order_result['pct_violated']*100:.1f}%")
+        if order_result["violations_per_pair"]:
+            st.markdown("**Violations by pair:**")
+            for pair, count in sorted(order_result["violations_per_pair"].items(), key=lambda x: -x[1]):
+                st.markdown(f"- `{pair}`: {count} frames")
+            flagged = [pool_order_labels[i] for i in range(len(order_result["is_violated"])) if order_result["is_violated"][i]]
+            st.markdown(_format_flagged(flagged))
+        else:
+            st.success("All body parts are in correct anterior→posterior order.")
+    else:
+        st.info("Need at least 2 body parts from the ordering sequence.")
+
+with tab_all_symmetry:
+    st.caption(
+        "Checks that left and right ears are roughly equidistant from the "
+        "body axis. A ratio > 3 (one ear 3x further from the axis than the "
+        "other) suggests one ear is misplaced."
+    )
+    if has_all_ears and has_all_axis:
+        pool_lx_s = np.concatenate(all_lx)
+        pool_ly_s = np.concatenate(all_ly)
+        pool_rx_s = np.concatenate(all_rx)
+        pool_ry_s = np.concatenate(all_ry)
+        pool_a1x_s = np.concatenate(all_ax1x)
+        pool_a1y_s = np.concatenate(all_ax1y)
+        pool_a2x_s = np.concatenate(all_ax2x)
+        pool_a2y_s = np.concatenate(all_ax2y)
+        sym_result = detect_ear_asymmetry(
+            pool_lx_s, pool_ly_s, pool_rx_s, pool_ry_s,
+            pool_a1x_s, pool_a1y_s, pool_a2x_s, pool_a2y_s,
+        )
+        c1, c2 = st.columns(2)
+        c1.metric("Asymmetric frames", sym_result["n_asymmetric"])
+        c2.metric("% asymmetric", f"{sym_result['n_asymmetric'] / max(1, len(pool_lx_s)) * 100:.1f}%")
+
+        ratio = sym_result["ratio"]
+        valid = np.isfinite(ratio)
+        if valid.any():
+            hover_sym = [all_ear_labels[i] for i in range(len(ratio)) if valid[i]]
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                y=ratio[valid].tolist(), mode="markers",
+                marker=dict(size=6, color=[
+                    "#FF0000" if a else "#1f77b4"
+                    for a in sym_result["is_asymmetric"][valid]
+                ]),
+                text=hover_sym, hoverinfo="text+y",
+                name="Distance ratio",
+            ))
+            fig.add_hline(y=3.0, line_dash="dash", line_color="red",
+                          annotation_text="Threshold (3x)")
+            fig.update_layout(
+                xaxis_title="Labeled frame",
+                yaxis_title="max(d_left, d_right) / min(...)",
+                height=300,
+            )
+            st.plotly_chart(fig, use_container_width=True, key="ear_sym_all")
+
+        if sym_result["n_asymmetric"] == 0:
+            st.success("Ears are symmetrically placed for all labeled frames.")
+        else:
+            flagged = [all_ear_labels[i] for i in range(len(ratio)) if sym_result["is_asymmetric"][i]]
+            st.error(f"Asymmetric ears in {sym_result['n_asymmetric']} frame(s):")
+            st.markdown(_format_flagged(flagged))
+    else:
+        st.info("Need ears + midline keypoints for symmetry check.")
 
 st.markdown("---")
 st.header("Per-Session Quality Checks")
