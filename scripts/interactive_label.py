@@ -27,6 +27,7 @@ DLC_PROJECT = Path("sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20")
 LABELED_DIR = DLC_PROJECT / "labeled-data"
 CONFIG_PATH = DLC_PROJECT / "config.yaml"
 STASH_DIR = Path("/tmp/dlc-label-stash")
+RETRAIN_FRAMES_DIR = Path("retrain_frames")
 
 BODYPARTS = [
     "nose_tip", "left_ear", "right_ear", "head_midpoint",
@@ -34,8 +35,67 @@ BODYPARTS = [
 ]
 
 
+def _clip_to_retrain_dir(clip_name: str) -> Path | None:
+    """Map a labeled-data clip dir name to its retrain_frames/ directory.
+
+    Matches on date + animal ID (the video timestamp differs from the
+    session timestamp).
+    """
+    parts = clip_name.split("_")
+    if len(parts) < 5:
+        return None
+    date = parts[0]
+    animal = parts[4].split("-")[0]
+    for d in RETRAIN_FRAMES_DIR.iterdir():
+        if not d.is_dir():
+            continue
+        # e.g. sub-1114353_ses-20210823T165950
+        fp = d.name.split("_")
+        if len(fp) < 2:
+            continue
+        f_animal = fp[0].replace("sub-", "")
+        f_date = fp[1].replace("ses-", "")[:8]
+        if f_animal == animal and f_date == date:
+            return d
+    return None
+
+
+def _ensure_pngs(labeled_dir: Path) -> int:
+    """Symlink PNGs from retrain_frames/ into labeled-data/ if missing.
+
+    Uses relative symlinks so they work across machines (Mac + devcontainer).
+    Returns the number of PNGs available after linking.
+    """
+    existing = sorted(labeled_dir.glob("*.png"))
+    if existing:
+        # Check first symlink isn't broken
+        if existing[0].is_symlink() and not existing[0].exists():
+            # Broken symlinks — remove and re-link
+            for p in existing:
+                if p.is_symlink():
+                    p.unlink()
+            existing = []
+        else:
+            return len(existing)
+
+    retrain_dir = _clip_to_retrain_dir(labeled_dir.name)
+    if retrain_dir is None or not retrain_dir.exists():
+        return 0
+
+    retrain_pngs = sorted(retrain_dir.glob("*.png"))
+    for png in retrain_pngs:
+        dest = labeled_dir / png.name
+        if not dest.exists():
+            # Relative symlink: from labeled-data/clip_dir/ to retrain_frames/sub_ses/
+            import os
+            rel = os.path.relpath(png.resolve(), labeled_dir.resolve())
+            dest.symlink_to(rel)
+
+    return len(list(labeled_dir.glob("*.png")))
+
+
 def scan_sessions() -> list[dict]:
-    """Find all sessions with frames in labeled-data/."""
+    """Find all sessions in labeled-data/ that have PNGs or labels."""
     if not LABELED_DIR.exists():
         return []
 
@@ -43,9 +103,9 @@ def scan_sessions() -> list[dict]:
     for d in sorted(LABELED_DIR.iterdir()):
         if not d.is_dir():
             continue
-        pngs = sorted(d.glob("*.png"))
-        if not pngs:
-            continue
+
+        # Ensure PNGs are linked from retrain_frames/ if missing
+        n_pngs = _ensure_pngs(d)
 
         # Count existing labels
         n_labelled = 0
@@ -65,11 +125,15 @@ def scan_sessions() -> list[dict]:
                 except Exception:
                     pass
 
+        if n_pngs == 0 and n_labelled == 0:
+            continue
+
         sessions.append({
             "dir": d,
             "name": d.name,
-            "n_frames": len(pngs),
+            "n_frames": n_pngs,
             "n_labelled": n_labelled,
+            "needs_pngs": n_pngs == 0,
         })
 
     return sessions
@@ -160,16 +224,27 @@ def main():
             print("Run scripts/select_labelling_frames.py first to extract frames.")
             break
 
-        print(f"\n  {'#':<4} {'Session':<65} {'Frames':>6} {'Labelled':>9}")
-        print("  " + "-" * 86)
+        print(f"\n  {'#':<4} {'Session':<50} {'PNGs':>6} {'Labels':>7} {'Status':>10}")
+        print("  " + "-" * 80)
         for i, s in enumerate(sessions):
-            status = "✓" if s["n_labelled"] >= s["n_frames"] else " "
-            print(f"  {i:<4} {s['name']:<65} {s['n_frames']:>6} {s['n_labelled']:>8} {status}")
+            if s["needs_pngs"]:
+                status = "no PNGs"
+            elif s["n_labelled"] >= s["n_frames"]:
+                status = "done"
+            elif s["n_labelled"] > 0:
+                status = "partial"
+            else:
+                status = "todo"
+            print(f"  {i:<4} {s['name'][:50]:<50} {s['n_frames']:>6} {s['n_labelled']:>7} {status:>10}")
 
-        total_frames = sum(s["n_frames"] for s in sessions)
+        n_with_pngs = sum(1 for s in sessions if not s["needs_pngs"])
+        n_needs_pngs = sum(1 for s in sessions if s["needs_pngs"])
         total_labelled = sum(s["n_labelled"] for s in sessions)
-        print(f"\n  Total: {total_frames} frames, {total_labelled} labelled "
-              f"({total_labelled/total_frames*100:.0f}%)")
+        print(f"\n  {len(sessions)} sessions ({n_with_pngs} with PNGs, {n_needs_pngs} need extraction)")
+        print(f"  {total_labelled} frames labelled")
+        if n_needs_pngs:
+            print(f"  Sessions marked 'no PNGs' need frame extraction first:")
+            print(f"    uv run python scripts/prepare_retrain_frames.py <sub/ses> <frame_indices...>")
 
         print(f"\n  Enter session number (0-{len(sessions)-1}), 'a' for all, or 'q' to quit:")
         choice = input("  > ").strip()
@@ -182,6 +257,10 @@ def main():
                 label_session(s["dir"])
         elif choice.isdigit() and 0 <= int(choice) < len(sessions):
             s = sessions[int(choice)]
+            if s["needs_pngs"]:
+                print(f"\n  Session {s['name'][:50]} has no PNGs.")
+                print(f"  Extract frames first with prepare_retrain_frames.py")
+                continue
             print(f"\nOpening {s['name']} ({s['n_frames']} frames)...")
             label_session(s["dir"])
         else:
