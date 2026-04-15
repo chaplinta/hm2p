@@ -588,7 +588,9 @@ with tab_all_swap:
         if swap_all["n_swapped"] == 0:
             st.success("No ear swaps detected across all labeled frames.")
         else:
-            st.error(f"{swap_all['n_swapped']} frame(s) with swapped ears across all sessions.")
+            flagged_swap = [all_axis_labels[i] for i in range(len(swap_all["is_swapped"])) if swap_all["is_swapped"][i]]
+            st.error(f"{swap_all['n_swapped']} frame(s) with swapped ears:")
+            st.markdown(_format_flagged(flagged_swap))
 
         left_s = swap_all["left_sign"]
         valid = np.isfinite(left_s)
