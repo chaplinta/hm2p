@@ -198,6 +198,27 @@ def label_session(session_dir: Path):
         if stashed:
             print(f"  Restored {len(stashed)} stashed session(s)")
 
+        # Auto-commit labels after each session so work is never lost
+        import subprocess
+
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--", str(session_dir)],
+            capture_output=True, text=True,
+        )
+        if result.stdout.strip():
+            subprocess.run(
+                ["git", "add",
+                 str(session_dir / "CollectedData_tristan.csv"),
+                 str(session_dir / "CollectedData_tristan.h5")],
+                capture_output=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m",
+                 f"Auto-save labels: {session_dir.name[:50]}"],
+                capture_output=True,
+            )
+            print(f"  Labels auto-committed to git.")
+
 
 def main():
     print("=" * 60)
@@ -266,7 +287,30 @@ def main():
         else:
             print("  Invalid choice.")
 
+    # Auto-commit labels to git so they're never lost
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "status", "--porcelain", "--", str(LABELED_DIR)],
+        capture_output=True, text=True,
+    )
+    changed = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    if changed:
+        print(f"\n  {len(changed)} label file(s) changed. Committing to git...")
+        subprocess.run(
+            ["git", "add", str(LABELED_DIR / "*/CollectedData_*")],
+            capture_output=True,
+        )
+        subprocess.run(
+            ["git", "commit", "-m", "Update DLC labels from interactive labelling session"],
+            capture_output=True,
+        )
+        print("  Labels committed to git.")
+    else:
+        print("\n  No label changes to commit.")
+
     print("\nDone. Next steps:")
+    print("  git push origin main")
     print("  uv run python scripts/upload_dlc_labels.py")
     print("  uv run python scripts/launch_dlc_finetune_ec2.py")
 
