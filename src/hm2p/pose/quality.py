@@ -308,6 +308,72 @@ def detect_ear_swaps(
     }
 
 
+def detect_point_in_triangle(
+    tri_ax: npt.NDArray[np.floating],
+    tri_ay: npt.NDArray[np.floating],
+    tri_bx: npt.NDArray[np.floating],
+    tri_by: npt.NDArray[np.floating],
+    tri_cx: npt.NDArray[np.floating],
+    tri_cy: npt.NDArray[np.floating],
+    point_x: npt.NDArray[np.floating],
+    point_y: npt.NDArray[np.floating],
+    *,
+    expect_inside: bool = True,
+) -> dict:
+    """Test whether a point is inside or outside a triangle per frame.
+
+    Uses the sign-of-cross-product method. Flags frames where the point
+    is on the wrong side (inside when ``expect_inside=False``, or outside
+    when ``expect_inside=True``).
+
+    Parameters
+    ----------
+    tri_ax, tri_ay, tri_bx, tri_by, tri_cx, tri_cy : (n_frames,) float
+        The three triangle vertices.
+    point_x, point_y : (n_frames,) float
+        The point to test.
+    expect_inside : bool
+        If True (default), flag frames where the point is *outside*.
+        If False, flag frames where the point is *inside*.
+
+    Returns
+    -------
+    dict
+        ``"is_flagged"`` — (n_frames,) bool.
+        ``"n_flagged"`` — count.
+        ``"pct_flagged"`` — fraction of valid frames.
+    """
+    def _cross(ox, oy, ax, ay, bx, by):
+        return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
+
+    d1 = _cross(point_x, point_y, tri_ax, tri_ay, tri_bx, tri_by)
+    d2 = _cross(point_x, point_y, tri_bx, tri_by, tri_cx, tri_cy)
+    d3 = _cross(point_x, point_y, tri_cx, tri_cy, tri_ax, tri_ay)
+
+    has_neg = (d1 < 0) | (d2 < 0) | (d3 < 0)
+    has_pos = (d1 > 0) | (d2 > 0) | (d3 > 0)
+    is_outside = has_neg & has_pos  # mixed signs = outside
+
+    valid = (
+        np.isfinite(tri_ax) & np.isfinite(tri_bx)
+        & np.isfinite(tri_cx) & np.isfinite(point_x)
+    )
+
+    if expect_inside:
+        is_flagged = valid & is_outside
+    else:
+        is_flagged = valid & ~is_outside
+
+    n_flagged = int(is_flagged.sum())
+    n_valid = int(valid.sum())
+
+    return {
+        "is_flagged": is_flagged,
+        "n_flagged": n_flagged,
+        "pct_flagged": n_flagged / n_valid if n_valid > 0 else 0.0,
+    }
+
+
 def detect_head_midpoint_outside_triangle(
     nose_x: npt.NDArray[np.floating],
     nose_y: npt.NDArray[np.floating],
@@ -320,44 +386,49 @@ def detect_head_midpoint_outside_triangle(
 ) -> dict:
     """Detect frames where head_midpoint is outside the nose-ears triangle.
 
-    head_midpoint should lie within or very close to the triangle formed
-    by nose_tip, left_ear, right_ear (it sits between the ears, behind
-    the nose). If it falls outside, the label is likely wrong.
-
-    Uses the sign-of-cross-product method for point-in-triangle testing.
-
-    Returns
-    -------
-    dict
-        ``"is_outside"`` — (n_frames,) bool.
-        ``"n_outside"`` — count.
-        ``"pct_outside"`` — fraction of valid frames.
+    Wrapper around ``detect_point_in_triangle`` with ``expect_inside=True``.
+    Returns dict with ``"is_outside"``, ``"n_outside"``, ``"pct_outside"``.
     """
-    n = len(nose_x)
-
-    def _cross(ox, oy, ax, ay, bx, by):
-        return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
-
-    d1 = _cross(midpoint_x, midpoint_y, nose_x, nose_y, left_ear_x, left_ear_y)
-    d2 = _cross(midpoint_x, midpoint_y, left_ear_x, left_ear_y, right_ear_x, right_ear_y)
-    d3 = _cross(midpoint_x, midpoint_y, right_ear_x, right_ear_y, nose_x, nose_y)
-
-    has_neg = (d1 < 0) | (d2 < 0) | (d3 < 0)
-    has_pos = (d1 > 0) | (d2 > 0) | (d3 > 0)
-
-    valid = (
-        np.isfinite(nose_x) & np.isfinite(left_ear_x)
-        & np.isfinite(right_ear_x) & np.isfinite(midpoint_x)
+    result = detect_point_in_triangle(
+        nose_x, nose_y, left_ear_x, left_ear_y,
+        right_ear_x, right_ear_y, midpoint_x, midpoint_y,
+        expect_inside=True,
     )
-
-    is_outside = valid & has_neg & has_pos  # mixed signs = outside triangle
-    n_outside = int(is_outside.sum())
-    n_valid = int(valid.sum())
-
     return {
-        "is_outside": is_outside,
-        "n_outside": n_outside,
-        "pct_outside": n_outside / n_valid if n_valid > 0 else 0.0,
+        "is_outside": result["is_flagged"],
+        "n_outside": result["n_flagged"],
+        "pct_outside": result["pct_flagged"],
+    }
+
+
+def detect_neck_inside_triangle(
+    nose_x: npt.NDArray[np.floating],
+    nose_y: npt.NDArray[np.floating],
+    left_ear_x: npt.NDArray[np.floating],
+    left_ear_y: npt.NDArray[np.floating],
+    right_ear_x: npt.NDArray[np.floating],
+    right_ear_y: npt.NDArray[np.floating],
+    neck_x: npt.NDArray[np.floating],
+    neck_y: npt.NDArray[np.floating],
+) -> dict:
+    """Detect frames where neck is inside the nose-ears triangle.
+
+    The neck should be posterior to the ears and therefore outside the
+    triangle formed by nose_tip, left_ear, right_ear. If it falls
+    inside, the neck label is likely misplaced (confused with
+    head_midpoint).
+
+    Returns dict with ``"is_inside"``, ``"n_inside"``, ``"pct_inside"``.
+    """
+    result = detect_point_in_triangle(
+        nose_x, nose_y, left_ear_x, left_ear_y,
+        right_ear_x, right_ear_y, neck_x, neck_y,
+        expect_inside=False,
+    )
+    return {
+        "is_inside": result["is_flagged"],
+        "n_inside": result["n_flagged"],
+        "pct_inside": result["pct_flagged"],
     }
 
 

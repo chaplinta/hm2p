@@ -26,6 +26,7 @@ from hm2p.pose.quality import (
     detect_ear_distance_outliers,
     detect_ear_swaps,
     detect_head_midpoint_outside_triangle,
+    detect_neck_inside_triangle,
 )
 
 log = logging.getLogger("hm2p.frontend.training_qc")
@@ -525,8 +526,8 @@ for r in records:
         all_body_labels.extend(frame_labels)
         has_all_body = True
 
-tab_all_ears, tab_all_swap, tab_all_body, tab_all_triangle, tab_all_order, tab_all_symmetry = st.tabs(
-    ["Ear Distance", "Ear Swap", "Body Length", "Head in Triangle", "Body Order", "Ear Symmetry"]
+tab_all_ears, tab_all_swap, tab_all_body, tab_all_triangle, tab_all_neck, tab_all_order, tab_all_symmetry = st.tabs(
+    ["Ear Distance", "Ear Swap", "Body Length", "Head in Triangle", "Neck in Triangle", "Body Order", "Ear Symmetry"]
 )
 
 with tab_all_ears:
@@ -704,6 +705,52 @@ with tab_all_triangle:
             st.markdown(_format_flagged(flagged))
     else:
         st.info("Need nose_tip, left_ear, right_ear, and head_midpoint for this check.")
+
+with tab_all_neck:
+    st.caption(
+        "The neck should be posterior to the ears — outside the triangle "
+        "formed by nose_tip, left_ear, right_ear. If it falls inside, "
+        "the neck label may be confused with head_midpoint."
+    )
+    pool_neck_x, pool_neck_y = [], []
+    pool_neck_labels: list[str] = []
+    has_neck_data = False
+    for r in records:
+        sc = r["scorer"]
+        bps_r = r["bodyparts"]
+        df_r = r["df"]
+        any_lab = df_r.notna().any(axis=1)
+        df_lab = df_r[any_lab]
+        if len(df_lab) == 0:
+            continue
+        needed = ["nose_tip", "left_ear", "right_ear", "neck"]
+        if not all(bp in bps_r for bp in needed):
+            continue
+        nx, ny = _extract_xy(df_lab, sc, "neck")
+        pool_neck_x.append(nx)
+        pool_neck_y.append(ny)
+        short = _short_session(r["clip"])
+        pool_neck_labels.extend([f"{short} #{i+1}" for i in range(len(df_lab))])
+        has_neck_data = True
+
+    if has_neck_data and pool_tri_nose_x:
+        neck_result = detect_neck_inside_triangle(
+            np.concatenate(pool_tri_nose_x), np.concatenate(pool_tri_nose_y),
+            np.concatenate(pool_tri_lx), np.concatenate(pool_tri_ly),
+            np.concatenate(pool_tri_rx), np.concatenate(pool_tri_ry),
+            np.concatenate(pool_neck_x), np.concatenate(pool_neck_y),
+        )
+        c1, c2 = st.columns(2)
+        c1.metric("Neck inside triangle", neck_result["n_inside"])
+        c2.metric("% inside", f"{neck_result['pct_inside']*100:.1f}%")
+        if neck_result["n_inside"] == 0:
+            st.success("Neck is outside the nose-ears triangle for all labeled frames.")
+        else:
+            flagged_neck = [pool_neck_labels[i] for i in range(len(neck_result["is_inside"])) if neck_result["is_inside"][i]]
+            st.error(f"Neck inside nose-ears triangle in {neck_result['n_inside']} frame(s):")
+            st.markdown(_format_flagged(flagged_neck))
+    else:
+        st.info("Need nose_tip, left_ear, right_ear, and neck for this check.")
 
 with tab_all_order:
     st.caption(
