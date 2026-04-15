@@ -38,26 +38,34 @@ BODYPARTS = [
 def _clip_to_retrain_dir(clip_name: str) -> Path | None:
     """Map a labeled-data clip dir name to its retrain_frames/ directory.
 
-    Matches on date + animal ID (the video timestamp differs from the
-    session timestamp).
+    Matches on date + animal ID, then picks the closest time match
+    (handles multiple sessions per day for the same animal).
     """
     parts = clip_name.split("_")
     if len(parts) < 5:
         return None
     date = parts[0]
+    clip_time = int(parts[1] + parts[2] + parts[3])  # e.g. 112203
     animal = parts[4].split("-")[0]
+
+    candidates = []
     for d in RETRAIN_FRAMES_DIR.iterdir():
         if not d.is_dir():
             continue
-        # e.g. sub-1114353_ses-20210823T165950
         fp = d.name.split("_")
         if len(fp) < 2:
             continue
         f_animal = fp[0].replace("sub-", "")
-        f_date = fp[1].replace("ses-", "")[:8]
+        f_ses = fp[1].replace("ses-", "")  # e.g. 20220804T112159
+        f_date = f_ses[:8]
         if f_animal == animal and f_date == date:
-            return d
-    return None
+            f_time = int(f_ses[9:])  # e.g. 112159
+            candidates.append((abs(f_time - clip_time), d))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda x: x[0])
+    return candidates[0][1]
 
 
 def _ensure_pngs(labeled_dir: Path) -> int:
