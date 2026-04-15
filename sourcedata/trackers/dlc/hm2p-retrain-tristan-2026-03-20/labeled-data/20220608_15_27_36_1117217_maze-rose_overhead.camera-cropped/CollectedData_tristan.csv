@@ -1,5 +1,7 @@
-scorer,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan
-bodyparts,nose_tip,nose_tip,left_ear,left_ear,right_ear,right_ear,head_midpoint,head_midpoint,neck,neck,mid_back,mid_back,mouse_center,mouse_center,tail_base,tail_base
-coords,x,y,x,y,x,y,x,y,x,y,x,y,x,y,x,y
-labeled-data/20220608_15_27_36_1117217_maze-rose_overhead.camera-cropped/frame_010008.png,,,,,,,,,,,,,,,,
-labeled-data/20220608_15_27_36_1117217_maze-rose_overhead.camera-cropped/frame_033475.png,,,,,,,,,,,,,,,,
+scorer,,,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan,tristan
+bodyparts,,,nose_tip,nose_tip,left_ear,left_ear,right_ear,right_ear,head_midpoint,head_midpoint,neck,neck,mid_back,mid_back,mouse_center,mouse_center,tail_base,tail_base
+coords,,,x,y,x,y,x,y,x,y,x,y,x,y,x,y,x,y
+labeled-data,20220608_15_27_36_1117217_maze-rose_overhead.camera-cropped,frame_010006.png,496.3615699526854,489.7114577140833,517.992275883797,513.3085914571141,523.4982737571709,481.4524609040225,517.992275883797,496.0040267122248,532.5438416919993,499.54359677367944,545.7482581171058,502.46392398796917,554.4505228906089,504.2043769426698,577.4245018926572,514.9951852618137
+labeled-data,20220608_15_27_36_1117217_maze-rose_overhead.camera-cropped,frame_010008.png,495.7527527131655,491.2697924679866,522.5068156042574,518.0238553590784,525.6281229415515,478.33866207062545,517.601904074224,497.0665060943898,530.9789355197698,499.2960113353141,545.2477690616856,500.1878134316839,555.0575921217526,501.07961552805364,576.906743482811,512.6730427808601
+labeled-data,20220608_15_27_36_1117217_maze-rose_overhead.camera-cropped,frame_010099.png,487.280632797653,516.240251166339,522.5068156042574,534.0762930937337,510.467487303266,497.0665060943898,511.35928939963577,514.9025480217845,525.1822218933667,514.4566469735996,534.5461439052488,510.4435375399358,547.031373254425,505.0927249617174,568.4346235672986,505.0927249617174
+labeled-data,20220608_15_27_36_1117217_maze-rose_overhead.camera-cropped,frame_033475.png,,,,,,,335.4199598008167,154.69299128497454,,,,,,,,
