@@ -160,6 +160,87 @@ def already_labelled_frames(session_tag: str) -> set[int]:
     return set()
 
 
+def image_dedup(
+    video_path: str,
+    candidate_indices: list[int],
+    n_target: int,
+    thumb_size: int = 32,
+    min_similarity: float = 0.95,
+) -> list[int]:
+    """Select visually diverse frames from a video using image similarity.
+
+    Downscales each candidate frame to a small grayscale thumbnail and
+    greedily selects frames that are sufficiently different from all
+    already-selected frames (normalised cross-correlation < min_similarity).
+
+    Parameters
+    ----------
+    video_path : str
+        Path to the video file.
+    candidate_indices : list[int]
+        Frame indices to consider (should be pre-sorted by priority).
+    n_target : int
+        Number of frames to select.
+    thumb_size : int
+        Thumbnail edge size for comparison (default 32 = 32x32 grayscale).
+    min_similarity : float
+        Maximum normalised cross-correlation between selected frames.
+        Default 0.95 rejects near-identical frames while keeping
+        frames with moderate differences.
+
+    Returns
+    -------
+    list[int]
+        Selected frame indices.
+    """
+    import cv2
+
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return candidate_indices[:n_target]
+
+    # Extract thumbnails for all candidates
+    thumbs: dict[int, np.ndarray] = {}
+    for idx in candidate_indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        thumb = cv2.resize(gray, (thumb_size, thumb_size), interpolation=cv2.INTER_AREA)
+        thumbs[idx] = thumb.astype(np.float32).ravel()
+        # Normalise to zero mean, unit variance for NCC
+        m = thumbs[idx].mean()
+        s = thumbs[idx].std()
+        if s > 1e-6:
+            thumbs[idx] = (thumbs[idx] - m) / s
+        else:
+            thumbs[idx] = thumbs[idx] - m
+    cap.release()
+
+    # Greedy selection: pick candidates in priority order, reject if
+    # too similar to any already-selected frame
+    selected = []
+    selected_thumbs: list[np.ndarray] = []
+    for idx in candidate_indices:
+        if len(selected) >= n_target:
+            break
+        if idx not in thumbs:
+            continue
+        t = thumbs[idx]
+        too_similar = False
+        for st in selected_thumbs:
+            ncc = float(np.dot(t, st) / len(t))
+            if ncc > min_similarity:
+                too_similar = True
+                break
+        if not too_similar:
+            selected.append(idx)
+            selected_thumbs.append(t)
+
+    return selected
+
+
 def select_diverse(
     scores: np.ndarray,
     positions: np.ndarray | None,
@@ -332,8 +413,10 @@ def main():
 
         positions = np.column_stack(pos_cols) if pos_cols else None
 
-        selected = select_diverse(
-            s["scores"], positions, n_alloc,
+        # Get 3x candidates using pose-based diversity, then image_dedup
+        # will prune to n_alloc using actual pixel similarity.
+        candidates = select_diverse(
+            s["scores"], positions, n_alloc * 3,
             min_spacing=args.min_spacing,
             exclude=s["already_labelled"],
         )
@@ -342,15 +425,16 @@ def main():
             "exp_id": s["exp_id"],
             "sub": s["sub"],
             "ses": s["ses"],
-            "frames": selected,
+            "frames": candidates,  # will be pruned by image_dedup during extraction
+            "n_target": n_alloc,
         }
-        total += len(selected)
+        total += min(n_alloc, len(candidates))
 
-        scores_at_selected = [f"{s['scores'][i]:.3f}" for i in selected]
-        print(f"{s['exp_id']}: {len(selected)} frames "
+        scores_at_selected = [f"{s['scores'][i]:.3f}" for i in candidates[:n_alloc]]
+        print(f"{s['exp_id']}: {len(candidates)} candidates → target {n_alloc} "
               f"(already labelled: {s['n_already_labelled']})")
-        print(f"  Indices: {selected}")
-        print(f"  Scores:  {scores_at_selected}")
+        print(f"  Top indices: {candidates[:n_alloc]}")
+        print(f"  Top scores:  {scores_at_selected}")
         print()
 
     print(f"Total: {total} frames across {len(all_selected)} sessions")
@@ -420,6 +504,18 @@ def main():
             if video_path is None:
                 print(f"  ERROR: no video found, skipping")
                 continue
+
+            # Image-based dedup: prune candidates to target using pixel similarity
+            n_target = info.get("n_target", len(info["frames"]))
+            if len(info["frames"]) > n_target:
+                print(f"  Image dedup: {len(info['frames'])} candidates → {n_target} target")
+                deduped = image_dedup(
+                    str(video_path), info["frames"], n_target,
+                )
+                n_before = len(info["frames"])
+                info["frames"] = deduped
+                new_frames = [f for f in deduped if not (rf_dir / f"frame_{int(f):06d}.png").exists()]
+                print(f"  Kept {len(deduped)}/{n_before} visually distinct frames")
 
             # Extract frames
             import cv2
