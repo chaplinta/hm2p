@@ -1,0 +1,7 @@
+Duplicate frame dry run — NCC > 0.99 on 64x64 thumbnails
+Generated: 2026-04-16
+
+20220802_15_06_57_1117646  20 -> 19 frames:
+  remove #15/20  (= #14, ncc=0.9926)
+
+Total: 1 frames to remove

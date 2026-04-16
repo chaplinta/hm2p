@@ -153,6 +153,7 @@ gain_page = st.Page(str(_app_dir / "pages/gain_page.py"), title="Gain", icon=":m
 anchoring_page = st.Page(str(_app_dir / "pages/anchoring_page.py"), title="Anchoring", icon=":material/anchor:")
 speed_mod_page = st.Page(str(_app_dir / "pages/speed_page.py"), title="Speed", icon=":material/speed:")
 tracking_quality_page = st.Page(str(_app_dir / "pages/tracking_quality_page.py"), title="Tracking QC", icon=":material/bug_report:")
+illumination_check_page = st.Page(str(_app_dir / "pages/illumination_check_page.py"), title="Illumination Check", icon=":material/light_mode:")
 perspective_page = st.Page(str(_app_dir / "pages/perspective_compare_page.py"), title="Perspective", icon=":material/filter_center_focus:")
 zdrift_page = st.Page(str(_app_dir / "pages/zdrift_page.py"), title="Z-Drift", icon=":material/straighten:")
 anatomy_page = st.Page(str(_app_dir / "pages/anatomy_page.py"), title="Anatomy", icon=":material/neurology:")
@@ -171,7 +172,7 @@ methods_page = st.Page(str(_app_dir / "pages/methods_page.py"), title="Methods",
 
 pg = st.navigation({
     "Overview": [home_page, sessions_page, animals_page, pipeline_page, summary_page, literature_page, methods_page],
-    "Pipeline": [suite2p_page, calcium_page, cascade_page, dlc_training_page, training_qc_page, dlc_page, dlc_viewer_page, tracking_quality_page, perspective_page, moseq_page, sync_page, zdrift_page, anatomy_page],
+    "Pipeline": [suite2p_page, calcium_page, cascade_page, dlc_training_page, training_qc_page, dlc_page, dlc_viewer_page, tracking_quality_page, perspective_page, moseq_page, sync_page, zdrift_page, anatomy_page, illumination_check_page],
     "Explore": [explorer_page, timeline_page, gallery_page, roi_viewer_page, events_page, event_dynamics_page, correlations_page, trace_compare_page, pop_activity_page, neuropil_page, rastermap_page, moseq_explore_page, behaviour_page, maze_anim_page],
     "Analysis": [hypotheses_page, analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, place_tuning_page, decoder_page, stability_page, drift_page, gain_page, anchoring_page, speed_mod_page, pop_dynamics_page, ahv_page, info_theory_page, classify_page, signal_quality_page, qc_page, patching_page, patching_traces_page, patching_morph_page],
     "System": [aws_page, cost_page, changelog_page],
