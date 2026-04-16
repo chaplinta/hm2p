@@ -165,13 +165,34 @@ def select_diverse(
     positions: np.ndarray | None,
     n: int,
     min_spacing: int = 30,
-    min_position_dist: float = 5.0,
+    min_position_dist: float = 50.0,
     exclude: set[int] | None = None,
 ) -> list[int]:
-    """Select top-N frames by score with spacing and diversity constraints."""
+    """Select top-N frames by score with spacing and diversity constraints.
+
+    Diversity uses two criteria so frames differ in either location or pose:
+    1. Centroid distance — mean body position in the arena
+    2. Pose shape distance — body configuration after subtracting centroid
+
+    A frame is rejected only if BOTH centroid and shape are too similar
+    to an already-selected frame.
+    """
     order = np.argsort(-scores)  # highest score first
     selected = []
     exclude = exclude or set()
+
+    # Precompute centroids and pose shapes for diversity check
+    _centroids = None
+    _shapes = None
+    if positions is not None:
+        p = np.nan_to_num(positions.astype(np.float64), nan=0.0)
+        n_kp = p.shape[1] // 2
+        xs = p[:, 0::2]
+        ys = p[:, 1::2]
+        cx = np.mean(xs, axis=1, keepdims=True)
+        cy = np.mean(ys, axis=1, keepdims=True)
+        _centroids = np.column_stack([cx.ravel(), cy.ravel()])
+        _shapes = np.column_stack([xs - cx, ys - cy])
 
     for idx in order:
         if len(selected) >= n:
@@ -182,15 +203,13 @@ def select_diverse(
         # Spacing constraint
         if any(abs(idx - s) < min_spacing for s in selected):
             continue
-        # Position similarity constraint
-        if positions is not None and selected:
-            pos = positions[idx]
-            if np.isnan(pos).any():
-                continue
+        # Diversity constraint: reject if both location AND pose are similar
+        if _centroids is not None and selected:
             too_similar = False
             for s in selected:
-                diff = np.nanmean(np.abs(positions[s] - pos))
-                if diff < min_position_dist:
+                c_dist = np.sqrt(np.sum((_centroids[idx] - _centroids[s]) ** 2))
+                s_dist = np.mean(np.abs(_shapes[idx] - _shapes[s]))
+                if c_dist < min_position_dist and s_dist < min_position_dist:
                     too_similar = True
                     break
             if too_similar:
