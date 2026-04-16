@@ -1,81 +1,30 @@
-Duplicate frame dry run — NCC > 0.99 on 64x64 thumbnails
+Duplicate frame dry run — full-res pixel diff, noise=15, min_changed=1.0%
 Generated: 2026-04-16
 
-20210823_17_00_04_1114353  43 -> 41 frames:
-  remove #7/43  (= #6, ncc=0.9973)
-  remove #36/43  (= #35, ncc=0.9976)
-
-20210920_11_09_41_1114356  9 -> 8 frames:
-  remove #5/9  (= #4, ncc=0.9942)
-
-20210923_15_05_27_1114356  12 -> 9 frames:
-  remove #6/12  (= #5, ncc=0.9924)
-  remove #8/12  (= #7, ncc=0.9982)
-  remove #12/12  (= #11, ncc=0.9965)
-
 20210924_16_09_26_1114356  8 -> 6 frames:
-  remove #7/8  (= #6, ncc=1.0000)
-  remove #8/8  (= #6, ncc=1.0000)
+  remove #7/8  (= #6, 0.00% pixels changed)
+  remove #8/8  (= #6, 0.00% pixels changed)
 
-20211028_10_22_43_1114356  10 -> 9 frames:
-  remove #9/10  (= #8, ncc=0.9909)
+20211028_11_25_53_1115465  8 -> 7 frames:
+  remove #8/8  (= #7, 0.06% pixels changed)
 
-20211028_11_25_53_1115465  8 -> 5 frames:
-  remove #3/8  (= #2, ncc=0.9922)
-  remove #5/8  (= #4, ncc=0.9945)
-  remove #8/8  (= #7, ncc=1.0000)
-
-20211029_13_50_14_1115465  18 -> 16 frames:
-  remove #11/18  (= #10, ncc=0.9953)
-  remove #18/18  (= #17, ncc=0.9999)
-
-20211102_15_11_38_1115465  2 -> 1 frames:
-  remove #2/2  (= #1, ncc=0.9965)
+20211029_13_50_14_1115465  18 -> 17 frames:
+  remove #18/18  (= #17, 0.06% pixels changed)
 
 20211203_15_10_31_1115464  2 -> 1 frames:
-  remove #2/2  (= #1, ncc=0.9999)
+  remove #2/2  (= #1, 0.08% pixels changed)
 
-20211216_14_36_47_1115816  7 -> 6 frames:
-  remove #4/7  (= #3, ncc=0.9968)
+20220531_11_06_17_1117217  8 -> 6 frames:
+  remove #3/8  (= #2, 0.15% pixels changed)
+  remove #7/8  (= #6, 0.00% pixels changed)
 
-20220531_11_06_17_1117217  8 -> 4 frames:
-  remove #3/8  (= #2, ncc=1.0000)
-  remove #8/8  (= #2, ncc=0.9900)
-  remove #5/8  (= #4, ncc=0.9921)
-  remove #7/8  (= #6, ncc=1.0000)
+20220804_11_22_03_1117646  18 -> 16 frames:
+  remove #16/18  (= #15, 0.02% pixels changed)
+  remove #17/18  (= #15, 0.02% pixels changed)
 
-20220608_15_27_36_1117217  4 -> 3 frames:
-  remove #2/4  (= #1, ncc=0.9978)
+20220804_13_52_06_1117646  22 -> 19 frames:
+  remove #14/22  (= #13, 0.01% pixels changed)
+  remove #20/22  (= #19, 0.50% pixels changed)
+  remove #21/22  (= #19, 0.51% pixels changed)
 
-20220802_15_06_57_1117646  20 -> 19 frames:
-  remove #15/20  (= #14, ncc=0.9926)
-
-20220804_11_22_03_1117646  18 -> 13 frames:
-  remove #6/18  (= #2, ncc=0.9920)
-  remove #12/18  (= #11, ncc=0.9930)
-  remove #13/18  (= #11, ncc=0.9954)
-  remove #16/18  (= #15, ncc=1.0000)
-  remove #17/18  (= #15, ncc=1.0000)
-
-20220804_13_52_06_1117646  22 -> 13 frames:
-  remove #4/22  (= #3, ncc=0.9957)
-  remove #5/22  (= #3, ncc=0.9957)
-  remove #12/22  (= #10, ncc=0.9935)
-  remove #14/22  (= #13, ncc=1.0000)
-  remove #16/22  (= #13, ncc=0.9976)
-  remove #18/22  (= #17, ncc=0.9982)
-  remove #20/22  (= #19, ncc=0.9999)
-  remove #21/22  (= #19, ncc=0.9999)
-  remove #22/22  (= #19, ncc=0.9981)
-
-20221003_14_36_59_1118020  22 -> 21 frames:
-  remove #7/22  (= #6, ncc=0.9905)
-
-20221018_10_56_20_1117788  10 -> 8 frames:
-  remove #7/10  (= #6, ncc=0.9911)
-  remove #10/10  (= #9, ncc=0.9957)
-
-20221117_13_20_37_1118317  17 -> 16 frames:
-  remove #16/17  (= #15, ncc=0.9954)
-
-Total: 41 frames to remove
+Total: 12 frames to remove
