@@ -553,7 +553,7 @@ if st.button("Select frames", key="select_frames_btn"):
         for label, bin_idx in result["bins"]:
             st.caption(f"**{label.title()}** ({len(bin_idx)} frames): {bin_idx.tolist()}")
     else:
-        selected_indices = worst_frames(lik_matrix, n_frames=n_frames, min_spacing=min_spacing)
+        selected_indices = worst_frames(lik_matrix, n_frames=n_frames, min_spacing=min_spacing, positions=pos_matrix)
         st.success(f"Selected {len(selected_indices)} worst frames")
 
     # Show selected frame details

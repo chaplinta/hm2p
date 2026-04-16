@@ -736,11 +736,14 @@ def worst_frames(
     likelihood: npt.NDArray[np.floating],
     n_frames: int = 20,
     min_spacing: int = 30,
+    positions: npt.NDArray[np.floating] | None = None,
+    min_position_dist: float = 50.0,
 ) -> npt.NDArray[np.intp]:
     """Select the worst-tracked frames for manual review / retraining.
 
     Picks frames with lowest mean likelihood, enforcing minimum spacing
-    so frames aren't all from the same bad stretch.
+    and pose diversity so frames aren't all from the same bad stretch
+    or the same mouse pose.
 
     Parameters
     ----------
@@ -750,6 +753,10 @@ def worst_frames(
         Number of frames to select.
     min_spacing : int
         Minimum frame gap between selected frames.
+    positions : (n_frames, n_keypoints*2) float, optional
+        Bodypart positions for diversity filtering.
+    min_position_dist : float
+        Minimum centroid/shape distance (pixels) between selected frames.
 
     Returns
     -------
@@ -761,6 +768,20 @@ def worst_frames(
     else:
         mean_lik = likelihood.copy()
 
+    # Precompute centroids and shapes for diversity check
+    _centroids = None
+    _shapes = None
+    if positions is not None:
+        p = positions.reshape(len(mean_lik), -1).astype(np.float64)
+        p = np.nan_to_num(p, nan=0.0)
+        n_kp = p.shape[1] // 2
+        xs = p[:, 0::2]
+        ys = p[:, 1::2]
+        cx = np.mean(xs, axis=1, keepdims=True)
+        cy = np.mean(ys, axis=1, keepdims=True)
+        _centroids = np.column_stack([cx.ravel(), cy.ravel()])
+        _shapes = np.column_stack([xs - cx, ys - cy])
+
     # Sort by ascending likelihood (worst first)
     order = np.argsort(mean_lik)
 
@@ -769,8 +790,20 @@ def worst_frames(
         if len(selected) >= n_frames:
             break
         # Check spacing
-        if all(abs(int(idx) - int(s)) >= min_spacing for s in selected):
-            selected.append(idx)
+        if not all(abs(int(idx) - int(s)) >= min_spacing for s in selected):
+            continue
+        # Check pose diversity
+        if _centroids is not None:
+            too_similar = False
+            for s in selected:
+                c_dist = np.sqrt(np.sum((_centroids[idx] - _centroids[s]) ** 2))
+                s_dist = np.mean(np.abs(_shapes[idx] - _shapes[s]))
+                if c_dist < min_position_dist and s_dist < min_position_dist:
+                    too_similar = True
+                    break
+            if too_similar:
+                continue
+        selected.append(idx)
 
     return np.array(sorted(selected), dtype=np.intp)
 
@@ -781,12 +814,25 @@ def stratified_frame_selection(
     n_bins: int = 4,
     min_spacing: int = 30,
     positions: npt.NDArray[np.floating] | None = None,
-    min_position_dist: float = 5.0,
+    min_position_dist: float = 50.0,
 ) -> dict:
     """Select frames stratified across quality bins for retraining.
 
     Selects frames from different quality levels: worst, poor, moderate,
     and good — to ensure retraining data covers the full range.
+
+    Similarity filtering uses two criteria:
+    1. **Centroid distance** — the Euclidean distance between the mean
+       body position (centroid of all keypoints). Frames with centroids
+       closer than ``min_position_dist`` are candidates for dedup.
+    2. **Pose shape distance** — the mean displacement of centroid-
+       subtracted keypoints. Two frames with the same pose shape but
+       in different arena locations will have high centroid distance
+       (kept) but low shape distance. Two frames in the same location
+       with the same pose will fail both (deduplicated).
+
+    A frame is considered too similar only if BOTH centroid distance
+    AND shape distance are below threshold.
 
     Parameters
     ----------
@@ -798,12 +844,10 @@ def stratified_frame_selection(
     min_spacing : int
         Minimum frames between selected frames.
     positions : (n_frames, n_keypoints, 2) or (n_frames, n_keypoints*2) float, optional
-        Bodypart x/y positions per frame. If provided, frames with very
-        similar pose (all bodyparts within ``min_position_dist`` pixels)
-        are treated as duplicates and only one is selected.
+        Bodypart x/y positions per frame.
     min_position_dist : float
-        Minimum mean bodypart displacement (pixels) between selected
-        frames. Frames closer than this are considered near-identical.
+        Minimum centroid displacement (pixels) for the location check.
+        Default 50px (~40mm). Also used as the shape distance threshold.
 
     Returns
     -------
@@ -820,21 +864,36 @@ def stratified_frame_selection(
     # Use data-adaptive quantile edges so bins have roughly equal counts.
     # Fixed 0-1 edges fail when all confidences are in a narrow range
     # (e.g. DLC 3.0 PyTorch backend outputs 0.1-0.3 for all frames).
-    # Precompute flattened position vectors for similarity checking
-    _pos_flat = None
+    # Precompute position data for similarity checking
+    _pos_flat = None  # (n_frames, n_keypoints*2) raw positions
+    _centroids = None  # (n_frames, 2) mean x, mean y
+    _shapes = None  # (n_frames, n_keypoints*2) centroid-subtracted
     if positions is not None:
         p = positions.reshape(len(mean_lik), -1).astype(np.float64)
-        # Replace NaN with 0 for distance computation
         _pos_flat = np.nan_to_num(p, nan=0.0)
+        # Centroid: mean of x coords and mean of y coords
+        n_kp = p.shape[1] // 2
+        xs = _pos_flat[:, 0::2]  # (n_frames, n_keypoints)
+        ys = _pos_flat[:, 1::2]
+        cx = np.mean(xs, axis=1, keepdims=True)  # (n_frames, 1)
+        cy = np.mean(ys, axis=1, keepdims=True)
+        _centroids = np.column_stack([cx.ravel(), cy.ravel()])
+        # Shape: centroid-subtracted positions
+        xs_c = xs - cx
+        ys_c = ys - cy
+        _shapes = np.column_stack([xs_c, ys_c])  # (n_frames, n_keypoints*2)
 
     def _is_too_similar(idx: int, selected_set: set) -> bool:
-        """Check if frame idx is too similar to any already-selected frame."""
-        if _pos_flat is None:
+        """Check if frame is too similar in both location and pose shape."""
+        if _centroids is None:
             return False
         for s in selected_set:
-            diff = np.abs(_pos_flat[idx] - _pos_flat[s])
-            mean_diff = np.mean(diff)
-            if mean_diff < min_position_dist:
+            # Centroid (location) distance
+            c_dist = np.sqrt(np.sum((_centroids[idx] - _centroids[s]) ** 2))
+            # Pose shape distance (centroid-subtracted)
+            s_dist = np.mean(np.abs(_shapes[idx] - _shapes[s]))
+            # Only reject if BOTH location and shape are similar
+            if c_dist < min_position_dist and s_dist < min_position_dist:
                 return True
         return False
 
