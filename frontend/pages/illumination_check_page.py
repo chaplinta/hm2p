@@ -72,38 +72,49 @@ def _cache_key(sub: str, ses: str) -> str:
 
 
 def _load_timestamps(sub: str, ses: str) -> dict | None:
-    """Download timestamps.h5 and extract light timing + frame times.
+    """Load light on/off times from sync.h5.
+
+    Reconstructs light_on_times and light_off_times from the boolean
+    ``light_on`` array and ``frame_times`` in sync.h5.
 
     Returns dict with keys:
         light_on_times  : np.ndarray (seconds from session start)
         light_off_times : np.ndarray (seconds from session start)
-        frame_times     : np.ndarray | None — camera frame timestamps (seconds)
+        frame_times     : np.ndarray — imaging frame timestamps (seconds)
     Returns None if the file is unavailable.
     """
     import h5py
 
-    key = f"timestamps/{sub}/{ses}/timestamps.h5"
+    key = f"sync/{sub}/{ses}/sync.h5"
     data = download_s3_bytes(DERIVATIVES_BUCKET, key)
     if data is None:
         return None
     try:
         with h5py.File(io.BytesIO(data), "r") as f:
-            result: dict = {}
-            for field in ("light_on_times", "light_off_times"):
-                if field in f:
-                    result[field] = f[field][()].astype(float)
-                else:
-                    result[field] = np.array([], dtype=float)
-            # Camera frame times may be under different names
-            for candidate in ("frame_times_camera", "camera_frame_times", "frame_times"):
-                if candidate in f:
-                    result["frame_times"] = f[candidate][()].astype(float)
-                    break
-            else:
-                result["frame_times"] = None
-        return result
+            if "light_on" not in f or "frame_times" not in f:
+                return None
+            light_on = f["light_on"][()].astype(bool)
+            frame_times = f["frame_times"][()].astype(float)
+
+        # Reconstruct on/off transition times from boolean array
+        transitions = np.diff(light_on.astype(np.int8))
+        on_idx = np.where(transitions == 1)[0] + 1
+        off_idx = np.where(transitions == -1)[0] + 1
+
+        # Handle edge cases: if light starts on, add t=0 as first on time
+        light_on_times = frame_times[on_idx] if len(on_idx) > 0 else np.array([], dtype=float)
+        light_off_times = frame_times[off_idx] if len(off_idx) > 0 else np.array([], dtype=float)
+
+        if light_on[0]:
+            light_on_times = np.r_[frame_times[0], light_on_times]
+
+        return {
+            "light_on_times": light_on_times,
+            "light_off_times": light_off_times,
+            "frame_times": frame_times,
+        }
     except Exception as exc:
-        log.warning("Failed to read timestamps.h5 for %s/%s: %s", sub, ses, exc)
+        log.warning("Failed to read sync.h5 for %s/%s: %s", sub, ses, exc)
         return None
 
 
@@ -339,8 +350,8 @@ elif cached is None and run_button:
     ts_data = _load_timestamps(sub, ses)
     if ts_data is None:
         st.error(
-            f"timestamps.h5 not found on S3 for {sub}/{ses}.  "
-            "Run Stage 0 (ingest) first."
+            f"sync.h5 not found on S3 for {sub}/{ses}.  "
+            "Run pipeline stages 0-5 first."
         )
         st.stop()
 
@@ -350,7 +361,7 @@ elif cached is None and run_button:
 
     if len(light_on_times) == 0 or len(light_off_times) == 0:
         st.warning(
-            "No light timing data found in timestamps.h5 for this session.  "
+            "No light timing data found in sync.h5 for this session.  "
             "light_on_times and/or light_off_times arrays are empty."
         )
 
@@ -621,13 +632,13 @@ with st.expander("Methods & References"):
 
 Mean pixel intensity is sampled from the overhead video (Basler acA1300-200um,
 ~100 fps) every 100 frames (approximately 1 sample per second).  Light epoch
-boundaries are read from `timestamps.h5` on S3 (datasets `light_on_times` and
+boundaries are reconstructed from the `light_on` boolean array in `sync.h5` (datasets `light_on` and
 `light_off_times`, seconds from session start).  Each sampled frame is
 classified as lights-on or lights-off by checking whether its timestamp falls
 within a [on, off) interval.
 
 Camera frame timestamps, when available, are taken from `frame_times_camera`
-in `timestamps.h5`; otherwise frame index / 100 fps is used.
+in `sync.h5`; otherwise frame index / 100 fps is used.
 
 The statistical test is a two-sided Wilcoxon signed-rank test applied to the
 per-session (mean lights-on minus mean lights-off) intensity differences.
