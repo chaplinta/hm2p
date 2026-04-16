@@ -287,14 +287,25 @@ def label_session(session_dir: Path):
         except Exception as exc:
             print(f"  ERROR in napari: {exc}")
 
-        # Copy any new/updated label files back from temp to real dir.
-        # napari writes to the symlinked files directly (symlinks point
-        # to the real files), but if DLC created new files in the temp
-        # dir, copy them over.
+        # Copy ALL CollectedData files from temp back to real dir.
+        # DLC/napari may: (a) write through symlinks, (b) replace
+        # symlinks with new files, or (c) create new files alongside.
+        # We unconditionally copy any non-symlink CollectedData file
+        # and also re-read the real dir to check for in-place updates.
+        copied = 0
         for f in tmp_labeled.iterdir():
-            if f.name.startswith("CollectedData") and not f.is_symlink():
-                real_dest = session_dir / f.name
+            if not f.name.startswith("CollectedData"):
+                continue
+            real_dest = session_dir / f.name
+            if f.is_symlink():
+                # DLC wrote through the symlink — real file already updated
+                pass
+            else:
+                # DLC created a new file (replaced the symlink) — copy back
                 shutil.copy2(str(f), str(real_dest))
+                copied += 1
+        if copied:
+            print(f"  Copied {copied} label file(s) back to labeled-data/")
 
     # Auto-commit labels after each session so work is never lost
     import subprocess
@@ -394,18 +405,25 @@ def main():
 
     # Auto-commit labels to git so they're never lost
     import subprocess
+    import glob as _glob
 
-    result = subprocess.run(
-        ["git", "status", "--porcelain", "--", str(LABELED_DIR)],
-        capture_output=True, text=True,
-    )
-    changed = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    # Find all changed CollectedData files across all sessions
+    csv_files = _glob.glob(str(LABELED_DIR / "*/CollectedData_*.csv"))
+    h5_files = _glob.glob(str(LABELED_DIR / "*/CollectedData_*.h5"))
+    label_files = csv_files + h5_files
+
+    if label_files:
+        result = subprocess.run(
+            ["git", "status", "--porcelain", "--"] + label_files,
+            capture_output=True, text=True,
+        )
+        changed = [l for l in result.stdout.strip().split("\n") if l.strip()]
+    else:
+        changed = []
+
     if changed:
         print(f"\n  {len(changed)} label file(s) changed. Committing to git...")
-        subprocess.run(
-            ["git", "add", str(LABELED_DIR / "*/CollectedData_*")],
-            capture_output=True,
-        )
+        subprocess.run(["git", "add"] + label_files, capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", "Update DLC labels from interactive labelling session"],
             capture_output=True,
