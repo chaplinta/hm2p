@@ -347,6 +347,19 @@ def process_session(
     else:
         results["stage6"] = session.get("analysis", False)
 
+    # Illumination analysis (requires sync, runs after stage 6)
+    if results.get("stage5") or session.get("sync"):
+        import subprocess as _sp
+        cmd = [sys.executable, "scripts/run_illumination_analysis.py",
+               "--session", exp_id]
+        print(f"  Illumination analysis: {' '.join(cmd)}")
+        if not dry_run:
+            _r = _sp.run(cmd, capture_output=True, text=True)
+            if _r.returncode != 0:
+                print(f"  Illumination FAILED (non-blocking): {_r.stderr[:200]}")
+            else:
+                print(f"  Illumination DONE")
+
     return results
 
 

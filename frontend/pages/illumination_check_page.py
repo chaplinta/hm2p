@@ -339,14 +339,48 @@ if run_button and cache_key in st.session_state:
 # Check for cached result
 cached = st.session_state.get(cache_key)
 
+def _load_precomputed(sub: str, ses: str) -> dict | None:
+    """Load pre-computed illumination.h5 from S3."""
+    import h5py
+
+    key = f"analysis/{sub}/{ses}/illumination.h5"
+    data = download_s3_bytes(DERIVATIVES_BUCKET, key)
+    if data is None:
+        return None
+    try:
+        with h5py.File(io.BytesIO(data), "r") as f:
+            return {
+                "frame_indices": f["frame_indices"][()],
+                "intensities": f["intensities"][()],
+                "times": f["frame_times"][()],
+                "is_on": f["is_light_on"][()].astype(bool),
+                "light_on_times": f["light_on_times"][()],
+                "light_off_times": f["light_off_times"][()],
+                "video_key": "precomputed",
+            }
+    except Exception:
+        return None
+
+
+if cached is None:
+    # Try loading pre-computed results first
+    precomputed = _load_precomputed(sub, ses)
+    if precomputed is not None:
+        st.session_state[cache_key] = precomputed
+        cached = precomputed
+        if run_button:
+            st.rerun()
+
 if cached is None and not run_button:
     st.info(
-        "Select a session and press **Run analysis** to download and sample the video.  "
-        "Results are cached in the browser session — pressing Run again clears and re-runs."
+        "No pre-computed illumination data found for this session. "
+        "Press **Run analysis** to download the video and compute, "
+        "or run `python scripts/run_illumination_analysis.py` to "
+        "pre-compute for all sessions."
     )
 
 elif cached is None and run_button:
-    # --- Run the analysis ---
+    # --- Fallback: download video and compute live ---
     ts_data = _load_timestamps(sub, ses)
     if ts_data is None:
         st.error(
@@ -386,7 +420,6 @@ elif cached is None and run_button:
     times = _frame_index_to_time(frame_indices, frame_times)
     is_on = _classify_frames_by_light(times, light_on_times, light_off_times)
 
-    # Store in session_state
     st.session_state[cache_key] = {
         "frame_indices": frame_indices,
         "intensities": intensities,
