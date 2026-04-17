@@ -3,6 +3,7 @@ SuperAnimalConversionTables:
     nose_tip: nose
     left_ear: left_ear
     right_ear: right_ear
+    head_midpoint: head_midpoint
     neck: neck
     mid_back: mid_back
     mouse_center: mouse_center

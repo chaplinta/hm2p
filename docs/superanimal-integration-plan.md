@@ -36,8 +36,9 @@ horizontal + vertical flip, gaussian noise 15, motion blur, 3-frame median filte
 **Known issues:**
 - `nose_tip` RMSE is high (~50px) — often occluded by headstage, small feature
 - `tail_base` variable across sessions (~15–55px) — ambiguous boundary
-- Training currently uses SuperAnimal TopViewMouse conversion table for 7/8
-  bodyparts. `head_midpoint` is custom (zero-initialised, trained from scratch).
+- All 8 bodyparts map directly to SuperAnimal TopViewMouse keypoints.
+  Previous versions incorrectly listed `head_midpoint` as having no SA
+  equivalent — it is SA-TVM keypoint 26.
 
 **Next steps:**
 - Phase 2 (SA backbone transfer) is deferred until nose/tail performance is
@@ -70,13 +71,13 @@ superset as follows:
 | 0 | `nose_tip` | `nose` | 0 | Direct match |
 | 1 | `left_ear` | `left_ear` | 1 | Direct match |
 | 2 | `right_ear` | `right_ear` | 2 | Direct match |
-| 3 | `head_midpoint` | *(none)* | -1 | Custom — no SA equivalent. Zero-initialised, trained from our labels only |
+| 3 | `head_midpoint` | `head_midpoint` | 26 | Direct match (SA-TVM keypoint 26) |
 | 4 | `neck` | `neck` | 7 | Direct match |
 | 5 | `mid_back` | `mid_back` | 8 | Direct match |
 | 6 | `mouse_center` | `mouse_center` | 9 | Direct match |
 | 7 | `tail_base` | `tail_base` | 13 | Direct match |
 
-**conversion_array:** `[0, 1, 2, -1, 7, 8, 9, 13]`
+**conversion_array:** `[0, 1, 2, 26, 7, 8, 9, 13]`
 
 The SA-TVM model's full 27 keypoints (from `superanimal_topviewmouse.yaml`):
 `nose(0)`, `left_ear(1)`, `right_ear(2)`, `left_ear_tip(3)`, `right_ear_tip(4)`,
@@ -86,18 +87,17 @@ The SA-TVM model's full 27 keypoints (from `superanimal_topviewmouse.yaml`):
 `right_shoulder(22)`, `right_midside(23)`, `right_hip(24)`, `tail_end(25)`,
 `head_midpoint(26)`.
 
-7 of 8 bodyparts have direct SA matches. `head_midpoint` is handled
-via the `-1` sentinel in the conversion array — the backbone still provides
-features for it, only the head channel is trained from scratch.
+All 8 bodyparts have direct SA-TVM matches. The conversion table maps
+all of them, including `head_midpoint` at SA index 26.
 
-**config.yaml `SuperAnimalConversionTables`** (current, needs `head_midpoint: null` added):
+**config.yaml `SuperAnimalConversionTables`:**
 ```yaml
 SuperAnimalConversionTables:
   superanimal_topviewmouse:
     nose_tip: nose
     left_ear: left_ear
     right_ear: right_ear
-    head_midpoint: null    # ← add this for SA transfer
+    head_midpoint: head_midpoint
     neck: neck
     mid_back: mid_back
     mouse_center: mouse_center
