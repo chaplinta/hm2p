@@ -32,29 +32,29 @@ BODYPARTS = [
     "neck",
     "mid_back", "mouse_center", "tail_base",
 ]
+# DLC rainbow colormap hex values (matplotlib.cm.rainbow, 8 bodyparts)
 BP_HEX = {
-    "nose_tip": "#FF0000",
-    "nose": "#FF0000",
-    "left_ear": "#0000FF",
-    "right_ear": "#00FFFF",
-    "head_midpoint": "#FFA500",
-    "implant_base_rear": "#FFA500",  # legacy alias
-    "neck": "#800080",
-    "mid_back": "#00CC00",
-    "mouse_center": "#FFD700",
-    "tail_base": "#FF00FF",
+    "nose_tip": "#7F00FF",   # purple
+    "nose": "#7F00FF",       # alias
+    "left_ear": "#376DF8",   # blue
+    "right_ear": "#12C7E5",  # cyan
+    "head_midpoint": "#5AF8C7",  # aqua
+    "implant_base_rear": "#5AF8C7",  # legacy alias
+    "neck": "#A4F89E",       # green
+    "mid_back": "#ECC76E",   # yellow
+    "mouse_center": "#FF6D38",  # orange
+    "tail_base": "#FF0000",  # red
 }
-# Display names for the legend (skip "nose" alias if nose_tip exists)
 BP_LEGEND = {
-    "nose_tip": ("Nose tip", "#FF0000"),
-    "left_ear": ("Left ear", "#0000FF"),
-    "right_ear": ("Right ear", "#00FFFF"),
-    "head_midpoint": ("Head midpoint", "#FFA500"),
-    "implant_base_rear": ("Head midpoint", "#FFA500"),  # legacy alias
-    "neck": ("Neck", "#800080"),
-    "mid_back": ("Mid back", "#00CC00"),
-    "mouse_center": ("Mouse centre", "#FFD700"),
-    "tail_base": ("Tail base", "#FF00FF"),
+    "nose_tip": ("Nose tip", "#7F00FF"),
+    "left_ear": ("Left ear", "#376DF8"),
+    "right_ear": ("Right ear", "#12C7E5"),
+    "head_midpoint": ("Head midpoint", "#5AF8C7"),
+    "implant_base_rear": ("Head midpoint", "#5AF8C7"),  # legacy alias
+    "neck": ("Neck", "#A4F89E"),
+    "mid_back": ("Mid back", "#ECC76E"),
+    "mouse_center": ("Mouse centre", "#FF6D38"),
+    "tail_base": ("Tail base", "#FF0000"),
 }
 VIDEO_FPS = 30
 
@@ -525,13 +525,14 @@ if mode == "Inspect":
             sx = w / 832.0  # original video width
             sy = h / 608.0  # original video height
 
+            # DLC rainbow colormap (BGR for OpenCV)
             color_map = {
-                "nose_tip": (0,0,255), "nose": (0,0,255),
-                "left_ear": (255,0,0), "right_ear": (255,255,0),
-                "head_midpoint": (0,165,255), "implant_base_rear": (0,165,255),  # legacy alias
-                "neck": (128,0,128),
-                "mid_back": (0,204,0), "mouse_center": (0,215,255),
-                "tail_base": (255,0,255),
+                "nose_tip": (255,0,127), "nose": (255,0,127),
+                "left_ear": (248,109,55), "right_ear": (229,199,18),
+                "head_midpoint": (199,248,90), "implant_base_rear": (199,248,90),
+                "neck": (158,248,164),
+                "mid_back": (110,199,236), "mouse_center": (56,109,255),
+                "tail_base": (0,0,255),
             }
 
             # Always draw raw DLC positions: filled = confident, open = low confidence
