@@ -2,32 +2,32 @@ Duplicate frame dry run — full-res pixel diff
 Method: |diff| > 15 per pixel, reject if < 1.0% pixels changed
 Generated: 2026-04-17
 
-20210924_16_09_26_1114356  8 -> 6 frames:
+20210924_16_09_26_1114356 8 -> 6 frames:
   remove #7/8  (= #6, 0.00% pixels changed)
   remove #8/8  (= #6, 0.00% pixels changed)
 
-20211028_11_25_53_1115465  8 -> 7 frames:
+20211028_11_25_53_1115465 8 -> 7 frames:
   remove #8/8  (= #7, 0.06% pixels changed)
 
-20211029_13_50_14_1115465  18 -> 17 frames:
+20211029_13_50_14_1115465 18 -> 17 frames:
   remove #18/18  (= #17, 0.06% pixels changed)
 
-20211203_15_10_31_1115464  20 -> 15 frames:
+20211203_15_10_31_1115464 20 -> 15 frames:
   remove #9/20  (= #8, 0.27% pixels changed)
   remove #14/20  (= #13, 0.25% pixels changed)
   remove #15/20  (= #13, 0.31% pixels changed)
   remove #17/20  (= #16, 0.25% pixels changed)
   remove #19/20  (= #18, 0.08% pixels changed)
 
-20220531_11_06_17_1117217  8 -> 6 frames:
+20220531_11_06_17_1117217 8 -> 6 frames:
   remove #3/8  (= #2, 0.15% pixels changed)
   remove #7/8  (= #6, 0.00% pixels changed)
 
-20220804_11_22_03_1117646  18 -> 16 frames:
+20220804_11_22_03_1117646 18 -> 16 frames:
   remove #16/18  (= #15, 0.02% pixels changed)
   remove #17/18  (= #15, 0.02% pixels changed)
 
-20220804_13_52_06_1117646  22 -> 19 frames:
+20220804_13_52_06_1117646 22 -> 19 frames:
   remove #14/22  (= #13, 0.01% pixels changed)
   remove #20/22  (= #19, 0.50% pixels changed)
   remove #21/22  (= #19, 0.51% pixels changed)
