@@ -349,7 +349,7 @@ def _load_precomputed(sub: str, ses: str) -> dict | None:
         return None
     try:
         with h5py.File(io.BytesIO(data), "r") as f:
-            return {
+            result = {
                 "frame_indices": f["frame_indices"][()],
                 "intensities": f["intensities"][()],
                 "times": f["frame_times"][()],
@@ -358,6 +358,12 @@ def _load_precomputed(sub: str, ses: str) -> dict | None:
                 "light_off_times": f["light_off_times"][()],
                 "video_key": "precomputed",
             }
+            if "contrasts" in f:
+                result["contrasts"] = f["contrasts"][()]
+            if "decay_pct" in f.attrs:
+                result["decay_pct"] = float(f.attrs["decay_pct"])
+                result["decay_per_min"] = float(f.attrs["decay_per_min"])
+            return result
     except Exception:
         return None
 
@@ -457,16 +463,23 @@ if cached is not None:
     else:
         cohens_d = float("nan")
 
-    mc1, mc2, mc3, mc4 = st.columns(4)
-    mc1.metric("Mean intensity — lights on", f"{m_on:.2f}")
-    mc2.metric("Mean intensity — lights off", f"{m_off:.2f}")
-    mc3.metric("Difference (on − off)", f"{diff:+.2f}")
+    # Decay metrics
+    from numpy.polynomial import polynomial as P
+    fit_c = P.polyfit(times, intensities, 1)
+    decay_per_min = float(fit_c[1] * 60)
+    start_int = float(np.mean(intensities[:max(1, len(intensities) // 50)]))
+    end_int = float(np.mean(intensities[-max(1, len(intensities) // 50):]))
+    decay_pct = (start_int - end_int) / start_int * 100 if start_int > 0 else 0.0
+
+    mc1, mc2, mc3, mc4, mc5 = st.columns(5)
+    mc1.metric("Mean on", f"{m_on:.1f}")
+    mc2.metric("Mean off", f"{m_off:.1f}")
+    mc3.metric("On − off", f"{diff:+.2f}")
+    mc4.metric("IR decay", f"{decay_pct:.1f}%",
+               help=f"Total intensity decrease over session ({decay_per_min:.2f} units/min)")
     _d_str = f"{abs(cohens_d):.3f}" if not np.isnan(cohens_d) else "n/a"
-    _d_help = (
-        "Standardised effect size (|difference| / pooled SD). "
-        "Descriptive only — statistical test is in the cross-session section."
-    )
-    mc4.metric("|Cohen's d|", _d_str, help=_d_help)
+    mc5.metric("|Cohen's d|", _d_str,
+               help="Standardised effect size (|on−off| / pooled SD). Descriptive only.")
 
     # -- Time-series plot --
     fig = go.Figure()
@@ -492,7 +505,17 @@ if cached is not None:
         y=intensities.tolist(),
         mode="lines",
         line=dict(color="steelblue", width=1.2),
-        name="Mean pixel intensity",
+        name="Mean intensity",
+    ))
+
+    # Linear decay trend line
+    trend_y = fit_c[0] + fit_c[1] * times
+    fig.add_trace(go.Scatter(
+        x=times.tolist(),
+        y=trend_y.tolist(),
+        mode="lines",
+        line=dict(color="red", width=1, dash="dash"),
+        name=f"Decay trend ({decay_per_min:.2f}/min)",
     ))
 
     fig.update_layout(
@@ -501,9 +524,41 @@ if cached is not None:
         title=f"Mean pixel intensity over time — {selected_id}",
         height=380,
         margin=dict(t=50, b=50),
-        showlegend=False,
+        showlegend=True,
+        legend=dict(orientation="h", y=-0.15),
     )
     st.plotly_chart(fig, use_container_width=True)
+
+    # -- Contrast plot --
+    contrasts = cached.get("contrasts")
+    if contrasts is not None:
+        fig_c = go.Figure()
+        for i in range(n_epochs):
+            t0 = float(light_on_times[i])
+            t1 = float(light_off_times[i])
+            fig_c.add_vrect(
+                x0=t0, x1=min(t1, t_max),
+                fillcolor="rgba(255, 220, 50, 0.25)",
+                layer="below", line_width=0,
+            )
+        fig_c.add_trace(go.Scatter(
+            x=times.tolist(),
+            y=contrasts.tolist(),
+            mode="lines",
+            line=dict(color="darkorange", width=1.2),
+            name="Contrast (SD)",
+        ))
+        fig_c.update_layout(
+            xaxis_title="Time (s)",
+            yaxis_title="Pixel SD (contrast)",
+            title=f"Image contrast over time — {selected_id}",
+            height=300,
+            margin=dict(t=50, b=50),
+            showlegend=False,
+        )
+        st.plotly_chart(fig_c, use_container_width=True)
+    else:
+        st.info("Contrast data not available. Re-run illumination analysis with `--force`.")
 
     st.caption(
         "Yellow shading = lights-on epochs.  "

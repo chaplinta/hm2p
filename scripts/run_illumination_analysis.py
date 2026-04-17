@@ -107,6 +107,7 @@ def sample_video_intensity(video_path: str, sample_every: int = SAMPLE_EVERY) ->
 
     indices = []
     intensities = []
+    contrasts = []
 
     for fi in range(0, total_frames, sample_every):
         cap.set(cv2.CAP_PROP_POS_FRAMES, fi)
@@ -115,6 +116,7 @@ def sample_video_intensity(video_path: str, sample_every: int = SAMPLE_EVERY) ->
             break
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         intensities.append(float(gray.mean()))
+        contrasts.append(float(gray.std()))
         indices.append(fi)
 
     cap.release()
@@ -122,6 +124,7 @@ def sample_video_intensity(video_path: str, sample_every: int = SAMPLE_EVERY) ->
     return {
         "frame_indices": np.array(indices, dtype=np.int64),
         "intensities": np.array(intensities, dtype=np.float32),
+        "contrasts": np.array(contrasts, dtype=np.float32),
         "total_frames": total_frames,
         "fps": fps,
         "sample_every": sample_every,
@@ -184,15 +187,25 @@ def process_session(s3, sub: str, ses: str, exp_id: str, force: bool = False) ->
     mean_on = float(np.mean(result["intensities"][on_mask])) if on_mask.any() else np.nan
     mean_off = float(np.mean(result["intensities"][off_mask])) if off_mask.any() else np.nan
 
+    # Intensity decay: linear fit
+    from numpy.polynomial import polynomial as P
+    fit_coeffs = P.polyfit(frame_times, result["intensities"], 1)
+    decay_per_min = float(fit_coeffs[1] * 60)  # slope in units/min
+    start_intensity = float(np.mean(result["intensities"][:10]))
+    end_intensity = float(np.mean(result["intensities"][-10:]))
+    decay_pct = (start_intensity - end_intensity) / start_intensity * 100 if start_intensity > 0 else 0.0
+
     print(f"  {len(result['intensities'])} samples, "
           f"mean_on={mean_on:.1f}, mean_off={mean_off:.1f}, "
-          f"diff={mean_on - mean_off:.2f}")
+          f"diff={mean_on - mean_off:.2f}, "
+          f"decay={decay_pct:.1f}% ({decay_per_min:.2f}/min)")
 
     # Write to HDF5 and upload
     with tempfile.NamedTemporaryFile(suffix=".h5", delete=True) as tmp_h5:
         with h5py.File(tmp_h5.name, "w") as f:
             f.create_dataset("frame_indices", data=result["frame_indices"])
             f.create_dataset("intensities", data=result["intensities"])
+            f.create_dataset("contrasts", data=result["contrasts"])
             f.create_dataset("frame_times", data=frame_times)
             f.create_dataset("is_light_on", data=is_light_on)
             f.create_dataset("light_on_times", data=on_times)
@@ -200,6 +213,10 @@ def process_session(s3, sub: str, ses: str, exp_id: str, force: bool = False) ->
             f.attrs["mean_on"] = mean_on
             f.attrs["mean_off"] = mean_off
             f.attrs["diff"] = mean_on - mean_off
+            f.attrs["decay_per_min"] = decay_per_min
+            f.attrs["decay_pct"] = decay_pct
+            f.attrs["start_intensity"] = start_intensity
+            f.attrs["end_intensity"] = end_intensity
             f.attrs["n_samples"] = len(result["intensities"])
             f.attrs["sample_every"] = SAMPLE_EVERY
             f.attrs["video_fps"] = result["fps"]
