@@ -300,12 +300,18 @@ def _compute_errors(
     pred_scorer = pred_df.columns.get_level_values(0)[0]
     pred_bps = pred_df.columns.get_level_values(1).unique().tolist()
 
+    # Frame indices in labels are from the raw ~100fps video.
+    # DLC predictions are on the 30fps subsampled video.
+    _RAW_FPS = 100.0
+    _DLC_FPS = 30.0
+
     error_rows = []
     valid_frame_nums = []
 
     for i, frame_num in enumerate(frame_nums):
-        # Check that this frame is within the prediction range
-        if frame_num >= len(pred_df):
+        # Convert raw video frame index to DLC 30fps frame index
+        dlc_frame = round(frame_num * _DLC_FPS / _RAW_FPS)
+        if dlc_frame >= len(pred_df):
             continue
 
         row: dict[str, float] = {}
@@ -327,8 +333,8 @@ def _compute_errors(
                 row[bp] = np.nan
                 continue
             try:
-                pred_x = float(pred_df.iloc[frame_num][(pred_scorer, bp, "x")])
-                pred_y = float(pred_df.iloc[frame_num][(pred_scorer, bp, "y")])
+                pred_x = float(pred_df.iloc[dlc_frame][(pred_scorer, bp, "x")])
+                pred_y = float(pred_df.iloc[dlc_frame][(pred_scorer, bp, "y")])
             except (KeyError, IndexError):
                 row[bp] = np.nan
                 continue
@@ -673,11 +679,12 @@ if detail_d is not None and detail_frame is not None:
             except KeyError:
                 gx, gy = np.nan, np.nan
 
-            # Prediction
-            if bp in pred_bps_avail and detail_frame < len(pred_df):
+            # Prediction — convert raw frame index to DLC 30fps index
+            _detail_dlc = round(detail_frame * 30.0 / 100.0)
+            if bp in pred_bps_avail and _detail_dlc < len(pred_df):
                 try:
-                    px_ = float(pred_df.iloc[detail_frame][(pred_scorer, bp, "x")])
-                    py_ = float(pred_df.iloc[detail_frame][(pred_scorer, bp, "y")])
+                    px_ = float(pred_df.iloc[_detail_dlc][(pred_scorer, bp, "x")])
+                    py_ = float(pred_df.iloc[_detail_dlc][(pred_scorer, bp, "y")])
                 except (KeyError, IndexError):
                     px_, py_ = np.nan, np.nan
             else:

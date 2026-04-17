@@ -544,13 +544,19 @@ if curve_data:
                     _pred_scorer = _pred.columns.get_level_values(0)[0]
                     _pred_bps = _pred.columns.get_level_values(1).unique().tolist()
 
-                    # Match frames and compute errors
+                    # Match frames and compute errors.
+                    # Frame indices in labels are from the raw ~100fps video.
+                    # DLC predictions are on the 30fps subsampled video.
+                    # Convert: dlc_frame = round(raw_frame * 30 / 100)
+                    _RAW_FPS = 100.0
+                    _DLC_FPS = 30.0
                     for _idx in range(len(_gt)):
                         _frame_file = _gt.index[_idx][2] if isinstance(_gt.index[_idx], tuple) else str(_gt.index[_idx]).split("/")[-1]
                         _m = _re.match(r"frame_(\d+)\.png", _frame_file)
                         if not _m:
                             continue
-                        _fi = int(_m.group(1))
+                        _raw_fi = int(_m.group(1))
+                        _fi = round(_raw_fi * _DLC_FPS / _RAW_FPS)
                         if _fi >= len(_pred):
                             continue
 
