@@ -460,72 +460,155 @@ if curve_data:
                 )
                 st.plotly_chart(mAP_fig, use_container_width=True)
 
-        # Per-bodypart label counts (from _per_bodypart_summary.json on S3)
-        with st.expander("Per-bodypart label counts"):
+        # Per-bodypart RMSE: compare model predictions to ground truth labels.
+        # Computed live from pose .h5 (S3) vs CollectedData .h5 (local).
+        with st.expander("Per-bodypart RMSE (predictions vs labels)"):
+            import re as _re
+            from pathlib import Path as _Path
+
+            _LABELED_DIR = _Path("sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20/labeled-data")
+            _BODYPARTS = ["nose_tip", "left_ear", "right_ear", "head_midpoint",
+                          "neck", "mid_back", "mouse_center", "tail_base"]
+
             try:
-                _bp_data = download_s3_bytes(
-                    DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/models/_per_bodypart_summary.json"
-                )
-                if _bp_data:
-                    import plotly.graph_objects as go  # noqa
+                import boto3 as _b3
+                import pandas as _pd
+                import numpy as _np
+                import tempfile as _tf
 
-                    _bp_info = json.loads(_bp_data)
-                    bp_names = list(_bp_info.keys())
-                    bp_counts = [_bp_info[bp]["n_labelled"] for bp in bp_names]
+                _s3 = _b3.client("s3", region_name="ap-southeast-2")
+                _bp_errors: dict[str, list[float]] = {bp: [] for bp in _BODYPARTS}
 
-                    fig_bp = go.Figure()
-                    fig_bp.add_trace(go.Bar(
-                        x=bp_names, y=bp_counts,
-                        marker_color=["#d62728" if c < 150 else "#2ca02c" for c in bp_counts],
-                        text=bp_counts, textposition="auto",
+                for _ld in sorted(_LABELED_DIR.iterdir()):
+                    if not _ld.is_dir():
+                        continue
+                    _h5 = _ld / "CollectedData_tristan.h5"
+                    if not _h5.exists():
+                        continue
+                    try:
+                        _gt = _pd.read_hdf(_h5)
+                    except Exception:
+                        continue
+                    if len(_gt) == 0 or not _gt.notna().any().any():
+                        continue
+
+                    _gt_scorer = _gt.columns.get_level_values(0)[0]
+
+                    # Find matching pose .h5 on S3
+                    _parts = _ld.name.split("_")
+                    _date = _parts[0]
+                    _animal = _parts[4].split("-")[0] if len(_parts) >= 5 else ""
+                    _sub = f"sub-{_animal}"
+
+                    # Find ses by closest time match
+                    _clip_time = int(_parts[1] + _parts[2] + _parts[3]) if len(_parts) >= 4 else 0
+                    _retrain_dir = _Path("metadata/retrain_frames")
+                    _best_ses = None
+                    _best_diff = 999999
+                    for _rf in _retrain_dir.glob("*.json"):
+                        _fp = _rf.stem.split("_")
+                        if len(_fp) >= 2 and _fp[0].replace("sub-", "") == _animal:
+                            _f_date = _fp[1].replace("ses-", "")[:8]
+                            if _f_date == _date:
+                                _f_time = int(_fp[1].replace("ses-", "")[9:])
+                                _d = abs(_f_time - _clip_time)
+                                if _d < _best_diff:
+                                    _best_diff = _d
+                                    _best_ses = _fp[1]
+
+                    if _best_ses is None:
+                        continue
+
+                    _prefix = f"pose/{_sub}/{_best_ses}/"
+                    _resp = _s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=_prefix, MaxKeys=20)
+                    _h5_keys = [o["Key"] for o in _resp.get("Contents", [])
+                                if o["Key"].endswith(".h5") and "filtered" not in o["Key"]]
+                    if not _h5_keys:
+                        continue
+
+                    _pred_key = _h5_keys[0]
+                    for _k in _h5_keys:
+                        if "Hrnet" in _k or "Resnet" in _k:
+                            _pred_key = _k
+                            break
+
+                    _pred_data = download_s3_bytes(DERIVATIVES_BUCKET, _pred_key)
+                    if _pred_data is None:
+                        continue
+
+                    with _tf.NamedTemporaryFile(suffix=".h5") as _tmp:
+                        _tmp.write(_pred_data)
+                        _tmp.flush()
+                        _pred = _pd.read_hdf(_tmp.name)
+
+                    _pred_scorer = _pred.columns.get_level_values(0)[0]
+                    _pred_bps = _pred.columns.get_level_values(1).unique().tolist()
+
+                    # Match frames and compute errors
+                    for _idx in range(len(_gt)):
+                        _frame_file = _gt.index[_idx][2] if isinstance(_gt.index[_idx], tuple) else str(_gt.index[_idx]).split("/")[-1]
+                        _m = _re.match(r"frame_(\d+)\.png", _frame_file)
+                        if not _m:
+                            continue
+                        _fi = int(_m.group(1))
+                        if _fi >= len(_pred):
+                            continue
+
+                        for _bp in _BODYPARTS:
+                            try:
+                                _gx = float(_gt.iloc[_idx][(_gt_scorer, _bp, "x")])
+                                _gy = float(_gt.iloc[_idx][(_gt_scorer, _bp, "y")])
+                            except (KeyError, ValueError):
+                                continue
+                            if _np.isnan(_gx) or _np.isnan(_gy):
+                                continue
+
+                            _pbp = _bp if _bp in _pred_bps else ("implant_base_rear" if _bp == "head_midpoint" and "implant_base_rear" in _pred_bps else None)
+                            if _pbp is None:
+                                continue
+                            try:
+                                _px = float(_pred.iloc[_fi][(_pred_scorer, _pbp, "x")])
+                                _py = float(_pred.iloc[_fi][(_pred_scorer, _pbp, "y")])
+                            except (KeyError, ValueError):
+                                continue
+                            if _np.isnan(_px) or _np.isnan(_py):
+                                continue
+
+                            _err = _np.sqrt((_gx - _px)**2 + (_gy - _py)**2)
+                            _bp_errors[_bp].append(_err)
+
+                # Plot
+                _active_bps = [bp for bp in _BODYPARTS if _bp_errors[bp]]
+                if _active_bps:
+                    import plotly.graph_objects as go
+
+                    _means = [_np.mean(_bp_errors[bp]) for bp in _active_bps]
+                    _stds = [_np.std(_bp_errors[bp]) for bp in _active_bps]
+                    _counts = [len(_bp_errors[bp]) for bp in _active_bps]
+
+                    _fig = go.Figure()
+                    _fig.add_trace(go.Bar(
+                        x=_active_bps, y=_means,
+                        error_y=dict(type="data", array=_stds, visible=True),
+                        marker_color=["#d62728" if m > 15 else "#2ca02c" for m in _means],
+                        text=[f"{m:.1f}px (n={n})" for m, n in zip(_means, _counts)],
+                        textposition="outside",
                     ))
-                    fig_bp.update_layout(
-                        xaxis_title="Bodypart", yaxis_title="Labelled frames",
-                        height=300, margin=dict(l=40, r=20, t=20, b=40),
+                    _fig.update_layout(
+                        xaxis_title="Bodypart",
+                        yaxis_title="RMSE (pixels)",
+                        height=350,
+                        margin=dict(l=40, r=20, t=20, b=40),
                     )
-                    st.plotly_chart(fig_bp, use_container_width=True)
+                    st.plotly_chart(_fig, use_container_width=True)
                     st.caption(
-                        "Red bars = fewer than 150 labels (may benefit from more). "
-                        "Bodyparts with fewer labels tend to have higher RMSE."
+                        "Mean pixel error ± SD between model predictions and ground truth labels. "
+                        "Red bars = RMSE > 15px. Based on current model's inference on all labeled frames."
                     )
                 else:
-                    st.info("Per-bodypart data not yet available. Will appear after next training run.")
-            except Exception:
-                st.info("Per-bodypart data not yet available.")
-
-        # Per-bodypart evaluation (from evaluation-results CSV on S3)
-        _eval_data = _load_per_bodypart_eval()
-        if _eval_data is not None:
-            with st.expander("Per-bodypart RMSE"):
-                import plotly.graph_objects as go  # noqa
-
-                bp_names = _eval_data["bodyparts"]
-                bp_rmse = _eval_data["rmse"]
-                bp_rmse_pcut = _eval_data["rmse_pcutoff"]
-
-                fig_bp = go.Figure()
-                fig_bp.add_trace(go.Bar(
-                    x=bp_names, y=bp_rmse,
-                    name="RMSE (all, px)",
-                    marker_color="#d62728",
-                ))
-                if bp_rmse_pcut:
-                    fig_bp.add_trace(go.Bar(
-                        x=bp_names, y=bp_rmse_pcut,
-                        name="RMSE (confident, px)",
-                        marker_color="#2ca02c",
-                    ))
-                fig_bp.update_layout(
-                    xaxis_title="Bodypart", yaxis_title="RMSE (pixels)",
-                    height=350, margin=dict(l=40, r=20, t=20, b=40),
-                    barmode="group",
-                )
-                st.plotly_chart(fig_bp, use_container_width=True)
-
-                if _eval_data.get("mAP_per_bp"):
-                    st.markdown("**Per-bodypart mAP:**")
-                    for bp, val in zip(bp_names, _eval_data["mAP_per_bp"]):
-                        st.caption(f"  {bp}: {val:.1f}%")
+                    st.info("No per-bodypart RMSE data available. Need both pose .h5 on S3 and local labels.")
+            except Exception as _exc:
+                st.info(f"Per-bodypart RMSE not available: {_exc}")
 
     else:
         # Fallback: show raw heatmap loss (no pixel metrics available)
