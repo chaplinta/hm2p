@@ -326,6 +326,67 @@ if bp_select in kp_data:
         )
         st.plotly_chart(fig, use_container_width=True, key="jump_plot")
 
+# --- Per-bodypart confidence ---
+st.subheader("Confidence by Body Part")
+
+import plotly.graph_objects as go
+
+_bp_colors = {
+    "nose_tip": "#FF0000", "nose": "#FF0000",
+    "left_ear": "#0000FF", "right_ear": "#00FFFF",
+    "head_midpoint": "#FFA500", "implant_base_rear": "#FFA500",
+    "neck": "#800080", "mid_back": "#00CC00",
+    "mouse_center": "#FFD700", "tail_base": "#FF00FF",
+}
+
+# Mean confidence per bodypart
+_bp_mean_lik = {}
+for bp in bodyparts:
+    if bp in kp_data:
+        _bp_mean_lik[bp] = float(np.nanmean(kp_data[bp]["likelihood"]))
+
+if _bp_mean_lik:
+    _sorted_bps = sorted(_bp_mean_lik, key=_bp_mean_lik.get)
+    fig_conf = go.Figure()
+    fig_conf.add_trace(go.Bar(
+        x=_sorted_bps,
+        y=[_bp_mean_lik[bp] for bp in _sorted_bps],
+        marker_color=[_bp_colors.get(bp, "#888888") for bp in _sorted_bps],
+        text=[f"{_bp_mean_lik[bp]:.3f}" for bp in _sorted_bps],
+        textposition="outside",
+    ))
+    fig_conf.update_layout(
+        yaxis_title="Mean likelihood",
+        yaxis_range=[0, max(_bp_mean_lik.values()) * 1.15],
+        height=300,
+        margin=dict(l=40, r=20, t=20, b=40),
+    )
+    st.plotly_chart(fig_conf, use_container_width=True, key="bp_confidence")
+    st.caption(
+        "Mean DLC confidence per body part (0–1). Lower values indicate "
+        "body parts the model struggles with. Note: DLC 3.0 PyTorch outputs "
+        "conservative confidences (~0.1–0.5 is typical)."
+    )
+
+# Confidence time series for selected bodypart
+if bp_select in kp_data:
+    _lik = kp_data[bp_select]["likelihood"]
+    _ds = max(1, len(_lik) // 3000)
+    fig_lik_ts = go.Figure()
+    fig_lik_ts.add_trace(go.Scatter(
+        y=_lik[::_ds], mode="lines",
+        line=dict(width=0.5, color=_bp_colors.get(bp_select, "steelblue")),
+        name=bp_select,
+    ))
+    fig_lik_ts.update_layout(
+        title=f"Confidence over time — {bp_select}",
+        xaxis_title="Frame", yaxis_title="Likelihood",
+        yaxis_range=[0, 1.05],
+        height=250,
+        margin=dict(l=40, r=20, t=40, b=40),
+    )
+    st.plotly_chart(fig_lik_ts, use_container_width=True, key="lik_ts")
+
 # --- Anatomical constraints ---
 st.subheader("Anatomical Constraints")
 
@@ -622,8 +683,9 @@ if "retrain_frames" in st.session_state:
             "5. Use the **slider at the bottom** to move to the next frame.\n"
             "6. When done, **close the napari window** (Cmd+Q). Labels save automatically.\n\n"
             "**Tips:**\n"
-            "- If a bodypart is **occluded** (hidden by the headstage, another body part, "
-            "or the maze wall), **skip it** — don't guess. DLC handles missing labels.\n"
+            "- If a bodypart is **occluded but its position can be inferred** from the "
+            "visible anatomy, **label it**. This teaches the model to predict through "
+            "occlusion. Only skip if the position is genuinely ambiguous.\n"
             "- If the mouse is **out of frame** or the frame is very blurry, skip the entire frame.\n"
             "- Label the **centre** of each body part, not the edge.\n"
             "- Zoom in (scroll wheel) for precise placement on small features like ears.\n"
@@ -655,42 +717,69 @@ st.markdown("---")
 st.header("Auto-Select Frames Across All Sessions")
 
 st.markdown(
-    "Automatically find the best frames to label across **all 26 sessions** "
-    "by scoring every frame for:\n"
-    "- **Low confidence** — model is uncertain about bodypart positions\n"
-    "- **Temporal jumps** — predictions are inconsistent between consecutive frames\n"
-    "- **Unusual poses** — bodypart spread deviates from the session median\n\n"
-    "Frames are allocated across sessions (worst-tracked sessions get more), "
-    "with constraints to avoid near-duplicates and already-labelled frames."
+    "Two methods for selecting frames across all sessions. Both avoid "
+    "duplicates with existing labeled frames and with each other."
 )
 
-n_auto = st.slider("Number of frames to select", 20, 200, 60, 10, key="auto_n")
+n_auto = st.slider("Number of frames to select", 20, 200, 120, 10, key="auto_n")
 
-st.markdown("**Run on your Mac:**")
-st.code(
-    f"# Preview selection (no files created)\n"
-    f"uv run python scripts/select_labelling_frames.py --n {n_auto} --dry-run\n\n"
-    f"# Select, extract, and label all frames (opens napari per session)\n"
-    f"uv run python scripts/select_labelling_frames.py --n {n_auto} --label",
-    language="bash",
-)
+tab_pose, tab_image = st.tabs(["Pose-based selection", "Image-clustering selection"])
 
-with st.expander("How it works"):
+with tab_pose:
     st.markdown(
-        "The script downloads pose `.h5` files from S3 for all sessions and scores "
-        "every frame (0-1, higher = worse tracking). The score combines:\n\n"
-        "- **Confidence score (50%):** inverted mean DLC likelihood across bodyparts\n"
-        "- **Jump score (30%):** frame-to-frame bodypart displacement normalised by "
-        "median displacement — catches sudden tracking failures\n"
-        "- **Pose score (20%):** deviation of bodypart spread from median — catches "
-        "unusual postures (grooming, rearing, against walls)\n\n"
-        "Frames are then selected per session with:\n"
-        "- 2-8 frames per session (worst sessions get more)\n"
-        "- Minimum 30-frame spacing (no temporal neighbours)\n"
-        "- Position similarity rejection (no visual near-duplicates)\n"
-        "- Already-labelled frames excluded\n\n"
-        "The output is a list of `prepare_retrain_frames.py` commands — "
-        "run each one to extract frames and open napari for labelling."
+        "Scores every frame by model uncertainty (HD-critical keypoints "
+        "weighted 3x), temporal jumps, and unusual posture. Primary sessions "
+        "get more frames. New frames are diverse relative to existing labels."
+    )
+    st.code(
+        f"# Preview\n"
+        f"uv run python scripts/select_labelling_frames.py --n {n_auto} --dry-run\n\n"
+        f"# Extract and label\n"
+        f"uv run python scripts/select_labelling_frames.py --n {n_auto} --label",
+        language="bash",
+    )
+
+with tab_image:
+    st.markdown(
+        "Downloads each video, clusters frames by visual appearance "
+        "(PCA + k-means on 64x64 thumbnails), then selects from "
+        "under-represented clusters. Better at finding visually distinct "
+        "frames that the pose-based method might miss."
+    )
+    st.code(
+        f"# Preview\n"
+        f"uv run python scripts/select_frames_image_clustering.py --n {n_auto} --dry-run\n\n"
+        f"# Extract and label\n"
+        f"uv run python scripts/select_frames_image_clustering.py --n {n_auto} --label",
+        language="bash",
+    )
+
+with st.expander("How pose-based selection works"):
+    st.markdown(
+        "Downloads pose `.h5` from S3 for all sessions and scores every frame:\n\n"
+        "- **Weighted confidence (50%):** HD-critical keypoints weighted higher "
+        "(ears 3x, nose/head_midpoint 2x)\n"
+        "- **Jump score (30%):** frame-to-frame displacement normalised by median\n"
+        "- **Posture score (20%):** body spread deviation from median\n\n"
+        "Selection constraints:\n"
+        "- Primary sessions get 2–8 frames, non-primary get 2\n"
+        "- Minimum 30-frame temporal spacing\n"
+        "- Centroid + pose shape diversity (rejects same location AND same pose)\n"
+        "- Seeded with existing labeled frames (won't duplicate what you have)\n"
+        "- Image-based pixel dedup before extraction (<1% changed = duplicate)"
+    )
+
+with st.expander("How image-clustering selection works"):
+    st.markdown(
+        "Per session:\n"
+        "1. Extract 64×64 grayscale thumbnail every 100 frames\n"
+        "2. PCA to 50 dims → k-means (k=30) clusters\n"
+        "3. Check which clusters existing labels cover\n"
+        "4. Score clusters by (coverage gap) × (model uncertainty)\n"
+        "5. Select from under-represented clusters\n"
+        "6. Pixel dedup against existing frames before extraction\n\n"
+        "Slower (downloads videos) but catches visually distinct frames "
+        "that pose-based selection misses."
     )
 
 st.markdown("---")
