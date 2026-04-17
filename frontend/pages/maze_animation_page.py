@@ -122,12 +122,12 @@ def _build_animation_figure(
         else:
             opacities = np.array([0.8])
 
-        # Trail colour based on light state
-        light_color = "rgba(255, 165, 0, {a})" if light_on[i] else "rgba(100, 100, 100, {a})"
+        # Trail colour: mouse_center from DLC rainbow (#FF6D38), dimmed in dark
+        light_color = "rgba(255, 109, 56, {a})" if light_on[i] else "rgba(140, 140, 140, {a})"
         trail_colors = [light_color.format(a=f"{op:.2f}") for op in opacities]
 
-        # Head position marker
-        head_color = "orange" if light_on[i] else "dimgrey"
+        # Head position marker — mouse_center color from DLC rainbow
+        head_color = "#FF6D38" if light_on[i] else "#8C8C8C"
 
         # Surround fill: grey when dark, transparent when light
         surround_fill = "rgba(60, 60, 60, 0.55)" if not light_on[i] else "rgba(0, 0, 0, 0)"
@@ -178,20 +178,20 @@ def _build_animation_figure(
                 hovertext=f"t={t_min:.1f} min, {hd_text}{spd_text}",
                 hoverinfo="text",
             ),
-            # HD arrow (line from head to arrow tip) — empty if HD is NaN
+            # HD arrow — nose_tip color from DLC rainbow (#7F00FF purple)
             go.Scatter(
                 x=[x[i], ax] if has_hd else [], y=[y[i], ay] if has_hd else [],
                 mode="lines",
-                line=dict(color="deepskyblue" if not light_on[i] else "blue", width=2),
+                line=dict(color="#7F00FF" if light_on[i] else "#A080D0", width=2),
                 showlegend=False, hoverinfo="skip",
             ),
-            # Arrowhead (small triangle marker at tip) — empty if HD is NaN
+            # Arrowhead
             go.Scatter(
                 x=[ax] if has_hd else [], y=[ay] if has_hd else [],
                 mode="markers",
                 marker=dict(
                     size=8,
-                    color="deepskyblue" if not light_on[i] else "blue",
+                    color="#7F00FF" if light_on[i] else "#A080D0",
                     symbol="arrow",
                     angle=-(hd[i] % 360) if has_hd else 0,
                 ),
