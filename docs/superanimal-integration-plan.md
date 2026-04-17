@@ -1,7 +1,7 @@
 # SuperAnimal Integration Plan
 
-**Date:** 2026-04-02  
-**Status:** Planning — do not implement until reviewed  
+**Date:** 2026-04-02 (original), **updated 2026-04-17**  
+**Status:** Phase 1 complete. HRNet-W32 + ImageNet pretraining implemented and trained.  
 **Authors:** Data Scientist + Lead Developer research notes synthesised by Architect  
 **Related docs:**
 - `docs/superanimal-integration-notes-datascientist.md` — paper analysis and SA workflow
@@ -10,16 +10,53 @@
 
 ---
 
-## Context and Starting State
+## Current Results (2026-04-17)
+
+**Model:** HRNet-W32 + ImageNet pretrained backbone, fine-tuned 400 epochs  
+**Labeled frames:** 354 frames across 26 sessions  
+**Training split:** 80% train / 20% test  
+**Augmentation:** rotation ±45°, scale 0.7–1.4x, brightness ±15%, contrast ±10%,
+horizontal + vertical flip, gaussian noise 15, motion blur, 3-frame median filter at 30fps
+
+| Metric | Previous (old model) | Current (new model) | Change |
+|--------|---------------------|--------------------|----|
+| Valid RMSE (all) | 11.2 px | 7.8 px | -30% |
+| Valid RMSE (confident) | — | 5.4 px | — |
+| Best mAP | 53.8% | 65.6% | +12pp |
+| Best mAR | — | 68.9% | — |
+| Best epoch | 110 | 290 | — |
+| Training frames | ~180 | 354 | +97% |
+| Sessions covered | 16 | 26 | +63% |
+
+**Per-bodypart performance (from predictions vs ground truth, all labeled frames):**
+- Ears and head_midpoint: ~10–20px RMSE (well-tracked)
+- Neck, mid_back, mouse_center: ~10–15px (adequate)
+- Nose and tail_base: ~40–90px (model struggles — see below)
+
+**Known issues:**
+- `nose_tip` RMSE is high (~50px) — often occluded by headstage, small feature
+- `tail_base` variable across sessions (~15–55px) — ambiguous boundary
+- Training currently uses SuperAnimal TopViewMouse conversion table for 7/8
+  bodyparts. `head_midpoint` is custom (zero-initialised, trained from scratch).
+
+**Next steps:**
+- Phase 2 (SA backbone transfer) is deferred until nose/tail performance is
+  acceptable with the current approach. More labeled frames targeting nose
+  occlusion and tail ambiguity are the priority.
+- Consider running `deeplabcut.extract_outlier_frames()` after inference to
+  identify frames where the model still fails.
+
+---
+
+## Original Planning Context (2026-04-02)
 
 **DLC project:** `sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20/`  
 **Bodyparts (8):** `nose_tip`, `left_ear`, `right_ear`, `head_midpoint`, `neck`,
 `mid_back`, `mouse_center`, `tail_base`  
-**Labeled frames:** 183 frames across 16 sessions (confirmed from `CollectedData_tristan.h5` files)  
-**Current `default_net_type`:** `resnet_50` (in `config.yaml`)  
-**Current backbone pretrain status:** HRNet run from random init — `pretrained: false` in
-`deeplabcut/modelzoo/model_configs/hrnet_w32.yaml` template; never overridden in training  
-**Confirmed mAP:** ResNet-50 + ImageNet ~57%; HRNet-w32 + random init ~34%  
+**Labeled frames:** ~~183 frames across 16 sessions~~ → now 354 across 26  
+**Current `default_net_type`:** ~~`resnet_50`~~ → now `hrnet_w32` (in `config.yaml`)  
+**Current backbone pretrain status:** ~~HRNet run from random init~~ → now ImageNet pretrained (`pretrained: true`)  
+**Confirmed mAP:** ~~ResNet-50 + ImageNet ~57%; HRNet-w32 + random init ~34%~~ → HRNet-w32 + ImageNet 65.6%  
 **Bodypart mapping (hm2p → SuperAnimal TopViewMouse):**
 
 The paper states that users only need to label the bodyparts they care about.
@@ -71,22 +108,25 @@ SuperAnimalConversionTables:
 
 ## Risk Assessment Summary
 
-| Approach | Expected mAP | Implementation effort | Risk |
+| Approach | Expected mAP | Actual mAP | Status |
 |---|---|---|---|
-| HRNet-w32 + ImageNet (Phase 1, immediate fix) | 55–65% | 30 min | Low |
-| HRNet-w32 + SA backbone only, Mode A (Phase 2) | 65–75%+ | 2–3 hrs | Medium |
-| HRNet-w32 + SA full fine-tune, Mode B (rebuild) | 75–85%+ | 8–16 hrs | High |
-| Patch DLC source for channel slicing | Unpredictable | 4–8 hrs + testing | Very high |
+| HRNet-w32 + ImageNet (Phase 1) | 55–65% | **65.6%** | **Done** — meets threshold |
+| HRNet-w32 + SA backbone only, Mode A (Phase 2) | 65–75%+ | — | Deferred |
+| HRNet-w32 + SA full fine-tune, Mode B (rebuild) | 75–85%+ | — | Deferred |
 
-**Decision rule:** If Phase 1 achieves >= 65% mAP, proceed to Phase 2 as an incremental
-experiment on a separate shuffle (not replacing the working model). If Phase 1 achieves
-< 55% mAP — i.e., worse than ResNet-50 — revert to ResNet-50 immediately.
+**Decision:** Phase 1 achieved 65.6% mAP (above the 65% proceed threshold).
+Phase 2 (SA backbone transfer) is deferred — the priority is improving
+nose_tip and tail_base tracking through more targeted labeled frames,
+not a backbone change. The current HRNet-W32 + ImageNet backbone is
+adequate for all bodyparts except nose and tail.
 
 ---
 
-## Phase 1: Immediate Fix — HRNet + ImageNet Pretraining
+## Phase 1: HRNet + ImageNet Pretraining — COMPLETE
 
-### Problem
+**Implemented 2026-04-11. Results above.**
+
+### Original Problem
 
 `run_dlc_retrain.py` sets `pytorch_config.yaml` backbone to `hrnet_w32` directly in the
 YAML dict but never sets `"pretrained": True`. The DLC HRNet template
@@ -169,14 +209,25 @@ overhead-view setup):
 - The ResNet-50 baseline achieved ~57% mAP. HRNet + ImageNet should reach the same range,
   with potential upside from the stronger backbone once it is not training from scratch.
 
-### Augmentation note
+### Augmentation (updated 2026-04-17)
 
-The current augmentation settings are aggressive (rotation 180°, scale 0.25–2.5x,
-brightness/contrast ±60%, gaussian noise 30). These were appropriate for a dataset
-training from random init (to prevent overfitting on 183 frames). With ImageNet pretraining,
-strong augmentation remains appropriate — the pretrained backbone provides regularisation
-at the feature level, not at the augmentation level. No augmentation changes are required
-for Phase 1.
+Augmentation was reduced from the original aggressive settings to moderate values
+calibrated for the 354-frame dataset with ImageNet pretrained backbone:
+
+| Parameter | Old (random init) | Current (ImageNet) | Rationale |
+|---|---|---|---|
+| Rotation | ±180° | ±45° | Mouse rarely inverted; extreme rotations hurt |
+| Scale | 0.25–2.5x | 0.7–1.4x | Camera is fixed; extreme zoom is unrealistic |
+| Brightness | ±60% | ±15% | Covers IR decay (~22%) and 450nm light leak |
+| Contrast | ±60% | ±10% | Same |
+| Gaussian noise | 30 | 15 | Reduced — pretrained backbone regularises |
+| Median filter | 5 frames (167ms) | 3 frames (100ms) | Matches old 100fps pipeline (50ms) |
+| Flips | None | H + V (p=0.5) | Mouse is symmetric from above |
+| Motion blur | Off | On | Accounts for fast movement |
+
+Brightness/contrast augmentation is applied via a patch to DLC's `transforms.py`
+(see `launch_dlc_finetune_ec2.py` user-data script) since DLC 3.0 PyTorch does not
+natively support `A.RandomBrightnessContrast`.
 
 However, if mAP is still low after Phase 1, consider reducing augmentation strength as a
 diagnostic experiment before Phase 2. Very aggressive geometric augmentation can hurt HRNet
