@@ -31,16 +31,17 @@ BODYPARTS = [
     "neck", "mid_back", "mouse_center", "tail_base",
 ]
 
-# BGR colors for OpenCV — matched to DLC viewer / render_dlc_videos.py
+# BGR colors for OpenCV — DLC's rainbow colormap for 8 bodyparts
+# Generated from matplotlib.cm.rainbow(i / (n-1)) for i in 0..7
 BP_COLORS = {
-    "nose_tip": (0, 0, 255),
-    "left_ear": (255, 0, 0),
-    "right_ear": (255, 255, 0),
-    "head_midpoint": (0, 165, 255),
-    "neck": (128, 0, 128),
-    "mid_back": (0, 204, 0),
-    "mouse_center": (0, 215, 255),
-    "tail_base": (255, 0, 255),
+    "nose_tip": (255, 0, 127),       # purple
+    "left_ear": (248, 109, 55),      # blue
+    "right_ear": (229, 199, 18),     # cyan
+    "head_midpoint": (199, 248, 90), # aqua/green
+    "neck": (158, 248, 164),         # green
+    "mid_back": (110, 199, 236),     # yellow
+    "mouse_center": (56, 109, 255),  # orange
+    "tail_base": (0, 0, 255),        # red
 }
 
 SKELETON = [
