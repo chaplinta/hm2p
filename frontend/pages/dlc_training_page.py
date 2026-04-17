@@ -611,6 +611,42 @@ if curve_data:
                         "Mean pixel error ± SD between model predictions and ground truth labels. "
                         "Red bars = RMSE > 15px. Based on current model's inference on all labeled frames."
                     )
+
+                    # PCK (Percentage Correct Keypoints) at multiple thresholds
+                    _thresholds = [5, 10, 15, 20, 30, 50]
+                    _pck_data = {}
+                    for _bp in _active_bps:
+                        _errs = _np.array(_bp_errors[_bp])
+                        _pck_data[_bp] = [float((_errs <= t).mean() * 100) for t in _thresholds]
+
+                    _fig_pck = go.Figure()
+                    _bp_colors = {
+                        "nose_tip": "#FF0000", "left_ear": "#0000FF",
+                        "right_ear": "#00FFFF", "head_midpoint": "#FFA500",
+                        "neck": "#800080", "mid_back": "#00CC00",
+                        "mouse_center": "#FFD700", "tail_base": "#FF00FF",
+                    }
+                    for _bp in _active_bps:
+                        _fig_pck.add_trace(go.Scatter(
+                            x=[str(t) for t in _thresholds],
+                            y=_pck_data[_bp],
+                            mode="lines+markers",
+                            name=_bp,
+                            line=dict(color=_bp_colors.get(_bp, "#888888")),
+                        ))
+                    _fig_pck.update_layout(
+                        xaxis_title="Threshold (pixels)",
+                        yaxis_title="% correct",
+                        yaxis_range=[0, 105],
+                        height=350,
+                        margin=dict(l=40, r=20, t=20, b=40),
+                        legend=dict(orientation="h", y=-0.2),
+                    )
+                    st.plotly_chart(_fig_pck, use_container_width=True)
+                    st.caption(
+                        "PCK — percentage of predictions within N pixels of the ground truth label. "
+                        "Higher is better. Shows which body parts the model tracks accurately."
+                    )
                 else:
                     st.info("No per-bodypart RMSE data available. Need both pose .h5 on S3 and local labels.")
             except Exception as _exc:
