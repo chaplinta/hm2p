@@ -187,18 +187,29 @@ def process_session(s3, sub: str, ses: str, exp_id: str, force: bool = False) ->
     mean_on = float(np.mean(result["intensities"][on_mask])) if on_mask.any() else np.nan
     mean_off = float(np.mean(result["intensities"][off_mask])) if off_mask.any() else np.nan
 
-    # Intensity decay: linear fit
-    from numpy.polynomial import polynomial as P
-    fit_coeffs = P.polyfit(frame_times, result["intensities"], 1)
-    decay_per_min = float(fit_coeffs[1] * 60)  # slope in units/min
+    # Intensity decay: exponential fit I(t) = A * exp(-t/tau) + C
+    from scipy.optimize import curve_fit
+
     start_intensity = float(np.mean(result["intensities"][:10]))
     end_intensity = float(np.mean(result["intensities"][-10:]))
     decay_pct = (start_intensity - end_intensity) / start_intensity * 100 if start_intensity > 0 else 0.0
 
+    def _exp_decay(t, A, tau, C):
+        return A * np.exp(-t / tau) + C
+
+    try:
+        p0 = [start_intensity - end_intensity, frame_times[-1] / 2, end_intensity]
+        popt, _ = curve_fit(_exp_decay, frame_times, result["intensities"], p0=p0, maxfev=5000)
+        tau_s = float(popt[1])
+        tau_min = tau_s / 60
+    except Exception:
+        tau_s = float("nan")
+        tau_min = float("nan")
+
     print(f"  {len(result['intensities'])} samples, "
           f"mean_on={mean_on:.1f}, mean_off={mean_off:.1f}, "
           f"diff={mean_on - mean_off:.2f}, "
-          f"decay={decay_pct:.1f}% ({decay_per_min:.2f}/min)")
+          f"decay={decay_pct:.1f}% (τ={tau_min:.1f} min)")
 
     # Write to HDF5 and upload
     with tempfile.NamedTemporaryFile(suffix=".h5", delete=True) as tmp_h5:
@@ -213,7 +224,8 @@ def process_session(s3, sub: str, ses: str, exp_id: str, force: bool = False) ->
             f.attrs["mean_on"] = mean_on
             f.attrs["mean_off"] = mean_off
             f.attrs["diff"] = mean_on - mean_off
-            f.attrs["decay_per_min"] = decay_per_min
+            f.attrs["tau_s"] = tau_s
+            f.attrs["tau_min"] = tau_min
             f.attrs["decay_pct"] = decay_pct
             f.attrs["start_intensity"] = start_intensity
             f.attrs["end_intensity"] = end_intensity

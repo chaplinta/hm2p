@@ -463,20 +463,40 @@ if cached is not None:
     else:
         cohens_d = float("nan")
 
-    # Decay metrics
-    from numpy.polynomial import polynomial as P
-    fit_c = P.polyfit(times, intensities, 1)
-    decay_per_min = float(fit_c[1] * 60)
+    # Decay metrics — exponential fit: I(t) = A * exp(-t/tau) + C
+    # Fit in log-space: ln(I - C) = ln(A) - t/tau
+    # Estimate C as the minimum intensity (asymptote)
+    from scipy.optimize import curve_fit
+
+    def _exp_decay(t, A, tau, C):
+        return A * np.exp(-t / tau) + C
+
     start_int = float(np.mean(intensities[:max(1, len(intensities) // 50)]))
     end_int = float(np.mean(intensities[-max(1, len(intensities) // 50):]))
     decay_pct = (start_int - end_int) / start_int * 100 if start_int > 0 else 0.0
+
+    try:
+        p0 = [start_int - end_int, times[-1] / 2, end_int]
+        popt, _ = curve_fit(_exp_decay, times, intensities, p0=p0, maxfev=5000)
+        exp_A, exp_tau, exp_C = popt
+        trend_y = _exp_decay(times, *popt)
+        tau_min = exp_tau / 60
+        trend_label = f"Exp decay (τ={tau_min:.1f} min)"
+    except Exception:
+        # Fallback to linear
+        from numpy.polynomial import polynomial as P
+        fit_c = P.polyfit(times, intensities, 1)
+        trend_y = fit_c[0] + fit_c[1] * times
+        tau_min = float("nan")
+        trend_label = "Linear trend"
 
     mc1, mc2, mc3, mc4, mc5 = st.columns(5)
     mc1.metric("Mean on", f"{m_on:.1f}")
     mc2.metric("Mean off", f"{m_off:.1f}")
     mc3.metric("On − off", f"{diff:+.2f}")
+    tau_help = f"τ = {tau_min:.1f} min" if not np.isnan(tau_min) else "linear fallback"
     mc4.metric("IR decay", f"{decay_pct:.1f}%",
-               help=f"Total intensity decrease over session ({decay_per_min:.2f} units/min)")
+               help=f"Total intensity decrease over session ({tau_help})")
     _d_str = f"{abs(cohens_d):.3f}" if not np.isnan(cohens_d) else "n/a"
     mc5.metric("|Cohen's d|", _d_str,
                help="Standardised effect size (|on−off| / pooled SD). Descriptive only.")
@@ -508,14 +528,13 @@ if cached is not None:
         name="Mean intensity",
     ))
 
-    # Linear decay trend line
-    trend_y = fit_c[0] + fit_c[1] * times
+    # Exponential decay trend line
     fig.add_trace(go.Scatter(
         x=times.tolist(),
         y=trend_y.tolist(),
         mode="lines",
         line=dict(color="red", width=1, dash="dash"),
-        name=f"Decay trend ({decay_per_min:.2f}/min)",
+        name=trend_label,
     ))
 
     fig.update_layout(
@@ -564,6 +583,90 @@ if cached is not None:
         "Yellow shading = lights-on epochs.  "
         "If the IR filter is effective, intensity should not change with light state."
     )
+
+    # -- 2P fluorescence over time --
+    st.subheader("2P Fluorescence")
+    st.caption(
+        "Mean dF/F and its SD (contrast) across all ROIs per imaging frame. "
+        "If the visible light contaminates 2P imaging, expect systematic "
+        "changes in fluorescence aligned with light epochs."
+    )
+    _sync_key = f"sync/{sub}/{ses}/sync.h5"
+    _sync_data = download_s3_bytes(DERIVATIVES_BUCKET, _sync_key)
+    if _sync_data is not None:
+        import h5py as _h5
+        with _h5.File(io.BytesIO(_sync_data), "r") as _f:
+            _dff = _f["dff"][:]  # (n_rois, n_frames)
+            _ft = _f["frame_times"][:]
+            _lo = _f["light_on"][:].astype(bool)
+
+        _mean_dff = np.nanmean(_dff, axis=0)  # mean across ROIs
+        _sd_dff = np.nanstd(_dff, axis=0)  # SD across ROIs
+
+        # Reconstruct light epochs from sync frame times
+        _tr = np.diff(_lo.astype(np.int8))
+        _on_i = np.where(_tr == 1)[0] + 1
+        _off_i = np.where(_tr == -1)[0] + 1
+        _on_t = _ft[_on_i] if len(_on_i) > 0 else np.array([])
+        _off_t = _ft[_off_i] if len(_off_i) > 0 else np.array([])
+        if _lo[0] and len(_on_t) > 0:
+            _on_t = np.r_[_ft[0], _on_t]
+        _n_ep = min(len(_on_t), len(_off_t))
+
+        # 2P mean dF/F plot
+        fig_2p = go.Figure()
+        for _i in range(_n_ep):
+            fig_2p.add_vrect(
+                x0=float(_on_t[_i]), x1=float(_off_t[_i]),
+                fillcolor="rgba(255, 220, 50, 0.25)",
+                layer="below", line_width=0,
+            )
+        fig_2p.add_trace(go.Scatter(
+            x=_ft.tolist(), y=_mean_dff.tolist(),
+            mode="lines", line=dict(color="limegreen", width=0.8),
+            name="Mean dF/F",
+        ))
+        fig_2p.update_layout(
+            xaxis_title="Time (s)",
+            yaxis_title="Mean dF/F (all ROIs)",
+            title="2P mean fluorescence over time",
+            height=300, margin=dict(t=50, b=40),
+            showlegend=False,
+        )
+        st.plotly_chart(fig_2p, use_container_width=True)
+
+        # 2P contrast (SD across ROIs)
+        fig_2p_sd = go.Figure()
+        for _i in range(_n_ep):
+            fig_2p_sd.add_vrect(
+                x0=float(_on_t[_i]), x1=float(_off_t[_i]),
+                fillcolor="rgba(255, 220, 50, 0.25)",
+                layer="below", line_width=0,
+            )
+        fig_2p_sd.add_trace(go.Scatter(
+            x=_ft.tolist(), y=_sd_dff.tolist(),
+            mode="lines", line=dict(color="mediumpurple", width=0.8),
+            name="SD dF/F",
+        ))
+        fig_2p_sd.update_layout(
+            xaxis_title="Time (s)",
+            yaxis_title="SD dF/F (across ROIs)",
+            title="2P fluorescence variability over time",
+            height=300, margin=dict(t=50, b=40),
+            showlegend=False,
+        )
+        st.plotly_chart(fig_2p_sd, use_container_width=True)
+
+        # Quick stats
+        _dff_on = _mean_dff[_lo]
+        _dff_off = _mean_dff[~_lo]
+        if len(_dff_on) > 0 and len(_dff_off) > 0:
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Mean dF/F — lights on", f"{np.mean(_dff_on):.4f}")
+            c2.metric("Mean dF/F — lights off", f"{np.mean(_dff_off):.4f}")
+            c3.metric("Difference", f"{np.mean(_dff_on) - np.mean(_dff_off):+.4f}")
+    else:
+        st.info("sync.h5 not available for this session.")
 
     # -- Light-on vs light-off distribution --
     if len(on_vals) > 0 and len(off_vals) > 0:
