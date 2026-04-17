@@ -71,84 +71,108 @@ def load_pose_from_s3(s3, sub: str, ses: str) -> pd.DataFrame | None:
     return df
 
 
-def score_frames(df: pd.DataFrame) -> np.ndarray:
+# HD-critical keypoints get higher weight in confidence scoring.
+# Ears are the primary HD signal and most often occluded by the headstage.
+KEYPOINT_WEIGHTS: dict[str, float] = {
+    "nose_tip": 2.0,
+    "nose": 2.0,
+    "left_ear": 3.0,
+    "right_ear": 3.0,
+    "head_midpoint": 2.0,
+    "implant_base_rear": 2.0,  # legacy alias
+    "neck": 1.0,
+    "mid_back": 1.0,
+    "mouse_center": 1.0,
+    "tail_base": 1.0,
+}
+
+
+def score_frames(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, list[str]]:
     """Score each frame by how much the model struggles.
 
     Higher score = worse tracking = better candidate for labelling.
     Combines:
-    1. Low mean confidence (model uncertain)
+    1. Weighted low confidence (HD-critical keypoints weighted 2-3x)
     2. Temporal jumps (prediction inconsistency)
-    3. Position variance (unusual poses tend to have scattered predictions)
+    3. Unusual posture (body spread deviating from median)
+
+    Returns
+    -------
+    tuple[np.ndarray, np.ndarray, list[str]]
+        (scores, positions_flat, bodypart_names)
+        positions_flat is (N, K*2) for diversity filtering.
     """
     scorer = df.columns.get_level_values(0)[0]
 
     # Handle multi-animal format
     if df.columns.nlevels == 4:
-        # Pick best individual per frame
         individuals = df.columns.get_level_values(1).unique()
-        bodyparts = df.columns.get_level_values(2).unique()
-        # Use first individual for simplicity
+        bodyparts = list(df.columns.get_level_values(2).unique())
         ind = individuals[0]
-        lk_cols = []
-        x_cols = []
-        y_cols = []
+        lk_cols, x_cols, y_cols, bp_names = [], [], [], []
         for bp in bodyparts:
             try:
                 lk_cols.append(df[(scorer, ind, bp, "likelihood")].values)
                 x_cols.append(df[(scorer, ind, bp, "x")].values)
                 y_cols.append(df[(scorer, ind, bp, "y")].values)
+                bp_names.append(bp)
             except KeyError:
                 pass
     else:
-        bodyparts = df.columns.get_level_values(1).unique()
-        lk_cols = []
-        x_cols = []
-        y_cols = []
+        bodyparts = list(df.columns.get_level_values(1).unique())
+        lk_cols, x_cols, y_cols, bp_names = [], [], [], []
         for bp in bodyparts:
             try:
                 lk_cols.append(df[(scorer, bp, "likelihood")].values)
                 x_cols.append(df[(scorer, bp, "x")].values)
                 y_cols.append(df[(scorer, bp, "y")].values)
+                bp_names.append(bp)
             except KeyError:
                 pass
 
     if not lk_cols:
-        return np.zeros(len(df))
+        return np.zeros(len(df)), None, []
 
     lk = np.column_stack(lk_cols)  # (N, K)
     x = np.column_stack(x_cols)
     y = np.column_stack(y_cols)
 
+    # Build positions matrix for diversity filtering
+    pos_cols = []
+    for i in range(len(bp_names)):
+        pos_cols.append(x_cols[i])
+        pos_cols.append(y_cols[i])
+    positions = np.column_stack(pos_cols) if pos_cols else None
+
     n = len(df)
 
-    # 1. Low confidence score (inverted mean likelihood)
-    mean_lk = np.nanmean(lk, axis=1)
-    conf_score = 1.0 - mean_lk
+    # 1. Weighted confidence score — HD-critical keypoints weighted higher
+    weights = np.array([KEYPOINT_WEIGHTS.get(bp, 1.0) for bp in bp_names])
+    weights = weights / weights.sum()  # normalise
+    weighted_lk = np.nansum(lk * weights[np.newaxis, :], axis=1)
+    conf_score = 1.0 - weighted_lk
 
-    # 2. Temporal jump score: how much bodyparts move frame-to-frame
+    # 2. Temporal jump score
     dx = np.diff(x, axis=0, prepend=x[:1])
     dy = np.diff(y, axis=0, prepend=y[:1])
     displacement = np.sqrt(dx**2 + dy**2)
-    # Normalise by median displacement (so stationary periods don't dominate)
     median_disp = np.nanmedian(displacement, axis=0, keepdims=True)
     median_disp[median_disp < 1] = 1
     jump_score = np.nanmean(displacement / median_disp, axis=1)
-    # Clip extreme values
     jump_score = np.clip(jump_score, 0, 10) / 10.0
 
-    # 3. Pose diversity: variance of bodypart positions relative to centroid
+    # 3. Unusual posture: body spread deviating from median
+    # Captures grooming (compact), rearing (extended), sharp turns
     cx = np.nanmean(x, axis=1, keepdims=True)
     cy = np.nanmean(y, axis=1, keepdims=True)
     spread = np.nanmean(np.sqrt((x - cx)**2 + (y - cy)**2), axis=1)
-    # Normalise
     spread_norm = spread / (np.nanmedian(spread) + 1e-6)
-    # Unusual poses have very high or very low spread
     pose_score = np.abs(spread_norm - 1.0)
     pose_score = np.clip(pose_score, 0, 3) / 3.0
 
-    # Combined score (weighted)
+    # Combined score
     score = 0.5 * conf_score + 0.3 * jump_score + 0.2 * pose_score
-    return score
+    return score, positions, bp_names
 
 
 def already_labelled_frames(session_tag: str) -> set[int]:
@@ -248,6 +272,7 @@ def select_diverse(
     min_spacing: int = 30,
     min_position_dist: float = 50.0,
     exclude: set[int] | None = None,
+    existing_positions: np.ndarray | None = None,
 ) -> list[int]:
     """Select top-N frames by score with spacing and diversity constraints.
 
@@ -256,7 +281,14 @@ def select_diverse(
     2. Pose shape distance — body configuration after subtracting centroid
 
     A frame is rejected only if BOTH centroid and shape are too similar
-    to an already-selected frame.
+    to an already-selected frame OR to any frame in existing_positions
+    (the already-labeled set).
+
+    Parameters
+    ----------
+    existing_positions : (M, K*2) float, optional
+        Positions of already-labeled frames. New selections must also
+        be diverse relative to these.
     """
     order = np.argsort(-scores)  # highest score first
     selected = []
@@ -275,26 +307,49 @@ def select_diverse(
         _centroids = np.column_stack([cx.ravel(), cy.ravel()])
         _shapes = np.column_stack([xs - cx, ys - cy])
 
+    # Pre-seed with existing labeled frame centroids/shapes
+    _existing_centroids: list[np.ndarray] = []
+    _existing_shapes: list[np.ndarray] = []
+    if existing_positions is not None and len(existing_positions) > 0:
+        ep = np.nan_to_num(existing_positions.astype(np.float64), nan=0.0)
+        n_kp_e = ep.shape[1] // 2
+        ex = ep[:, 0::2]
+        ey = ep[:, 1::2]
+        ecx = np.mean(ex, axis=1, keepdims=True)
+        ecy = np.mean(ey, axis=1, keepdims=True)
+        for i in range(len(ep)):
+            _existing_centroids.append(np.array([ecx[i, 0], ecy[i, 0]]))
+            _existing_shapes.append(np.concatenate([ex[i] - ecx[i, 0], ey[i] - ecy[i, 0]]))
+
+    def _too_similar(idx: int) -> bool:
+        if _centroids is None:
+            return False
+        c = _centroids[idx]
+        s = _shapes[idx]
+        # Check against newly selected
+        for si in selected:
+            c_dist = np.sqrt(np.sum((c - _centroids[si]) ** 2))
+            s_dist = np.mean(np.abs(s - _shapes[si]))
+            if c_dist < min_position_dist and s_dist < min_position_dist:
+                return True
+        # Check against existing labeled frames
+        for ec, es in zip(_existing_centroids, _existing_shapes):
+            c_dist = np.sqrt(np.sum((c - ec) ** 2))
+            s_dist = np.mean(np.abs(s - es))
+            if c_dist < min_position_dist and s_dist < min_position_dist:
+                return True
+        return False
+
     for idx in order:
         if len(selected) >= n:
             break
         idx = int(idx)
         if idx in exclude:
             continue
-        # Spacing constraint
         if any(abs(idx - s) < min_spacing for s in selected):
             continue
-        # Diversity constraint: reject if both location AND pose are similar
-        if _centroids is not None and selected:
-            too_similar = False
-            for s in selected:
-                c_dist = np.sqrt(np.sum((_centroids[idx] - _centroids[s]) ** 2))
-                s_dist = np.mean(np.abs(_shapes[idx] - _shapes[s]))
-                if c_dist < min_position_dist and s_dist < min_position_dist:
-                    too_similar = True
-                    break
-            if too_similar:
-                continue
+        if _too_similar(idx):
+            continue
         selected.append(idx)
 
     return selected
@@ -317,6 +372,17 @@ def main():
 
     s3 = boto3.client("s3", region_name=REGION)
     sessions = get_sessions()
+
+    # Load experiment flags for primary/exclude weighting
+    import csv as _csv
+    exp_flags = {}
+    with open(METADATA_PATH) as _f:
+        for row in _csv.DictReader(_f):
+            exp_flags[row["exp_id"]] = {
+                "primary": str(row.get("primary_exp", "1")).strip() == "1",
+                "exclude": str(row.get("exclude", "0")).strip() == "1",
+            }
+
     print(f"Scanning {len(sessions)} sessions for frame selection...")
 
     # Score all sessions
@@ -330,9 +396,44 @@ def main():
             print(f"  {ses_info['exp_id']}: no pose data, skipping")
             continue
 
-        scores = score_frames(df)
+        scores, positions, bp_names = score_frames(df)
         mean_score = float(np.nanmean(scores))
         already = already_labelled_frames(session_tag)
+        flags = exp_flags.get(ses_info["exp_id"], {"primary": True, "exclude": False})
+
+        # Load existing labeled positions for diversity seeding
+        existing_pos = None
+        labeled_h5 = None
+        for ld in LABELED_DIR.iterdir():
+            if ld.is_dir():
+                ses_date = ses.replace("ses-", "").split("T")[0]
+                animal = sub.replace("sub-", "")
+                parts = ld.name.split("_")
+                if len(parts) >= 5 and parts[0] == ses_date and parts[4].startswith(animal):
+                    h5 = ld / "CollectedData_tristan.h5"
+                    if h5.exists():
+                        try:
+                            import pandas as _pd
+                            gt = _pd.read_hdf(h5)
+                            if len(gt) > 0 and gt.notna().any().any():
+                                labeled_h5 = gt
+                        except Exception:
+                            pass
+                    break
+
+        if labeled_h5 is not None and positions is not None:
+            # Extract positions at labeled frame indices
+            import re as _re
+            labeled_indices = []
+            for idx in labeled_h5.index:
+                frame_file = idx[2] if isinstance(idx, tuple) else str(idx).split("/")[-1]
+                m = _re.match(r"frame_(\d+)\.png", frame_file)
+                if m:
+                    fi = int(m.group(1))
+                    if fi < len(positions):
+                        labeled_indices.append(fi)
+            if labeled_indices:
+                existing_pos = positions[labeled_indices]
 
         session_scores.append({
             "exp_id": ses_info["exp_id"],
@@ -342,22 +443,32 @@ def main():
             "n_frames": len(df),
             "mean_score": mean_score,
             "scores": scores,
+            "positions": positions,
+            "existing_positions": existing_pos,
             "n_already_labelled": len(already),
             "already_labelled": already,
             "df": df,
+            "primary": flags["primary"],
+            "exclude": flags["exclude"],
         })
-        print(f"  {ses_info['exp_id']}: {len(df)} frames, mean_score={mean_score:.3f}, "
-              f"already_labelled={len(already)}")
+        flag_str = "primary" if flags["primary"] else ("excl" if flags["exclude"] else "2nd")
+        print(f"  {ses_info['exp_id']}: {len(df)} frames, score={mean_score:.3f}, "
+              f"labelled={len(already)}, {flag_str}")
 
-    # Sort sessions by mean score (worst first), then by fewest existing labels
-    session_scores.sort(key=lambda s: (-s["mean_score"], s["n_already_labelled"]))
+    # Sort: primary sessions first, then by score (worst first),
+    # then by fewest existing labels
+    session_scores.sort(key=lambda s: (
+        not s["primary"],  # primary first
+        -s["mean_score"],  # worst score first
+        s["n_already_labelled"],  # fewest labels first
+    ))
 
-    # Allocate frames across sessions
-    # First pass: give each session its minimum
-    # Second pass: fill remaining budget from worst sessions
+    # Allocate frames across sessions.
+    # Primary sessions get higher max allocation.
     remaining = args.n
     allocations = {}
 
+    # First pass: give each session its minimum
     for s in session_scores:
         n_alloc = min(args.per_session_min, remaining)
         allocations[s["tag"]] = n_alloc
@@ -365,12 +476,14 @@ def main():
         if remaining <= 0:
             break
 
-    # Second pass: distribute remaining to worst sessions
+    # Second pass: distribute remaining. Primary sessions get up to
+    # per_session_max; non-primary get up to per_session_min.
     for s in session_scores:
         if remaining <= 0:
             break
         current = allocations.get(s["tag"], 0)
-        extra = min(args.per_session_max - current, remaining)
+        max_for_session = args.per_session_max if s["primary"] else args.per_session_min
+        extra = min(max_for_session - current, remaining)
         if extra > 0:
             allocations[s["tag"]] = current + extra
             remaining -= extra
@@ -389,29 +502,8 @@ def main():
         if n_alloc == 0:
             continue
 
-        # Build position matrix for similarity check
-        scorer = s["df"].columns.get_level_values(0)[0]
-        if s["df"].columns.nlevels == 4:
-            ind = s["df"].columns.get_level_values(1).unique()[0]
-            bodyparts = s["df"].columns.get_level_values(2).unique()
-            pos_cols = []
-            for bp in bodyparts:
-                try:
-                    pos_cols.append(s["df"][(scorer, ind, bp, "x")].values)
-                    pos_cols.append(s["df"][(scorer, ind, bp, "y")].values)
-                except KeyError:
-                    pass
-        else:
-            bodyparts = s["df"].columns.get_level_values(1).unique()
-            pos_cols = []
-            for bp in bodyparts:
-                try:
-                    pos_cols.append(s["df"][(scorer, bp, "x")].values)
-                    pos_cols.append(s["df"][(scorer, bp, "y")].values)
-                except KeyError:
-                    pass
-
-        positions = np.column_stack(pos_cols) if pos_cols else None
+        positions = s["positions"]
+        existing_pos = s.get("existing_positions")
 
         # Get 3x candidates using pose-based diversity, then image_dedup
         # will prune to n_alloc using actual pixel similarity.
@@ -419,6 +511,7 @@ def main():
             s["scores"], positions, n_alloc * 3,
             min_spacing=args.min_spacing,
             exclude=s["already_labelled"],
+            existing_positions=existing_pos,
         )
 
         all_selected[tag] = {
