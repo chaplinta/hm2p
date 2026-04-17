@@ -130,6 +130,10 @@ def _load_all_labeled_data() -> list[dict]:
     if not LABELED_DATA_DIR.exists():
         return []
 
+    # Build session index matching interactive_label.py ordering
+    all_dirs = sorted(d for d in LABELED_DATA_DIR.iterdir() if d.is_dir())
+    dir_index = {d.name: i for i, d in enumerate(all_dirs)}
+
     records = []
     for clip_dir in sorted(LABELED_DATA_DIR.iterdir()):
         if not clip_dir.is_dir():
@@ -163,6 +167,7 @@ def _load_all_labeled_data() -> list[dict]:
         records.append(
             {
                 "clip": clip_dir.name,
+                "session_idx": dir_index.get(clip_dir.name, -1),
                 "session_id": clip_dir.name,  # full folder name
                 "df": df,
                 "scorer": scorer,
@@ -936,6 +941,7 @@ for r in records:
         continue
 
     short = _short_session(r["clip"])
+    ses_idx = r.get("session_idx", -1)
     n_frames = len(df_lab)
 
     # Extract all needed coordinates once
@@ -1041,6 +1047,7 @@ for r in records:
 
         if issues:
             issue_rows.append({
+                "#": ses_idx,
                 "Session": short,
                 "Frame": f"#{i+1}",
                 "Missing": ", ".join(missing) if missing else "",
