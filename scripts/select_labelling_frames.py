@@ -505,17 +505,28 @@ def main():
                 print(f"  ERROR: no video found, skipping")
                 continue
 
-            # Image-based dedup: prune candidates to target using pixel similarity
-            n_target = info.get("n_target", len(info["frames"]))
-            if len(info["frames"]) > n_target:
-                print(f"  Image dedup: {len(info['frames'])} candidates → {n_target} target")
-                deduped = image_dedup(
-                    str(video_path), info["frames"], n_target,
+            # Image-based dedup: reject candidates identical to existing
+            # frames on disk or to each other (full-res pixel diff, <1% = dup)
+            n_before = len(info["frames"])
+            try:
+                sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+                from hm2p.pose.dedup import filter_duplicates_against_existing
+                deduped = filter_duplicates_against_existing(
+                    str(video_path), info["frames"], rf_dir,
                 )
-                n_before = len(info["frames"])
                 info["frames"] = deduped
                 new_frames = [f for f in deduped if not (rf_dir / f"frame_{int(f):06d}.png").exists()]
-                print(f"  Kept {len(deduped)}/{n_before} visually distinct frames")
+                n_removed = n_before - len(deduped)
+                if n_removed > 0:
+                    print(f"  Dedup: removed {n_removed}/{n_before} frames identical to existing")
+            except Exception as e:
+                print(f"  Dedup check failed: {e}")
+
+            # Also apply target limit after dedup
+            n_target = info.get("n_target", len(info["frames"]))
+            if len(info["frames"]) > n_target:
+                info["frames"] = info["frames"][:n_target]
+                new_frames = [f for f in info["frames"] if not (rf_dir / f"frame_{int(f):06d}.png").exists()]
 
             # Extract frames
             import cv2

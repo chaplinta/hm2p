@@ -95,29 +95,44 @@ def main() -> None:
     video_path = mp4s[0]
     print(f"Video: {video_path}")
 
-    # Step 2: Extract frames
+    # Step 2: Filter duplicates against existing frames, then extract
     output_dir = Path(f"retrain_frames/{session_tag}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"\n--- Extracting {len(frame_indices)} frames ---")
+    # Find the labeled-data dir for this session (may have existing frames)
+    dlc_base = Path("sourcedata/trackers/dlc")
+    existing_dir = output_dir  # check retrain_frames dir
+    # Also check labeled-data dirs
+    for ld in dlc_base.rglob("labeled-data"):
+        for d in ld.iterdir():
+            if d.is_dir() and session_tag.split("_")[0].replace("sub-", "") in d.name:
+                ses_date = ses.replace("ses-", "").split("T")[0]
+                if ses_date in d.name:
+                    existing_dir = d
+                    break
+
+    n_before = len(frame_indices)
     try:
-        from hm2p.pose.retrain import extract_frames_from_video
-        extract_frames_from_video(
-            video_path=video_path,
-            frame_indices=frame_indices,
-            output_dir=output_dir,
-        )
-    except ImportError:
-        # Fallback: use cv2 directly
-        import cv2
-        cap = cv2.VideoCapture(str(video_path))
-        for idx in sorted(frame_indices):
-            cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
-            ret, frame = cap.read()
-            if ret:
-                out_path = output_dir / f"img{idx:06d}.png"
-                cv2.imwrite(str(out_path), frame)
-        cap.release()
+        from hm2p.pose.dedup import filter_duplicates_against_existing
+        frame_indices = np.array(filter_duplicates_against_existing(
+            str(video_path), frame_indices.tolist(), existing_dir,
+        ))
+        n_removed = n_before - len(frame_indices)
+        if n_removed > 0:
+            print(f"  Dedup: removed {n_removed}/{n_before} frames identical to existing")
+    except Exception as e:
+        print(f"  Dedup check failed (extracting all): {e}")
+
+    print(f"\n--- Extracting {len(frame_indices)} frames ---")
+    import cv2
+    cap = cv2.VideoCapture(str(video_path))
+    for idx in sorted(frame_indices):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+        ret, frame = cap.read()
+        if ret:
+            out_path = output_dir / f"frame_{int(idx):06d}.png"
+            cv2.imwrite(str(out_path), frame)
+    cap.release()
     print(f"Extracted to {output_dir}/")
 
     # Step 3: Find or create DLC project
