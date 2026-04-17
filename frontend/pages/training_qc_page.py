@@ -425,6 +425,44 @@ fig_missing.update_layout(
 )
 st.plotly_chart(fig_missing, use_container_width=True, key="missing_bp_chart")
 
+# Per-frame missing body parts table
+missing_rows = []
+for r in records:
+    df = r["df"]
+    scorer = r["scorer"]
+    any_lab = df.notna().any(axis=1)
+    df_lab = df[any_lab]
+    if len(df_lab) == 0:
+        continue
+    short = _short_session(r["clip"])
+    frames = _frame_numbers(df_lab)
+    for i, idx in enumerate(df_lab.index):
+        missing_bps = []
+        for bp in BODYPARTS:
+            try:
+                if pd.isna(df_lab.loc[idx, (scorer, bp, "x")]):
+                    missing_bps.append(bp)
+            except KeyError:
+                missing_bps.append(bp)
+        if missing_bps:
+            missing_rows.append({
+                "Session": short,
+                "Frame": f"#{i+1}",
+                "Missing": ", ".join(missing_bps),
+                "Count": len(missing_bps),
+            })
+
+if missing_rows:
+    with st.expander(f"Frames with missing body parts ({len(missing_rows)} frames)"):
+        missing_df = pd.DataFrame(missing_rows)
+        st.dataframe(
+            missing_df.style.background_gradient(subset=["Count"], cmap="YlOrRd"),
+            use_container_width=True,
+            hide_index=True,
+        )
+else:
+    st.success("All labeled frames have all body parts labeled.")
+
 # ---------------------------------------------------------------------------
 # Spatial coverage scatter
 # ---------------------------------------------------------------------------
