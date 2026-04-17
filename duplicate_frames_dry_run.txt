@@ -1,5 +1,6 @@
-Duplicate frame dry run — full-res pixel diff, noise=15, min_changed=1.0%
-Generated: 2026-04-16
+Duplicate frame dry run — full-res pixel diff
+Method: |diff| > 15 per pixel, reject if < 1.0% pixels changed
+Generated: 2026-04-17
 
 20210924_16_09_26_1114356  8 -> 6 frames:
   remove #7/8  (= #6, 0.00% pixels changed)
@@ -11,8 +12,12 @@ Generated: 2026-04-16
 20211029_13_50_14_1115465  18 -> 17 frames:
   remove #18/18  (= #17, 0.06% pixels changed)
 
-20211203_15_10_31_1115464  2 -> 1 frames:
-  remove #2/2  (= #1, 0.08% pixels changed)
+20211203_15_10_31_1115464  20 -> 15 frames:
+  remove #9/20  (= #8, 0.27% pixels changed)
+  remove #14/20  (= #13, 0.25% pixels changed)
+  remove #15/20  (= #13, 0.31% pixels changed)
+  remove #17/20  (= #16, 0.25% pixels changed)
+  remove #19/20  (= #18, 0.08% pixels changed)
 
 20220531_11_06_17_1117217  8 -> 6 frames:
   remove #3/8  (= #2, 0.15% pixels changed)
@@ -27,4 +32,4 @@ Generated: 2026-04-16
   remove #20/22  (= #19, 0.50% pixels changed)
   remove #21/22  (= #19, 0.51% pixels changed)
 
-Total: 12 frames to remove
+Total: 16 frames to remove
