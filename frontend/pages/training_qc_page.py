@@ -918,94 +918,175 @@ with tab_all_symmetry:
 # ---------------------------------------------------------------------------
 
 st.markdown("---")
-st.header("Aggregate Quality Summary")
+st.header("Consolidated Issues Table")
 
 st.caption(
-    "Ear swap and body length outlier counts pooled across all labeled sessions."
+    "Every labeled frame with at least one issue. "
+    "Columns show which checks failed for each frame."
 )
 
-agg_rows = []
+issue_rows = []
 for r in records:
     df_r = r["df"]
     sc = r["scorer"]
     bps_r = r["bodyparts"]
-
     any_lab = df_r.notna().any(axis=1)
-    df_r_lab = df_r[any_lab]
-    if len(df_r_lab) == 0:
+    df_lab = df_r[any_lab]
+    if len(df_lab) == 0:
         continue
 
-    # Ear swap
-    has_ears_r = "left_ear" in bps_r and "right_ear" in bps_r
-    axis_r1, axis_r2 = None, None
-    for bp1, bp2 in BODY_AXIS_PAIRS:
-        if bp1 in bps_r and bp2 in bps_r:
-            axis_r1, axis_r2 = bp1, bp2
-            break
+    short = _short_session(r["clip"])
+    n_frames = len(df_lab)
 
-    n_swapped = 0
-    if has_ears_r and axis_r1 is not None:
-        lx, ly = _extract_xy(df_r_lab, sc, "left_ear")
-        rx, ry = _extract_xy(df_r_lab, sc, "right_ear")
-        ax1x, ax1y = _extract_xy(df_r_lab, sc, axis_r1)
-        ax2x, ax2y = _extract_xy(df_r_lab, sc, axis_r2)
-        sw = detect_ear_swaps(lx, ly, rx, ry, ax1x, ax1y, ax2x, ax2y)
-        n_swapped = sw["n_swapped"]
-
-    # Body length outliers
-    n_bl_outliers = 0
-    if "nose_tip" in bps_r and "tail_base" in bps_r:
-        hx, hy = _extract_xy(df_r_lab, sc, "nose_tip")
-        tx, ty = _extract_xy(df_r_lab, sc, "tail_base")
-        bl = body_length_consistency(hx, hy, tx, ty)
-        n_bl_outliers = bl["n_outliers"]
-
-    # Ear distance outliers
-    n_ear_outliers = 0
-    if "left_ear" in bps_r and "right_ear" in bps_r:
-        lx, ly = _extract_xy(df_r_lab, sc, "left_ear")
-        rx, ry = _extract_xy(df_r_lab, sc, "right_ear")
-        ed = detect_ear_distance_outliers(lx, ly, rx, ry)
-        n_ear_outliers = ed["n_outliers"]
-
-    agg_rows.append(
-        {
-            "Session": _short_session(r["clip"]),
-            "Labeled frames": r["n_labeled"],
-            "Ear swaps": n_swapped,
-            "Ear dist. outliers": n_ear_outliers,
-            "Body len. outliers": n_bl_outliers,
-            "Any issues": n_swapped + n_ear_outliers + n_bl_outliers,
-        }
+    # Extract all needed coordinates once
+    has_ears = "left_ear" in bps_r and "right_ear" in bps_r
+    has_nose = "nose_tip" in bps_r
+    has_tail = "tail_base" in bps_r
+    has_neck = "neck" in bps_r
+    midpoint_bp = "head_midpoint" if "head_midpoint" in bps_r else (
+        "implant_base_rear" if "implant_base_rear" in bps_r else None
     )
 
-if agg_rows:
-    agg_df = pd.DataFrame(agg_rows)
+    # Find body axis
+    axis_bp1, axis_bp2 = None, None
+    for bp1, bp2 in BODY_AXIS_PAIRS:
+        if bp1 in bps_r and bp2 in bps_r:
+            axis_bp1, axis_bp2 = bp1, bp2
+            break
 
-    # Highlight rows with issues
-    def _highlight_issues(row: pd.Series) -> list[str]:
-        color = "background-color: #ffcccc" if row["Any issues"] > 0 else ""
+    # Run all checks — per-frame boolean arrays
+    ear_swap_flags = np.zeros(n_frames, dtype=bool)
+    ear_dist_flags = np.zeros(n_frames, dtype=bool)
+    body_len_flags = np.zeros(n_frames, dtype=bool)
+    head_tri_flags = np.zeros(n_frames, dtype=bool)
+    neck_tri_flags = np.zeros(n_frames, dtype=bool)
+    ear_sym_flags = np.zeros(n_frames, dtype=bool)
+    order_flags = np.zeros(n_frames, dtype=bool)
+
+    if has_ears:
+        lx, ly = _extract_xy(df_lab, sc, "left_ear")
+        rx, ry = _extract_xy(df_lab, sc, "right_ear")
+
+        ed = detect_ear_distance_outliers(lx, ly, rx, ry)
+        ear_dist_flags = ed["is_outlier"]
+
+        if axis_bp1 is not None:
+            a1x, a1y = _extract_xy(df_lab, sc, axis_bp1)
+            a2x, a2y = _extract_xy(df_lab, sc, axis_bp2)
+            sw = detect_ear_swaps(lx, ly, rx, ry, a1x, a1y, a2x, a2y)
+            ear_swap_flags = sw["is_swapped"]
+
+            sym = detect_ear_asymmetry(lx, ly, rx, ry, a1x, a1y, a2x, a2y)
+            ear_sym_flags = sym["is_asymmetric"]
+
+    if has_nose and has_tail:
+        nx, ny = _extract_xy(df_lab, sc, "nose_tip")
+        tx, ty = _extract_xy(df_lab, sc, "tail_base")
+        bl = body_length_consistency(nx, ny, tx, ty)
+        body_len_flags = bl["is_outlier"]
+
+    if has_nose and has_ears and midpoint_bp is not None:
+        nx, ny = _extract_xy(df_lab, sc, "nose_tip")
+        lx, ly = _extract_xy(df_lab, sc, "left_ear")
+        rx, ry = _extract_xy(df_lab, sc, "right_ear")
+        mx, my = _extract_xy(df_lab, sc, midpoint_bp)
+        tri = detect_head_midpoint_outside_triangle(nx, ny, lx, ly, rx, ry, mx, my)
+        head_tri_flags = tri["is_outside"]
+
+    if has_nose and has_ears and has_neck:
+        nx, ny = _extract_xy(df_lab, sc, "nose_tip")
+        lx, ly = _extract_xy(df_lab, sc, "left_ear")
+        rx, ry = _extract_xy(df_lab, sc, "right_ear")
+        nkx, nky = _extract_xy(df_lab, sc, "neck")
+        nk_tri = detect_neck_inside_triangle(nx, ny, lx, ly, rx, ry, nkx, nky)
+        neck_tri_flags = nk_tri["is_inside"]
+
+    # Body order
+    order_list = ["nose_tip", "head_midpoint", "neck", "mid_back", "mouse_center", "tail_base"]
+    order_kps = {}
+    for bp in order_list:
+        if bp in bps_r:
+            order_kps[bp] = _extract_xy(df_lab, sc, bp)
+    if len(order_kps) >= 2:
+        order_res = detect_anterior_posterior_violations(order_kps, order=order_list)
+        order_flags = order_res["is_violated"]
+
+    # Missing body parts
+    for i in range(n_frames):
+        missing = []
+        for bp in BODYPARTS:
+            try:
+                if pd.isna(df_lab.iloc[i][(sc, bp, "x")]):
+                    missing.append(bp)
+            except KeyError:
+                missing.append(bp)
+
+        issues = []
+        if missing:
+            issues.append("missing: " + ", ".join(missing))
+        if ear_swap_flags[i]:
+            issues.append("ear swap")
+        if ear_dist_flags[i]:
+            issues.append("ear dist")
+        if body_len_flags[i]:
+            issues.append("body len")
+        if head_tri_flags[i]:
+            issues.append("head outside tri")
+        if neck_tri_flags[i]:
+            issues.append("neck in tri")
+        if ear_sym_flags[i]:
+            issues.append("ear asym")
+        if order_flags[i]:
+            issues.append("body order")
+
+        if issues:
+            issue_rows.append({
+                "Session": short,
+                "Frame": f"#{i+1}",
+                "Missing": ", ".join(missing) if missing else "",
+                "Ear swap": "X" if ear_swap_flags[i] else "",
+                "Ear dist": "X" if ear_dist_flags[i] else "",
+                "Body len": "X" if body_len_flags[i] else "",
+                "Head tri": "X" if head_tri_flags[i] else "",
+                "Neck tri": "X" if neck_tri_flags[i] else "",
+                "Ear asym": "X" if ear_sym_flags[i] else "",
+                "Body order": "X" if order_flags[i] else "",
+                "Issues": len(issues),
+            })
+
+if issue_rows:
+    issue_df = pd.DataFrame(issue_rows)
+    total_issues = len(issue_df)
+
+    def _highlight_severity(row: pd.Series) -> list[str]:
+        n = row["Issues"]
+        if n >= 3:
+            color = "background-color: #ff9999"
+        elif n >= 2:
+            color = "background-color: #ffcc99"
+        elif n >= 1:
+            color = "background-color: #ffffcc"
+        else:
+            color = ""
         return [color] * len(row)
 
     st.dataframe(
-        agg_df.style.apply(_highlight_issues, axis=1),
+        issue_df.style.apply(_highlight_severity, axis=1),
         use_container_width=True,
         hide_index=True,
     )
 
-    total_issues = int(agg_df["Any issues"].sum())
-    if total_issues == 0:
-        st.success("No anatomical inconsistencies detected across all labeled sessions.")
-    else:
-        st.warning(
-            f"{total_issues} potential labeling issue(s) detected across "
-            f"{int((agg_df['Any issues'] > 0).sum())} session(s). "
-            "Review flagged sessions using the per-session tabs above or the "
-            "interactive labeller."
-        )
-        st.markdown(
-            "**To correct labels:** `uv run python scripts/interactive_label.py`"
-        )
+    n_sessions_affected = issue_df["Session"].nunique()
+    st.warning(
+        f"{total_issues} frame(s) with issues across "
+        f"{n_sessions_affected} session(s). "
+        "Review and correct with the interactive labeller."
+    )
+    st.markdown(
+        "**To correct labels:** `uv run python scripts/interactive_label.py`"
+    )
+else:
+    st.success("No issues detected across all labeled frames.")
 
 st.markdown("---")
 st.caption("Training Data QC | hm2p v2")
