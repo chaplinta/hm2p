@@ -75,11 +75,26 @@ def _ensure_pngs(labeled_dir: Path) -> int:
     Uses relative symlinks so they work across machines (Mac + devcontainer).
     Returns the number of PNGs available after linking.
     """
+    retrain_dir = _clip_to_retrain_dir(labeled_dir.name)
+
     existing = sorted(labeled_dir.glob("*.png"))
     if existing:
-        # Check first symlink isn't broken
-        if existing[0].is_symlink() and not existing[0].exists():
-            # Broken symlinks — remove and re-link
+        needs_relink = False
+        for p in existing:
+            if not p.is_symlink():
+                continue
+            if not p.exists():
+                # Broken symlink (target missing)
+                needs_relink = True
+                break
+            # Check symlink points to the CORRECT retrain_frames dir
+            if retrain_dir is not None:
+                target = str(p.resolve())
+                expected_dir = str(retrain_dir.resolve())
+                if expected_dir not in target:
+                    needs_relink = True
+                    break
+        if needs_relink:
             for p in existing:
                 if p.is_symlink():
                     p.unlink()
@@ -87,7 +102,6 @@ def _ensure_pngs(labeled_dir: Path) -> int:
         else:
             return len(existing)
 
-    retrain_dir = _clip_to_retrain_dir(labeled_dir.name)
     if retrain_dir is None or not retrain_dir.exists():
         return 0
 
