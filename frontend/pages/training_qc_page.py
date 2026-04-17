@@ -285,6 +285,22 @@ st.caption(
     "Detects anatomical inconsistencies that indicate labeling errors."
 )
 
+with st.expander("Labelling conventions"):
+    st.markdown(
+        "Labels follow the **SuperAnimal TopViewMouse** convention.\n\n"
+        "- **Occluded body parts are labelled** if the position can be "
+        "inferred from the visible anatomy (e.g. nose hidden behind "
+        "headstage but location is unambiguous from ears and head_midpoint). "
+        "This teaches the model to predict through occlusion.\n"
+        "- **Do not label** if the position is genuinely ambiguous "
+        "(e.g. mouse curled with overlapping body parts).\n"
+        "- **Left/right ear**: mouse's anatomical left (your right from above "
+        "with nose pointing up).\n"
+        "- **head_midpoint**: rear edge of the 2P headstage base, on the midline.\n"
+        "- **tail_base**: where the tail meets the body, not the tip.\n\n"
+        "See `docs/dlc-retraining.md` for full details."
+    )
+
 records = _load_all_labeled_data()
 
 if not records:

@@ -362,6 +362,20 @@ st.caption(
     "training frames. High error may indicate a bad label or a difficult pose."
 )
 
+with st.expander("Interpreting errors"):
+    st.markdown(
+        "**High error for one bodypart** in a frame → likely a labelling "
+        "error for that part. Check the per-frame detail below.\n\n"
+        "**High error across all bodyparts** → unusual pose the model "
+        "hasn't learned, or the frame is ambiguous.\n\n"
+        "**Note on occluded labels:** labels follow the SuperAnimal "
+        "TopViewMouse convention. Occluded body parts are labelled when "
+        "the position can be inferred from the visible anatomy. The model "
+        "may show higher error on these frames because it hasn't seen "
+        "enough occlusion examples — this is expected and not necessarily "
+        "a labelling error."
+    )
+
 # Load ground-truth labels
 records = _load_all_labeled_data()
 

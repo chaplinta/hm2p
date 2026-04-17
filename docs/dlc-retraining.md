@@ -32,6 +32,28 @@ tracks reliably due to the high visual contrast of the headstage. The
 SuperAnimal keypoints, so fine-tuning transfers the pre-trained backbone
 weights for just these bodyparts.
 
+## Labelling conventions
+
+Labels follow the **SuperAnimal TopViewMouse** convention for keypoint
+placement. Additional guidelines specific to this dataset:
+
+- **Occluded body parts are labelled** if the position can be inferred
+  from the visible anatomy. For example, if the nose is hidden behind
+  the headstage but the ear positions and head midpoint make the nose
+  location unambiguous, label it. This teaches the model to predict
+  through occlusion rather than producing NaN, which improves tracking
+  continuity.
+- **Do not label** a body part if its position is genuinely ambiguous —
+  e.g. mouse curled into a ball with multiple body parts overlapping
+  and indistinguishable. Leave the keypoint as NaN for that frame.
+- **Left/right ear convention**: left ear is the mouse's anatomical
+  left (your right when viewing from above with the nose pointing up).
+  Follow the SuperAnimal convention — do not mirror.
+- **head_midpoint**: place on the rear edge of the 2P headstage base,
+  centred on the midline. This is the most reliably visible keypoint
+  due to the high contrast of the headstage.
+- **tail_base**: where the tail meets the body, not the tip of the tail.
+
 ## Step 1: Select frames for labelling
 
 Use the **Tracking Quality** page in the frontend (Pipeline > Tracking QC) to
