@@ -837,6 +837,17 @@ def _fetch_all_sync_data() -> dict:
                 x_maze = f["x_maze"][:] if "x_maze" in f else None
                 y_maze = f["y_maze"][:] if "y_maze" in f else None
                 ahv_deg_s = f["ahv_deg_s"][:] if "ahv_deg_s" in f else None
+                # Per-bodypart maze coordinates for skeleton visualisation
+                bp_maze = {}
+                for k in f.keys():
+                    if k.startswith("bp_") and k.endswith("_x_maze"):
+                        bp_name = k[3:-7]  # strip "bp_" and "_x_maze"
+                        y_key = f"bp_{bp_name}_y_maze"
+                        if y_key in f:
+                            bp_maze[bp_name] = {
+                                "x": f[k][:],
+                                "y": f[y_key][:],
+                            }
 
             sessions.append({
                 "exp_id": exp_id,
@@ -863,6 +874,7 @@ def _fetch_all_sync_data() -> dict:
                 "x_maze": x_maze,
                 "y_maze": y_maze,
                 "ahv_deg_s": ahv_deg_s,
+                "bp_maze": bp_maze if bp_maze else None,
                 "n_rois": dff.shape[0],
                 "n_frames": dff.shape[1],
                 "frame_times": frame_times,

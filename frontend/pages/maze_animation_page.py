@@ -19,6 +19,32 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from frontend.data import load_all_sync_data, session_filter_sidebar
 
+# ── DLC skeleton and rainbow colormap ────────────────────────────────
+_SKELETON = [
+    ("nose_tip", "head_midpoint"),
+    ("nose_tip", "left_ear"),
+    ("nose_tip", "right_ear"),
+    ("left_ear", "head_midpoint"),
+    ("right_ear", "head_midpoint"),
+    ("left_ear", "right_ear"),
+    ("head_midpoint", "neck"),
+    ("neck", "mid_back"),
+    ("mid_back", "mouse_center"),
+    ("mouse_center", "tail_base"),
+]
+
+# DLC rainbow colormap hex (matplotlib.cm.rainbow, 8 bodyparts)
+_BP_COLORS = {
+    "nose_tip": "#7F00FF",
+    "left_ear": "#376DF8",
+    "right_ear": "#12C7E5",
+    "head_midpoint": "#5AF8C7",
+    "neck": "#A4F89E",
+    "mid_back": "#ECC76E",
+    "mouse_center": "#FF6D38",
+    "tail_base": "#FF0000",
+}
+
 # ── Maze boundary polygon (7×5 q-rose maze) ───────────────────────────
 # This traces the outer wall of the 23 accessible cells.
 _MAZE_WALLS_X = [0, 3, 3, 2, 2, 5, 5, 4, 4, 7, 7, 6, 6, 7, 7, 4, 4, 5, 5, 4, 4, 3, 3, 2, 2, 3, 3, 0, 0, 1, 1, 0, 0]
@@ -63,6 +89,7 @@ def _build_animation_figure(
     trail_seconds: float,
     step: int,
     arrow_length: float,
+    bp_maze: dict | None = None,
 ) -> go.Figure:
     """Build a Plotly figure with animation frames for mouse trajectory.
 
@@ -80,6 +107,16 @@ def _build_animation_figure(
     speed = _subsample(speed, step)
     light_on = _subsample(light_on, step)
     frame_times = _subsample(frame_times, step)
+
+    # Subsample bodypart positions too
+    bp_sub = None
+    if bp_maze:
+        bp_sub = {}
+        for bp_name, bp_data in bp_maze.items():
+            bp_sub[bp_name] = {
+                "x": _subsample(bp_data["x"], step),
+                "y": _subsample(bp_data["y"], step),
+            }
 
     n = len(x)
     if n == 0:
@@ -169,11 +206,55 @@ def _build_animation_figure(
                 marker=dict(size=3, color=trail_colors),
                 showlegend=False, hoverinfo="skip",
             ),
-            # Current position (head)
+        ]
+
+        # Skeleton: all lines as one trace, all dots as one trace
+        # (Plotly animation needs consistent trace count per frame)
+        skel_line_x, skel_line_y = [], []
+        skel_dot_x, skel_dot_y, skel_dot_colors = [], [], []
+        if bp_sub:
+            for bp1, bp2 in _SKELETON:
+                if bp1 not in bp_sub or bp2 not in bp_sub:
+                    continue
+                x1 = float(bp_sub[bp1]["x"][i])
+                y1 = float(bp_sub[bp1]["y"][i])
+                x2 = float(bp_sub[bp2]["x"][i])
+                y2 = float(bp_sub[bp2]["y"][i])
+                if np.isnan(x1) or np.isnan(y1) or np.isnan(x2) or np.isnan(y2):
+                    continue
+                skel_line_x.extend([x1, x2, None])
+                skel_line_y.extend([y1, y2, None])
+            for bp_name, bp_d in bp_sub.items():
+                bx = float(bp_d["x"][i])
+                by = float(bp_d["y"][i])
+                if np.isnan(bx) or np.isnan(by):
+                    continue
+                skel_dot_x.append(bx)
+                skel_dot_y.append(by)
+                skel_dot_colors.append(_BP_COLORS.get(bp_name, "#888888"))
+
+        frame_data += [
+            # Skeleton lines (single trace with None separators)
+            go.Scatter(
+                x=skel_line_x, y=skel_line_y,
+                mode="lines",
+                line=dict(color="rgba(180,180,180,0.7)", width=1.5),
+                showlegend=False, hoverinfo="skip",
+            ),
+            # Skeleton keypoint dots (single trace)
+            go.Scatter(
+                x=skel_dot_x, y=skel_dot_y,
+                mode="markers",
+                marker=dict(size=6, color=skel_dot_colors if skel_dot_colors else ["#888"],
+                            line=dict(color="black", width=0.5)),
+                showlegend=False, hoverinfo="skip",
+            ),
+            # Current position (centroid — smaller when skeleton is shown)
             go.Scatter(
                 x=[x[i]], y=[y[i]],
                 mode="markers",
-                marker=dict(size=10, color=head_color, line=dict(color="black" if light_on[i] else "white", width=1)),
+                marker=dict(size=10 if not bp_sub else 4, color=head_color,
+                            line=dict(color="black" if light_on[i] else "white", width=1)),
                 showlegend=False,
                 hovertext=f"t={t_min:.1f} min, {hd_text}{spd_text}",
                 hoverinfo="text",
@@ -393,6 +474,17 @@ def _page() -> None:
     light_sel = light_on[time_mask]
     ft_sel = frame_times[time_mask]
 
+    # Bodypart positions for skeleton
+    bp_maze_data = ses.get("bp_maze")
+    bp_sel = None
+    if bp_maze_data:
+        bp_sel = {}
+        for bp_name, bp_d in bp_maze_data.items():
+            bp_sel[bp_name] = {
+                "x": bp_d["x"][time_mask],
+                "y": bp_d["y"][time_mask],
+            }
+
     n_frames_anim = len(x_sel) // subsample
     st.caption(f"Generating {n_frames_anim} animation frames...")
 
@@ -408,6 +500,7 @@ def _page() -> None:
             trail_seconds=trail_s,
             step=subsample,
             arrow_length=arrow_len,
+            bp_maze=bp_sel,
         )
 
     st.plotly_chart(fig, use_container_width=False)

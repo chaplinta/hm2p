@@ -1224,6 +1224,20 @@ def run(
 
     x_maze, y_maze = compute_maze_coords(x_mm, y_mm, maze_corners_px, scale_mm_per_px)
 
+    # Per-bodypart positions in mm and maze coords for skeleton visualisation
+    pos = ds.position.isel(individuals=0)
+    available_kps = pos.coords["keypoints"].values.tolist()
+    bp_positions_maze: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for kp in available_kps:
+        kp_x_px = pos.sel(keypoints=kp, space="x").values
+        kp_y_px = pos.sel(keypoints=kp, space="y").values
+        kp_x_mm = (kp_x_px * scale_mm_per_px).astype(np.float32)
+        kp_y_mm = (kp_y_px * scale_mm_per_px).astype(np.float32)
+        kp_x_mz, kp_y_mz = compute_maze_coords(
+            kp_x_mm, kp_y_mm, maze_corners_px, scale_mm_per_px,
+        )
+        bp_positions_maze[kp] = (kp_x_mz, kp_y_mz)
+
     # Speed (cm/s): windowed linear regression matching legacy pipeline
     speed_cm_s = _windowed_speed(x_mm, y_mm, frame_times).astype(np.float32)
 
@@ -1253,6 +1267,10 @@ def run(
         "light_on": light_on,
         "bad_behav": bad_behav,
     }
+    # Per-bodypart maze coordinates for skeleton visualisation
+    for kp, (kp_x, kp_y) in bp_positions_maze.items():
+        datasets[f"bp_{kp}_x_maze"] = kp_x
+        datasets[f"bp_{kp}_y_maze"] = kp_y
     attrs: dict[str, object] = {
         "session_id": session_id,
         "tracker": tracker,
