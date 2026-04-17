@@ -525,7 +525,7 @@ for d in all_error_dfs:
     err = d["error_df"].copy()
     err["mean_error_px"] = err[present_bps].mean(axis=1)
     err["session"] = d["short"]
-    err["frame"] = d["frame_nums"]
+    err["frame"] = [f"#{i+1}" for i in range(len(d["frame_nums"]))]
     all_rows.append(err)
 
 worst_df = pd.concat(all_rows, axis=0).sort_values("mean_error_px", ascending=False)
@@ -552,7 +552,7 @@ st.caption(
 
 for d in all_error_dfs:
     err = d["error_df"][present_bps]
-    frame_labels = [f"f{fn}" for fn in d["frame_nums"]]
+    frame_labels = [f"#{i+1}" for i in range(len(d["frame_nums"]))]
 
     # Build colorscale: white → yellow → orange → red
     colorscale = [
@@ -615,12 +615,15 @@ detail_d = next((d for d in all_error_dfs if d["short"] == detail_ses_label), No
 
 with detail_col2:
     if detail_d is not None:
-        frame_options = [int(fn) for fn in detail_d["frame_nums"]]
-        detail_frame = st.selectbox(
+        n_frames = len(detail_d["frame_nums"])
+        frame_labels_detail = [f"#{i+1}" for i in range(n_frames)]
+        detail_frame_label = st.selectbox(
             "Frame",
-            options=frame_options,
+            options=frame_labels_detail,
             key="fit_detail_frame",
         )
+        detail_frame_idx = frame_labels_detail.index(detail_frame_label)
+        detail_frame = int(detail_d["frame_nums"][detail_frame_idx])
     else:
         detail_frame = None
 
