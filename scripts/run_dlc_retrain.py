@@ -167,9 +167,16 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
             aug["affine"]["scaling"] = [0.7, 1.4]   # ±30-40% (was 0.25-2.5x)
             aug["affine"]["translation"] = 30       # pixels
             aug["affine"]["p"] = 0.7
-            # Brightness/contrast: keep strong — critical for light on/off
-            aug["brightness"] = {"p": 0.5, "limit": 0.4}
-            aug["contrast"] = {"p": 0.5, "limit": 0.4}
+            # Brightness/contrast jitter: the IR filter leaks some 450nm
+            # visible light and the IR illumination decays ~5-10% over a
+            # 30-min session. ±15% brightness + ±10% contrast covers both.
+            # Uses the hm2p patch to DLC's transforms.py (applied in
+            # launch_dlc_finetune_ec2.py user-data script).
+            aug["brightness_contrast"] = {
+                "brightness_limit": 0.15,
+                "contrast_limit": 0.1,
+                "p": 0.5,
+            }
             # Flips: keep — mouse is symmetric from above
             aug["horizontal_flip"] = {"p": 0.5}
             aug["vertical_flip"] = {"p": 0.5}

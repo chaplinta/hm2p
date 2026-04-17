@@ -126,6 +126,50 @@ set -ex
 # Upload log immediately after setup (before Python which may crash)
 aws s3 cp /var/log/hm2p-dlc-retrain.log s3://{DERIVATIVES_BUCKET}/dlc-retrain/_gpu_run_log.txt || true
 
+# Patch DLC to add brightness/contrast augmentation.
+# The IR filter leaks some 450nm light and IR illumination decays
+# through sessions, causing ~5-10% brightness variation. DLC 3.0
+# PyTorch has no built-in brightness jitter, so we patch transforms.py.
+python3 -c "
+import deeplabcut, pathlib, inspect
+tf_path = pathlib.Path(inspect.getfile(deeplabcut)).parent / 'pose_estimation_pytorch' / 'data' / 'transforms.py'
+code = tf_path.read_text()
+if 'RandomBrightnessContrast' not in code:
+    # Insert brightness/contrast after the hist_eq block
+    marker = 'if augmentations.get(\"hist_eq\"'
+    patch = '''
+    # hm2p patch: brightness/contrast jitter for IR illumination variation
+    import albumentations as _A
+    _bc = augmentations.get(\"brightness_contrast\", {{}})
+    if _bc:
+        transforms.append(_A.RandomBrightnessContrast(
+            brightness_limit=_bc.get(\"brightness_limit\", 0.15),
+            contrast_limit=_bc.get(\"contrast_limit\", 0.1),
+            p=_bc.get(\"p\", 0.5),
+        ))
+'''
+    if marker in code:
+        idx = code.index(marker)
+        # Find the end of the hist_eq block (next 'if augmentations' or end of function)
+        rest = code[idx:]
+        lines = rest.split('\\n')
+        insert_after = 0
+        in_block = True
+        for k, line in enumerate(lines[1:], 1):
+            stripped = line.strip()
+            if stripped.startswith('if augmentations') or stripped.startswith('if crop_sampling'):
+                insert_after = k
+                break
+        if insert_after > 0:
+            before = '\\n'.join(lines[:insert_after])
+            after = '\\n'.join(lines[insert_after:])
+            code = code[:idx] + before + '\\n' + patch + '\\n    ' + after
+    tf_path.write_text(code)
+    print('Patched transforms.py with RandomBrightnessContrast')
+else:
+    print('transforms.py already patched')
+" || echo "WARNING: DLC brightness patch failed (non-fatal)"
+
 # Clone repo and run — disable set -e so Python errors don't kill
 # the script before the EXIT trap can upload logs.
 set +e
