@@ -15,7 +15,7 @@
     "has_h5": true
   },
   "20210924_16_09_26_1114356_maze-rose_overhead.camera-cropped": {
-    "n_frames": 8,
+    "n_frames": 6,
     "has_csv": true,
     "has_h5": true
   },
@@ -25,12 +25,22 @@
     "has_h5": true
   },
   "20211028_11_25_53_1115465_maze-rose_overhead.camera-cropped": {
-    "n_frames": 8,
+    "n_frames": 7,
     "has_csv": true,
     "has_h5": true
   },
   "20211029_13_50_14_1115465_maze-rose_overhead.camera-cropped": {
-    "n_frames": 18,
+    "n_frames": 17,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20211102_15_11_38_1115465_maze-rose_overhead.camera-cropped": {
+    "n_frames": 2,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20211203_15_10_31_1115464_maze-rose_overhead.camera-cropped": {
+    "n_frames": 15,
     "has_csv": true,
     "has_h5": true
   },
@@ -49,8 +59,38 @@
     "has_csv": true,
     "has_h5": true
   },
+  "20220531_11_06_17_1117217_maze-rose_overhead.camera-cropped": {
+    "n_frames": 6,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20220601_13_53_29_1117217_maze-rose_overhead.camera-cropped": {
+    "n_frames": 2,
+    "has_csv": true,
+    "has_h5": true
+  },
   "20220608_15_27_36_1117217_maze-rose_overhead.camera-cropped": {
-    "n_frames": 4,
+    "n_frames": 21,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20220608_16_22_10_1116994_maze-rose_overhead.camera-cropped": {
+    "n_frames": 23,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20220802_15_06_57_1117646_maze-rose_overhead.camera-cropped": {
+    "n_frames": 20,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20220804_11_22_03_1117646_maze-rose_overhead.camera-cropped": {
+    "n_frames": 16,
+    "has_csv": true,
+    "has_h5": true
+  },
+  "20220804_13_52_06_1117646_maze-rose_overhead.camera-cropped": {
+    "n_frames": 19,
     "has_csv": true,
     "has_h5": true
   },
@@ -70,7 +110,7 @@
     "has_h5": true
   },
   "20221018_10_56_20_1117788_maze-rose_overhead.camera-cropped": {
-    "n_frames": 12,
+    "n_frames": 10,
     "has_csv": true,
     "has_h5": true
   },
