@@ -31,15 +31,15 @@ BODYPARTS = [
     "neck", "mid_back", "mouse_center", "tail_base",
 ]
 
-# BGR colors for OpenCV
+# BGR colors for OpenCV — matched to DLC viewer / render_dlc_videos.py
 BP_COLORS = {
     "nose_tip": (0, 0, 255),
     "left_ear": (255, 0, 0),
     "right_ear": (255, 255, 0),
     "head_midpoint": (0, 165, 255),
     "neck": (128, 0, 128),
-    "mid_back": (0, 255, 0),
-    "mouse_center": (0, 255, 255),
+    "mid_back": (0, 204, 0),
+    "mouse_center": (0, 215, 255),
     "tail_base": (255, 0, 255),
 }
 
