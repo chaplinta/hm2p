@@ -246,11 +246,28 @@ def _get_rerun_status() -> dict:
                     continue
                 inst_name = inst.get("name", "").lower()
                 if "dlc-retrain" in inst_name or "dlc_retrain" in inst_name:
-                    # DLC training instance — invalidates inference + all downstream
-                    result = {
-                        "rerunning": ["dlc_training"],
-                        "reason": f"DLC training running on {inst['id']}",
-                    }
+                    # DLC retrain instance handles both training and inference.
+                    # Check progress JSON to determine which phase.
+                    _progress_data = download_s3_bytes(
+                        DERIVATIVES_BUCKET, "dlc-retrain/_retrain_progress.json"
+                    )
+                    _in_inference = False
+                    if _progress_data:
+                        try:
+                            _prog = json.loads(_progress_data)
+                            _in_inference = "Inference" in _prog.get("status", "")
+                        except Exception:
+                            pass
+                    if _in_inference:
+                        result = {
+                            "rerunning": ["pose"],
+                            "reason": f"DLC inference running on {inst['id']}",
+                        }
+                    else:
+                        result = {
+                            "rerunning": ["dlc_training"],
+                            "reason": f"DLC training running on {inst['id']}",
+                        }
                     break
                 if "dlc" in inst_name:
                     # DLC inference-only instance

@@ -707,7 +707,7 @@ if "retrain_frames" in st.session_state:
     st.code(
         f"# Upload labels and launch training on AWS (GPU)\n"
         f"uv run python scripts/upload_dlc_labels.py\n"
-        f"uv run python scripts/launch_dlc_finetune_ec2.py",
+        f"# Ask Claude to launch DLC training on EC2",
         language="bash",
     )
 
@@ -836,7 +836,7 @@ st.markdown("**After labelling:**")
 st.code(
     "# Upload labels to S3 and retrain\n"
     "uv run python scripts/upload_dlc_labels.py\n"
-    "uv run python scripts/launch_dlc_finetune_ec2.py",
+    "# Ask Claude to launch DLC training on EC2",
     language="bash",
 )
 
