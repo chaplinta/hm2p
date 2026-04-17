@@ -362,9 +362,11 @@ def _load_precomputed(sub: str, ses: str) -> dict | None:
                 result["contrasts"] = f["contrasts"][()]
             if "decay_pct" in f.attrs:
                 result["decay_pct"] = float(f.attrs["decay_pct"])
-                result["decay_per_min"] = float(f.attrs["decay_per_min"])
+            if "tau_min" in f.attrs:
+                result["tau_min"] = float(f.attrs["tau_min"])
             return result
-    except Exception:
+    except Exception as exc:
+        log.warning("Failed to load illumination.h5 for %s/%s: %s", sub, ses, exc)
         return None
 
 
