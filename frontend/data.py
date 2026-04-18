@@ -282,6 +282,13 @@ def _get_rerun_status() -> dict:
                         "reason": f"Suite2p running on {inst['id']}",
                     }
                     break
+                if "downstream" in inst_name:
+                    # Downstream CPU instance — kinematics, sync, analysis
+                    result = {
+                        "rerunning": ["kinematics", "sync", "analysis"],
+                        "reason": f"Downstream pipeline running on {inst['id']}",
+                    }
+                    break
         except Exception:
             pass
 
