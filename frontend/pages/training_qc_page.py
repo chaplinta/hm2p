@@ -90,7 +90,7 @@ BP_HEX: dict[str, str] = {
 RETRAIN_FRAMES_DIR = Path("/workspace/metadata/retrain_frames")
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def _load_manifest() -> dict:
     """Load _retrain_manifest.json. Returns {} if not found."""
     if not MANIFEST_PATH.exists():
@@ -99,7 +99,7 @@ def _load_manifest() -> dict:
         return json.load(f)
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def _load_retrain_frame_counts() -> dict[str, int]:
     """Load per-session frame counts from metadata/retrain_frames/*.json.
 
@@ -116,7 +116,7 @@ def _load_retrain_frame_counts() -> dict[str, int]:
     return counts
 
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=10)
 def _load_all_labeled_data() -> list[dict]:
     """Load all CollectedData_tristan.h5 files from labeled-data directories.
 
@@ -348,37 +348,38 @@ col_a.metric("Sessions", f"{sessions_with_labels} / {total_selected_sessions}")
 col_b.metric("Frames available", _all_png_count)
 col_c.metric("Frames labeled", total_labeled)
 
-# Build summary table from retrain_frames (all sessions), not just labeled ones
+# Build summary table directly from labeled-data dirs (always current)
 summary_rows = []
-# Map retrain_frames keys (sub-xxx_ses-xxx) to records using date+animal matching
-record_by_retrain_key = {}
-for r in records:
-    result = _clip_to_sub_ses(r["clip"])
-    if result is not None:
-        sub, ses = result
-        record_by_retrain_key[f"{sub}_{ses}"] = r
-
-for ses_key in sorted(retrain_counts.keys()):
-    n_selected = retrain_counts[ses_key]
-    r = record_by_retrain_key.get(ses_key)
-    n_labeled = r["n_labeled"] if r else 0
+_labeled_base = Path("sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20/labeled-data")
+for _idx, _d in enumerate(sorted(_labeled_base.iterdir())):
+    if not _d.is_dir():
+        continue
+    _n_pngs = len([p for p in _d.glob("*.png") if p.exists()])
+    _h5 = _d / "CollectedData_tristan.h5"
+    _n_labeled = 0
+    _r = None
+    for r in records:
+        if r["clip"] == _d.name:
+            _r = r
+            _n_labeled = r["n_labeled"]
+            break
+    if _n_pngs == 0 and _n_labeled == 0:
+        continue
     row: dict = {
-        "Session": ses_key,
-        "Selected": n_selected,
-        "Labeled": n_labeled,
-        "Status": "Done" if n_labeled >= n_selected else (
-            "Partial" if n_labeled > 0 else "Not started"
-        ),
+        "#": _idx,
+        "Session": _short_session(_d.name),
+        "PNGs": _n_pngs,
+        "Labeled": _n_labeled,
     }
-    if r:
-        df = r["df"]
-        scorer = r["scorer"]
+    if _r:
+        df = _r["df"]
+        scorer = _r["scorer"]
         for bp in BODYPARTS:
             try:
                 nan_count = int(df[(scorer, bp, "x")].isna().sum())
                 row[f"NaN — {bp}"] = nan_count
             except KeyError:
-                row[f"NaN — {bp}"] = r["n_rows"]
+                row[f"NaN — {bp}"] = _r["n_rows"]
     summary_rows.append(row)
 
 summary_df = pd.DataFrame(summary_rows)
