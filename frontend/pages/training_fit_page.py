@@ -548,8 +548,8 @@ for d in all_error_dfs:
     err["frame"] = [f"#{i+1}" for i in range(len(d["frame_nums"]))]
     all_rows.append(err)
 
-worst_df = pd.concat(all_rows, axis=0).sort_values("mean_error_px", ascending=False)
-worst_df = worst_df[["session", "frame", "mean_error_px"] + present_bps].head(20)
+worst_df = pd.concat(all_rows, axis=0, ignore_index=True).sort_values("mean_error_px", ascending=False)
+worst_df = worst_df[["session", "frame", "mean_error_px"] + present_bps].head(20).reset_index(drop=True)
 
 with st.expander("Worst 20 frames (highest mean error)", expanded=False):
     st.dataframe(
