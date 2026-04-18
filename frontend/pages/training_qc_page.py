@@ -247,10 +247,10 @@ def _get_mm_per_pix_for_clip(clip: str) -> float | None:
 
 
 def _short_session(clip: str) -> str:
-    """Shorten clip name to '<date>_<animal_id>' for display."""
+    """Shorten clip name to '<date>_<time>_<animal_id>' for display."""
     parts = clip.split("_")
     if len(parts) >= 5:
-        return f"{parts[0]}_{parts[4]}"
+        return f"{parts[0]}_{parts[1]}_{parts[4].split('-')[0]}"
     return clip[:30]
 
 
