@@ -29,6 +29,79 @@ st.title("Pipeline Status")
 if st.button("Refresh"):
     st.cache_data.clear()
 
+# ── Live activity ────────────────────────────────────────────────────────
+import json
+
+from frontend.data import DERIVATIVES_BUCKET, download_s3_bytes
+
+_activity_items = []
+
+# Check for running instances
+_instances = get_ec2_instances()
+_running = [i for i in _instances if i["state"] == "running"]
+
+# DLC training/inference progress
+_retrain_prog = download_s3_bytes(DERIVATIVES_BUCKET, "dlc-retrain/_retrain_progress.json")
+if _retrain_prog:
+    _rp = json.loads(_retrain_prog)
+    _status = _rp.get("status", "")
+    _updated = _rp.get("updated", "")[:19]
+    if "Inference" in _status:
+        _completed = _rp.get("completed", 0)
+        _total = _rp.get("total", 26)
+        _activity_items.append(("DLC Inference", f"{_completed}/{_total} sessions", _updated, _completed / max(_total, 1)))
+    elif "Training" in _status:
+        _activity_items.append(("DLC Training", _status, _updated, None))
+
+# Downstream progress
+_ds_prog = download_s3_bytes(DERIVATIVES_BUCKET, "dlc-retrain/_downstream_progress.json")
+if _ds_prog:
+    _dp = json.loads(_ds_prog)
+    _ds_status = _dp.get("status", "")
+    _ds_session = _dp.get("session", "")
+    _ds_stage = _dp.get("stage", "")
+    _ds_idx = _dp.get("session_idx", 0)
+    _ds_total = _dp.get("total", 26)
+    _ds_completed = _dp.get("completed", 0)
+    _ds_failed = _dp.get("failed", 0)
+    _ds_updated = _dp.get("updated", "")[:19]
+    # Only show if a downstream instance is running or if it's recent
+    _show_ds = any("downstream" in i.get("name", "").lower() for i in _running)
+    if _show_ds:
+        _activity_items.append((
+            "Downstream Pipeline",
+            f"Session {_ds_idx}/{_ds_total} ({_ds_stage}) — {_ds_session[:25]}",
+            _ds_updated,
+            _ds_completed / max(_ds_total, 1),
+        ))
+
+# Heartbeats
+_gpu_hb = download_s3_bytes(DERIVATIVES_BUCKET, "dlc-retrain/_heartbeat.json")
+_cpu_hb = download_s3_bytes(DERIVATIVES_BUCKET, "dlc-retrain/_downstream_heartbeat.json")
+
+if _running or _activity_items:
+    st.subheader("Live Activity")
+    for name, status, updated, pct in _activity_items:
+        st.markdown(f"**{name}** — {status}")
+        if pct is not None:
+            st.progress(min(pct, 1.0))
+        st.caption(f"Updated: {updated}")
+
+    # Heartbeats for running instances
+    for inst in _running:
+        inst_name = inst.get("name", "")
+        if "dlc" in inst_name.lower() and _gpu_hb:
+            hb = json.loads(_gpu_hb)
+            st.caption(f"GPU: uptime {hb.get('uptime_s', 0) // 60:.0f} min, load {hb.get('load_avg_1m', '?')}")
+        if "downstream" in inst_name.lower() and _cpu_hb:
+            hb = json.loads(_cpu_hb)
+            st.caption(f"CPU: uptime {hb.get('uptime_s', 0) // 60:.0f} min, load {hb.get('load_avg_1m', '?')}, disk {hb.get('disk_free_gb', '?')} GB free")
+
+    st.markdown("---")
+elif not _running:
+    st.info("No active pipeline jobs.")
+    st.markdown("---")
+
 # ── Pipeline overview (from unified get_stage_summary) ───────────────────
 st.subheader("Pipeline Overview")
 
