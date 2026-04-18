@@ -268,6 +268,21 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
     if eval_uploaded == 0:
         print("  No evaluation result CSVs found")
 
+    # Compute per-bodypart RMSE from predictions vs labels
+    print("Computing per-bodypart RMSE...")
+    try:
+        import subprocess as _sp
+        _r = _sp.run(
+            [sys.executable, "scripts/compute_bodypart_rmse.py",
+             "--pose-prefix", FINETUNED_PREFIX],
+            capture_output=True, text=True,
+        )
+        print(_r.stdout[-500:] if _r.stdout else "  (no output)")
+        if _r.returncode != 0:
+            print(f"  Per-bodypart RMSE failed: {_r.stderr[-300:]}")
+    except Exception as e:
+        print(f"  Per-bodypart RMSE failed: {e}")
+
     # Upload model weights via boto3 (aws CLI may not be available)
     print("Uploading model weights to S3...")
     # DLC 3.0 PyTorch uses dlc-models-pytorch; legacy uses dlc-models

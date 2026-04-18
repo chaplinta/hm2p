@@ -460,197 +460,81 @@ if curve_data:
                 )
                 st.plotly_chart(mAP_fig, use_container_width=True)
 
-        # Per-bodypart RMSE: compare model predictions to ground truth labels.
-        # Computed live from pose .h5 (S3) vs CollectedData .h5 (local).
+        # Per-bodypart RMSE from precomputed JSON
         with st.expander("Per-bodypart RMSE (predictions vs labels)"):
-            import re as _re
-            from pathlib import Path as _Path
-
-            _LABELED_DIR = _Path("sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20/labeled-data")
-            _BODYPARTS = ["nose_tip", "left_ear", "right_ear", "head_midpoint",
-                          "neck", "mid_back", "mouse_center", "tail_base"]
-
-            try:
-                import boto3 as _b3
-                import pandas as _pd
+            _bp_json = download_s3_bytes(
+                DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/models/_bodypart_rmse.json"
+            )
+            if _bp_json:
                 import numpy as _np
-                import tempfile as _tf
 
-                _s3 = _b3.client("s3", region_name="ap-southeast-2")
-                _bp_errors: dict[str, list[float]] = {bp: [] for bp in _BODYPARTS}
+                _bp_data = json.loads(_bp_json)
+                _bp_info = _bp_data.get("bodyparts", {})
+                _BODYPARTS = ["nose_tip", "left_ear", "right_ear", "head_midpoint",
+                              "neck", "mid_back", "mouse_center", "tail_base"]
+                # DLC rainbow colormap
+                _bp_colors = {
+                    "nose_tip": "#7F00FF", "left_ear": "#376DF8",
+                    "right_ear": "#12C7E5", "head_midpoint": "#5AF8C7",
+                    "neck": "#A4F89E", "mid_back": "#ECC76E",
+                    "mouse_center": "#FF6D38", "tail_base": "#FF0000",
+                }
+                _active = [bp for bp in _BODYPARTS if _bp_info.get(bp)]
 
-                for _ld in sorted(_LABELED_DIR.iterdir()):
-                    if not _ld.is_dir():
-                        continue
-                    _h5 = _ld / "CollectedData_tristan.h5"
-                    if not _h5.exists():
-                        continue
-                    try:
-                        _gt = _pd.read_hdf(_h5)
-                    except Exception:
-                        continue
-                    if len(_gt) == 0 or not _gt.notna().any().any():
-                        continue
+                if _active:
+                    _means = [_bp_info[bp]["mean_rmse"] for bp in _active]
+                    _stds = [_bp_info[bp]["std"] for bp in _active]
+                    _counts = [_bp_info[bp]["n"] for bp in _active]
 
-                    _gt_scorer = _gt.columns.get_level_values(0)[0]
-
-                    # Find matching pose .h5 on S3
-                    _parts = _ld.name.split("_")
-                    _date = _parts[0]
-                    _animal = _parts[4].split("-")[0] if len(_parts) >= 5 else ""
-                    _sub = f"sub-{_animal}"
-
-                    # Find ses by closest time match
-                    _clip_time = int(_parts[1] + _parts[2] + _parts[3]) if len(_parts) >= 4 else 0
-                    _retrain_dir = _Path("metadata/retrain_frames")
-                    _best_ses = None
-                    _best_diff = 999999
-                    for _rf in _retrain_dir.glob("*.json"):
-                        _fp = _rf.stem.split("_")
-                        if len(_fp) >= 2 and _fp[0].replace("sub-", "") == _animal:
-                            _f_date = _fp[1].replace("ses-", "")[:8]
-                            if _f_date == _date:
-                                _f_time = int(_fp[1].replace("ses-", "")[9:])
-                                _d = abs(_f_time - _clip_time)
-                                if _d < _best_diff:
-                                    _best_diff = _d
-                                    _best_ses = _fp[1]
-
-                    if _best_ses is None:
-                        continue
-
-                    _prefix = f"pose/{_sub}/{_best_ses}/"
-                    _resp = _s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=_prefix, MaxKeys=20)
-                    _h5_keys = [o["Key"] for o in _resp.get("Contents", [])
-                                if o["Key"].endswith(".h5") and "filtered" not in o["Key"]]
-                    if not _h5_keys:
-                        continue
-
-                    _pred_key = _h5_keys[0]
-                    for _k in _h5_keys:
-                        if "Hrnet" in _k or "Resnet" in _k:
-                            _pred_key = _k
-                            break
-
-                    _pred_data = download_s3_bytes(DERIVATIVES_BUCKET, _pred_key)
-                    if _pred_data is None:
-                        continue
-
-                    with _tf.NamedTemporaryFile(suffix=".h5") as _tmp:
-                        _tmp.write(_pred_data)
-                        _tmp.flush()
-                        _pred = _pd.read_hdf(_tmp.name)
-
-                    _pred_scorer = _pred.columns.get_level_values(0)[0]
-                    _pred_bps = _pred.columns.get_level_values(1).unique().tolist()
-
-                    # Match frames and compute errors.
-                    # Frame indices in labels are from the raw ~100fps video.
-                    # DLC predictions are on the 30fps subsampled video.
-                    # Convert: dlc_frame = round(raw_frame * 30 / 100)
-                    _RAW_FPS = 100.0
-                    _DLC_FPS = 30.0
-                    for _idx in range(len(_gt)):
-                        _frame_file = _gt.index[_idx][2] if isinstance(_gt.index[_idx], tuple) else str(_gt.index[_idx]).split("/")[-1]
-                        _m = _re.match(r"frame_(\d+)\.png", _frame_file)
-                        if not _m:
-                            continue
-                        _raw_fi = int(_m.group(1))
-                        _fi = round(_raw_fi * _DLC_FPS / _RAW_FPS)
-                        if _fi >= len(_pred):
-                            continue
-
-                        for _bp in _BODYPARTS:
-                            try:
-                                _gx = float(_gt.iloc[_idx][(_gt_scorer, _bp, "x")])
-                                _gy = float(_gt.iloc[_idx][(_gt_scorer, _bp, "y")])
-                            except (KeyError, ValueError):
-                                continue
-                            if _np.isnan(_gx) or _np.isnan(_gy):
-                                continue
-
-                            _pbp = _bp if _bp in _pred_bps else ("implant_base_rear" if _bp == "head_midpoint" and "implant_base_rear" in _pred_bps else None)
-                            if _pbp is None:
-                                continue
-                            try:
-                                _px = float(_pred.iloc[_fi][(_pred_scorer, _pbp, "x")])
-                                _py = float(_pred.iloc[_fi][(_pred_scorer, _pbp, "y")])
-                            except (KeyError, ValueError):
-                                continue
-                            if _np.isnan(_px) or _np.isnan(_py):
-                                continue
-
-                            _err = _np.sqrt((_gx - _px)**2 + (_gy - _py)**2)
-                            _bp_errors[_bp].append(_err)
-
-                # Plot
-                _active_bps = [bp for bp in _BODYPARTS if _bp_errors[bp]]
-                if _active_bps:
-                    import plotly.graph_objects as go
-
-                    _means = [_np.mean(_bp_errors[bp]) for bp in _active_bps]
-                    _stds = [_np.std(_bp_errors[bp]) for bp in _active_bps]
-                    _counts = [len(_bp_errors[bp]) for bp in _active_bps]
-
-                    _fig = go.Figure()
-                    _fig.add_trace(go.Bar(
-                        x=_active_bps, y=_means,
+                    fig_rmse = go.Figure()
+                    fig_rmse.add_trace(go.Bar(
+                        x=_active, y=_means,
                         error_y=dict(type="data", array=_stds, visible=True),
-                        marker_color=["#d62728" if m > 15 else "#2ca02c" for m in _means],
+                        marker_color=[_bp_colors.get(bp, "#888") for bp in _active],
                         text=[f"{m:.1f}px (n={n})" for m, n in zip(_means, _counts)],
                         textposition="outside",
                     ))
-                    _fig.update_layout(
-                        xaxis_title="Bodypart",
-                        yaxis_title="RMSE (pixels)",
-                        height=350,
-                        margin=dict(l=40, r=20, t=20, b=40),
+                    fig_rmse.update_layout(
+                        xaxis_title="Bodypart", yaxis_title="RMSE (pixels)",
+                        height=350, margin=dict(l=40, r=20, t=20, b=40),
                     )
-                    st.plotly_chart(_fig, use_container_width=True)
-                    st.caption(
-                        "Mean pixel error ± SD between model predictions and ground truth labels. "
-                        "Red bars = RMSE > 15px. Based on current model's inference on all labeled frames."
-                    )
+                    st.plotly_chart(fig_rmse, use_container_width=True)
 
-                    # PCK (Percentage Correct Keypoints) at multiple thresholds
-                    _thresholds = [5, 10, 15, 20, 30, 50]
-                    _pck_data = {}
-                    for _bp in _active_bps:
-                        _errs = _np.array(_bp_errors[_bp])
-                        _pck_data[_bp] = [float((_errs <= t).mean() * 100) for t in _thresholds]
-
-                    _fig_pck = go.Figure()
-                    _bp_colors = {
-                        "nose_tip": "#FF0000", "left_ear": "#0000FF",
-                        "right_ear": "#00FFFF", "head_midpoint": "#FFA500",
-                        "neck": "#800080", "mid_back": "#00CC00",
-                        "mouse_center": "#FFD700", "tail_base": "#FF00FF",
-                    }
-                    for _bp in _active_bps:
-                        _fig_pck.add_trace(go.Scatter(
+                    # PCK curves
+                    _thresholds = [5, 10, 15, 20]
+                    fig_pck = go.Figure()
+                    for bp in _active:
+                        info = _bp_info[bp]
+                        pck_vals = [info.get(f"pck_{t}", 0) for t in _thresholds]
+                        fig_pck.add_trace(go.Scatter(
                             x=[str(t) for t in _thresholds],
-                            y=_pck_data[_bp],
+                            y=pck_vals,
                             mode="lines+markers",
-                            name=_bp,
-                            line=dict(color=_bp_colors.get(_bp, "#888888")),
+                            name=bp,
+                            line=dict(color=_bp_colors.get(bp, "#888")),
                         ))
-                    _fig_pck.update_layout(
+                    fig_pck.update_layout(
                         xaxis_title="Threshold (pixels)",
-                        yaxis_title="% correct",
+                        yaxis_title="PCK (%)",
                         yaxis_range=[0, 105],
-                        height=350,
-                        margin=dict(l=40, r=20, t=20, b=40),
+                        height=350, margin=dict(l=40, r=20, t=20, b=40),
                         legend=dict(orientation="h", y=-0.2),
                     )
-                    st.plotly_chart(_fig_pck, use_container_width=True)
+                    st.plotly_chart(fig_pck, use_container_width=True)
+
                     st.caption(
-                        "PCK — percentage of predictions within N pixels of the ground truth label. "
-                        "Higher is better. Shows which body parts the model tracks accurately."
+                        f"From {_bp_data.get('total_matched', '?')} matched frames. "
+                        "Precomputed by `scripts/compute_bodypart_rmse.py`. "
+                        "RMSE = root mean square pixel error vs ground truth labels. "
+                        "PCK = percentage of predictions within N pixels of the label."
                     )
                 else:
-                    st.info("No per-bodypart RMSE data available. Need both pose .h5 on S3 and local labels.")
-            except Exception as _exc:
-                st.info(f"Per-bodypart RMSE not available: {_exc}")
+                    st.info("No per-bodypart data in the RMSE JSON.")
+            else:
+                st.info(
+                    "Per-bodypart RMSE not yet computed. Run:\n\n"
+                    "`uv run python scripts/compute_bodypart_rmse.py`"
+                )
 
     else:
         # Fallback: show raw heatmap loss (no pixel metrics available)
