@@ -61,12 +61,14 @@ VIDEO_FPS = 30
 st.title("DLC Viewer")
 st.caption("Labelled video playback + frame-by-frame inspection for QC.")
 
-# Colour legend for bodyparts
-_legend_html = " &nbsp; ".join(
-    f'<span style="color:{color}; font-weight:bold;">●</span> {label}'
-    for label, color in BP_LEGEND.values()
-)
-st.markdown(_legend_html, unsafe_allow_html=True)
+# Colour legend for bodyparts (deduplicate aliases like implant_base_rear)
+_seen_labels = set()
+_legend_parts = []
+for label, color in BP_LEGEND.values():
+    if label not in _seen_labels:
+        _legend_parts.append(f'<span style="color:{color}; font-weight:bold;">●</span> {label}')
+        _seen_labels.add(label)
+st.markdown(" &nbsp; ".join(_legend_parts), unsafe_allow_html=True)
 
 # ── Cached loaders ───────────────────────────────────────────────────────
 
