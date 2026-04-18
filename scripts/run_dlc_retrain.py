@@ -395,7 +395,8 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
             # scripts/render_dlc_videos.py to maintain ~100ms smoothing.
             sub_path = work / f"{video.stem}_30fps.mp4"
             subprocess.run(
-                ["ffmpeg", "-y", "-i", str(video), "-r", "30",
+                ["ffmpeg", "-y", "-i", str(video),
+                 "-vf", "fps=30", "-vsync", "drop",
                  "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                  str(sub_path)],
                 capture_output=True,

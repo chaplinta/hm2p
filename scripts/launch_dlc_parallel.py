@@ -252,7 +252,8 @@ def build_user_data(
             subsampled_path = video_dir / f'{{video_path.stem}}_30fps.mp4'
             sub_ret = subprocess.run([
                 'ffmpeg', '-y', '-i', str(video_path),
-                '-r', '30', '-c:v', 'libx264', '-preset', 'fast',
+                '-vf', 'fps=30', '-vsync', 'drop',
+                '-c:v', 'libx264', '-preset', 'fast',
                 '-crf', '18', str(subsampled_path),
             ], capture_output=True, text=True)
             if sub_ret.returncode == 0 and subsampled_path.exists():
