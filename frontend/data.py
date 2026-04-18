@@ -337,10 +337,24 @@ def get_stage_summary() -> dict[str, dict]:
 
         if invalidated:
             if key in rerunning_stages:
-                # Count only files modified after the re-run started
-                rerun_started = rerun.get("started", "")
-                if rerun_started:
-                    done = _count_new_outputs(key, rerun_started)
+                if key == "pose":
+                    # Inference writes to pose-finetuned/, not pose/.
+                    # Use the progress JSON for the real count.
+                    _prog = download_s3_bytes(
+                        DERIVATIVES_BUCKET, "dlc-retrain/_retrain_progress.json"
+                    )
+                    if _prog:
+                        try:
+                            _p = json.loads(_prog)
+                            done = _p.get("completed", 0)
+                        except Exception:
+                            done = 0
+                    else:
+                        done = 0
+                else:
+                    rerun_started = rerun.get("started", "")
+                    if rerun_started:
+                        done = _count_new_outputs(key, rerun_started)
                 status = f"Re-running ({done}/{expected})"
                 color = "orange"
             else:
