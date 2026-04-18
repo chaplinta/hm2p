@@ -114,11 +114,17 @@ def main():
         if not h5_keys:
             continue
 
-        pred_key = h5_keys[0]
-        for k in h5_keys:
-            if "Hrnet" in k or "Resnet" in k:
-                pred_key = k
-                break
+        # Pick the latest finetuned model (highest snapshot number)
+        import re as _re
+        def _snapshot_num(key: str) -> int:
+            m = _re.search(r"snapshot[_-]best[_-](\d+)", key)
+            return int(m.group(1)) if m else -1
+
+        finetuned = [k for k in h5_keys if "Hrnet" in k or "Resnet" in k]
+        if finetuned:
+            pred_key = max(finetuned, key=_snapshot_num)
+        else:
+            pred_key = h5_keys[0]
 
         try:
             obj = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key=pred_key)
