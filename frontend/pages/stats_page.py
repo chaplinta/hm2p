@@ -12,7 +12,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from frontend.data import load_all_ca_data, load_animals, session_filter_sidebar
+from frontend.data import load_all_ca_data, load_animals, session_filter_controls as session_filter_sidebar
 
 log = logging.getLogger("hm2p.frontend.stats")
 

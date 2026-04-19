@@ -46,7 +46,7 @@ from hm2p.constants import HEX_NONPENK, HEX_PENK
 def _try_load_real():
     """Attempt to load real sync.h5 data."""
     try:
-        from frontend.data import load_all_sync_data, session_filter_sidebar
+        from frontend.data import load_all_sync_data, session_filter_controls as session_filter_sidebar
 
         all_data = load_all_sync_data()
         if all_data["n_sessions"] > 0:
@@ -67,6 +67,9 @@ if not has_real or not real_sessions:
         "pipeline stage completes."
     )
     st.stop()
+
+from frontend.data import render_tracker_provenance
+render_tracker_provenance(real_sessions)
 
 # Filter to sessions that have position data
 sessions_with_pos = [s for s in real_sessions if s.get("x_mm") is not None]

@@ -17,7 +17,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from frontend.data import load_all_ca_data, session_filter_sidebar
+from frontend.data import load_all_ca_data, session_filter_controls as session_filter_sidebar
 from hm2p.constants import CELLTYPE_HEX, HEX_PENK, HEX_NONPENK
 
 log = logging.getLogger("hm2p.frontend.compare")

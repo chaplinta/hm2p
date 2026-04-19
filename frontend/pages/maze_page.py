@@ -22,7 +22,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from frontend.data import load_all_sync_data, session_filter_sidebar
+from frontend.data import load_all_sync_data, render_tracker_provenance, session_filter_controls as session_filter_sidebar
 from hm2p.maze.analysis import (
     cell_occupancy,
     dead_end_visits,
@@ -197,6 +197,8 @@ if all_data["n_sessions"] > 0:
 else:
     sessions = []
 
+if sessions:
+    render_tracker_provenance(sessions)
 pos_sessions = _sessions_with_position(sessions) if sessions else []
 
 # --- Exploration analysis ---

@@ -20,6 +20,7 @@ from frontend.data import (
     get_pipeline_status,
     get_progress,
     get_s3_client,
+    invalidate_session_cache,
     load_experiments,
     parse_session_id,
     sanitize_error,
@@ -37,6 +38,7 @@ st.header("EC2 Instances")
 
 if st.button("Refresh", key="refresh_ec2"):
     st.cache_data.clear()
+    invalidate_session_cache()
 
 try:
     import boto3

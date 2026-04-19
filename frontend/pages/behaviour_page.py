@@ -19,7 +19,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from frontend.data import load_all_sync_data, session_filter_sidebar
+from frontend.data import load_all_sync_data, render_tracker_provenance, session_filter_controls as session_filter_sidebar
 from hm2p.plotting import format_pvalue, paired_condition_scatter
 
 log = logging.getLogger("hm2p.frontend.behaviour")
@@ -50,6 +50,7 @@ if not sessions:
     st.warning("No sessions match the current filters.")
     st.stop()
 
+render_tracker_provenance(sessions)
 st.markdown(f"**{len(sessions)} sessions** loaded")
 
 # ── Colour mapping ──────────────────────────────────────────────────────

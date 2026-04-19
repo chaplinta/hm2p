@@ -24,7 +24,7 @@ st.caption(
 
 import plotly.graph_objects as go
 
-from frontend.data import load_all_sync_data, session_filter_sidebar
+from frontend.data import load_all_sync_data, render_tracker_provenance, session_filter_controls as session_filter_sidebar
 from hm2p.analysis.information import (
     information_per_cell,
     mutual_information_binned,
@@ -46,6 +46,7 @@ sessions = session_filter_sidebar(all_data["sessions"])
 if not sessions:
     st.warning("No sessions match the current filters.")
     st.stop()
+render_tracker_provenance(sessions)
 
 # Session selector
 session_labels = [f"{s['exp_id']} ({s['celltype']}, {s['n_rois']} ROIs)" for s in sessions]

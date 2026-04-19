@@ -81,8 +81,6 @@ def signal_type_selector(
     for key, label in SIGNAL_TYPE_LABELS.items():
         if key == "dff" and "dff" in session:
             options.append((key, label))
-        elif key == "deconv" and session.get("deconv") is not None:
-            options.append((key, label))
         elif key == "deconv_norm" and session.get("deconv_norm") is not None:
             options.append((key, label))
         elif key == "events" and session.get("event_masks") is not None:
@@ -111,7 +109,6 @@ def signal_type_selector(
     # Return the corresponding array
     _key_to_data = {
         "dff": "dff",
-        "deconv": "deconv",
         "deconv_norm": "deconv_norm",
         "events": "event_masks",
         "events_sd": "event_masks_sd",
@@ -435,7 +432,7 @@ def _count_cascade_outputs() -> int:
         data = download_s3_bytes(DERIVATIVES_BUCKET, sample_key)
         if data:
             with _h5py.File(io.BytesIO(data), "r") as f:
-                if "deconv" in f or "spikes" in f:
+                if "spikes" in f:
                     return 26  # CASCADE runs all-or-nothing
         return 0
     except Exception:
@@ -503,7 +500,7 @@ def _count_kpms_outputs() -> int:
         return 0
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=60)
 def load_experiments() -> list[dict[str, str]]:
     """Load experiments.csv into a list of dicts."""
     csv_path = METADATA_DIR / "experiments.csv"
@@ -514,7 +511,7 @@ def load_experiments() -> list[dict[str, str]]:
     return rows
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=60)
 def load_animals() -> list[dict[str, str]]:
     """Load animals.csv into a list of dicts."""
     csv_path = METADATA_DIR / "animals.csv"
@@ -740,9 +737,9 @@ def check_stale_data_warning(
     return False
 
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=300)
 def download_s3_bytes(bucket: str, key: str) -> bytes | None:
-    """Download an S3 object as bytes. Cached for 30 minutes."""
+    """Download an S3 object as bytes. Cached for 5 minutes."""
     log.debug("Downloading s3://%s/%s", bucket, key)
     s3 = get_s3_client()
     try:
@@ -843,8 +840,6 @@ def _fetch_all_sync_data() -> dict:
                 roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
                 # Suite2p deconvolved spikes
                 deconv = f["deconv"][:] if "deconv" in f else None
-                if deconv is None:
-                    deconv = f["spks"][:] if "spks" in f else None
                 # CASCADE calibrated spike rates (separate from deconv)
                 spikes = f["spikes"][:] if "spikes" in f else None
                 deconv_norm = f["deconv_norm"][:] if "deconv_norm" in f else None
@@ -869,6 +864,14 @@ def _fetch_all_sync_data() -> dict:
                                 "x": f[k][:],
                                 "y": f[y_key][:],
                             }
+                # DLC model provenance — stored as HDF5 root attrs by Stage 5
+                def _decode_attr(val: object) -> str:
+                    if isinstance(val, bytes):
+                        return val.decode("utf-8", errors="replace")
+                    return str(val) if val is not None else "unknown"
+
+                dlc_model_name = _decode_attr(f.attrs.get("dlc_model_name"))
+                dlc_snapshot = _decode_attr(f.attrs.get("dlc_snapshot"))
 
             sessions.append({
                 "exp_id": exp_id,
@@ -896,6 +899,8 @@ def _fetch_all_sync_data() -> dict:
                 "y_maze": y_maze,
                 "ahv_deg_s": ahv_deg_s,
                 "bp_maze": bp_maze if bp_maze else None,
+                "dlc_model_name": dlc_model_name,
+                "dlc_snapshot": dlc_snapshot,
                 "n_rois": dff.shape[0],
                 "n_frames": dff.shape[1],
                 "frame_times": frame_times,
@@ -909,6 +914,41 @@ def _fetch_all_sync_data() -> dict:
         "n_sessions": len(sessions),
         "n_total_rois": sum(s["n_rois"] for s in sessions),
     }
+
+
+def render_tracker_provenance(sessions: list[dict]) -> None:
+    """Display DLC model provenance for the loaded sessions.
+
+    Shows a caption line if all sessions used the same model/snapshot, or
+    an expander with per-model details if sessions differ. No-ops if the
+    sessions list is empty or provenance is unavailable (all "unknown").
+
+    Parameters
+    ----------
+    sessions:
+        List of session dicts as returned by load_all_sync_data or after
+        filtering with session_filter_controls.
+    """
+    if not sessions:
+        return
+
+    models: set[tuple[str, str]] = set()
+    for s in sessions:
+        name = s.get("dlc_model_name", "unknown")
+        snap = s.get("dlc_snapshot", "unknown")
+        models.add((name, snap))
+
+    # If all sessions report unknown, skip display — file predates provenance tracking
+    if models == {("unknown", "unknown")}:
+        return
+
+    if len(models) == 1:
+        name, snap = models.pop()
+        st.caption(f"Tracker: DLC | Model: {name} | Snapshot: {snap}")
+    else:
+        with st.expander("Tracker provenance"):
+            for name, snap in sorted(models):
+                st.text(f"Model: {name} | Snapshot: {snap}")
 
 
 def load_all_ca_data() -> list[dict]:
@@ -982,12 +1022,12 @@ def _fetch_all_ca_data() -> list[dict]:
     return sessions
 
 
-def session_filter_sidebar(
+def session_filter_controls(
     sessions: list[dict],
     show_roi_filter: bool = True,
     key_prefix: str = "filter",
 ) -> list[dict]:
-    """Add optional sidebar filters for celltype, animal, and ROI type.
+    """Add filter controls for celltype, animal, and ROI type.
 
     Filtering operates on the already-cached session list — no new S3
     downloads are triggered by filter changes.
@@ -1095,6 +1135,10 @@ def session_filter_sidebar(
         filtered = roi_filtered
 
     return filtered
+
+
+# Backwards-compatible alias — callers are being migrated to session_filter_controls.
+session_filter_sidebar = session_filter_controls
 
 
 @st.cache_data(ttl=600)

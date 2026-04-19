@@ -16,8 +16,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from frontend.data import (
     DERIVATIVES_BUCKET,
+    check_stale_data_warning,
     download_s3_bytes,
     get_mm_per_pix,
+    get_s3_client,
+    invalidate_session_cache,
     load_animals,
     load_experiments,
     parse_session_id,
@@ -91,6 +94,11 @@ def dl_video(sub: str, ses: str, mode: str = "DLC raw") -> bytes | None:
 def dl_dlc(sub: str, ses: str) -> dict | None:
     """Download DLC .h5 from S3 and load via movement.
 
+    Selects the highest-numbered snapshot from finetuned model outputs
+    (files containing 'Hrnet' or 'Resnet' in the name), matching the
+    selection logic used by tracking_quality_page and training_fit_page.
+    Falls back to the first available .h5 if no finetuned files exist.
+
     Returns a dict with keys:
         - position: np.ndarray (time, space, keypoints) — x/y coordinates
         - confidence: np.ndarray (time, keypoints) — likelihood values
@@ -98,25 +106,31 @@ def dl_dlc(sub: str, ses: str) -> dict | None:
         - n_frames: int — number of frames
     Or None if no DLC data found.
     """
-    import boto3
+    import re as _re
 
-    s3 = boto3.client("s3", region_name="ap-southeast-2")
+    from frontend.data import list_s3_session_files
+
     prefix = f"pose/{sub}/{ses}/"
-    h5_key = None
-    try:
-        for page in s3.get_paginator("list_objects_v2").paginate(
-            Bucket=DERIVATIVES_BUCKET, Prefix=prefix
-        ):
-            for obj in page.get("Contents", []):
-                k = obj["Key"]
-                nm = k.split("/")[-1]
-                if k.endswith(".h5") and "_single" not in nm and "_filtered" not in nm:
-                    h5_key = k
-                    break
-    except Exception:
+    files = list_s3_session_files(DERIVATIVES_BUCKET, prefix)
+    h5_files = [
+        f["key"] for f in files
+        if f["key"].endswith(".h5")
+        and "_single" not in f["key"].split("/")[-1]
+        and "_filtered" not in f["key"].split("/")[-1]
+    ]
+    if not h5_files:
         return None
-    if h5_key is None:
-        return None
+
+    # Pick highest-numbered snapshot from finetuned model outputs.
+    # This matches the selection logic in tracking_quality_page and
+    # training_fit_page to ensure all pages show the same DLC file.
+    def _snap_num(key: str) -> int:
+        m = _re.search(r"snapshot[_-]best[_-](\d+)", key)
+        return int(m.group(1)) if m else -1
+
+    finetuned = [k for k in h5_files if "Hrnet" in k or "Resnet" in k]
+    h5_key = max(finetuned, key=_snap_num) if finetuned else h5_files[0]
+
     data = download_s3_bytes(DERIVATIVES_BUCKET, h5_key)
     if data is None:
         return None
@@ -284,6 +298,7 @@ if st.button("Reload video from S3", key="dlcv_reload"):
     dl_kinematics.clear()
     _cache_video_path.clear()
     st.cache_data.clear()
+    invalidate_session_cache()
     st.rerun()
 
 # ── Session selector ─────────────────────────────────────────────────────
@@ -363,6 +378,10 @@ dlc_filtered = (
     else None
 )
 kin = dl_kinematics(sub, ses) if pos_source == "Pipeline filtered" else None
+
+# Show staleness warning when displaying pipeline-filtered positions from sync.h5
+if pos_source == "Pipeline filtered":
+    check_stale_data_warning(stages=["sync", "kinematics"])
 
 # Choose which DLC data dict to use for position display
 active_dlc = dlc_filtered if dlc_filtered is not None else dlc_data

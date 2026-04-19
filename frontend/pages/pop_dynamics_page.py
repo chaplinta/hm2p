@@ -37,7 +37,7 @@ st.caption(
 # ── Load real data ────────────────────────────────────────────────────────
 
 try:
-    from frontend.data import load_all_sync_data, session_filter_sidebar
+    from frontend.data import load_all_sync_data, render_tracker_provenance, session_filter_controls as session_filter_sidebar
 except ImportError:
     st.error("Frontend data module not available.")
     st.stop()
@@ -61,6 +61,7 @@ sessions = session_filter_sidebar(all_data["sessions"])
 if not sessions:
     st.warning("No sessions match the current filter.")
     st.stop()
+render_tracker_provenance(sessions)
 
 # Session selector
 exp_ids = [s["exp_id"] for s in sessions]

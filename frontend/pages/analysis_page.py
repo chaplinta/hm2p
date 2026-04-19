@@ -28,7 +28,7 @@ _signal_labels = {"dff": "dF/F\u2080", "deconv": "Deconv", "events": "Events"}
 
 st.title("Analysis -- Multi-Signal HD & Place Tuning")
 
-from frontend.data import load_all_sync_data, session_filter_sidebar
+from frontend.data import load_all_sync_data, render_tracker_provenance, session_filter_controls as session_filter_sidebar
 
 all_data = load_all_sync_data()
 if all_data["n_sessions"] == 0:
@@ -40,6 +40,7 @@ sessions = session_filter_sidebar(all_data["sessions"], key_prefix="analysis")
 if not sessions:
     st.warning("No sessions match the current filters.")
     st.stop()
+render_tracker_provenance(sessions)
 
 # Session selector
 session_labels = ["All sessions (pooled)"] + [s["exp_id"] for s in sessions]

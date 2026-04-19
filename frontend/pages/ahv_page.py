@@ -38,7 +38,7 @@ from hm2p.analysis.ahv import (
 def _try_load_real():
     """Attempt to load real sync.h5 data."""
     try:
-        from frontend.data import load_all_sync_data, session_filter_sidebar
+        from frontend.data import load_all_sync_data, session_filter_controls as session_filter_sidebar
         all_data = load_all_sync_data()
         if all_data["n_sessions"] > 0:
             sessions = session_filter_sidebar(all_data["sessions"])
@@ -57,6 +57,8 @@ if not has_real or not real_sessions:
     )
     st.stop()
 
+from frontend.data import render_tracker_provenance
+render_tracker_provenance(real_sessions)
 st.success(
     f"Loaded {len(real_sessions)} sessions, "
     f"{sum(s['n_rois'] for s in real_sessions)} total cells"

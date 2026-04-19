@@ -18,7 +18,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from frontend.data import load_all_sync_data, session_filter_sidebar
+from frontend.data import load_all_sync_data, render_tracker_provenance, session_filter_controls as session_filter_sidebar
 from hm2p.analysis.stability import (
     dark_drift_rate,
     drift_per_epoch,
@@ -46,6 +46,7 @@ sessions = session_filter_sidebar(all_data["sessions"], key_prefix="drift")
 if not sessions:
     st.warning("No sessions match the current filters.")
     st.stop()
+render_tracker_provenance(sessions)
 
 
 # ── Helper: estimate fps from frame_times ─────────────────────────────────

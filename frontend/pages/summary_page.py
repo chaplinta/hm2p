@@ -48,7 +48,7 @@ with tab_cells:
     def _try_load_real_data():
         """Attempt to load real sync.h5 data from S3."""
         try:
-            from frontend.data import load_all_sync_data, session_filter_sidebar
+            from frontend.data import load_all_sync_data, session_filter_controls as session_filter_sidebar
             all_data = load_all_sync_data()
             if all_data["n_sessions"] > 0:
                 sessions = session_filter_sidebar(all_data["sessions"])
@@ -67,6 +67,8 @@ with tab_cells:
         from hm2p.analysis.gain import population_gain_modulation
         from hm2p.analysis.speed import speed_modulation_index
 
+        from frontend.data import render_tracker_provenance
+        render_tracker_provenance(real_sessions)
         st.success(
             f"Loaded {len(real_sessions)} sessions, "
             f"{sum(s['n_rois'] for s in real_sessions)} total cells"

@@ -20,6 +20,7 @@ from frontend.data import (
     DERIVATIVES_BUCKET,
     RAWDATA_BUCKET,
     download_s3_bytes,
+    get_s3_client,
     list_s3_session_files,
     load_animals,
     load_experiments,
@@ -87,15 +88,14 @@ data_sources = {}
 @st.cache_data(ttl=120)
 def _check_data_availability(sub: str, ses: str) -> dict[str, bool]:
     """Check which data types are available for this session."""
-    import boto3
-    s3 = boto3.client("s3", region_name="ap-southeast-2")
+    s3 = get_s3_client()
 
     checks = {
         "timestamps": f"movement/{sub}/{ses}/timestamps.h5",
         "ca_extraction": f"ca_extraction/{sub}/{ses}/suite2p/plane0/F.npy",
         "calcium": f"calcium/{sub}/{ses}/ca.h5",
         "pose": f"pose/{sub}/{ses}/",
-        "kinematics": f"movement/{sub}/{ses}/kinematics.h5",
+        "kinematics": f"kinematics/{sub}/{ses}/kinematics.h5",
         "sync": f"sync/{sub}/{ses}/sync.h5",
         "analysis": f"analysis/{sub}/{ses}/analysis.h5",
     }

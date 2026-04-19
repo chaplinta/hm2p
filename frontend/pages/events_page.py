@@ -20,7 +20,7 @@ from frontend.data import (
     load_animals,
     load_experiments,
     parse_session_id,
-    session_filter_sidebar,
+    session_filter_controls as session_filter_sidebar,
 )
 
 log = logging.getLogger("hm2p.frontend.events")

@@ -17,7 +17,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from frontend.data import load_all_sync_data, session_filter_sidebar
+from frontend.data import load_all_sync_data, render_tracker_provenance, session_filter_controls as session_filter_sidebar
 
 # ── DLC skeleton and rainbow colormap ────────────────────────────────
 _SKELETON = [
@@ -375,6 +375,7 @@ def _page() -> None:
     if not sessions:
         st.warning("No sessions match the current filters.")
         st.stop()
+    render_tracker_provenance(sessions)
 
     sessions_with_pos = [s for s in sessions if s.get("x_maze") is not None and s.get("y_maze") is not None]
 

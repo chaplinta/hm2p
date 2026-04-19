@@ -18,6 +18,7 @@ from frontend.data import (
     get_pipeline_status,
     get_progress,
     get_stage_summary,
+    invalidate_session_cache,
     load_experiments,
     sanitize_error,
 )
@@ -28,6 +29,7 @@ st.title("Pipeline Status")
 
 if st.button("Refresh"):
     st.cache_data.clear()
+    invalidate_session_cache()
 
 # ── Live activity ────────────────────────────────────────────────────────
 import json
@@ -189,8 +191,12 @@ st.subheader("Stage Completion Matrix")
 pipeline_status = get_pipeline_status()
 experiments = load_experiments()
 
-# Use core stages (skip ingest — rawdata bucket)
-_matrix_stages = {k: v for k, v in PIPELINE_STAGES.items() if k != "ingest"}
+# Use core stages only. Skip ingest (rawdata bucket) and kpms/cascade —
+# those share s3_prefix with kinematics/calcium and cannot be distinguished
+# per-session without downloading HDF5 files. They are tracked at the
+# aggregate level via _count_kpms_outputs() and _count_cascade_outputs().
+_PER_SESSION_SKIP = {"ingest", "kpms", "cascade"}
+_matrix_stages = {k: v for k, v in PIPELINE_STAGES.items() if k not in _PER_SESSION_SKIP}
 header = "| Session | Animal | " + " | ".join(v["short"] for v in _matrix_stages.values()) + " |"
 separator = "|---|---|" + "|".join(["---"] * len(_matrix_stages)) + "|"
 rows = [header, separator]

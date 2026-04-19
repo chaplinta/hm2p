@@ -18,7 +18,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from frontend.data import load_all_sync_data, session_filter_sidebar
+from frontend.data import load_all_sync_data, render_tracker_provenance, session_filter_controls as session_filter_sidebar
 from frontend.pages.maze_animation_page import _MAZE_WALLS_X, _MAZE_WALLS_Y
 
 # ── Perspective correction (operates on pixel-level data, before mm/maze conversion)
@@ -203,6 +203,7 @@ def _page() -> None:
     sessions = session_filter_sidebar(
         all_data["sessions"], show_roi_filter=False, key_prefix="persp"
     )
+    render_tracker_provenance(sessions)
 
     sessions_with_pos = [s for s in sessions if s.get("x_maze") is not None]
 
