@@ -78,6 +78,10 @@ def _page() -> None:
                 for key in ("speed_cm_s", "ahv_deg_s", "hd_deg", "light_on", "active", "bad_behav"):
                     if key in f:
                         result[key] = f[key][:]
+                # DLC model provenance
+                for attr in ("dlc_model_name", "dlc_snapshot"):
+                    val = f.attrs.get(attr, "unknown")
+                    result[attr] = val.decode() if isinstance(val, bytes) else str(val)
         return result
 
     with st.spinner("Loading data..."):
@@ -86,6 +90,14 @@ def _page() -> None:
     if data is None:
         st.warning("No calcium data found.")
         st.stop()
+
+    # DLC model provenance
+    model_name = data.get("dlc_model_name", "unknown")
+    snapshot = data.get("dlc_snapshot", "unknown")
+    if model_name != "unknown":
+        st.caption(f"Tracker: DLC | Model: {model_name} | Snapshot: {snapshot}")
+    elif "speed_cm_s" in data:
+        st.caption("Tracker: DLC | Model: unknown (pre-provenance sync.h5)")
 
     dff = data["dff"]
     n_rois, n_frames = dff.shape
@@ -279,9 +291,4 @@ def _page() -> None:
         )
 
 
-try:
-    from streamlit.runtime.scriptrunner import get_script_run_ctx
-    if get_script_run_ctx() is not None:
-        _page()
-except ImportError:
-    _page()
+_page()

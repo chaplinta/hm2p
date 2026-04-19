@@ -300,9 +300,4 @@ def _page() -> None:
         )
 
 
-try:
-    from streamlit.runtime.scriptrunner import get_script_run_ctx
-    if get_script_run_ctx() is not None:
-        _page()
-except ImportError:
-    _page()
+_page()
