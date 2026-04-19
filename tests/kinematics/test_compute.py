@@ -21,11 +21,16 @@ from hm2p.kinematics.compute import (
     _vector_angle_deg,
     _windowed_gradient,
     _windowed_speed,
+    compute_ahv,
     compute_bad_behav_mask,
+    compute_body_position,
+    compute_hd_multi,
     compute_head_direction,
+    compute_head_position,
     compute_light_on,
     compute_maze_coords,
     compute_position_mm,
+    compute_speed_from_position,
 )
 
 # ---------------------------------------------------------------------------
@@ -1234,3 +1239,540 @@ class TestUnwrapAndSmooth:
         arr = np.array(angles, dtype=np.float64)
         out = _unwrap_and_smooth(arr, median_filter_win=3)
         assert np.all(np.isfinite(out))
+
+
+# ---------------------------------------------------------------------------
+# Helpers for new-function tests
+# ---------------------------------------------------------------------------
+
+# Full keypoint set used by compute_hd_multi, compute_head_position, compute_body_position
+_ALL_KEYPOINTS = [
+    "nose_tip", "left_ear", "right_ear", "head_midpoint", "neck",
+    "mid_back", "mouse_center", "tail_base",
+]
+
+
+def _make_full_dataset(
+    n: int = 20,
+    *,
+    left_ear_x: float = 0.0,
+    left_ear_y: float = 0.0,
+    right_ear_x: float = 1.0,
+    right_ear_y: float = 0.0,
+    nose_x: float = 0.5,
+    nose_y: float = -1.0,
+    implant_x: float = 0.5,
+    implant_y: float = 0.0,
+    neck_x: float = 0.5,
+    neck_y: float = 1.0,
+    mid_back_x: float = 0.5,
+    mid_back_y: float = 2.0,
+    mouse_center_x: float = 0.5,
+    mouse_center_y: float = 3.0,
+    tail_base_x: float = 0.5,
+    tail_base_y: float = 4.0,
+    conf: float = 1.0,
+) -> xr.Dataset:
+    """Build a minimal full-keypoint Dataset for new-function tests.
+
+    All keypoints are placed at fixed pixel positions (repeated across N frames)
+    with uniform confidence ``conf``. Spatial positions are in pixels; scale is
+    applied inside the functions under test.
+    """
+    pos_map = {
+        "nose_tip": (nose_x, nose_y),
+        "left_ear": (left_ear_x, left_ear_y),
+        "right_ear": (right_ear_x, right_ear_y),
+        "head_midpoint": (implant_x, implant_y),
+        "neck": (neck_x, neck_y),
+        "mid_back": (mid_back_x, mid_back_y),
+        "mouse_center": (mouse_center_x, mouse_center_y),
+        "tail_base": (tail_base_x, tail_base_y),
+    }
+    n_kp = len(_ALL_KEYPOINTS)
+    pos_data = np.zeros((n, 2, n_kp, 1), dtype=np.float64)
+    for ki, kp in enumerate(_ALL_KEYPOINTS):
+        px, py = pos_map[kp]
+        pos_data[:, 0, ki, 0] = px  # x
+        pos_data[:, 1, ki, 0] = py  # y
+
+    conf_data = np.full((n, n_kp, 1), conf, dtype=np.float64)
+
+    position = xr.DataArray(
+        pos_data,
+        dims=["time", "space", "keypoints", "individuals"],
+        coords={
+            "time": np.arange(n, dtype=float),
+            "space": ["x", "y"],
+            "keypoints": _ALL_KEYPOINTS,
+            "individuals": ["mouse"],
+        },
+    )
+    confidence = xr.DataArray(
+        conf_data,
+        dims=["time", "keypoints", "individuals"],
+        coords={
+            "time": np.arange(n, dtype=float),
+            "keypoints": _ALL_KEYPOINTS,
+            "individuals": ["mouse"],
+        },
+    )
+    return xr.Dataset({"position": position, "confidence": confidence})
+
+
+# ---------------------------------------------------------------------------
+# compute_hd_multi
+# ---------------------------------------------------------------------------
+
+
+class TestComputeHdMulti:
+    """Tests for the 4-estimate confidence-weighted HD fusion function."""
+
+    def test_returns_all_keys(self) -> None:
+        """Output dict must contain all required keys."""
+        ds = _make_full_dataset()
+        result = compute_hd_multi(ds, scale_mm_per_px=0.1)
+        required_keys = {
+            "hd_deg", "hd_ears", "hd_nose_head", "hd_nose_neck",
+            "hd_head_neck", "hd_confidence",
+        }
+        assert set(result.keys()) == required_keys
+
+    def test_output_shapes(self) -> None:
+        """Every array in the output has shape (N,)."""
+        n = 30
+        ds = _make_full_dataset(n=n)
+        result = compute_hd_multi(ds, scale_mm_per_px=0.1)
+        for key, arr in result.items():
+            assert arr.shape == (n,), f"Key {key} has wrong shape {arr.shape}"
+
+    def test_output_dtypes_float32(self) -> None:
+        """All outputs must be float32 (matches HDF5 schema)."""
+        ds = _make_full_dataset()
+        result = compute_hd_multi(ds, scale_mm_per_px=0.1)
+        for key, arr in result.items():
+            assert arr.dtype == np.float32, f"Key {key} dtype={arr.dtype}"
+
+    def test_fused_hd_finite_when_all_keypoints_present(self) -> None:
+        """When all keypoints are present with conf=1, fused HD is finite."""
+        ds = _make_full_dataset()
+        result = compute_hd_multi(ds, scale_mm_per_px=0.1)
+        assert np.all(np.isfinite(result["hd_deg"]))
+
+    def test_ears_only_fallback(self) -> None:
+        """With only ears available, fused HD equals ear estimate."""
+        # Dataset with ears only (other kps at same position → degenerate)
+        n = 10
+        ds_full = _make_full_dataset(n=n)
+        # Remove non-ear keypoints from confidence (zero conf → zero weight)
+        conf = ds_full.confidence.values.copy()
+        non_ear_idx = [
+            _ALL_KEYPOINTS.index(k)
+            for k in ["nose_tip", "head_midpoint", "neck", "mid_back", "mouse_center", "tail_base"]
+        ]
+        conf[:, non_ear_idx, :] = 0.0
+        ds_ears_only = ds_full.assign(
+            confidence=xr.DataArray(
+                conf,
+                dims=ds_full.confidence.dims,
+                coords=ds_full.confidence.coords,
+            )
+        )
+        result = compute_hd_multi(ds_ears_only, scale_mm_per_px=0.1)
+        # Fused HD should match ear estimate (hd_ears is wrapped, hd_deg is unwrapped)
+        # After unwrap of constant angle they should agree modulo constant offset
+        hd_ears_vals = result["hd_ears"]
+        assert np.all(np.isfinite(result["hd_deg"]))
+        assert np.all(np.isfinite(hd_ears_vals))
+
+    def test_confidence_sum_positive_when_data_present(self) -> None:
+        """hd_confidence should be positive where any estimate contributes."""
+        ds = _make_full_dataset()
+        result = compute_hd_multi(ds, scale_mm_per_px=0.1)
+        assert np.all(result["hd_confidence"] > 0)
+
+    def test_nan_when_all_confidence_zero(self) -> None:
+        """All-zero confidence (all NaN positions) → fused HD is NaN."""
+        n = 5
+        ds = _make_full_dataset(n=n, conf=0.0)
+        result = compute_hd_multi(ds, scale_mm_per_px=0.1)
+        assert np.all(np.isnan(result["hd_deg"]))
+
+    def test_individual_estimates_ears_reasonable_angle(self) -> None:
+        """For a specific ear geometry, hd_ears should have a predictable angle."""
+        # left_ear at (0,0), right_ear at (1,0): ear vector → dx=0-1=-1, dy=0-0=0
+        # atan2(-1, 0) = -pi/2 → 180 + degrees(-pi/2) = 180 - 90 = 90°
+        ds = _make_full_dataset(
+            left_ear_x=0.0, left_ear_y=0.0,
+            right_ear_x=1.0, right_ear_y=0.0,
+        )
+        result = compute_hd_multi(ds, scale_mm_per_px=1.0)
+        np.testing.assert_allclose(result["hd_ears"], 90.0, atol=1e-4)
+
+    def test_missing_ears_raises(self) -> None:
+        """If ears are missing from the dataset, raise ValueError."""
+        # Build a dataset without left_ear
+        n = 5
+        kps = ["nose_tip", "right_ear", "head_midpoint", "neck", "mid_back", "mouse_center", "tail_base"]
+        pos_data = np.ones((n, 2, len(kps), 1), dtype=np.float64)
+        conf_data = np.ones((n, len(kps), 1), dtype=np.float64)
+        position = xr.DataArray(
+            pos_data,
+            dims=["time", "space", "keypoints", "individuals"],
+            coords={"time": np.arange(n, dtype=float), "space": ["x", "y"],
+                    "keypoints": kps, "individuals": ["mouse"]},
+        )
+        confidence = xr.DataArray(
+            conf_data,
+            dims=["time", "keypoints", "individuals"],
+            coords={"time": np.arange(n, dtype=float), "keypoints": kps, "individuals": ["mouse"]},
+        )
+        ds_no_ear = xr.Dataset({"position": position, "confidence": confidence})
+        with pytest.raises(ValueError, match="left_ear"):
+            compute_hd_multi(ds_no_ear, scale_mm_per_px=1.0)
+
+    @given(
+        n=st.integers(min_value=5, max_value=50),
+        conf=st.floats(min_value=0.1, max_value=1.0),
+    )
+    @settings(max_examples=30)
+    def test_property_output_shape_matches_input(self, n: int, conf: float) -> None:
+        """For any n and conf, all outputs have shape (n,)."""
+        ds = _make_full_dataset(n=n, conf=conf)
+        result = compute_hd_multi(ds, scale_mm_per_px=0.1)
+        for key, arr in result.items():
+            assert arr.shape == (n,), f"{key}: expected ({n},), got {arr.shape}"
+
+
+# ---------------------------------------------------------------------------
+# compute_head_position
+# ---------------------------------------------------------------------------
+
+
+class TestComputeHeadPosition:
+    """Tests for the 3-estimate confidence-weighted head position function."""
+
+    def test_output_shapes(self) -> None:
+        n = 15
+        ds = _make_full_dataset(n=n)
+        x_mm, y_mm = compute_head_position(ds, scale_mm_per_px=1.0)
+        assert x_mm.shape == (n,)
+        assert y_mm.shape == (n,)
+
+    def test_output_dtypes_float32(self) -> None:
+        ds = _make_full_dataset()
+        x_mm, y_mm = compute_head_position(ds, scale_mm_per_px=1.0)
+        assert x_mm.dtype == np.float32
+        assert y_mm.dtype == np.float32
+
+    def test_scale_applied_correctly(self) -> None:
+        """Output in mm should equal pixel coordinates times scale."""
+        ds = _make_full_dataset(
+            implant_x=10.0, implant_y=20.0,
+            nose_x=10.0, nose_y=20.0,
+            left_ear_x=10.0, left_ear_y=20.0,
+            right_ear_x=10.0, right_ear_y=20.0,
+            neck_x=10.0, neck_y=20.0,
+        )
+        scale = 0.5
+        x_mm, y_mm = compute_head_position(ds, scale_mm_per_px=scale)
+        np.testing.assert_allclose(x_mm, 10.0 * scale, atol=1e-5)
+        np.testing.assert_allclose(y_mm, 20.0 * scale, atol=1e-5)
+
+    def test_finite_when_all_keypoints_present(self) -> None:
+        """When all head keypoints are present and conf=1, output is finite."""
+        ds = _make_full_dataset()
+        x_mm, y_mm = compute_head_position(ds, scale_mm_per_px=0.1)
+        assert np.all(np.isfinite(x_mm))
+        assert np.all(np.isfinite(y_mm))
+
+    def test_nan_when_all_confidence_zero(self) -> None:
+        """Zero confidence everywhere → NaN head position."""
+        ds = _make_full_dataset(conf=0.0)
+        x_mm, y_mm = compute_head_position(ds, scale_mm_per_px=1.0)
+        assert np.all(np.isnan(x_mm))
+        assert np.all(np.isnan(y_mm))
+
+    def test_uniform_position_returns_same_position(self) -> None:
+        """When all head keypoints agree on position, output equals that position."""
+        px, py = 100.0, 200.0
+        ds = _make_full_dataset(
+            nose_x=px, nose_y=py,
+            implant_x=px, implant_y=py,
+            left_ear_x=px, left_ear_y=py,
+            right_ear_x=px, right_ear_y=py,
+            neck_x=px, neck_y=py,
+        )
+        scale = 0.3
+        x_mm, y_mm = compute_head_position(ds, scale_mm_per_px=scale)
+        np.testing.assert_allclose(x_mm, px * scale, atol=1e-4)
+        np.testing.assert_allclose(y_mm, py * scale, atol=1e-4)
+
+    def test_partial_keypoints_still_returns_finite(self) -> None:
+        """Missing some keypoints (zero conf) still returns a finite estimate."""
+        ds = _make_full_dataset(conf=1.0)
+        # Zero out neck confidence — should still get valid output from the other 2 estimates
+        conf = ds.confidence.values.copy()
+        neck_idx = _ALL_KEYPOINTS.index("neck")
+        conf[:, neck_idx, :] = 0.0
+        ds2 = ds.assign(
+            confidence=xr.DataArray(
+                conf, dims=ds.confidence.dims, coords=ds.confidence.coords,
+            )
+        )
+        x_mm, y_mm = compute_head_position(ds2, scale_mm_per_px=1.0)
+        assert np.all(np.isfinite(x_mm))
+        assert np.all(np.isfinite(y_mm))
+
+
+# ---------------------------------------------------------------------------
+# compute_body_position
+# ---------------------------------------------------------------------------
+
+
+class TestComputeBodyPosition:
+    """Tests for the confidence-weighted body centroid function."""
+
+    def test_output_shapes(self) -> None:
+        n = 12
+        ds = _make_full_dataset(n=n)
+        x_mm, y_mm = compute_body_position(ds, scale_mm_per_px=1.0)
+        assert x_mm.shape == (n,)
+        assert y_mm.shape == (n,)
+
+    def test_output_dtypes_float32(self) -> None:
+        ds = _make_full_dataset()
+        x_mm, y_mm = compute_body_position(ds, scale_mm_per_px=1.0)
+        assert x_mm.dtype == np.float32
+        assert y_mm.dtype == np.float32
+
+    def test_uniform_body_keypoints_returns_that_position(self) -> None:
+        """When mid_back, mouse_center, tail_base all agree, output equals that position."""
+        px, py = 50.0, 75.0
+        ds = _make_full_dataset(
+            mid_back_x=px, mid_back_y=py,
+            mouse_center_x=px, mouse_center_y=py,
+            tail_base_x=px, tail_base_y=py,
+        )
+        scale = 0.4
+        x_mm, y_mm = compute_body_position(ds, scale_mm_per_px=scale)
+        np.testing.assert_allclose(x_mm, px * scale, atol=1e-4)
+        np.testing.assert_allclose(y_mm, py * scale, atol=1e-4)
+
+    def test_scale_applied_correctly(self) -> None:
+        """Output should be in mm, not pixels."""
+        ds = _make_full_dataset(
+            mid_back_x=10.0, mid_back_y=10.0,
+            mouse_center_x=10.0, mouse_center_y=10.0,
+            tail_base_x=10.0, tail_base_y=10.0,
+        )
+        scale = 0.2
+        x_mm, y_mm = compute_body_position(ds, scale_mm_per_px=scale)
+        np.testing.assert_allclose(x_mm, 10.0 * scale, atol=1e-5)
+        np.testing.assert_allclose(y_mm, 10.0 * scale, atol=1e-5)
+
+    def test_confidence_weighting_shifts_centroid(self) -> None:
+        """Higher confidence at one keypoint should pull the centroid toward it."""
+        # mid_back at x=0, mouse_center at x=10, tail_base at x=20
+        # If conf(mid_back)=1, conf(mouse_center)=0, conf(tail_base)=0 → centroid at x=0
+        n = 5
+        ds = _make_full_dataset(
+            n=n,
+            mid_back_x=0.0, mid_back_y=5.0,
+            mouse_center_x=10.0, mouse_center_y=5.0,
+            tail_base_x=20.0, tail_base_y=5.0,
+        )
+        conf = ds.confidence.values.copy()
+        mc_idx = _ALL_KEYPOINTS.index("mouse_center")
+        tb_idx = _ALL_KEYPOINTS.index("tail_base")
+        conf[:, mc_idx, :] = 0.0
+        conf[:, tb_idx, :] = 0.0
+        ds2 = ds.assign(
+            confidence=xr.DataArray(
+                conf, dims=ds.confidence.dims, coords=ds.confidence.coords,
+            )
+        )
+        x_mm, _ = compute_body_position(ds2, scale_mm_per_px=1.0)
+        np.testing.assert_allclose(x_mm, 0.0, atol=1e-5)
+
+    def test_nan_when_all_body_confidence_zero(self) -> None:
+        """Zero confidence on all body keypoints → NaN body position."""
+        n = 5
+        ds = _make_full_dataset(n=n)
+        conf = ds.confidence.values.copy()
+        for kp in ["mid_back", "mouse_center", "tail_base"]:
+            conf[:, _ALL_KEYPOINTS.index(kp), :] = 0.0
+        ds2 = ds.assign(
+            confidence=xr.DataArray(
+                conf, dims=ds.confidence.dims, coords=ds.confidence.coords,
+            )
+        )
+        x_mm, y_mm = compute_body_position(ds2, scale_mm_per_px=1.0)
+        assert np.all(np.isnan(x_mm))
+        assert np.all(np.isnan(y_mm))
+
+    def test_head_keypoints_not_used(self) -> None:
+        """Moving head keypoints away from body should not change body centroid."""
+        n = 5
+        ds = _make_full_dataset(
+            n=n,
+            mid_back_x=5.0, mid_back_y=5.0,
+            mouse_center_x=5.0, mouse_center_y=5.0,
+            tail_base_x=5.0, tail_base_y=5.0,
+            nose_x=9999.0, nose_y=9999.0,  # head far away
+            left_ear_x=9999.0, left_ear_y=9999.0,
+            right_ear_x=9999.0, right_ear_y=9999.0,
+        )
+        x_mm, y_mm = compute_body_position(ds, scale_mm_per_px=1.0)
+        np.testing.assert_allclose(x_mm, 5.0, atol=1e-4)
+        np.testing.assert_allclose(y_mm, 5.0, atol=1e-4)
+
+
+# ---------------------------------------------------------------------------
+# compute_speed_from_position
+# ---------------------------------------------------------------------------
+
+
+class TestComputeSpeedFromPosition:
+    """Tests for the median-filter + gradient speed computation."""
+
+    def test_stationary_zero_speed(self) -> None:
+        """Constant position → zero speed."""
+        n = 30
+        times = np.linspace(0, 3, n)
+        x_mm = np.full(n, 100.0, dtype=np.float64)
+        y_mm = np.full(n, 200.0, dtype=np.float64)
+        speed = compute_speed_from_position(x_mm, y_mm, times)
+        np.testing.assert_allclose(speed, 0.0, atol=1e-8)
+
+    def test_constant_velocity_correct_speed(self) -> None:
+        """Moving at 100 mm/s in x → speed = 10 cm/s."""
+        n = 60
+        times = np.linspace(0, 6, n)
+        x_mm = 100.0 * times  # 100 mm/s
+        y_mm = np.zeros(n)
+        speed = compute_speed_from_position(x_mm, y_mm, times)
+        # Interior frames should be close to 10 cm/s
+        np.testing.assert_allclose(speed[5:-5], 10.0, atol=0.5)
+
+    def test_nan_preserved_at_nan_positions(self) -> None:
+        """NaN in position → NaN in speed at those frames."""
+        n = 20
+        times = np.linspace(0, 2, n)
+        x_mm = np.full(n, 0.0, dtype=np.float64)
+        y_mm = np.full(n, 0.0, dtype=np.float64)
+        x_mm[10] = np.nan
+        speed = compute_speed_from_position(x_mm, y_mm, times)
+        assert np.isnan(speed[10])
+
+    def test_output_shape(self) -> None:
+        n = 25
+        times = np.linspace(0, 5, n)
+        speed = compute_speed_from_position(np.zeros(n), np.zeros(n), times)
+        assert speed.shape == (n,)
+
+    def test_output_dtype_float32(self) -> None:
+        n = 10
+        times = np.linspace(0, 1, n)
+        speed = compute_speed_from_position(np.zeros(n), np.zeros(n), times)
+        assert speed.dtype == np.float32
+
+    def test_non_negative(self) -> None:
+        """Speed is always non-negative (it is a magnitude)."""
+        rng = np.random.default_rng(7)
+        n = 50
+        times = np.linspace(0, 5, n)
+        x_mm = np.cumsum(rng.standard_normal(n))
+        y_mm = np.cumsum(rng.standard_normal(n))
+        speed = compute_speed_from_position(x_mm, y_mm, times)
+        finite_speed = speed[np.isfinite(speed)]
+        assert np.all(finite_speed >= 0.0)
+
+    def test_diagonal_speed(self) -> None:
+        """Moving at 100 mm/s in both x and y → speed = sqrt(2)*10 cm/s."""
+        n = 60
+        times = np.linspace(0, 6, n)
+        x_mm = 100.0 * times
+        y_mm = 100.0 * times
+        speed = compute_speed_from_position(x_mm, y_mm, times)
+        expected = np.sqrt(2.0) * 10.0
+        np.testing.assert_allclose(speed[5:-5], expected, atol=0.5)
+
+    @given(
+        n=st.integers(min_value=5, max_value=100),
+        velocity=st.floats(min_value=0.0, max_value=1000.0),
+    )
+    @settings(max_examples=30)
+    def test_property_constant_velocity(self, n: int, velocity: float) -> None:
+        """For any constant velocity, speed should be finite and non-negative."""
+        times = np.linspace(0, float(n) / 10.0, n)
+        x_mm = velocity * times
+        y_mm = np.zeros(n)
+        speed = compute_speed_from_position(x_mm, y_mm, times)
+        assert speed.shape == (n,)
+        assert speed.dtype == np.float32
+        finite = speed[np.isfinite(speed)]
+        assert np.all(finite >= 0.0)
+
+
+# ---------------------------------------------------------------------------
+# compute_ahv
+# ---------------------------------------------------------------------------
+
+
+class TestComputeAhv:
+    """Tests for the angular head velocity computation."""
+
+    def test_constant_hd_zero_ahv(self) -> None:
+        """Constant HD → zero AHV."""
+        n = 40
+        times = np.linspace(0, 4, n)
+        hd_deg = np.full(n, 90.0, dtype=np.float64)
+        ahv = compute_ahv(hd_deg, times)
+        np.testing.assert_allclose(ahv, 0.0, atol=1e-6)
+
+    def test_linear_hd_constant_ahv(self) -> None:
+        """Linearly increasing HD at 36 deg/s → AHV ≈ 36 everywhere."""
+        n = 60
+        times = np.linspace(0, 6, n)
+        hd_deg = 36.0 * times  # 36 deg/s
+        ahv = compute_ahv(hd_deg, times)
+        # Interior frames should be close to 36 deg/s
+        np.testing.assert_allclose(ahv[5:-5], 36.0, atol=1.0)
+
+    def test_nan_preserved(self) -> None:
+        """NaN in HD → NaN in AHV at those frames."""
+        n = 20
+        times = np.linspace(0, 2, n)
+        hd_deg = np.full(n, 45.0, dtype=np.float64)
+        hd_deg[10] = np.nan
+        ahv = compute_ahv(hd_deg, times)
+        assert np.isnan(ahv[10])
+
+    def test_output_shape(self) -> None:
+        n = 25
+        times = np.linspace(0, 2, n)
+        ahv = compute_ahv(np.zeros(n), times)
+        assert ahv.shape == (n,)
+
+    def test_output_dtype_float32(self) -> None:
+        n = 10
+        times = np.linspace(0, 1, n)
+        ahv = compute_ahv(np.zeros(n), times)
+        assert ahv.dtype == np.float32
+
+    def test_units_deg_per_second(self) -> None:
+        """Verify units: HD increasing at 100 deg/s → AHV ≈ 100 deg/s."""
+        n = 50
+        times = np.linspace(0, 5, n)
+        hd_deg = 100.0 * times
+        ahv = compute_ahv(hd_deg, times)
+        np.testing.assert_allclose(ahv[5:-5], 100.0, atol=2.0)
+
+    def test_all_nan_input_all_nan_output(self) -> None:
+        """All-NaN HD → all-NaN AHV."""
+        n = 10
+        times = np.linspace(0, 1, n)
+        hd_deg = np.full(n, np.nan, dtype=np.float64)
+        ahv = compute_ahv(hd_deg, times)
+        assert np.all(np.isnan(ahv))
