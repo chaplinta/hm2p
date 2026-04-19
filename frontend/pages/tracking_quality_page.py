@@ -45,12 +45,23 @@ if not experiments:
 @st.cache_data(ttl=300)
 def _load_dlc_data(sub: str, ses: str) -> tuple:
     """Load DLC h5 + meta from S3. Returns (df, meta_dict, bodyparts, scorer)."""
+    import re as _re
+
     files = list_s3_session_files(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/")
-    h5_files = [f for f in files if f["key"].endswith(".h5")]
+    h5_files = [f for f in files if f["key"].endswith(".h5")
+                and "_single" not in f["key"] and "_filtered" not in f["key"]]
     if not h5_files:
         return None, None, None, None
 
-    h5_data = download_s3_bytes(DERIVATIVES_BUCKET, h5_files[0]["key"])
+    # Pick latest finetuned snapshot
+    def _snap(f):
+        m = _re.search(r"snapshot[_-]best[_-](\d+)", f["key"])
+        return int(m.group(1)) if m else -1
+
+    finetuned = [f for f in h5_files if "Hrnet" in f["key"] or "Resnet" in f["key"]]
+    best = max(finetuned, key=_snap) if finetuned else h5_files[0]
+
+    h5_data = download_s3_bytes(DERIVATIVES_BUCKET, best["key"])
     if not h5_data:
         return None, None, None, None
 

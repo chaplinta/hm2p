@@ -428,9 +428,16 @@ def render_session(
         return None
 
     pose_prefix = f"pose/{sub}/{ses}/"
-    pose_key = find_s3_file(s3, DERIV_BUCKET, pose_prefix, "_superanimal_")
-    if not pose_key:
-        pose_key = find_s3_file(s3, DERIV_BUCKET, pose_prefix, ".h5")
+    # Pick the latest finetuned snapshot (highest number)
+    import re as _re
+    _pose_resp = s3.list_objects_v2(Bucket=DERIV_BUCKET, Prefix=pose_prefix, MaxKeys=30)
+    _pose_h5s = [o["Key"] for o in _pose_resp.get("Contents", [])
+                 if o["Key"].endswith(".h5") and "_single" not in o["Key"] and "_filtered" not in o["Key"]]
+    def _snap_num(k):
+        m = _re.search(r"snapshot[_-]best[_-](\d+)", k)
+        return int(m.group(1)) if m else -1
+    _finetuned = [k for k in _pose_h5s if "Hrnet" in k or "Resnet" in k]
+    pose_key = max(_finetuned, key=_snap_num) if _finetuned else (_pose_h5s[0] if _pose_h5s else None)
     if not pose_key:
         log.warning("  No DLC .h5 found for %s, skipping", exp_id)
         return None
@@ -511,8 +518,8 @@ def render_session(
                 ffproc = subprocess.Popen(
                     ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
                      "-s", f"{OUTPUT_WIDTH}x{OUTPUT_HEIGHT}", "-r", str(OUTPUT_FPS),
-                     "-i", "pipe:0", "-c:v", "libx264", "-crf", "28",
-                     "-preset", "fast", "-movflags", "+faststart", str(out_path)],
+                     "-i", "pipe:0", "-c:v", "libx264", "-crf", "23",
+                     "-preset", "medium", "-movflags", "+faststart", str(out_path)],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,   # capture for error logging
