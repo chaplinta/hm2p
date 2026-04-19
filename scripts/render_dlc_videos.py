@@ -325,7 +325,8 @@ def _apply_median_filter(keypoints: dict[str, np.ndarray], window: int = 3) -> d
                 valid = ~nan_mask
                 filled[nan_mask] = np.interp(idx[nan_mask], idx[valid], vals[valid])
             out[:, col] = median_filter(filled, size=window, mode="nearest")
-            out[nan_mask, col] = np.nan
+            # Don't restore NaN — keep interpolated values so labels
+            # are always visible in the video
         filtered[bp] = out
     return filtered
 
