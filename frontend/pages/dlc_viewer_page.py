@@ -81,27 +81,10 @@ VIDEO_FILENAMES = {
 
 
 @st.cache_data(ttl=3600, show_spinner="Downloading labelled video...")
-def dl_video(sub: str, ses: str, mode: str = "DLC raw") -> tuple[bytes | None, str | None]:
-    """Download labelled video. Returns (bytes, warning_message)."""
+def dl_video(sub: str, ses: str, mode: str = "DLC raw") -> bytes | None:
+    """Download labelled video."""
     fname = VIDEO_FILENAMES.get(mode, "labelled_30fps.mp4")
-    warning = None
-    from frontend.data import get_s3_client
-    try:
-        s3 = get_s3_client()
-        head = s3.head_object(Bucket=DERIVATIVES_BUCKET, Key=f"pose/{sub}/{ses}/{fname}")
-        size_mb = head["ContentLength"] / 1e6
-        if size_mb > 100:
-            fname = "labelled_median_30fps.mp4"
-            warning = (
-                f"Raw video too large ({size_mb:.0f} MB — render compression failed). "
-                "Showing median filtered instead. Re-render is in progress."
-            )
-    except Exception:
-        pass
-    data = download_s3_bytes(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/{fname}")
-    if data is None and mode != "DLC raw":
-        data = download_s3_bytes(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/labelled_30fps.mp4")
-    return data, warning
+    return download_s3_bytes(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/{fname}")
 
 
 @st.cache_data(ttl=3600, show_spinner="Downloading DLC .h5...")
@@ -372,9 +355,7 @@ with st.expander("Position modes explained"):
 
 # ── Load data ────────────────────────────────────────────────────────────
 
-vbytes, _video_warn = dl_video(sub, ses, mode=pos_source)
-if _video_warn:
-    st.warning(_video_warn)
+vbytes = dl_video(sub, ses, mode=pos_source)
 dlc_data = dl_dlc(sub, ses)
 dlc_filtered = (
     get_median_filtered(sub, ses)
