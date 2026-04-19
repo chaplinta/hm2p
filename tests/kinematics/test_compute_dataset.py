@@ -426,3 +426,66 @@ class TestKinematicsRun:
             assert len(data["light_on"]) == n_cam
         finally:
             _remove_mock_movement()
+
+    def test_run_provenance_attrs_stored(self, tmp_path: Path) -> None:
+        """dlc_model_name and dlc_snapshot are written to kinematics.h5 attrs."""
+        from hm2p.io.hdf5 import read_attrs
+
+        ts_h5 = tmp_path / "timestamps.h5"
+        self._write_timestamps(ts_h5, n_cam=200)
+        out_h5 = tmp_path / "kinematics.h5"
+        pose_ds = self._make_pose_ds(200)
+        corners = np.array([[149, 72], [764, 82], [757, 509], [143, 500]], dtype=np.float64)
+
+        self._setup_mocks(pose_ds)
+        try:
+            run(
+                pose_path=tmp_path / "fake_pose.h5",
+                timestamps_h5=ts_h5,
+                session_id="prov_test",
+                tracker="dlc",
+                orientation_deg=0.0,
+                scale_mm_per_px=0.811,
+                maze_corners_px=corners,
+                bad_behav_intervals=[],
+                output_path=out_h5,
+                dlc_model_name="hm2p-retrain-2026",
+                dlc_snapshot="150000",
+            )
+
+            attrs = read_attrs(out_h5)
+            assert attrs["dlc_model_name"] == "hm2p-retrain-2026"
+            assert attrs["dlc_snapshot"] == "150000"
+        finally:
+            _remove_mock_movement()
+
+    def test_run_provenance_attrs_default_unknown(self, tmp_path: Path) -> None:
+        """dlc_model_name and dlc_snapshot default to 'unknown' when not provided."""
+        from hm2p.io.hdf5 import read_attrs
+
+        ts_h5 = tmp_path / "timestamps.h5"
+        self._write_timestamps(ts_h5, n_cam=200)
+        out_h5 = tmp_path / "kinematics.h5"
+        pose_ds = self._make_pose_ds(200)
+        corners = np.array([[149, 72], [764, 82], [757, 509], [143, 500]], dtype=np.float64)
+
+        self._setup_mocks(pose_ds)
+        try:
+            run(
+                pose_path=tmp_path / "fake_pose.h5",
+                timestamps_h5=ts_h5,
+                session_id="default_prov",
+                tracker="dlc",
+                orientation_deg=0.0,
+                scale_mm_per_px=0.811,
+                maze_corners_px=corners,
+                bad_behav_intervals=[],
+                output_path=out_h5,
+                # no dlc_model_name or dlc_snapshot passed
+            )
+
+            attrs = read_attrs(out_h5)
+            assert attrs["dlc_model_name"] == "unknown"
+            assert attrs["dlc_snapshot"] == "unknown"
+        finally:
+            _remove_mock_movement()

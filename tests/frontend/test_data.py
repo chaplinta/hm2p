@@ -46,9 +46,11 @@ if "frontend.data" in sys.modules:
 # Now it is safe to import the module under test.
 from frontend.data import (  # noqa: E402
     DERIVATIVES_BUCKET,
+    DOWNSTREAM_DEPS,
     RAWDATA_BUCKET,
     REGION,
     STAGE_PREFIXES,
+    check_stale_data_warning,
     download_s3_bytes,
     download_s3_numpy,
     get_ec2_instances,
@@ -56,6 +58,7 @@ from frontend.data import (  # noqa: E402
     get_progress,
     get_s3_client,
     list_s3_session_files,
+    load_all_sync_data,
     load_animals,
     load_experiments,
     parse_session_id,
@@ -575,3 +578,417 @@ class TestDownloadS3Numpy:
 
         result = download_s3_numpy("bucket", "missing.npy")
         assert result is None
+
+
+# ===================================================================
+# T1: _count_cascade_outputs — spikes key absent/present
+# ===================================================================
+
+
+def _make_ca_h5_bytes(include_spikes: bool) -> bytes:
+    """Build an in-memory ca.h5 with dff and deconv; optionally add spikes."""
+    import io as _io
+
+    import h5py
+    import numpy as np
+
+    n_rois, n_frames = 5, 100
+    buf = _io.BytesIO()
+    with h5py.File(buf, "w") as f:
+        f.create_dataset("dff", data=np.zeros((n_rois, n_frames), dtype=np.float32))
+        f.create_dataset("deconv", data=np.zeros((n_rois, n_frames), dtype=np.float32))
+        if include_spikes:
+            f.create_dataset("spikes", data=np.zeros((n_rois, n_frames), dtype=np.float32))
+    buf.seek(0)
+    return buf.read()
+
+
+class TestCountCascadeOutputs:
+    """T1 — _count_cascade_outputs returns 0/26 based on spikes key."""
+
+    @patch("frontend.data.download_s3_bytes")
+    def test_no_spikes_key_returns_zero(self, mock_dl):
+        """CASCADE count is 0 when spikes key is absent from ca.h5."""
+        from frontend.data import _count_cascade_outputs
+
+        mock_dl.return_value = _make_ca_h5_bytes(include_spikes=False)
+        result = _count_cascade_outputs()
+        assert result == 0
+
+    @patch("frontend.data.download_s3_bytes")
+    def test_with_spikes_key_returns_26(self, mock_dl):
+        """CASCADE count is 26 when spikes key is present."""
+        from frontend.data import _count_cascade_outputs
+
+        mock_dl.return_value = _make_ca_h5_bytes(include_spikes=True)
+        result = _count_cascade_outputs()
+        assert result == 26
+
+    @patch("frontend.data.download_s3_bytes")
+    def test_download_returns_none_gives_zero(self, mock_dl):
+        """If S3 download fails (returns None), count is 0."""
+        from frontend.data import _count_cascade_outputs
+
+        mock_dl.return_value = None
+        result = _count_cascade_outputs()
+        assert result == 0
+
+    @patch("frontend.data.download_s3_bytes")
+    def test_corrupt_bytes_returns_zero(self, mock_dl):
+        """Corrupt HDF5 bytes are handled gracefully — count returns 0."""
+        from frontend.data import _count_cascade_outputs
+
+        mock_dl.return_value = b"not valid hdf5 bytes"
+        result = _count_cascade_outputs()
+        assert result == 0
+
+
+# ===================================================================
+# T3: check_stale_data_warning — blocks or warns based on rerun status
+# ===================================================================
+
+
+class TestCheckStaleDataWarning:
+    """T3 — check_stale_data_warning calls st.stop when block=True."""
+
+    @patch("frontend.data._get_rerun_status")
+    def test_blocks_when_sync_stage_is_rerunning(self, mock_rerun):
+        """check_stale_data_warning calls st.stop when upstream is re-running."""
+        mock_rerun.return_value = {
+            "rerunning": ["pose"],
+            "reason": "DLC inference running",
+        }
+        # pose is upstream of sync via DOWNSTREAM_DEPS["pose"]
+        mock_st = MagicMock()
+        with patch("frontend.data.st", mock_st):
+            check_stale_data_warning(stages=["sync"], block=True)
+
+        mock_st.stop.assert_called_once()
+        mock_st.error.assert_called_once()
+
+    @patch("frontend.data._get_rerun_status")
+    def test_does_not_block_when_nothing_is_rerunning(self, mock_rerun):
+        """check_stale_data_warning does not call st.stop when pipeline is idle."""
+        mock_rerun.return_value = {}
+        mock_st = MagicMock()
+        with patch("frontend.data.st", mock_st):
+            result = check_stale_data_warning(stages=["sync"], block=True)
+
+        mock_st.stop.assert_not_called()
+        assert result is False
+
+    @patch("frontend.data._get_rerun_status")
+    def test_warns_not_stops_when_block_false(self, mock_rerun):
+        """When block=False, a warning is shown but st.stop is not called."""
+        mock_rerun.return_value = {
+            "rerunning": ["pose"],
+            "reason": "DLC running",
+        }
+        mock_st = MagicMock()
+        with patch("frontend.data.st", mock_st):
+            result = check_stale_data_warning(stages=["sync"], block=False)
+
+        mock_st.stop.assert_not_called()
+        mock_st.warning.assert_called_once()
+        assert result is True
+
+    @patch("frontend.data._get_rerun_status")
+    def test_returns_false_when_rerunning_stage_does_not_affect_checked_stages(
+        self, mock_rerun
+    ):
+        """A calcium re-run does not affect kinematics pages."""
+        mock_rerun.return_value = {
+            "rerunning": ["calcium"],
+            "reason": "Calcium re-running",
+        }
+        mock_st = MagicMock()
+        with patch("frontend.data.st", mock_st):
+            # kinematics is not downstream of calcium
+            result = check_stale_data_warning(stages=["kinematics"], block=True)
+
+        mock_st.stop.assert_not_called()
+        assert result is False
+
+    @patch("frontend.data._get_rerun_status")
+    def test_default_stages_cover_sync_and_analysis(self, mock_rerun):
+        """Default stages parameter covers sync and analysis."""
+        mock_rerun.return_value = {
+            "rerunning": ["pose"],
+            "reason": "DLC running",
+        }
+        mock_st = MagicMock()
+        with patch("frontend.data.st", mock_st):
+            # Call without explicit stages — should default to ["sync","analysis"]
+            check_stale_data_warning(block=True)
+
+        # pose is upstream of sync and analysis — should block
+        mock_st.stop.assert_called_once()
+
+
+# ===================================================================
+# T4: load_all_sync_data calls check_stale_data_warning first
+# ===================================================================
+
+
+class TestLoadAllSyncDataStalenessCheck:
+    """T4 — load_all_sync_data invokes check_stale_data_warning before returning."""
+
+    @patch("frontend.data._fetch_all_sync_data")
+    @patch("frontend.data.check_stale_data_warning")
+    def test_staleness_check_is_called_before_fetch(
+        self, mock_staleness, mock_fetch
+    ):
+        """load_all_sync_data calls check_stale_data_warning(stages=['sync'], block=True)."""
+        mock_staleness.return_value = False
+        mock_fetch.return_value = {"sessions": [], "n_sessions": 0, "n_total_rois": 0}
+
+        mock_st = MagicMock()
+        mock_st.session_state = {}
+        with patch("frontend.data.st", mock_st):
+            load_all_sync_data()
+
+        mock_staleness.assert_called_once_with(stages=["sync"], block=True)
+
+    @patch("frontend.data._fetch_all_sync_data")
+    @patch("frontend.data.check_stale_data_warning")
+    def test_staleness_check_called_even_when_cached(
+        self, mock_staleness, mock_fetch
+    ):
+        """Staleness check runs even if data is already in session_state cache."""
+        mock_staleness.return_value = False
+
+        cached_data = {"sessions": [{"exp_id": "dummy"}], "n_sessions": 1, "n_total_rois": 5}
+
+        mock_st = MagicMock()
+        mock_st.session_state = {"_hm2p_cache_sync_data": cached_data}
+        with patch("frontend.data.st", mock_st):
+            result = load_all_sync_data()
+
+        mock_staleness.assert_called_once_with(stages=["sync"], block=True)
+        # Data served from cache when available
+        assert result == cached_data
+        mock_fetch.assert_not_called()
+
+
+# ===================================================================
+# T5: sync.h5 key set matches frontend read contract
+# ===================================================================
+
+
+def _build_sync_h5(tmp_path: "Path", include_optional: bool = True) -> "Path":
+    """Write a minimal synthetic sync.h5 matching the Stage 5 write contract."""
+    import numpy as np
+
+    from hm2p.io.hdf5 import write_h5
+
+    n_rois, n_frames = 4, 50
+    datasets: dict = {
+        "dff": np.zeros((n_rois, n_frames), dtype=np.float32),
+        "hd_deg": np.zeros(n_frames, dtype=np.float32),
+        "speed_cm_s": np.zeros(n_frames, dtype=np.float32),
+        "light_on": np.ones(n_frames, dtype=bool),
+        "active": np.ones(n_frames, dtype=bool),
+        "bad_behav": np.zeros(n_frames, dtype=bool),
+        "frame_times": np.linspace(0, 5, n_frames).astype(np.float64),
+        "roi_types": np.zeros(n_rois, dtype=np.uint8),
+    }
+    if include_optional:
+        datasets["deconv"] = np.zeros((n_rois, n_frames), dtype=np.float32)
+        datasets["spikes"] = np.zeros((n_rois, n_frames), dtype=np.float32)
+        datasets["event_masks"] = np.zeros((n_rois, n_frames), dtype=bool)
+        datasets["event_masks_sd"] = np.zeros((n_rois, n_frames), dtype=bool)
+        datasets["x_mm"] = np.zeros(n_frames, dtype=np.float32)
+        datasets["y_mm"] = np.zeros(n_frames, dtype=np.float32)
+        datasets["ahv_deg_s"] = np.zeros(n_frames, dtype=np.float32)
+
+    out = tmp_path / "sync.h5"
+    write_h5(out, datasets, attrs={"session_id": "test"})
+    return out
+
+
+def _read_sync_h5_like_frontend(path: "Path") -> dict:
+    """Simulate _fetch_all_sync_data's HDF5 reading logic on a local file."""
+    import io as _io
+
+    import h5py
+    import numpy as np
+
+    with open(path, "rb") as fh:
+        data_bytes = fh.read()
+
+    result: dict = {}
+    buf = _io.BytesIO(data_bytes)
+    with h5py.File(buf, "r") as f:
+        result["dff"] = f["dff"][:]
+        result["hd_deg"] = f["hd_deg"][:]
+        n = len(result["hd_deg"])
+        result["speed_cm_s"] = f["speed_cm_s"][:] if "speed_cm_s" in f else np.zeros(n)
+        result["light_on"] = f["light_on"][:] if "light_on" in f else np.ones(n, dtype=bool)
+        result["active"] = f["active"][:] if "active" in f else np.ones(n, dtype=bool)
+        result["bad_behav"] = f["bad_behav"][:] if "bad_behav" in f else np.zeros(n, dtype=bool)
+        result["frame_times"] = f["frame_times"][:] if "frame_times" in f else np.arange(n, dtype=float)
+        result["roi_types"] = f["roi_types"][:] if "roi_types" in f else np.zeros(result["dff"].shape[0], dtype=np.uint8)
+        result["deconv"] = f["deconv"][:] if "deconv" in f else None
+        result["spikes"] = f["spikes"][:] if "spikes" in f else None
+        result["event_masks"] = f["event_masks"][:] if "event_masks" in f else None
+        result["event_masks_sd"] = f["event_masks_sd"][:] if "event_masks_sd" in f else None
+        result["x_mm"] = f["x_mm"][:] if "x_mm" in f else None
+        result["y_mm"] = f["y_mm"][:] if "y_mm" in f else None
+        result["ahv_deg_s"] = f["ahv_deg_s"][:] if "ahv_deg_s" in f else None
+    return result
+
+
+class TestSyncH5KeyContract:
+    """T5 — sync.h5 structure matches the frontend read contract."""
+
+    REQUIRED_KEYS = (
+        "dff", "hd_deg", "speed_cm_s", "light_on", "active",
+        "bad_behav", "frame_times", "roi_types",
+    )
+    OPTIONAL_KEYS = (
+        "deconv", "spikes", "event_masks", "event_masks_sd",
+        "x_mm", "y_mm", "ahv_deg_s",
+    )
+
+    def test_required_keys_all_present_and_non_none(self, tmp_path):
+        """All required keys must be present and non-None after reading sync.h5."""
+        path = _build_sync_h5(tmp_path, include_optional=False)
+        session = _read_sync_h5_like_frontend(path)
+        for key in self.REQUIRED_KEYS:
+            assert key in session, f"Required key missing: {key}"
+            assert session[key] is not None, f"Required key is None: {key}"
+
+    def test_optional_keys_present_when_written(self, tmp_path):
+        """Optional keys are non-None when explicitly written to sync.h5."""
+        path = _build_sync_h5(tmp_path, include_optional=True)
+        session = _read_sync_h5_like_frontend(path)
+        for key in self.OPTIONAL_KEYS:
+            assert key in session, f"Optional key missing from result: {key}"
+            assert session[key] is not None, f"Optional key is None despite being written: {key}"
+
+    def test_optional_keys_are_none_when_absent(self, tmp_path):
+        """Optional keys default to None when not present in sync.h5."""
+        path = _build_sync_h5(tmp_path, include_optional=False)
+        session = _read_sync_h5_like_frontend(path)
+        for key in self.OPTIONAL_KEYS:
+            assert session[key] is None, f"Expected None for absent key: {key}"
+
+    def test_dff_shape_is_rois_by_frames(self, tmp_path):
+        """dff array is (n_rois, n_frames) — rows are ROIs, columns are frames."""
+        path = _build_sync_h5(tmp_path)
+        session = _read_sync_h5_like_frontend(path)
+        assert session["dff"].ndim == 2
+        n_rois, n_frames = session["dff"].shape
+        assert n_rois == 4
+        assert n_frames == 50
+
+    def test_behavioural_arrays_have_same_length(self, tmp_path):
+        """hd_deg, speed, light_on, active, bad_behav all have the same length."""
+        path = _build_sync_h5(tmp_path)
+        session = _read_sync_h5_like_frontend(path)
+        n = len(session["hd_deg"])
+        for key in ("speed_cm_s", "light_on", "active", "bad_behav", "frame_times"):
+            assert len(session[key]) == n, (
+                f"Length mismatch for {key}: {len(session[key])} != {n}"
+            )
+
+    def test_roi_types_length_matches_dff_rows(self, tmp_path):
+        """roi_types has one entry per ROI (matches dff.shape[0])."""
+        path = _build_sync_h5(tmp_path)
+        session = _read_sync_h5_like_frontend(path)
+        assert len(session["roi_types"]) == session["dff"].shape[0]
+
+    def test_light_on_is_boolean(self, tmp_path):
+        """light_on values are boolean."""
+        path = _build_sync_h5(tmp_path)
+        session = _read_sync_h5_like_frontend(path)
+        assert session["light_on"].dtype == bool
+
+    def test_bad_behav_is_boolean(self, tmp_path):
+        """bad_behav values are boolean."""
+        path = _build_sync_h5(tmp_path)
+        session = _read_sync_h5_like_frontend(path)
+        assert session["bad_behav"].dtype == bool
+
+
+# ===================================================================
+# T6: DOWNSTREAM_DEPS cascade is transitively complete
+# ===================================================================
+
+
+class TestDownstreamDeps:
+    """T6 — DOWNSTREAM_DEPS dict captures the full invalidation cascade."""
+
+    def test_dlc_training_invalidates_pose_through_analysis(self):
+        """DLC training re-run invalidates pose, kinematics, kpms, sync, analysis."""
+        deps = DOWNSTREAM_DEPS["dlc_training"]
+        for stage in ("pose", "kinematics", "kpms", "sync", "analysis"):
+            assert stage in deps, f"Expected '{stage}' in dlc_training downstream"
+
+    def test_dlc_training_does_not_invalidate_calcium(self):
+        """DLC training re-run must NOT invalidate calcium (Stage 4 is independent)."""
+        deps = DOWNSTREAM_DEPS["dlc_training"]
+        assert "calcium" not in deps
+        assert "ca_extraction" not in deps
+
+    def test_pose_invalidates_kinematics_through_analysis(self):
+        """Pose re-run invalidates kinematics, kpms, sync, analysis."""
+        deps = DOWNSTREAM_DEPS["pose"]
+        for stage in ("kinematics", "kpms", "sync", "analysis"):
+            assert stage in deps, f"Expected '{stage}' in pose downstream"
+
+    def test_pose_does_not_invalidate_calcium_or_ca_extraction(self):
+        """Pose re-run must NOT invalidate calcium or ca_extraction."""
+        deps = DOWNSTREAM_DEPS["pose"]
+        assert "calcium" not in deps
+        assert "ca_extraction" not in deps
+
+    def test_kinematics_invalidates_sync_and_analysis(self):
+        """Kinematics re-run invalidates sync and analysis."""
+        deps = DOWNSTREAM_DEPS["kinematics"]
+        assert "sync" in deps
+        assert "analysis" in deps
+
+    def test_kinematics_does_not_invalidate_calcium_or_pose(self):
+        """Kinematics re-run does not affect calcium or pose stages."""
+        deps = DOWNSTREAM_DEPS["kinematics"]
+        assert "calcium" not in deps
+        assert "pose" not in deps
+
+    def test_calcium_invalidates_sync_and_analysis(self):
+        """Calcium re-run invalidates sync and analysis (both use ca.h5)."""
+        deps = DOWNSTREAM_DEPS["calcium"]
+        assert "sync" in deps
+        assert "analysis" in deps
+
+    def test_calcium_is_independent_of_pose_stages(self):
+        """Calcium processing is independent of pose stages."""
+        deps = DOWNSTREAM_DEPS["calcium"]
+        assert "pose" not in deps
+        assert "kinematics" not in deps
+        assert "dlc_training" not in deps
+
+    def test_cascade_does_not_invalidate_downstream(self):
+        """CASCADE (Stage 4b) adds spikes to ca.h5 without invalidating downstream."""
+        deps = DOWNSTREAM_DEPS["cascade"]
+        assert deps == [], f"Expected cascade downstream=[], got {deps}"
+
+    def test_analysis_has_no_downstream(self):
+        """Analysis is the terminal stage — nothing downstream of it."""
+        deps = DOWNSTREAM_DEPS["analysis"]
+        assert deps == [], f"Expected analysis downstream=[], got {deps}"
+
+    def test_sync_invalidates_only_analysis(self):
+        """Sync re-run invalidates only analysis."""
+        deps = DOWNSTREAM_DEPS["sync"]
+        assert "analysis" in deps
+        assert "kinematics" not in deps
+        assert "calcium" not in deps
+
+    def test_all_expected_keys_present(self):
+        """DOWNSTREAM_DEPS has an entry for every pipeline stage."""
+        expected_keys = {
+            "dlc_training", "pose", "ca_extraction", "kinematics",
+            "kpms", "calcium", "cascade", "sync", "analysis",
+        }
+        assert set(DOWNSTREAM_DEPS.keys()) == expected_keys

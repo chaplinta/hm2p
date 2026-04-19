@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from frontend.data import (
     DERIVATIVES_BUCKET,
+    check_stale_data_warning,
     download_s3_bytes,
     load_animals,
     load_experiments,
@@ -33,6 +34,7 @@ log = logging.getLogger("hm2p.frontend.rastermap")
 
 def _page() -> None:
     st.title("Rastermap")
+    check_stale_data_warning(stages=["sync"])
     st.caption(
         "Neurons sorted by activity similarity (Stringer et al. 2025, Nat Neurosci). "
         "Reveals sequential activation, sustained states, and tuning structure."

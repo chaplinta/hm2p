@@ -380,6 +380,32 @@ def _upload_error_json(s3, run_id: str, instance_id: str, error_records: list[di
         print(f"WARNING: could not upload _downstream_errors.json: {e}")
 
 
+def _clear_pipeline_rerun_marker(s3, has_errors: bool) -> None:
+    """Delete ``pipeline_rerun.json`` from S3 after a completed downstream run.
+
+    Only deletes the marker when there were no stage errors.  If any sessions
+    failed, the marker is left in place so the frontend continues to show a
+    re-run warning until all stages complete cleanly.
+
+    Parameters
+    ----------
+    s3 : boto3 S3 client
+    has_errors : bool
+        Whether any session-level errors occurred during the downstream run.
+    """
+    if has_errors:
+        print(
+            "\npipeline_rerun.json NOT cleared — errors occurred during re-run. "
+            "Re-run the downstream pipeline after resolving failures."
+        )
+        return
+    try:
+        s3.delete_object(Bucket=DERIVATIVES_BUCKET, Key="pipeline_rerun.json")
+        print("\nCleared pipeline_rerun.json marker — downstream re-run complete.")
+    except Exception as exc:
+        print(f"\nWARNING: failed to clear pipeline_rerun.json (non-fatal): {exc}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run downstream pipeline stages")
     parser.add_argument("--session", type=str, help="Process specific session (exp_id)")
@@ -500,6 +526,12 @@ def main():
                 completed_count += 1
 
         _upload_error_json(s3, run_id, instance_id, error_records)
+
+        # Clear the pipeline_rerun.json marker once all downstream stages finish.
+        # Only clear on a full run (not --session), and only when there were no
+        # errors, so the frontend correctly reflects incomplete re-runs.
+        if not args.session and not args.dry_run:
+            _clear_pipeline_rerun_marker(s3, has_errors=len(error_records) > 0)
 
 
 if __name__ == "__main__":

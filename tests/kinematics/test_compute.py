@@ -1776,3 +1776,169 @@ class TestComputeAhv:
         hd_deg = np.full(n, np.nan, dtype=np.float64)
         ahv = compute_ahv(hd_deg, times)
         assert np.all(np.isnan(ahv))
+
+
+# ---------------------------------------------------------------------------
+# T8: run() — DLC model provenance attributes in kinematics.h5
+# ---------------------------------------------------------------------------
+
+
+def _make_minimal_pose_dataset(n_frames: int = 20) -> xr.Dataset:
+    """Build a minimal movement-style pose Dataset for feeding into run()."""
+    kps = ["left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"]
+    n_kp = len(kps)
+    rng = np.random.default_rng(0)
+    pos = rng.uniform(100, 600, size=(n_frames, 2, n_kp, 1)).astype(np.float64)
+    conf = np.ones((n_frames, n_kp, 1), dtype=np.float64)
+
+    position = xr.DataArray(
+        pos,
+        dims=["time", "space", "keypoints", "individuals"],
+        coords={
+            "time": np.arange(n_frames, dtype=float),
+            "space": ["x", "y"],
+            "keypoints": kps,
+            "individuals": ["mouse"],
+        },
+    )
+    confidence = xr.DataArray(
+        conf,
+        dims=["time", "keypoints", "individuals"],
+        coords={
+            "time": np.arange(n_frames, dtype=float),
+            "keypoints": kps,
+            "individuals": ["mouse"],
+        },
+    )
+    return xr.Dataset({"position": position, "confidence": confidence})
+
+
+def _build_fake_timestamps_h5(tmp_path: "Path", n_frames: int = 20) -> "Path":
+    """Write a synthetic timestamps.h5 with frame_times_camera."""
+    from hm2p.io.hdf5 import write_h5
+
+    ts_path = tmp_path / "timestamps.h5"
+    write_h5(
+        ts_path,
+        {
+            "frame_times_camera": np.linspace(0, 2, n_frames, dtype=np.float64),
+            "light_on_times": np.array([0.0, 60.0], dtype=np.float64),
+            "light_off_times": np.array([60.0, 120.0], dtype=np.float64),
+        },
+    )
+    return ts_path
+
+
+class TestKinematicsRunProvenanceAttrs:
+    """T8 — run() writes dlc_model_name and dlc_snapshot to kinematics.h5 attrs."""
+
+    def _call_run(
+        self,
+        tmp_path: "Path",
+        dlc_model_name: str = "test-model",
+        dlc_snapshot: str = "12345",
+        n_frames: int = 20,
+    ) -> "Path":
+        """Call run() with mocked I/O and return the output path."""
+        from unittest.mock import patch
+
+        from hm2p.kinematics.compute import run
+
+        ts_path = _build_fake_timestamps_h5(tmp_path, n_frames=n_frames)
+        output_path = tmp_path / "kinematics.h5"
+        fake_ds = _make_minimal_pose_dataset(n_frames=n_frames)
+        fake_corners = np.array([[0, 0], [640, 0], [640, 480], [0, 480]], dtype=float)
+
+        with patch("hm2p.kinematics.compute.load_pose_dataset", return_value=fake_ds):
+            run(
+                pose_path=tmp_path / "pose.h5",  # never read — mocked
+                timestamps_h5=ts_path,
+                session_id="20220804_13_52_02_1117646",
+                tracker="deeplabcut",
+                orientation_deg=0.0,
+                scale_mm_per_px=0.811,
+                maze_corners_px=fake_corners,
+                bad_behav_intervals=[],
+                output_path=output_path,
+                dlc_model_name=dlc_model_name,
+                dlc_snapshot=dlc_snapshot,
+            )
+        return output_path
+
+    def test_dlc_model_name_written_to_attrs(self, tmp_path) -> None:
+        """kinematics.h5 must include dlc_model_name in root HDF5 attributes."""
+        import h5py
+
+        output_path = self._call_run(tmp_path, dlc_model_name="hm2p-hrnet-finetune")
+        with h5py.File(output_path, "r") as f:
+            assert "dlc_model_name" in f.attrs, "dlc_model_name not found in HDF5 attrs"
+            assert f.attrs["dlc_model_name"] == "hm2p-hrnet-finetune"
+
+    def test_dlc_snapshot_written_to_attrs(self, tmp_path) -> None:
+        """kinematics.h5 must include dlc_snapshot in root HDF5 attributes."""
+        import h5py
+
+        output_path = self._call_run(tmp_path, dlc_snapshot="99000")
+        with h5py.File(output_path, "r") as f:
+            assert "dlc_snapshot" in f.attrs, "dlc_snapshot not found in HDF5 attrs"
+            assert str(f.attrs["dlc_snapshot"]) == "99000"
+
+    def test_default_provenance_is_unknown(self, tmp_path) -> None:
+        """When no provenance is passed, attrs default to 'unknown'."""
+        import h5py
+
+        from hm2p.kinematics.compute import run
+
+        ts_path = _build_fake_timestamps_h5(tmp_path)
+        output_path = tmp_path / "kinematics_default.h5"
+        fake_ds = _make_minimal_pose_dataset()
+        fake_corners = np.array([[0, 0], [640, 0], [640, 480], [0, 480]], dtype=float)
+
+        from unittest.mock import patch
+        with patch("hm2p.kinematics.compute.load_pose_dataset", return_value=fake_ds):
+            # Call without dlc_model_name / dlc_snapshot — defaults apply
+            run(
+                pose_path=tmp_path / "pose.h5",
+                timestamps_h5=ts_path,
+                session_id="test-session",
+                tracker="deeplabcut",
+                orientation_deg=0.0,
+                scale_mm_per_px=0.811,
+                maze_corners_px=fake_corners,
+                bad_behav_intervals=[],
+                output_path=output_path,
+            )
+
+        with h5py.File(output_path, "r") as f:
+            assert f.attrs.get("dlc_model_name") == "unknown", (
+                f"Expected 'unknown', got {f.attrs.get('dlc_model_name')!r}"
+            )
+            assert f.attrs.get("dlc_snapshot") == "unknown", (
+                f"Expected 'unknown', got {f.attrs.get('dlc_snapshot')!r}"
+            )
+
+    def test_provenance_attrs_survive_roundtrip(self, tmp_path) -> None:
+        """dlc_model_name and dlc_snapshot are read back correctly via read_attrs."""
+        from hm2p.io.hdf5 import read_attrs
+
+        model_name = "superanimal_topviewmouse"
+        snapshot = "superanimal"
+        output_path = self._call_run(
+            tmp_path,
+            dlc_model_name=model_name,
+            dlc_snapshot=snapshot,
+        )
+
+        attrs = read_attrs(output_path)
+        assert attrs["dlc_model_name"] == model_name
+        assert attrs["dlc_snapshot"] == snapshot
+
+    def test_other_required_attrs_still_written(self, tmp_path) -> None:
+        """Adding dlc provenance attrs does not displace other required attrs."""
+        import h5py
+
+        output_path = self._call_run(tmp_path)
+        with h5py.File(output_path, "r") as f:
+            for attr in ("session_id", "tracker", "confidence_threshold",
+                         "scale_mm_per_px", "orientation_deg"):
+                assert attr in f.attrs, f"Required attr '{attr}' missing from kinematics.h5"

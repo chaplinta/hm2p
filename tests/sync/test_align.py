@@ -523,3 +523,66 @@ class TestRunPipeline:
         assert "dff" in sync
         assert "event_masks" not in sync
         assert "spikes" not in sync
+
+    def test_dlc_provenance_attrs_propagate_to_sync(self, tmp_path):
+        """dlc_model_name and dlc_snapshot from kinematics.h5 appear in sync.h5."""
+        from hm2p.io.hdf5 import read_attrs, write_h5
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+
+        # Write kinematics with provenance attrs
+        n = 600
+        frame_times = np.linspace(0, 6.0, n, dtype=np.float64)
+        write_h5(
+            kin_h5,
+            arrays={
+                "frame_times": frame_times,
+                "hd_deg": np.zeros(n, dtype=np.float32),
+                "x_mm": np.zeros(n, dtype=np.float32),
+                "y_mm": np.zeros(n, dtype=np.float32),
+                "speed_cm_s": np.ones(n, dtype=np.float32),
+                "ahv_deg_s": np.zeros(n, dtype=np.float32),
+                "active": np.ones(n, dtype=bool),
+                "light_on": np.zeros(n, dtype=bool),
+                "bad_behav": np.zeros(n, dtype=bool),
+            },
+            attrs={
+                "session_id": "test",
+                "tracker": "dlc",
+                "dlc_model_name": "hm2p-retrain-tristan-2026-03-20",
+                "dlc_snapshot": "200000",
+                "confidence_threshold": 0.05,
+                "orientation_deg": 0.0,
+                "scale_mm_per_px": 0.5,
+            },
+        )
+        _write_synthetic_ca(ca_h5)
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5)
+
+        attrs = read_attrs(out_h5)
+        assert attrs["dlc_model_name"] == "hm2p-retrain-tristan-2026-03-20"
+        assert attrs["dlc_snapshot"] == "200000"
+        assert attrs["tracker"] == "dlc"
+
+    def test_dlc_provenance_missing_from_kin_does_not_raise(self, tmp_path):
+        """sync.h5 builds without error when kinematics.h5 lacks provenance attrs."""
+        from hm2p.io.hdf5 import read_attrs
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+
+        # _write_synthetic_kinematics writes only session_id and fps_camera attrs
+        _write_synthetic_kinematics(kin_h5)
+        _write_synthetic_ca(ca_h5)
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5)
+
+        attrs = read_attrs(out_h5)
+        # session_id must be present; provenance keys are absent but that is fine
+        assert attrs["session_id"] == "test"
+        assert "dlc_model_name" not in attrs
+        assert "dlc_snapshot" not in attrs

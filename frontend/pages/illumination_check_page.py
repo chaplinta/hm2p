@@ -48,6 +48,7 @@ try:
     from frontend.data import (
         DERIVATIVES_BUCKET,
         RAWDATA_BUCKET,
+        check_stale_data_warning,
         download_s3_bytes,
         get_s3_client,
         list_s3_session_files,
@@ -57,6 +58,8 @@ try:
 except ImportError as _err:
     st.error(f"Frontend data module not available: {_err}")
     st.stop()
+
+check_stale_data_warning(stages=["sync"])
 
 # ── Constants ─────────────────────────────────────────────────────────────
 

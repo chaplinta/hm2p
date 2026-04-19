@@ -1574,6 +1574,8 @@ def run(
     speed_active_threshold: float = SPEED_ACTIVE_THRESHOLD,
     camera_center_px: tuple[float, float] | None = None,
     camera_height_mm: float = 700.0,
+    dlc_model_name: str = "unknown",
+    dlc_snapshot: str = "unknown",
 ) -> None:
     """End-to-end Stage 3: pose file → kinematics.h5.
 
@@ -1593,6 +1595,10 @@ def run(
         camera_center_px: Camera optical centre in cropped-frame pixels for
             perspective correction. If None, perspective correction is skipped.
         camera_height_mm: Camera-to-floor distance in mm (default 700).
+        dlc_model_name: DLC project name or ``"superanimal_topviewmouse"`` for
+            the SuperAnimal baseline. Stored as HDF5 attribute for provenance.
+        dlc_snapshot: Snapshot iteration number as a string, or
+            ``"superanimal"`` for the baseline model. Stored as HDF5 attribute.
     """
     from hm2p.io.hdf5 import read_h5, write_h5
     from hm2p.kinematics.perspective import (
@@ -1742,5 +1748,7 @@ def run(
         "scale_mm_per_px": scale_mm_per_px,
         "orientation_deg": orientation_deg,
         "speed_active_threshold_cm_s": speed_active_threshold,
+        "dlc_model_name": dlc_model_name,
+        "dlc_snapshot": dlc_snapshot,
     }
     write_h5(output_path, datasets, attrs=attrs)

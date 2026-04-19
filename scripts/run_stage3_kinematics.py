@@ -150,6 +150,43 @@ def find_dlc_h5(s3, bucket: str, prefix: str) -> str | None:
     return None
 
 
+def _extract_dlc_provenance(dlc_filename: str) -> tuple[str, str]:
+    """Extract model name and snapshot number from a DLC output filename.
+
+    DLC names output files using the convention::
+
+        <video>DLC_<arch>_<project>_shuffle<N>_snapshot-best-<iter>.h5
+
+    For fine-tuned models the filename contains an architecture string
+    (``Hrnet`` or ``Resnet``) and a ``snapshot-best-<iter>`` suffix.
+    SuperAnimal baseline outputs do not contain these markers.
+
+    Parameters
+    ----------
+    dlc_filename:
+        Bare filename (not a full path) of the DLC .h5 output.
+
+    Returns
+    -------
+    tuple[str, str]
+        ``(model_name, snapshot)`` where *model_name* is the DLC project
+        name extracted from the filename, or ``"superanimal_topviewmouse"``
+        for baseline outputs; and *snapshot* is the iteration number as a
+        string, or ``"superanimal"`` for baseline outputs.
+    """
+    # Fine-tuned model: filename contains architecture tag and snapshot marker.
+    is_finetuned = "Hrnet" in dlc_filename or "Resnet" in dlc_filename
+    if is_finetuned:
+        snap_match = re.search(r"snapshot[_-]best[_-](\d+)", dlc_filename)
+        snapshot = snap_match.group(1) if snap_match else "unknown"
+        # DLC project name sits between DLC_<arch>_ and _shuffle.
+        model_match = re.search(r"DLC_\w+?_(.+?)_shuffle", dlc_filename)
+        model_name = model_match.group(1) if model_match else "unknown"
+        return model_name, snapshot
+    # SuperAnimal baseline output (no architecture tag in filename).
+    return "superanimal_topviewmouse", "superanimal"
+
+
 def run_session(
     s3,
     sub: str,
@@ -203,11 +240,15 @@ def run_session(
     if bad_intervals:
         print(f"  Bad behaviour intervals: {bad_intervals}")
 
+    # Extract DLC model provenance from the output filename.
+    dlc_model_name, dlc_snapshot = _extract_dlc_provenance(Path(dlc_key).name)
+
     if dry_run:
         print(f"  DRY RUN: would process and upload kinematics.h5")
         print(f"    DLC file: {dlc_key}")
         print(f"    Orientation: {orientation} deg")
         print(f"    Tracker: {tracker}")
+        print(f"    DLC model: {dlc_model_name}, snapshot: {dlc_snapshot}")
         return "dry_run"
 
     session_dir = work_dir / sub / ses
@@ -251,6 +292,7 @@ def run_session(
 
         output_path = session_dir / "kinematics.h5"
         session_id = f"{sub}/{ses}"
+        print(f"  DLC model: {dlc_model_name}, snapshot: {dlc_snapshot}")
         run(
             pose_path=dlc_local,
             timestamps_h5=ts_local,
@@ -263,6 +305,8 @@ def run_session(
             output_path=output_path,
             camera_center_px=camera_center_px,
             camera_height_mm=700.0,
+            dlc_model_name=dlc_model_name,
+            dlc_snapshot=dlc_snapshot,
         )
 
         # Report stats from kinematics.h5

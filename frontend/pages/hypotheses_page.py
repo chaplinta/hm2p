@@ -21,6 +21,7 @@ from scipy.stats import mannwhitneyu, wilcoxon
 
 from frontend.data import (
     DERIVATIVES_BUCKET,
+    check_stale_data_warning,
     download_s3_bytes,
     load_animals,
     load_experiments,
@@ -30,6 +31,7 @@ from frontend.data import (
 
 def _page() -> None:
     st.title("Hypothesis Tests")
+    check_stale_data_warning(stages=["sync"])
     st.caption(
         "Non-parametric tests across all signal types. "
         "Session-level summaries compared with Mann-Whitney U (between celltypes) "

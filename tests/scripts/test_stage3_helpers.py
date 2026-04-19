@@ -11,7 +11,7 @@ import pytest
 # Add scripts to path so we can import the module
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts"))
 
-from run_stage3_kinematics import parse_bad_behav_times, parse_meta_txt
+from run_stage3_kinematics import _extract_dlc_provenance, parse_bad_behav_times, parse_meta_txt
 
 
 # ---------------------------------------------------------------------------
@@ -252,3 +252,90 @@ class TestParseMetaTxt:
 
 # Need configparser for the raises test
 import configparser
+
+
+# ---------------------------------------------------------------------------
+# _extract_dlc_provenance
+# ---------------------------------------------------------------------------
+
+
+class TestExtractDlcProvenance:
+    """Tests use DLC filename patterns matching actual project output.
+
+    DLC names output files as::
+
+        <video_stem>DLC_<arch>_<project><shuffleN>_snapshot-best-<iter>.h5
+
+    where ``<project>`` may contain hyphens and the ``shuffleN`` suffix is
+    appended directly to the project name (no underscore separator).
+    """
+
+    def test_superanimal_baseline_no_arch_tag(self):
+        # SuperAnimal output: no Hrnet/Resnet in name, no snapshot marker.
+        fname = "20220804DLC_superanimal_topviewmouse.h5"
+        model, snap = _extract_dlc_provenance(fname)
+        assert model == "superanimal_topviewmouse"
+        assert snap == "superanimal"
+
+    def test_finetuned_hrnet_snapshot_with_project_name(self):
+        # Realistic DLC output from the actual project.
+        # DLC appends shuffleN directly to the project name.
+        fname = (
+            "20220804DLC_HrnetW32_hm2p-retrainMar20-trainset80shuffle1"
+            "_snapshot-best-200000.h5"
+        )
+        model, snap = _extract_dlc_provenance(fname)
+        assert snap == "200000"
+        assert isinstance(model, str)
+
+    def test_finetuned_resnet_snapshot(self):
+        fname = (
+            "sessionDLC_Resnet50_myproject-johnshuffle2_snapshot-best-50000.h5"
+        )
+        model, snap = _extract_dlc_provenance(fname)
+        assert snap == "50000"
+        assert isinstance(model, str)
+
+    def test_hrnet_with_underscore_snapshot_separator(self):
+        # Some DLC versions use snapshot_best_N instead of snapshot-best-N.
+        fname = "vidDLC_HrnetW32_projshuffle1_snapshot_best_100000.h5"
+        model, snap = _extract_dlc_provenance(fname)
+        assert snap == "100000"
+
+    def test_no_snapshot_number_returns_unknown_snap(self):
+        # Hrnet in name but no snapshot-best marker.
+        fname = "vidDLC_HrnetW32_myprojshuffle1.h5"
+        model, snap = _extract_dlc_provenance(fname)
+        # is_finetuned is True because of Hrnet, but snap can't be parsed
+        assert snap == "unknown"
+
+    def test_plain_file_no_dlc_tag(self):
+        # Plain filename with no DLC markers → treated as SuperAnimal baseline.
+        fname = "pose_output.h5"
+        model, snap = _extract_dlc_provenance(fname)
+        assert model == "superanimal_topviewmouse"
+        assert snap == "superanimal"
+
+    def test_returns_strings(self):
+        fname = "20220804DLC_HrnetW32_projshuffle1_snapshot-best-99000.h5"
+        model, snap = _extract_dlc_provenance(fname)
+        assert isinstance(model, str)
+        assert isinstance(snap, str)
+
+    def test_resnet_uppercase_detected(self):
+        fname = "vidDLC_Resnet101_testproj2026shuffle1_snapshot-best-300000.h5"
+        model, snap = _extract_dlc_provenance(fname)
+        assert snap == "300000"
+
+    def test_lowercase_arch_not_detected_as_finetuned(self):
+        # 'Hrnet' check is case-sensitive — lowercase 'hrnet' is not detected.
+        fname = "20220804DLC_hrnet_w32_projshuffle1.h5"
+        model, snap = _extract_dlc_provenance(fname)
+        assert model == "superanimal_topviewmouse"
+        assert snap == "superanimal"
+
+    def test_snapshot_number_is_string(self):
+        fname = "vidDLC_HrnetW32_projshuffle1_snapshot-best-500.h5"
+        _, snap = _extract_dlc_provenance(fname)
+        assert isinstance(snap, str)
+        assert snap == "500"

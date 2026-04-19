@@ -362,3 +362,61 @@ class TestS3UploadWithVerify:
         # String path
         s3_upload_with_verify(s3, str(test_file), "b", "k")
         assert s3.upload_file.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# T7: _clear_pipeline_rerun_marker — delete_object called on S3 after
+#     all downstream stages complete without errors.
+# ---------------------------------------------------------------------------
+
+
+class TestClearPipelineRerunMarker:
+    """T7 — pipeline_rerun.json is cleared on S3 when downstream run succeeds."""
+
+    def test_delete_object_called_with_correct_bucket_and_key(self):
+        """delete_object is called on hm2p-derivatives/pipeline_rerun.json when no errors."""
+        s3 = MagicMock()
+        s3.delete_object.return_value = {}
+
+        downstream._clear_pipeline_rerun_marker(s3, has_errors=False)
+
+        s3.delete_object.assert_called_once_with(
+            Bucket=downstream.DERIVATIVES_BUCKET,
+            Key="pipeline_rerun.json",
+        )
+
+    def test_delete_object_not_called_when_errors_present(self):
+        """When stages had errors, pipeline_rerun.json is NOT deleted."""
+        s3 = MagicMock()
+
+        downstream._clear_pipeline_rerun_marker(s3, has_errors=True)
+
+        s3.delete_object.assert_not_called()
+
+    def test_delete_failure_is_non_fatal(self):
+        """S3 delete failures are caught and do not propagate to the caller."""
+        s3 = MagicMock()
+        s3.delete_object.side_effect = Exception("S3 unavailable")
+
+        # Should not raise
+        downstream._clear_pipeline_rerun_marker(s3, has_errors=False)
+
+    def test_bucket_is_derivatives_bucket(self):
+        """The marker is deleted from DERIVATIVES_BUCKET, not rawdata."""
+        s3 = MagicMock()
+        s3.delete_object.return_value = {}
+
+        downstream._clear_pipeline_rerun_marker(s3, has_errors=False)
+
+        call_kwargs = s3.delete_object.call_args[1]
+        assert call_kwargs["Bucket"] == "hm2p-derivatives"
+
+    def test_key_is_pipeline_rerun_json(self):
+        """The deleted key is exactly 'pipeline_rerun.json' (no path prefix)."""
+        s3 = MagicMock()
+        s3.delete_object.return_value = {}
+
+        downstream._clear_pipeline_rerun_marker(s3, has_errors=False)
+
+        call_kwargs = s3.delete_object.call_args[1]
+        assert call_kwargs["Key"] == "pipeline_rerun.json"

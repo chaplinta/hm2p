@@ -144,8 +144,16 @@ def run(
         else:
             datasets[key] = arr
 
-    # Inherit ca.h5 root attrs, override session_id
+    # Build root attrs: start from ca.h5, then overlay provenance attrs from
+    # kinematics.h5 (tracker, dlc_model_name, dlc_snapshot, etc.) so that
+    # sync.h5 carries the full behavioural-data lineage alongside the calcium
+    # metadata.  session_id is always set from the argument to avoid stale values.
     attrs = dict(read_attrs(ca_h5))
+    kin_attrs = read_attrs(kinematics_h5)
+    for key in ("tracker", "dlc_model_name", "dlc_snapshot",
+                "confidence_threshold", "orientation_deg", "scale_mm_per_px"):
+        if key in kin_attrs:
+            attrs[key] = kin_attrs[key]
     attrs["session_id"] = session_id
 
     write_h5(output_path, datasets, attrs=attrs)

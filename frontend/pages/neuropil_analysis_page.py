@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
 from frontend.data import (
     DERIVATIVES_BUCKET,
+    check_stale_data_warning,
     download_s3_bytes,
     load_animals,
     load_experiments,
@@ -41,6 +42,7 @@ def _page() -> None:
         "Correlations with behaviour reveal brain-state modulation independent of "
         "single-cell tuning."
     )
+    check_stale_data_warning(stages=["sync", "ca_extraction"])
 
     experiments = load_experiments()
     animals = load_animals()

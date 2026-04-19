@@ -346,65 +346,101 @@ seconds since session start. Units and session_id are stored as HDF5 attributes.
 
 #### `kinematics.h5`
 
+S3 path: `kinematics/{sub}/{ses}/kinematics.h5`
+
+Attributes stored on the root group:
+- `session_id`, `tracker`, `confidence_threshold`, `gap_fill_frames`,
+  `scale_mm_per_px`, `orientation_deg`, `speed_active_threshold_cm_s`
+
 ```text
-/session_id          (str) e.g. "20220804_13_52_02_1117646"
-/fps_camera          (float) camera frame rate
-/frame_times_camera  (N,) float64 — camera frame timestamps in seconds
-/hd                  (N,) float32 — head direction, degrees, unwrapped
-/ahv                 (N,) float32 — angular head velocity, deg/s
-/x                   (N,) float32 — x position, mm
-/y                   (N,) float32 — y position, mm
-/x_maze              (N,) float32 — x position, maze units (0–7)
-/y_maze              (N,) float32 — y position, maze units (0–5)
-/speed               (N,) float32 — speed, cm/s
-/active              (N,) bool    — movement state (binary; active/inactive threshold)
-/light_on            (N,) bool    — visual landmark light state (1 min on / 1 min off cycle)
-/bad_behav           (N,) bool    — head-mount stuck artefact mask (from bad_behav_times CSV column)
-/confidence          (N, K) float32 — per-keypoint DLC/SLEAP likelihood scores
+/frame_times         (N,) float64 — camera frame timestamps in seconds since session start
+/hd_deg              (N,) float32 — fused head direction, degrees (unwrapped, camera rate)
+/hd_ears             (N,) float32 — HD from ear vector (QC)
+/hd_nose_head        (N,) float32 — HD from nose→head_midpoint vector (QC)
+/hd_nose_neck        (N,) float32 — HD from nose→neck vector (QC)
+/hd_head_neck        (N,) float32 — HD from head→neck vector (QC)
+/hd_confidence       (N,) float32 — confidence of fused HD estimate
+/x_head_mm           (N,) float32 — head x position, mm
+/y_head_mm           (N,) float32 — head y position, mm
+/speed_head_cm_s     (N,) float32 — head speed, cm/s
+/x_body_mm           (N,) float32 — body centroid x position, mm
+/y_body_mm           (N,) float32 — body centroid y position, mm
+/speed_body_cm_s     (N,) float32 — body centroid speed, cm/s
+/x_maze              (N,) float32 — body x position, maze units (0–7)
+/y_maze              (N,) float32 — body y position, maze units (0–5)
+/ahv_deg_s           (N,) float32 — angular head velocity, deg/s
+/active              (N,) bool    — movement state (binary; speed > threshold)
+/light_on            (N,) bool    — overhead light state (1 min on / 1 min off cycle)
+/bad_behav           (N,) bool    — head-mount stuck artefact mask
+/x_mm                (N,) float32 — alias for x_body_mm (backward compat)
+/y_mm                (N,) float32 — alias for y_body_mm (backward compat)
+/speed_cm_s          (N,) float32 — alias for speed_body_cm_s (backward compat)
+/bp_{kp}_x_maze      (N,) float32 — per-bodypart x in maze coords (one dataset per keypoint)
+/bp_{kp}_y_maze      (N,) float32 — per-bodypart y in maze coords (one dataset per keypoint)
 /syllable_id         (N,) int16   — OPTIONAL: VAME / keypoint-MoSeq syllable index (-1 = unassigned)
 /syllable_prob       (N, S) float32 — OPTIONAL: posterior over S syllables
 ```
 
-Maze coordinate system: the q-rose maze is 7 × 5 units. The shapely Polygon boundary is
-used to clip out-of-bounds positions (`fix_oob`). Maze units are derived from pixel
-positions via scale calibration and video ROI crop metadata.
+Maze coordinate system: the Rosenberg maze is 7 × 5 units. Maze units are derived from
+pixel positions via scale calibration and video ROI crop metadata.
 
 #### `ca.h5`
 
+S3 path: `calcium/{sub}/{ses}/ca.h5`
+
+Attributes: `session_id`, `fps_imaging`
+
 ```text
-/session_id          (str attr)
-/fps_imaging         (float attr) imaging frame rate
-/frame_times_imaging (T,) float64 — imaging frame timestamps in seconds
+/frame_times         (T,) float64 — imaging frame timestamps in seconds since session start
 /bad_frames          (T,) bool    — PMT dropout / bad frame mask
 /roi_ids             (R,) int32   — ROI indices (matches Suite2p / CaImAn indexing)
 /roi_types           (R,) uint8   — 0=soma, 1=dend, 2=artefact
 /dff                 (R, T) float32 — dF/F0 per ROI per frame
-/spikes              (R, T) float32 — CASCADE spike rate, spikes/s per ROI per frame
-/events              (R, T) float32 — Voigts & Harnett event probability (fallback)
+/spikes              (R, T) float32 — CASCADE spike rate, spikes/s (written by Stage 4b)
+/event_masks         (R, T) float32 — Voigts & Harnett binary event mask
+/event_masks_sd      (R, T) float32 — SD-threshold events (Zong et al. 2022)
+/deconv              (R, T) float32 — Suite2p deconvolved spikes (raw spks.npy)
+/deconv_norm         (R, T) float32 — deconv normalised per ROI by max value
 /snr                 (R,) float32 — signal-to-noise ratio per ROI
-/spike_rate          (R,) float32 — mean CASCADE spike rate, spikes/min (bad frames excluded)
-/n_events            (R,) int32   — total event count per ROI (V&H fallback)
 ```
 
 #### `sync.h5`
 
+S3 path: `sync/{sub}/{ses}/sync.h5`
+
+`sync/align.py` passes all kinematics.h5 datasets through unchanged (resampled to imaging
+rate) and appends all ca.h5 datasets verbatim. Field names are therefore identical to those
+in kinematics.h5 and ca.h5. Attributes are inherited from ca.h5 with `session_id` overridden.
+
+Key datasets at imaging rate T (all kinematics signals resampled from camera rate N):
+
 ```text
-/session_id          (str attr)
-/frame_index         (T,) int32   — imaging frame index
-/frame_time          (T,) float64 — imaging frame timestamp, seconds
-/hd                  (T,) float32 — HD resampled to imaging rate
-/ahv                 (T,) float32
-/x                   (T,) float32
-/y                   (T,) float32
-/speed               (T,) float32
-/active              (T,) bool
-/light_on            (T,) bool    — visual landmark light state resampled to imaging rate
-/bad_behav           (T,) bool    — head-mount stuck mask resampled to imaging rate
-/dff                 (R, T) float32
-/spikes              (R, T) float32 — CASCADE spike rate resampled to imaging rate
-/events              (R, T) float32
+/frame_times         (T,) float64 — imaging frame timestamps in seconds
+/hd_deg              (T,) float32 — fused HD resampled to imaging rate, degrees
+/ahv_deg_s           (T,) float32 — AHV resampled to imaging rate, deg/s
+/x_mm                (T,) float32 — body x position, mm (alias for x_body_mm)
+/y_mm                (T,) float32 — body y position, mm (alias for y_body_mm)
+/x_body_mm           (T,) float32 — body centroid x position, mm
+/y_body_mm           (T,) float32 — body centroid y position, mm
+/speed_cm_s          (T,) float32 — body speed, cm/s (alias for speed_body_cm_s)
+/x_maze              (T,) float32 — body x in maze units
+/y_maze              (T,) float32 — body y in maze units
+/active              (T,) bool    — movement state (nearest-neighbour resampled)
+/light_on            (T,) bool    — overhead light state (nearest-neighbour resampled)
+/bad_behav           (T,) bool    — head-mount stuck mask (nearest-neighbour resampled)
+/bp_{kp}_x_maze      (T,) float32 — per-bodypart x in maze coords
+/bp_{kp}_y_maze      (T,) float32 — per-bodypart y in maze coords
+/dff                 (R, T) float32 — dF/F0, copied from ca.h5
+/spikes              (R, T) float32 — CASCADE spike rate, copied from ca.h5
+/event_masks         (R, T) float32 — Voigts & Harnett events, copied from ca.h5
+/event_masks_sd      (R, T) float32 — SD-threshold events, copied from ca.h5
+/deconv              (R, T) float32 — Suite2p deconvolved spikes, copied from ca.h5
+/deconv_norm         (R, T) float32 — normalised deconv, copied from ca.h5
 /roi_types           (R,) uint8   — 0=soma, 1=dend, 2=artefact
 ```
+
+Note: `syllable_id` and `syllable_prob` are also resampled and included when
+Stage 3b (MoSeq) has been run.
 
 #### `analysis.h5` (Stage 6 output)
 
@@ -443,15 +479,15 @@ The HDF5 outputs are designed for direct loading into pynapple without any resha
 import pynapple as nap, h5py
 
 with h5py.File("sync.h5") as f:
-    t = f["frame_time"][:]
-    spikes  = nap.TsdFrame(t=t, d=f["spikes"][:].T)   # (T, R)
-    dff     = nap.TsdFrame(t=t, d=f["dff"][:].T)       # (T, R)
-    hd      = nap.Tsd(t=t, d=f["hd"][:])
-    speed   = nap.Tsd(t=t, d=f["speed"][:])
+    t = f["frame_times"][:]                              # note: plural "frame_times"
+    spikes  = nap.TsdFrame(t=t, d=f["spikes"][:].T)    # (T, R)
+    dff     = nap.TsdFrame(t=t, d=f["dff"][:].T)        # (T, R)
+    hd      = nap.Tsd(t=t, d=f["hd_deg"][:])            # note: "hd_deg" not "hd"
+    speed   = nap.Tsd(t=t, d=f["speed_cm_s"][:])        # note: "speed_cm_s" not "speed"
     active  = nap.Tsd(t=t, d=f["active"][:])
 
-active_ep = nap.IntervalSet(...)                        # from active boolean
-spikes_active = spikes.restrict(active_ep)              # timestamp-aware restriction
+active_ep = nap.IntervalSet(...)                         # from active boolean
+spikes_active = spikes.restrict(active_ep)               # timestamp-aware restriction
 ```
 
 ### Calcium Extraction — roiextractors API
