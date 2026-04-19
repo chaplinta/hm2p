@@ -24,9 +24,10 @@ log = logging.getLogger("hm2p.frontend.dlc_training")
 st.title("DLC Training (Stage 2a)")
 
 st.markdown(
-    "Fine-tunes the DeepLabCut SuperAnimal TopViewMouse model on manually labelled "
-    "hm2p frames. GPU required (g5.xlarge, 24h maximum). DLC Inference (Stage 2b) "
-    "depends on the trained model produced here."
+    "Trains a DLC HRNet-W32 model (ImageNet pretrained backbone) on manually "
+    "labelled hm2p frames. 8 bodyparts mapped to SuperAnimal TopViewMouse "
+    "keypoints. GPU required (g4dn.xlarge, 24h maximum). DLC Inference "
+    "(Stage 2b) depends on the trained model produced here."
 )
 
 # ── Training status from S3 ──────────────────────────────────────────────────
