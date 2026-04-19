@@ -83,9 +83,20 @@ VIDEO_FILENAMES = {
 @st.cache_data(ttl=3600, show_spinner="Downloading labelled video...")
 def dl_video(sub: str, ses: str, mode: str = "DLC raw") -> bytes | None:
     fname = VIDEO_FILENAMES.get(mode, "labelled_30fps.mp4")
+    # Check file size first — raw videos may be >400 MB if ffmpeg failed
+    # and VideoWriter fell back to uncompressed. Skip if too large.
+    from frontend.data import get_s3_client
+    try:
+        s3 = get_s3_client()
+        head = s3.head_object(Bucket=DERIVATIVES_BUCKET, Key=f"pose/{sub}/{ses}/{fname}")
+        size_mb = head["ContentLength"] / 1e6
+        if size_mb > 100:
+            # Too large — fall back to median filtered version
+            fname = "labelled_median_30fps.mp4"
+    except Exception:
+        pass
     data = download_s3_bytes(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/{fname}")
     if data is None and mode != "DLC raw":
-        # Fall back to raw if filtered version doesn't exist yet
         data = download_s3_bytes(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/labelled_30fps.mp4")
     return data
 
