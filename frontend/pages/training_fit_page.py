@@ -50,6 +50,13 @@ BODYPARTS = [
     "tail_base",
 ]
 
+# The finetuned model outputs use 'implant_base_rear' (from training labels)
+# but the canonical name is 'head_midpoint'. Map between them for comparison.
+BP_ALIAS = {
+    "head_midpoint": "implant_base_rear",
+    "implant_base_rear": "head_midpoint",
+}
+
 BP_HEX: dict[str, str] = {
     "nose_tip": "#FF0000",
     "left_ear": "#0000FF",
@@ -336,12 +343,16 @@ def _compute_errors(
                 continue
 
             # Prediction — look up by integer frame index
+            # Handle bodypart aliasing (head_midpoint ↔ implant_base_rear)
+            pred_bp = bp
             if bp not in pred_bps:
-                row[bp] = np.nan
-                continue
+                pred_bp = BP_ALIAS.get(bp, bp)
+                if pred_bp not in pred_bps:
+                    row[bp] = np.nan
+                    continue
             try:
-                pred_x = float(pred_df.iloc[dlc_frame][(pred_scorer, bp, "x")])
-                pred_y = float(pred_df.iloc[dlc_frame][(pred_scorer, bp, "y")])
+                pred_x = float(pred_df.iloc[dlc_frame][(pred_scorer, pred_bp, "x")])
+                pred_y = float(pred_df.iloc[dlc_frame][(pred_scorer, pred_bp, "y")])
             except (KeyError, IndexError):
                 row[bp] = np.nan
                 continue
@@ -374,6 +385,10 @@ st.caption(
     "Pixel error between ground-truth labels and DLC model predictions on "
     "training frames. High error may indicate a bad label or a difficult pose."
 )
+
+# Show which model is being evaluated
+_model_info = "**Model:** HrnetW32, hm2p-retrainMar20, shuffle1 (highest snapshot selected per session)"
+st.info(_model_info)
 
 with st.expander("Interpreting errors"):
     st.markdown(
@@ -492,6 +507,10 @@ if not all_error_dfs:
         "Ensure DLC inference has run and pose .h5 files are on S3."
     )
     st.stop()
+
+# Show the prediction model scorer (from the first loaded session)
+_pred_scorer = all_error_dfs[0]["pred_df"].columns.get_level_values(0)[0]
+st.caption(f"**Predictions from:** `{_pred_scorer}`")
 
 # ---------------------------------------------------------------------------
 # Summary metrics

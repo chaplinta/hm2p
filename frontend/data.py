@@ -1413,3 +1413,20 @@ def _fetch_all_syllable_data() -> dict:
         "sessions": sessions,
         "n_sessions": len(sessions),
     }
+
+
+@st.cache_data(ttl=1800)
+def load_exemplar_summary() -> dict | None:
+    """Load exemplar_summary.json from S3.
+
+    Returns dict with keys: n_syllables, n_exemplars_per_syllable,
+    n_sessions, total_clips_rendered, syllables (list of per-syllable dicts).
+    """
+    data = download_s3_bytes(DERIVATIVES_BUCKET, "kinematics/exemplar_clips/exemplar_summary.json")
+    if data is None:
+        return None
+    try:
+        return json.loads(data.decode())
+    except Exception:
+        log.exception("Error parsing exemplar_summary.json")
+        return None

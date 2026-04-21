@@ -29,6 +29,15 @@ from frontend.data import (
 
 log = logging.getLogger("hm2p.frontend.tracking_quality")
 
+# Display alias: show canonical name for legacy bodypart names
+_BP_DISPLAY = {"implant_base_rear": "head_midpoint"}
+
+
+def _display_bp(bp: str) -> str:
+    """Return display name for a bodypart (aliases implant_base_rear → head_midpoint)."""
+    return _BP_DISPLAY.get(bp, bp)
+
+
 st.title("Tracking Quality & Retraining")
 
 # --- Load experiments ---
@@ -246,8 +255,10 @@ if df is None:
     st.warning("Could not load pose data for this session.")
     st.stop()
 
+# Display model provenance prominently
+_model_display = scorer if scorer else "unknown"
 st.caption(
-    f"**Scorer:** `{scorer}` | **Body parts:** {len(bodyparts)} | "
+    f"**Model:** `{_model_display}` | **Body parts:** {len(bodyparts)} | "
     f"**Frames:** {len(df)} | **FPS:** {meta.get('tracking_fps', '?')}"
 )
 
@@ -291,7 +302,10 @@ else:
         "Jump threshold (pixels/frame)", 10.0, 200.0, 50.0, 5.0, key="jump_thresh"
     )
 
-bp_select = st.selectbox("Body part for diagnostics", bodyparts, key="diag_bp")
+bp_select = st.selectbox(
+    "Body part for diagnostics", bodyparts,
+    format_func=_display_bp, key="diag_bp",
+)
 
 if bp_select in kp_data:
     x = kp_data[bp_select]["x"]
@@ -360,7 +374,7 @@ if _bp_mean_lik:
     _sorted_bps = sorted(_bp_mean_lik, key=_bp_mean_lik.get)
     fig_conf = go.Figure()
     fig_conf.add_trace(go.Bar(
-        x=_sorted_bps,
+        x=[_display_bp(bp) for bp in _sorted_bps],
         y=[_bp_mean_lik[bp] for bp in _sorted_bps],
         marker_color=[_bp_colors.get(bp, "#888888") for bp in _sorted_bps],
         text=[f"{_bp_mean_lik[bp]:.3f}" for bp in _sorted_bps],

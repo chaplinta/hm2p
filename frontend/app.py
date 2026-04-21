@@ -165,6 +165,7 @@ patching_traces_page = st.Page(str(_app_dir / "pages/patching_traces_page.py"), 
 patching_morph_page = st.Page(str(_app_dir / "pages/patching_morph_page.py"), title="Morphology", icon=":material/account_tree:")
 moseq_page = st.Page(str(_app_dir / "pages/moseq_page.py"), title="MoSeq", icon=":material/pets:")
 moseq_explore_page = st.Page(str(_app_dir / "pages/moseq_explore_page.py"), title="MoSeq Explore", icon=":material/travel_explore:")
+moseq_exemplars_page = st.Page(str(_app_dir / "pages/moseq_exemplars_page.py"), title="MoSeq Exemplars", icon=":material/slow_motion_video:")
 behaviour_page = st.Page(str(_app_dir / "pages/behaviour_page.py"), title="Behaviour", icon=":material/directions_run:")
 changelog_page = st.Page(str(_app_dir / "pages/changelog_page.py"), title="Changelog", icon=":material/history:")
 cost_page = st.Page(str(_app_dir / "pages/cost_page.py"), title="Costs", icon=":material/attach_money:")
@@ -175,7 +176,7 @@ methods_page = st.Page(str(_app_dir / "pages/methods_page.py"), title="Methods",
 pg = st.navigation({
     "Overview": [home_page, sessions_page, animals_page, pipeline_page, summary_page, literature_page, methods_page],
     "Pipeline": [suite2p_page, calcium_page, cascade_page, dlc_training_page, training_qc_page, training_fit_page, label_review_page, dlc_page, dlc_viewer_page, tracking_quality_page, perspective_page, moseq_page, sync_page, zdrift_page, anatomy_page, illumination_check_page],
-    "Explore": [explorer_page, timeline_page, gallery_page, roi_viewer_page, events_page, event_dynamics_page, correlations_page, trace_compare_page, pop_activity_page, neuropil_page, rastermap_page, moseq_explore_page, behaviour_page, maze_anim_page],
+    "Explore": [explorer_page, timeline_page, gallery_page, roi_viewer_page, events_page, event_dynamics_page, correlations_page, trace_compare_page, pop_activity_page, neuropil_page, rastermap_page, moseq_explore_page, moseq_exemplars_page, behaviour_page, maze_anim_page],
     "Analysis": [hypotheses_page, analysis_page, compare_page, population_page, light_page, light_compare_page, stats_page, maze_page, hd_tuning_page, place_tuning_page, decoder_page, stability_page, drift_page, gain_page, anchoring_page, speed_mod_page, pop_dynamics_page, ahv_page, info_theory_page, classify_page, signal_quality_page, qc_page, patching_page, patching_traces_page, patching_morph_page],
     "System": [aws_page, cost_page, changelog_page],
 })

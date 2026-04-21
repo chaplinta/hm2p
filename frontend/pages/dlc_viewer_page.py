@@ -83,9 +83,32 @@ VIDEO_FILENAMES = {
 }
 
 
+@st.cache_data(ttl=3600, show_spinner="Generating video URL...")
+def dl_video_url(sub: str, ses: str, mode: str = "DLC raw") -> str | None:
+    """Generate a presigned S3 URL for the labelled video.
+
+    Avoids downloading 300-700 MB into memory; lets st.video stream directly.
+    """
+    fname = VIDEO_FILENAMES.get(mode, "labelled_30fps.mp4")
+    key = f"pose/{sub}/{ses}/{fname}"
+    try:
+        s3 = get_s3_client()
+        # Check file exists first
+        s3.head_object(Bucket=DERIVATIVES_BUCKET, Key=key)
+        url = s3.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": DERIVATIVES_BUCKET, "Key": key},
+            ExpiresIn=3600,
+        )
+        return url
+    except Exception:
+        log.debug("Video not found: s3://%s/%s", DERIVATIVES_BUCKET, key)
+        return None
+
+
 @st.cache_data(ttl=3600, show_spinner="Downloading labelled video...")
 def dl_video(sub: str, ses: str, mode: str = "DLC raw") -> bytes | None:
-    """Download labelled video."""
+    """Download labelled video bytes (fallback for frame extraction)."""
     fname = VIDEO_FILENAMES.get(mode, "labelled_30fps.mp4")
     return download_s3_bytes(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/{fname}")
 
@@ -183,6 +206,7 @@ def dl_dlc(sub: str, ses: str) -> dict | None:
         "keypoints": bp_avail,
         "n_frames": n_time,
         "ds": ds,  # Keep full Dataset for filtering
+        "h5_key": h5_key,  # S3 key for provenance display
     }
 
 
@@ -200,9 +224,11 @@ def get_median_filtered(sub: str, ses: str) -> dict | None:
     from movement.filtering import filter_by_confidence, rolling_filter
 
     ds = dlc["ds"]
-    # Filter low-confidence detections (set to NaN)
+    # Filter low-confidence detections (set to NaN).
+    # DLC 3.x HRNet outputs confidence in ~0.05-0.35 range, not 0-1.
+    # Use 0.05 threshold to match the kinematics pipeline (compute.py).
     filtered_pos = filter_by_confidence(
-        data=ds.position, confidence=ds.confidence, threshold=0.5,
+        data=ds.position, confidence=ds.confidence, threshold=0.05,
     )
     # Apply rolling median filter (window=3 at 30fps ≈ 100ms, matching pipeline)
     filtered_pos = rolling_filter(data=filtered_pos, window=3, statistic="median")
@@ -292,6 +318,7 @@ def get_xy(dlc_data: dict, bp: str):
 # ── Reload button ────────────────────────────────────────────────────────
 
 if st.button("Reload video from S3", key="dlcv_reload"):
+    dl_video_url.clear()
     dl_video.clear()
     dl_dlc.clear()
     get_median_filtered.clear()
@@ -352,7 +379,7 @@ with st.expander("Position modes explained"):
         "body part, background clutter).\n\n"
         "**DLC median filtered** — A 3-frame rolling median filter is applied "
         "to x/y coordinates after setting low-confidence detections "
-        f"(likelihood < {conf_thr}) to NaN. The 3-frame window at 30fps "
+        "(likelihood < 0.05) to NaN. The 3-frame window at 30fps "
         "gives ~100ms temporal smoothing (the old 100fps pipeline used 5 "
         "frames = 50ms). This removes single-frame outliers but does not "
         "interpolate across NaN gaps. Frames where a body part was below "
@@ -370,7 +397,13 @@ with st.expander("Position modes explained"):
 
 # ── Load data ────────────────────────────────────────────────────────────
 
-vbytes = dl_video(sub, ses, mode=pos_source)
+# Always load labelled_30fps.mp4 — it's the only labelled video that exists.
+# The median/pipeline variants are not pre-rendered; position source only
+# affects which keypoint data is overlaid in Inspect mode.
+# Use presigned URL for playback (avoids 300-700 MB download into memory).
+# Only download bytes for Inspect mode frame extraction.
+video_url = dl_video_url(sub, ses, mode="DLC raw")
+vbytes = None  # loaded lazily only for Inspect mode
 dlc_data = dl_dlc(sub, ses)
 dlc_filtered = (
     get_median_filtered(sub, ses)
@@ -387,6 +420,11 @@ if pos_source == "Pipeline filtered":
 active_dlc = dlc_filtered if dlc_filtered is not None else dlc_data
 
 n_dlc = dlc_data["n_frames"] if dlc_data is not None else 0
+
+# Show model provenance
+if dlc_data is not None and "h5_key" in dlc_data:
+    _h5_name = dlc_data["h5_key"].split("/")[-1]
+    st.caption(f"**DLC model file:** `{_h5_name}`")
 
 # ── Time series builder ──────────────────────────────────────────────────
 
@@ -496,10 +534,10 @@ def make_ts_fig(vline_frame=None, ds_step=50, mm_per_pix=None):
 # ── Playback mode ────────────────────────────────────────────────────────
 
 if mode == "Playback":
-    if vbytes is not None:
+    if video_url is not None:
         col_vid, _ = st.columns([1, 1])
         with col_vid:
-            st.video(vbytes, format="video/mp4")
+            st.video(video_url, format="video/mp4")
     else:
         st.warning("No labelled video. Run `scripts/render_dlc_videos.py` first.")
 
@@ -517,6 +555,9 @@ if mode == "Playback":
 # ── Inspect mode ─────────────────────────────────────────────────────────
 
 if mode == "Inspect":
+    # Download video bytes for frame extraction (only in Inspect mode)
+    if video_url is not None:
+        vbytes = dl_video(sub, ses, mode="DLC raw")
     if n_dlc == 0 and vbytes is None:
         st.warning("No data for this session.")
         st.stop()

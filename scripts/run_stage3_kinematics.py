@@ -140,14 +140,31 @@ def parse_meta_txt(meta_path: Path) -> tuple[float, np.ndarray, tuple[float, flo
 
 
 def find_dlc_h5(s3, bucket: str, prefix: str) -> str | None:
-    """Find the DLC .h5 file under a given S3 prefix. Returns the key or None."""
+    """Find the best finetuned DLC .h5 file under a given S3 prefix.
+
+    Selects the highest snapshot number from finetuned models (Hrnet/Resnet).
+    Skips _single and _filtered variants. Falls back to the first .h5 if no
+    finetuned model found.
+    """
+    all_h5: list[str] = []
     paginator = s3.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
             key = obj["Key"]
-            if key.endswith(".h5"):
-                return key
-    return None
+            name = key.split("/")[-1]
+            if key.endswith(".h5") and "_single" not in name and "_filtered" not in name:
+                all_h5.append(key)
+    if not all_h5:
+        return None
+
+    def _snap_num(key: str) -> int:
+        m = re.search(r"snapshot[_-]best[_-](\d+)", key)
+        return int(m.group(1)) if m else -1
+
+    finetuned = [k for k in all_h5 if "Hrnet" in k or "Resnet" in k]
+    if finetuned:
+        return max(finetuned, key=_snap_num)
+    return all_h5[0]
 
 
 def _extract_dlc_provenance(dlc_filename: str) -> tuple[str, str]:
