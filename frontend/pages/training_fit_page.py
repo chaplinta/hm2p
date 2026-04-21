@@ -195,34 +195,19 @@ def _load_dlc_predictions(sub: str, ses: str) -> pd.DataFrame | None:
         (0 = frame 0 of the 30 fps subsampled video).  Returns ``None`` if
         no pose file is found on S3.
     """
-    import re as _re
+    from hm2p.pose.select import select_best_dlc_h5_s3
 
     s3 = get_s3_client()
     prefix = f"pose/{sub}/{ses}/"
-    all_h5: list[str] = []
     try:
-        paginator = s3.get_paginator("list_objects_v2")
-        for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=prefix):
-            for obj in page.get("Contents", []):
-                k = obj["Key"]
-                nm = k.split("/")[-1]
-                if k.endswith(".h5") and "_single" not in nm and "_filtered" not in nm:
-                    all_h5.append(k)
+        h5_key = select_best_dlc_h5_s3(s3, DERIVATIVES_BUCKET, prefix)
     except Exception:
         log.exception("Error listing S3 prefix %s", prefix)
         return None
 
-    if not all_h5:
+    if h5_key is None:
         log.info("No pose .h5 found for %s/%s", sub, ses)
         return None
-
-    # Pick the latest finetuned model (highest snapshot number)
-    def _snap_num(key: str) -> int:
-        m = _re.search(r"snapshot[_-]best[_-](\d+)", key)
-        return int(m.group(1)) if m else -1
-
-    finetuned = [k for k in all_h5 if "Hrnet" in k or "Resnet" in k]
-    h5_key = max(finetuned, key=_snap_num) if finetuned else all_h5[0]
 
     data = download_s3_bytes(DERIVATIVES_BUCKET, h5_key)
     if data is None:

@@ -142,66 +142,21 @@ def parse_meta_txt(meta_path: Path) -> tuple[float, np.ndarray, tuple[float, flo
 def find_dlc_h5(s3, bucket: str, prefix: str) -> str | None:
     """Find the best finetuned DLC .h5 file under a given S3 prefix.
 
-    Selects the highest snapshot number from finetuned models (Hrnet/Resnet).
-    Skips _single and _filtered variants. Falls back to the first .h5 if no
-    finetuned model found.
+    Delegates to :func:`hm2p.pose.select.select_best_dlc_h5_s3`, which
+    checks for a ``promoted.json`` manifest first and falls back to the
+    highest-snapshot heuristic.
     """
-    all_h5: list[str] = []
-    paginator = s3.get_paginator("list_objects_v2")
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
-            name = key.split("/")[-1]
-            if key.endswith(".h5") and "_single" not in name and "_filtered" not in name:
-                all_h5.append(key)
-    if not all_h5:
-        return None
-
-    def _snap_num(key: str) -> int:
-        m = re.search(r"snapshot[_-]best[_-](\d+)", key)
-        return int(m.group(1)) if m else -1
-
-    finetuned = [k for k in all_h5 if "Hrnet" in k or "Resnet" in k]
-    if finetuned:
-        return max(finetuned, key=_snap_num)
-    return all_h5[0]
+    from hm2p.pose.select import select_best_dlc_h5_s3
+    return select_best_dlc_h5_s3(s3, bucket, prefix)
 
 
 def _extract_dlc_provenance(dlc_filename: str) -> tuple[str, str]:
     """Extract model name and snapshot number from a DLC output filename.
 
-    DLC names output files using the convention::
-
-        <video>DLC_<arch>_<project>_shuffle<N>_snapshot-best-<iter>.h5
-
-    For fine-tuned models the filename contains an architecture string
-    (``Hrnet`` or ``Resnet``) and a ``snapshot-best-<iter>`` suffix.
-    SuperAnimal baseline outputs do not contain these markers.
-
-    Parameters
-    ----------
-    dlc_filename:
-        Bare filename (not a full path) of the DLC .h5 output.
-
-    Returns
-    -------
-    tuple[str, str]
-        ``(model_name, snapshot)`` where *model_name* is the DLC project
-        name extracted from the filename, or ``"superanimal_topviewmouse"``
-        for baseline outputs; and *snapshot* is the iteration number as a
-        string, or ``"superanimal"`` for baseline outputs.
+    Delegates to :func:`hm2p.pose.select.extract_dlc_provenance`.
     """
-    # Fine-tuned model: filename contains architecture tag and snapshot marker.
-    is_finetuned = "Hrnet" in dlc_filename or "Resnet" in dlc_filename
-    if is_finetuned:
-        snap_match = re.search(r"snapshot[_-]best[_-](\d+)", dlc_filename)
-        snapshot = snap_match.group(1) if snap_match else "unknown"
-        # DLC project name sits between DLC_<arch>_ and _shuffle.
-        model_match = re.search(r"DLC_\w+?_(.+?)_shuffle", dlc_filename)
-        model_name = model_match.group(1) if model_match else "unknown"
-        return model_name, snapshot
-    # SuperAnimal baseline output (no architecture tag in filename).
-    return "superanimal_topviewmouse", "superanimal"
+    from hm2p.pose.select import extract_dlc_provenance
+    return extract_dlc_provenance(dlc_filename)
 
 
 def run_session(

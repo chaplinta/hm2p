@@ -117,10 +117,9 @@ def dl_video(sub: str, ses: str, mode: str = "DLC raw") -> bytes | None:
 def dl_dlc(sub: str, ses: str) -> dict | None:
     """Download DLC .h5 from S3 and load via movement.
 
-    Selects the highest-numbered snapshot from finetuned model outputs
-    (files containing 'Hrnet' or 'Resnet' in the name), matching the
-    selection logic used by tracking_quality_page and training_fit_page.
-    Falls back to the first available .h5 if no finetuned files exist.
+    Selects the best finetuned model output using
+    :func:`hm2p.pose.select.select_best_dlc_h5`.  Falls back to the first
+    available .h5 if no finetuned file is found.
 
     Returns a dict with keys:
         - position: np.ndarray (time, space, keypoints) — x/y coordinates
@@ -129,30 +128,15 @@ def dl_dlc(sub: str, ses: str) -> dict | None:
         - n_frames: int — number of frames
     Or None if no DLC data found.
     """
-    import re as _re
-
-    from frontend.data import list_s3_session_files
+    from frontend.data import list_s3_session_files  # noqa: PLC0415
+    from hm2p.pose.select import select_best_dlc_h5  # noqa: PLC0415
 
     prefix = f"pose/{sub}/{ses}/"
     files = list_s3_session_files(DERIVATIVES_BUCKET, prefix)
-    h5_files = [
-        f["key"] for f in files
-        if f["key"].endswith(".h5")
-        and "_single" not in f["key"].split("/")[-1]
-        and "_filtered" not in f["key"].split("/")[-1]
-    ]
-    if not h5_files:
+    all_keys = [f["key"] for f in files]
+    h5_key = select_best_dlc_h5(all_keys)
+    if h5_key is None:
         return None
-
-    # Pick highest-numbered snapshot from finetuned model outputs.
-    # This matches the selection logic in tracking_quality_page and
-    # training_fit_page to ensure all pages show the same DLC file.
-    def _snap_num(key: str) -> int:
-        m = _re.search(r"snapshot[_-]best[_-](\d+)", key)
-        return int(m.group(1)) if m else -1
-
-    finetuned = [k for k in h5_files if "Hrnet" in k or "Resnet" in k]
-    h5_key = max(finetuned, key=_snap_num) if finetuned else h5_files[0]
 
     data = download_s3_bytes(DERIVATIVES_BUCKET, h5_key)
     if data is None:

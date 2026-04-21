@@ -106,25 +106,10 @@ def main():
 
         # Find pose .h5 on S3
         prefix = f"{args.pose_prefix}/{sub}/{ses}/"
-        resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=prefix, MaxKeys=20)
-        h5_keys = [
-            o["Key"] for o in resp.get("Contents", [])
-            if o["Key"].endswith(".h5") and "filtered" not in o["Key"]
-        ]
-        if not h5_keys:
+        from hm2p.pose.select import select_best_dlc_h5_s3
+        pred_key = select_best_dlc_h5_s3(s3, DERIVATIVES_BUCKET, prefix)
+        if pred_key is None:
             continue
-
-        # Pick the latest finetuned model (highest snapshot number)
-        import re as _re
-        def _snapshot_num(key: str) -> int:
-            m = _re.search(r"snapshot[_-]best[_-](\d+)", key)
-            return int(m.group(1)) if m else -1
-
-        finetuned = [k for k in h5_keys if "Hrnet" in k or "Resnet" in k]
-        if finetuned:
-            pred_key = max(finetuned, key=_snapshot_num)
-        else:
-            pred_key = h5_keys[0]
 
         try:
             obj = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key=pred_key)
