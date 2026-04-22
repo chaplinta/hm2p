@@ -343,8 +343,11 @@ def _page() -> None:
             "**Position** is computed from the DLC `mouse_center` keypoint, "
             "converted from pixels to maze coordinates (0\u20137 x, 0\u20135 y) "
             "via camera calibration and perspective correction.\n\n"
-            "**Head direction** is the angle of the ear-to-ear vector "
-            "(`left_ear` \u2192 `right_ear`), shown as a blue arrow.\n\n"
+            "**Head direction** is a confidence-weighted circular mean of 4 "
+            "estimates: (1) perpendicular to the ear\u2013ear line, (2) nose\u2192head "
+            "midpoint, (3) nose\u2192neck, (4) head midpoint\u2192neck. Each estimate "
+            "is weighted by the mean DLC confidence of its keypoints. Shown as "
+            "a purple arrow.\n\n"
             "**Raw** shows all imaging frames. Where DLC confidence was below "
             "threshold (position or ears), gaps are filled with linear "
             "interpolation between the nearest confident frames. This gives "
@@ -390,7 +393,7 @@ def _page() -> None:
         selected_idx = st.selectbox("Session", range(len(session_labels)), format_func=lambda i: session_labels[i], key="maze_anim_session")
 
     with col_opts:
-        c1, c2, c3, c4 = st.columns(4)
+        c1, c2, c3, c4, c5 = st.columns(5)
         with c1:
             pos_mode = st.radio(
                 "Position data",
@@ -410,6 +413,11 @@ def _page() -> None:
                                   help="Higher = faster animation, fewer frames. At ~9.6 Hz imaging, step=10 gives ~1 Hz playback.")
         with c4:
             arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
+        with c5:
+            show_skeleton = st.checkbox(
+                "Show skeleton", value=True, key="maze_anim_skel",
+                help="Draw DLC bodypart skeleton (requires per-bodypart maze coordinates in sync.h5).",
+            )
 
     ses = sessions_with_pos[selected_idx]
 
@@ -476,7 +484,7 @@ def _page() -> None:
     ft_sel = frame_times[time_mask]
 
     # Bodypart positions for skeleton
-    bp_maze_data = ses.get("bp_maze")
+    bp_maze_data = ses.get("bp_maze") if show_skeleton else None
     bp_sel = None
     if bp_maze_data:
         bp_sel = {}
