@@ -166,7 +166,7 @@ def get_pipeline_status(s3, sessions: list[dict]) -> list[dict]:
     return statuses
 
 
-def run_stage3(session: dict, dry_run: bool = False) -> tuple[bool, str]:
+def run_stage3(session: dict, dry_run: bool = False, force: bool = False) -> tuple[bool, str]:
     """Run Stage 3 (kinematics) for a session.
 
     Returns
@@ -179,6 +179,8 @@ def run_stage3(session: dict, dry_run: bool = False) -> tuple[bool, str]:
         sys.executable, "scripts/run_stage3_kinematics.py",
         "--session", session["exp_id"],
     ]
+    if force:
+        cmd.append("--force")
     print(f"  Stage 3 (kinematics): {' '.join(cmd)}")
     if dry_run:
         return True, ""
@@ -191,7 +193,7 @@ def run_stage3(session: dict, dry_run: bool = False) -> tuple[bool, str]:
     return True, ""
 
 
-def run_stage5(session: dict, dry_run: bool = False) -> tuple[bool, str]:
+def run_stage5(session: dict, dry_run: bool = False, force: bool = False) -> tuple[bool, str]:
     """Run Stage 5 (sync) for a session.
 
     Returns
@@ -204,6 +206,8 @@ def run_stage5(session: dict, dry_run: bool = False) -> tuple[bool, str]:
         sys.executable, "scripts/run_stage5_sync.py",
         "--session", session["exp_id"],
     ]
+    if force:
+        cmd.append("--force")
     print(f"  Stage 5 (sync): {' '.join(cmd)}")
     if dry_run:
         return True, ""
@@ -216,7 +220,7 @@ def run_stage5(session: dict, dry_run: bool = False) -> tuple[bool, str]:
     return True, ""
 
 
-def run_stage6(session: dict, dry_run: bool = False) -> tuple[bool, str]:
+def run_stage6(session: dict, dry_run: bool = False, force: bool = False) -> tuple[bool, str]:
     """Run Stage 6 (analysis) for a session.
 
     Returns
@@ -229,6 +233,8 @@ def run_stage6(session: dict, dry_run: bool = False) -> tuple[bool, str]:
         sys.executable, "scripts/run_stage6_analysis.py",
         "--session", session["exp_id"],
     ]
+    if force:
+        cmd.append("--force")
     print(f"  Stage 6 (analysis): {' '.join(cmd)}")
     if dry_run:
         return True, ""
@@ -280,7 +286,7 @@ def process_session(
 
     # Stage 3: Kinematics (requires pose)
     if (force or not session.get("kinematics")) and session.get("pose"):
-        ok, stderr = run_stage3(session, dry_run)
+        ok, stderr = run_stage3(session, dry_run, force=force)
         results["stage3"] = ok
         update_downstream_progress(
             s3, session_idx, total, exp_id,
@@ -303,7 +309,7 @@ def process_session(
 
     # Stage 5: Sync (requires kinematics + calcium)
     if (force or not session.get("sync")) and results.get("stage3") and session.get("calcium"):
-        ok, stderr = run_stage5(session, dry_run)
+        ok, stderr = run_stage5(session, dry_run, force=force)
         results["stage5"] = ok
         update_downstream_progress(
             s3, session_idx, total, exp_id,
@@ -326,7 +332,7 @@ def process_session(
 
     # Stage 6: Analysis (requires sync)
     if (force or not session.get("analysis")) and results.get("stage5"):
-        ok, stderr = run_stage6(session, dry_run)
+        ok, stderr = run_stage6(session, dry_run, force=force)
         results["stage6"] = ok
         update_downstream_progress(
             s3, session_idx, total, exp_id,
