@@ -186,9 +186,9 @@ def run_stage3(session: dict, dry_run: bool = False, force: bool = False) -> tup
         return True, ""
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        stderr = result.stderr[:500]
-        print(f"  Stage 3 FAILED: {stderr}")
-        return False, stderr
+        output = (result.stderr + result.stdout)[-2000:]
+        print(f"  Stage 3 FAILED:\n{output}")
+        return False, output
     print(f"  Stage 3 DONE")
     return True, ""
 
@@ -213,9 +213,9 @@ def run_stage5(session: dict, dry_run: bool = False, force: bool = False) -> tup
         return True, ""
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        stderr = result.stderr[:500]
-        print(f"  Stage 5 FAILED: {stderr}")
-        return False, stderr
+        output = (result.stderr + result.stdout)[-2000:]
+        print(f"  Stage 5 FAILED:\n{output}")
+        return False, output
     print(f"  Stage 5 DONE")
     return True, ""
 
@@ -240,9 +240,9 @@ def run_stage6(session: dict, dry_run: bool = False, force: bool = False) -> tup
         return True, ""
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        stderr = result.stderr[:500]
-        print(f"  Stage 6 FAILED: {stderr}")
-        return False, stderr
+        output = (result.stderr + result.stdout)[-2000:]
+        print(f"  Stage 6 FAILED:\n{output}")
+        return False, output
     print(f"  Stage 6 DONE")
     return True, ""
 

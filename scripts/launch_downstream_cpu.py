@@ -99,7 +99,7 @@ set -ex
 apt-get update -qq
 apt-get install -y -qq awscli ffmpeg git python3-pip python3-opencv
 
-pip3 install --break-system-packages --quiet boto3 pandas numpy tables opencv-python-headless h5py scipy pyyaml shapely xarray netcdf4 movement pynapple
+pip3 install --break-system-packages --quiet boto3 pandas numpy tables opencv-python-headless h5py scipy pyyaml shapely xarray netcdf4 'movement==0.14.0' pynapple
 
 cd /home/ubuntu
 git clone https://github.com/chaplinta/hm2p.git
