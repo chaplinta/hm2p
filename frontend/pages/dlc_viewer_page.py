@@ -148,8 +148,12 @@ def dl_dlc(sub: str, ses: str) -> dict | None:
     with tempfile.NamedTemporaryFile(suffix=".h5", delete=True) as tmp:
         tmp.write(data)
         tmp.flush()
+        # movement ≥0.1.0 renamed 'file' → 'file_path'. Support both.
+        import inspect as _inspect
+        _sig = _inspect.signature(load_poses.from_file)
+        _file_kw = "file_path" if "file_path" in _sig.parameters else "file"
         ds = load_poses.from_file(
-            file=Path(tmp.name), source_software="DeepLabCut", fps=VIDEO_FPS,
+            **{_file_kw: Path(tmp.name)}, source_software="DeepLabCut", fps=VIDEO_FPS,
         )
 
     # For multi-animal DLC, pick best individual per frame (highest mean confidence)

@@ -657,6 +657,11 @@ def load_pose_dataset(pose_path: Path, tracker: str) -> xr.Dataset:
     if tracker not in _TRACKER_MAP:
         raise ValueError(f"Unknown tracker '{tracker}'. Known trackers: {list(_TRACKER_MAP)}")
     source_software = _TRACKER_MAP[tracker]
+    # movement ≥0.1.0 renamed 'file' → 'file_path'. Support both.
+    import inspect
+    sig = inspect.signature(load_poses.from_file)
+    if "file_path" in sig.parameters:
+        return load_poses.from_file(file_path=pose_path, source_software=source_software)
     return load_poses.from_file(file=pose_path, source_software=source_software)
 
 
