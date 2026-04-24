@@ -69,7 +69,7 @@ def build_user_data(render_only: bool = False) -> str:
 
     downstream_cmd = "" if render_only else """
 echo "=== Running downstream pipeline (Stages 3, 5, 6) ==="
-python3 scripts/run_downstream_pipeline.py --force
+python3.11 scripts/run_downstream_pipeline.py --force
 """
 
     return f"""#!/bin/bash
@@ -97,29 +97,35 @@ trap _hm2p_shutdown EXIT
 
 set -ex
 apt-get update -qq
-apt-get install -y -qq awscli ffmpeg git python3-pip python3-opencv
+apt-get install -y -qq awscli ffmpeg git software-properties-common
 
-pip3 install --break-system-packages --quiet boto3 pandas numpy tables opencv-python-headless h5py scipy pyyaml shapely xarray netcdf4 'movement==0.14.0' pynapple
+# Install Python 3.11 via deadsnakes. The AMI ships Python 3.10, but
+# movement>=0.1.0 requires Python >=3.11.
+add-apt-repository -y ppa:deadsnakes/ppa
+apt-get update -qq
+apt-get install -y -qq python3.11 python3.11-dev python3.11-venv python3.11-distutils
+python3.11 -m ensurepip --upgrade
+python3.11 -m pip install --quiet --upgrade pip
+
+python3.11 -m pip install --quiet boto3 pandas numpy tables opencv-python-headless h5py scipy pyyaml shapely xarray netcdf4 'movement==0.14.0' pynapple
 
 cd /home/ubuntu
 git clone https://github.com/chaplinta/hm2p.git
 cd hm2p
-# Don't pip install -e . (requires Python >=3.11, AMI has 3.10).
-# Add src/ to PYTHONPATH instead.
 export PYTHONPATH=/home/ubuntu/hm2p/src:$PYTHONPATH
 
 # Run downstream stages and video rendering IN PARALLEL.
 # Video rendering only needs pose/ h5 files (already promoted).
 # Downstream needs pose/ for kinematics but doesn't touch videos.
 echo "=== Starting video rendering in background ==="
-python3 scripts/render_dlc_videos.py --all -v &
+python3.11 scripts/render_dlc_videos.py --all -v &
 RENDER_PID=$!
 {downstream_cmd}
 echo "=== Waiting for video rendering to finish ==="
 wait $RENDER_PID || echo "WARNING: render_dlc_videos.py exited with error"
 
 # Update progress
-python3 -c "
+python3.11 -c "
 import boto3, json, datetime
 s3 = boto3.client('s3', region_name='{REGION}')
 s3.put_object(
