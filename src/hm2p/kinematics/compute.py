@@ -625,7 +625,11 @@ def _clip_to_maze_polygon(
     y_out = y_maze.copy()
 
     for i in range(len(x_maze)):
-        if np.isnan(x_maze[i]) or np.isnan(y_maze[i]):
+        if not (np.isfinite(x_maze[i]) and np.isfinite(y_maze[i])):
+            # Skip NaN and inf — shapely's nearest_points raises GEOSException
+            # on non-finite coordinates. Preserve as NaN in output.
+            x_out[i] = np.nan
+            y_out[i] = np.nan
             continue
         pt = Point(x_maze[i], y_maze[i])
         if not maze_poly.contains(pt):
@@ -885,16 +889,24 @@ def compute_maze_coords(
     Returns:
         Tuple of (x_maze, y_maze), each (N,) float32, clipped to maze polygon.
     """
-    # Convert corners to mm
+    # Convert corners to mm.
     corners_mm = maze_corners_px * scale_mm_per_px  # (4, 2)
-    x1_mm = float(corners_mm[0, 0])
-    y1_mm = float(corners_mm[0, 1])
-    # Width: TL→TR (index 0→1); Height: TL→BL (index 0→3)
-    width_mm = float(corners_mm[1, 0] - corners_mm[0, 0])
-    height_mm = float(corners_mm[3, 1] - corners_mm[0, 1])
+    origin = corners_mm[0]
+    # Basis vectors along the maze edges (TL→TR for x, TL→BL for y).
+    # Using vectors instead of x/y differences makes the transform correct
+    # for any rotation of the corners — required because corners may be
+    # rotated by orientation_deg before reaching this function. Axis-aligned
+    # corners give the same result as the previous scalar-diff form.
+    dx_vec = corners_mm[1] - origin
+    dy_vec = corners_mm[3] - origin
+    dx_sq = float(dx_vec @ dx_vec)
+    dy_sq = float(dy_vec @ dy_vec)
 
-    x_maze, y_maze = _maze_linear_transform(x_mm, y_mm, x1_mm, y1_mm, width_mm, height_mm)
-    return _clip_to_maze_polygon(x_maze, y_maze)
+    delta_x = x_mm.astype(np.float64) - float(origin[0])
+    delta_y = y_mm.astype(np.float64) - float(origin[1])
+    x_maze = (delta_x * float(dx_vec[0]) + delta_y * float(dx_vec[1])) / dx_sq * 7.0
+    y_maze = (delta_x * float(dy_vec[0]) + delta_y * float(dy_vec[1])) / dy_sq * 5.0
+    return _clip_to_maze_polygon(x_maze.astype(np.float32), y_maze.astype(np.float32))
 
 
 def compute_light_on(

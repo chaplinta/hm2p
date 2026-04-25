@@ -609,6 +609,70 @@ class TestComputeMazeCoords:
         assert np.all(xm >= -0.1) and np.all(xm <= 7.1)
         assert np.all(ym >= -0.1) and np.all(ym <= 5.1)
 
+    def test_rotated_corners_no_div_by_zero(self) -> None:
+        """Corners rotated 90° must not produce inf/NaN.
+
+        Regression for the GEOSException seen on five sessions where
+        ``total_orientation = 90°`` rotated the maze corners around their
+        centre, making ``corners[1].x - corners[0].x = 0`` and breaking
+        the previous axis-aligned width/height formulation.
+        """
+        pytest.importorskip("shapely")
+        # Axis-aligned maze in pixels, then rotated 90° CCW around its centre.
+        # Centre of [(0,0), (W,0), (W,H), (0,H)] is (W/2, H/2).
+        # 90° CCW around centre maps:
+        #   (0,0)→(W,0), (W,0)→(W,H), (W,H)→(0,H), (0,H)→(0,0)
+        W, H = 600.0, 400.0
+        corners_rot = np.array(
+            [[W, 0.0], [W, H], [0.0, H], [0.0, 0.0]], dtype=np.float64
+        )
+        # Centre point of the maze in mm
+        x_mm = np.array([W / 2.0], dtype=np.float32)
+        y_mm = np.array([H / 2.0], dtype=np.float32)
+        xm, ym = compute_maze_coords(x_mm, y_mm, corners_rot, scale_mm_per_px=1.0)
+        assert np.isfinite(xm).all() and np.isfinite(ym).all()
+        # Centre maps to (3.5, 2.5)
+        np.testing.assert_allclose(xm, 3.5, atol=1e-4)
+        np.testing.assert_allclose(ym, 2.5, atol=1e-4)
+
+    def test_rotated_corners_match_axis_aligned(self) -> None:
+        """A 90° rotation of corners + the same rotation applied to query
+        points must yield identical maze coords as the axis-aligned case."""
+        pytest.importorskip("shapely")
+        W, H = 600.0, 400.0
+        corners_aa = np.array(
+            [[0.0, 0.0], [W, 0.0], [W, H], [0.0, H]], dtype=np.float64
+        )
+        # Some interior points
+        x_mm = np.array([100.0, 300.0, 500.0], dtype=np.float32)
+        y_mm = np.array([100.0, 200.0, 300.0], dtype=np.float32)
+        xm_aa, ym_aa = compute_maze_coords(x_mm, y_mm, corners_aa, scale_mm_per_px=1.0)
+
+        # Rotate corners and query points by 90° CCW around (W/2, H/2)
+        cx, cy = W / 2.0, H / 2.0
+        def rot90ccw(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+            return cx - (y - cy), cy + (x - cx)
+        cx_rot, cy_rot = rot90ccw(corners_aa[:, 0], corners_aa[:, 1])
+        corners_rot = np.column_stack([cx_rot, cy_rot])
+        x_rot, y_rot = rot90ccw(x_mm.astype(np.float64), y_mm.astype(np.float64))
+        xm_rot, ym_rot = compute_maze_coords(
+            x_rot.astype(np.float32), y_rot.astype(np.float32),
+            corners_rot, scale_mm_per_px=1.0,
+        )
+        np.testing.assert_allclose(xm_rot, xm_aa, atol=1e-4)
+        np.testing.assert_allclose(ym_rot, ym_aa, atol=1e-4)
+
+    def test_inf_input_returns_nan(self) -> None:
+        """Non-finite input coords are preserved as NaN, not fed to shapely."""
+        pytest.importorskip("shapely")
+        x_mm = np.array([np.inf, 200.0, np.nan], dtype=np.float32)
+        y_mm = np.array([200.0, 200.0, 100.0], dtype=np.float32)
+        corners = self._default_corners()
+        xm, ym = compute_maze_coords(x_mm, y_mm, corners, scale_mm_per_px=0.811)
+        assert np.isnan(xm[0]) and np.isnan(ym[0])
+        assert np.isfinite(xm[1]) and np.isfinite(ym[1])
+        assert np.isnan(xm[2]) and np.isnan(ym[2])
+
 
 # ---------------------------------------------------------------------------
 # compute_bad_behav_mask — pure numpy, testable immediately

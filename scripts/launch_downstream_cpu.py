@@ -40,11 +40,11 @@ INSTANCE_TYPE = "c5.xlarge"
 TAG_NAME = "hm2p-downstream-cpu"
 
 
-def build_user_data(render_only: bool = False) -> str:
+def build_user_data(render_only: bool = False, force: bool = True) -> str:
     key_id, secret, region = get_s3_credentials()
     creds = build_creds_block(key_id, secret, region)
     cpu_upload = format_cpu_log_upload(DERIVATIVES_BUCKET, "dlc-retrain")
-    timeout = format_hard_timeout(12)
+    timeout = format_hard_timeout(24)
     heartbeat = format_heartbeat(
         DERIVATIVES_BUCKET,
         "dlc-retrain",
@@ -67,9 +67,10 @@ def build_user_data(render_only: bool = False) -> str:
         shutdown_key="_downstream_cost_record_shutdown.json",
     )
 
-    downstream_cmd = "" if render_only else """
+    force_flag = " --force" if force else ""
+    downstream_cmd = "" if render_only else f"""
 echo "=== Running downstream pipeline (Stages 3, 5, 6) ==="
-python3.11 scripts/run_downstream_pipeline.py --force
+python3.11 scripts/run_downstream_pipeline.py{force_flag}
 """
 
     return f"""#!/bin/bash
@@ -142,10 +143,10 @@ echo "=== Downstream + render complete: $(date -u) ==="
 """
 
 
-def launch(render_only: bool = False, dry_run: bool = False) -> None:
+def launch(render_only: bool = False, dry_run: bool = False, force: bool = True) -> None:
     ec2 = boto3.client("ec2", region_name=REGION)
 
-    user_data = build_user_data(render_only=render_only)
+    user_data = build_user_data(render_only=render_only, force=force)
 
     if dry_run:
         print(user_data)
@@ -188,10 +189,12 @@ def launch(render_only: bool = False, dry_run: bool = False) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Launch CPU instance for downstream + render")
     parser.add_argument("--render-only", action="store_true", help="Skip downstream, render videos only")
+    parser.add_argument("--no-force", action="store_true",
+                        help="Skip sessions whose outputs already exist (process only failed/missing).")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    launch(render_only=args.render_only, dry_run=args.dry_run)
+    launch(render_only=args.render_only, dry_run=args.dry_run, force=not args.no_force)
 
 
 if __name__ == "__main__":
