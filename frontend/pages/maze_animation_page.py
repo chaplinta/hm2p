@@ -90,6 +90,7 @@ def _build_animation_figure(
     step: int,
     arrow_length: float,
     bp_maze: dict | None = None,
+    playback_speed: float = 1.0,
 ) -> go.Figure:
     """Build a Plotly figure with animation frames for mouse trajectory.
 
@@ -302,7 +303,7 @@ def _build_animation_figure(
                 y=1.12, x=0.5, xanchor="center",
                 buttons=[
                     dict(label="Play", method="animate",
-                         args=[None, dict(frame=dict(duration=50, redraw=True), fromcurrent=True, transition=dict(duration=0))]),
+                         args=[None, dict(frame=dict(duration=max(20, int(round(dt * 1000 / playback_speed))), redraw=True), fromcurrent=True, transition=dict(duration=0))]),
                     dict(label="Pause", method="animate",
                          args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate", transition=dict(duration=0))]),
                 ],
@@ -393,7 +394,7 @@ def _page() -> None:
         selected_idx = st.selectbox("Session", range(len(session_labels)), format_func=lambda i: session_labels[i], key="maze_anim_session")
 
     with col_opts:
-        c1, c2, c3, c4, c5 = st.columns(5)
+        c1, c2, c3, c4, c5, c6 = st.columns(6)
         with c1:
             pos_mode = st.radio(
                 "Position data",
@@ -410,10 +411,19 @@ def _page() -> None:
             trail_s = st.slider("Trail length (s)", 1.0, 30.0, 10.0, 1.0, key="maze_anim_trail")
         with c3:
             subsample = st.slider("Subsample (every N frames)", 1, 30, 1, 1, key="maze_anim_sub",
-                                  help="Higher = faster animation, fewer frames. At ~9.6 Hz imaging, step=10 gives ~1 Hz playback.")
+                                  help="Reduce frame count for browser performance (does not change playback time-base).")
         with c4:
-            arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
+            playback_label = st.selectbox(
+                "Playback speed",
+                ["0.25× realtime", "0.5× realtime", "1× realtime", "2× realtime", "4× realtime"],
+                index=2,
+                key="maze_anim_speed",
+                help="Wall-clock speed relative to recorded time. 1× = real-time replay.",
+            )
+            playback_speed = float(playback_label.split("×")[0])
         with c5:
+            arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
+        with c6:
             show_skeleton = st.checkbox(
                 "Show skeleton", value=True, key="maze_anim_skel",
                 help="Draw DLC bodypart skeleton (requires per-bodypart maze coordinates in sync.h5).",
@@ -510,6 +520,7 @@ def _page() -> None:
             step=subsample,
             arrow_length=arrow_len,
             bp_maze=bp_sel,
+            playback_speed=playback_speed,
         )
 
     st.plotly_chart(fig, use_container_width=False)
