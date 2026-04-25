@@ -124,13 +124,16 @@ def parse_exp_id(exp_id: str) -> tuple[str, str]:
 
 
 def load_sessions(metadata_path: Path) -> list[dict]:
-    """Load non-excluded sessions from experiments.csv."""
+    """Load all sessions from experiments.csv.
+
+    Per CLAUDE.md, pipeline stages must process all sessions regardless
+    of the ``exclude`` flag — that flag is for analysis-time filtering
+    only.
+    """
     sessions = []
     with open(metadata_path, newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            if row.get("exclude", "0").strip() == "1":
-                continue
             sessions.append(row)
     return sessions
 
@@ -611,7 +614,7 @@ def main():
     group.add_argument("--session", type=str,
                        help="Process a single session (exp_id)")
     group.add_argument("--all", action="store_true",
-                       help="Process all non-excluded sessions")
+                       help="Process all sessions in experiments.csv")
 
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be done without downloading or rendering")
@@ -631,7 +634,7 @@ def main():
 
     # Load metadata
     sessions = load_sessions(METADATA_PATH)
-    log.info("Loaded %d non-excluded sessions from %s", len(sessions), METADATA_PATH)
+    log.info("Loaded %d sessions from %s", len(sessions), METADATA_PATH)
 
     # Filter to requested session
     if args.session:
