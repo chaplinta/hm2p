@@ -852,15 +852,29 @@ def _fetch_all_sync_data() -> dict:
                 y_mm = f["y_mm"][:] if "y_mm" in f else None
                 x_maze = f["x_maze"][:] if "x_maze" in f else None
                 y_maze = f["y_maze"][:] if "y_maze" in f else None
+                # Raw maze coords (no confidence filter, no interpolation,
+                # no smoothing). Present only on sync.h5 produced by the
+                # pipeline after the raw-fields commit.
+                x_maze_raw = f["x_maze_raw"][:] if "x_maze_raw" in f else None
+                y_maze_raw = f["y_maze_raw"][:] if "y_maze_raw" in f else None
                 ahv_deg_s = f["ahv_deg_s"][:] if "ahv_deg_s" in f else None
                 # Per-bodypart maze coordinates for skeleton visualisation
                 bp_maze = {}
+                bp_maze_raw = {}
                 for k in f.keys():
                     if k.startswith("bp_") and k.endswith("_x_maze"):
                         bp_name = k[3:-7]  # strip "bp_" and "_x_maze"
                         y_key = f"bp_{bp_name}_y_maze"
                         if y_key in f:
                             bp_maze[bp_name] = {
+                                "x": f[k][:],
+                                "y": f[y_key][:],
+                            }
+                    elif k.startswith("bp_") and k.endswith("_x_maze_raw"):
+                        bp_name = k[3:-11]  # strip "bp_" and "_x_maze_raw"
+                        y_key = f"bp_{bp_name}_y_maze_raw"
+                        if y_key in f:
+                            bp_maze_raw[bp_name] = {
                                 "x": f[k][:],
                                 "y": f[y_key][:],
                             }
@@ -897,8 +911,11 @@ def _fetch_all_sync_data() -> dict:
                 "y_mm": y_mm,
                 "x_maze": x_maze,
                 "y_maze": y_maze,
+                "x_maze_raw": x_maze_raw,
+                "y_maze_raw": y_maze_raw,
                 "ahv_deg_s": ahv_deg_s,
                 "bp_maze": bp_maze if bp_maze else None,
+                "bp_maze_raw": bp_maze_raw if bp_maze_raw else None,
                 "dlc_model_name": dlc_model_name,
                 "dlc_snapshot": dlc_snapshot,
                 "n_rois": dff.shape[0],

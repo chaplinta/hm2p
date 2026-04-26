@@ -1427,6 +1427,41 @@ def compute_head_position(
     return x_mm_out.astype(np.float32), y_mm_out.astype(np.float32)
 
 
+def compute_body_position_unweighted(
+    ds: xr.Dataset, scale_mm_per_px: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Simple unweighted mean of body keypoints — no confidence weighting.
+
+    Used to produce the "raw" position fields displayed by the maze
+    animation page when the user wants the unfiltered DLC pose. Unlike
+    ``compute_body_position`` this does not weight by DLC confidence
+    (so low-confidence keypoints contribute equally) and does not skip
+    them. NaN keypoints are still excluded from the mean (via skipna)
+    so a single missing keypoint does not propagate to the centroid.
+
+    Parameters
+    ----------
+    ds : xr.Dataset
+        movement Dataset, typically from raw (unfiltered) DLC output.
+    scale_mm_per_px : float
+        Pixel → mm scale factor.
+
+    Returns
+    -------
+    tuple of (x_mm, y_mm), each (N,) float32 — unweighted body centroid.
+    """
+    pos = ds.position.isel(individuals=0)
+    available = list(pos.coords["keypoints"].values)
+    body_kps = [k for k in _BODY_KEYPOINTS if k in available]
+    n = pos.sizes["time"]
+    if not body_kps:
+        return np.full(n, np.nan, dtype=np.float32), np.full(n, np.nan, dtype=np.float32)
+    sub = pos.sel(keypoints=body_kps)
+    x_px = sub.sel(space="x").mean(dim="keypoints", skipna=True).values
+    y_px = sub.sel(space="y").mean(dim="keypoints", skipna=True).values
+    return (x_px * scale_mm_per_px).astype(np.float32), (y_px * scale_mm_per_px).astype(np.float32)
+
+
 def compute_body_position(
     ds: xr.Dataset, scale_mm_per_px: float
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -1638,6 +1673,10 @@ def run(
         indices = np.round(np.linspace(0, n_cam - 1, n_pose)).astype(int)
         frame_times = frame_times[indices]
     ds = apply_orientation_rotation(ds, orientation_deg)
+    # Snapshot raw (unfiltered) pose for the "raw" frontend display.
+    # Orientation rotation is geometric and applied for coordinate alignment;
+    # confidence filtering / gap interpolation / median smoothing are skipped.
+    ds_raw = ds.copy(deep=True)
     ds = filter_low_confidence(ds, threshold=confidence_threshold)
     ds = interpolate_gaps(ds, max_gap_frames=gap_fill_frames)
     # 3 frames at 30fps ≈ 100ms (old pipeline: 5 frames at 100fps = 50ms)
@@ -1648,6 +1687,12 @@ def run(
     if camera_center_px is not None:
         ds = correct_dataset_perspective(
             ds,
+            camera_center_px=camera_center_px,
+            camera_height_mm=camera_height_mm,
+            bodypart_heights=BODYPART_HEIGHTS_IMPLANT,
+        )
+        ds_raw = correct_dataset_perspective(
+            ds_raw,
             camera_center_px=camera_center_px,
             camera_height_mm=camera_height_mm,
             bodypart_heights=BODYPART_HEIGHTS_IMPLANT,
@@ -1699,6 +1744,27 @@ def run(
         )
         bp_positions_maze[kp] = (kp_x_mz, kp_y_mz)
 
+    # Raw (unfiltered) body position and per-bodypart maze coords.
+    # No confidence filter, no gap interpolation, no median smoothing,
+    # no confidence weighting — the user-facing "raw" view of the pose.
+    x_body_raw_mm, y_body_raw_mm = compute_body_position_unweighted(
+        ds_raw, scale_mm_per_px
+    )
+    x_maze_raw, y_maze_raw = compute_maze_coords(
+        x_body_raw_mm, y_body_raw_mm, maze_corners_px, scale_mm_per_px,
+    )
+    pos_raw = ds_raw.position.isel(individuals=0)
+    bp_positions_maze_raw: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    for kp in available_kps:
+        kp_x_px = pos_raw.sel(keypoints=kp, space="x").values
+        kp_y_px = pos_raw.sel(keypoints=kp, space="y").values
+        kp_x_mm = (kp_x_px * scale_mm_per_px).astype(np.float32)
+        kp_y_mm = (kp_y_px * scale_mm_per_px).astype(np.float32)
+        kp_x_mz, kp_y_mz = compute_maze_coords(
+            kp_x_mm, kp_y_mm, maze_corners_px, scale_mm_per_px,
+        )
+        bp_positions_maze_raw[kp] = (kp_x_mz, kp_y_mz)
+
     # Head translational speed: 3-point median filter on head position + gradient.
     speed_head_cm_s = compute_speed_from_position(
         x_head_mm, y_head_mm, frame_times, median_window=3
@@ -1742,6 +1808,11 @@ def run(
         # Maze coordinates (body-based)
         "x_maze": x_maze,
         "y_maze": y_maze,
+        # Raw maze coordinates (no confidence filter, no interpolation,
+        # no median smoothing, unweighted body centroid). Used by the
+        # frontend "Raw" display mode for honest unfiltered pose.
+        "x_maze_raw": x_maze_raw,
+        "y_maze_raw": y_maze_raw,
         # AHV
         "ahv_deg_s": ahv_deg_s,
         # Movement state and experimental flags
@@ -1757,6 +1828,10 @@ def run(
     for kp, (kp_x, kp_y) in bp_positions_maze.items():
         datasets[f"bp_{kp}_x_maze"] = kp_x
         datasets[f"bp_{kp}_y_maze"] = kp_y
+    # Raw per-bodypart maze coordinates (parallel to bp_*_x_maze).
+    for kp, (kp_x, kp_y) in bp_positions_maze_raw.items():
+        datasets[f"bp_{kp}_x_maze_raw"] = kp_x
+        datasets[f"bp_{kp}_y_maze_raw"] = kp_y
     attrs: dict[str, object] = {
         "session_id": session_id,
         "tracker": tracker,

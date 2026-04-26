@@ -24,6 +24,7 @@ from hm2p.kinematics.compute import (
     compute_ahv,
     compute_bad_behav_mask,
     compute_body_position,
+    compute_body_position_unweighted,
     compute_hd_multi,
     compute_head_direction,
     compute_head_position,
@@ -563,6 +564,49 @@ class TestComputePositionMm:
         ds = _make_pose_dataset(n_frames=n, pos_data=pos_data)
         x_mm, _ = compute_position_mm(ds, scale_mm_per_px=scale)
         np.testing.assert_allclose(x_mm, 4.0, rtol=1e-5)
+
+
+class TestComputeBodyPositionUnweighted:
+    def test_output_shape_and_dtype(self) -> None:
+        pytest.importorskip("xarray")
+        ds = _make_pose_dataset(n_frames=15)
+        x_mm, y_mm = compute_body_position_unweighted(ds, scale_mm_per_px=0.5)
+        assert x_mm.shape == (15,)
+        assert y_mm.dtype == np.float32
+
+    def test_unweighted_mean_ignores_confidence(self) -> None:
+        """Confidence values must not affect the unweighted mean."""
+        pytest.importorskip("xarray")
+        n = 4
+        kp_idx = {k: i for i, k in enumerate(KEYPOINTS)}
+        pos_data = np.zeros((n, 2, len(KEYPOINTS), 1), dtype=np.float64)
+        # Back keypoints x: 2, 4, 6 → unweighted mean = 4
+        pos_data[:, 0, kp_idx["mid_back"], 0] = 2.0
+        pos_data[:, 0, kp_idx["mouse_center"], 0] = 4.0
+        pos_data[:, 0, kp_idx["tail_base"], 0] = 6.0
+        pos_data[:, 1, :, 0] = 0.0
+        # Confidence pattern that would skew a weighted mean toward keypoint 2.0
+        conf_data = np.zeros((n, len(KEYPOINTS), 1), dtype=np.float64)
+        conf_data[:, kp_idx["mid_back"], 0] = 1.0     # high
+        conf_data[:, kp_idx["mouse_center"], 0] = 0.001
+        conf_data[:, kp_idx["tail_base"], 0] = 0.001
+        ds = _make_pose_dataset(n_frames=n, pos_data=pos_data, conf_data=conf_data)
+        x_mm, _ = compute_body_position_unweighted(ds, scale_mm_per_px=1.0)
+        np.testing.assert_allclose(x_mm, 4.0, rtol=1e-6)
+
+    def test_skips_nan_keypoints(self) -> None:
+        """A NaN in one keypoint must be ignored, not propagate."""
+        pytest.importorskip("xarray")
+        n = 3
+        kp_idx = {k: i for i, k in enumerate(KEYPOINTS)}
+        pos_data = np.zeros((n, 2, len(KEYPOINTS), 1), dtype=np.float64)
+        pos_data[:, 0, kp_idx["mid_back"], 0] = 2.0
+        pos_data[:, 0, kp_idx["mouse_center"], 0] = np.nan
+        pos_data[:, 0, kp_idx["tail_base"], 0] = 6.0
+        ds = _make_pose_dataset(n_frames=n, pos_data=pos_data)
+        x_mm, _ = compute_body_position_unweighted(ds, scale_mm_per_px=1.0)
+        # Mean of {2, 6} ignoring NaN = 4
+        np.testing.assert_allclose(x_mm, 4.0, rtol=1e-6)
 
 
 # ---------------------------------------------------------------------------

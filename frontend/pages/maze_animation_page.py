@@ -402,9 +402,10 @@ def _page() -> None:
                 index=0,
                 key="maze_anim_pos_mode",
                 help=(
-                    "**Raw:** all frames shown; low-confidence gaps filled with "
-                    "linear interpolation. **Cleaned:** only frames that passed "
-                    "confidence filtering and median smoothing."
+                    "**Raw:** unfiltered DLC pose — no confidence filter, "
+                    "no interpolation, no median smoothing, no confidence "
+                    "weighting in the body centroid. **Cleaned:** confidence-"
+                    "filtered, gap-interpolated, median-smoothed pose."
                 ),
             )
         with c2:
@@ -431,24 +432,40 @@ def _page() -> None:
 
     ses = sessions_with_pos[selected_idx]
 
-    x_maze = ses["x_maze"]
-    y_maze = ses["y_maze"]
     hd_deg = ses["hd_deg"]
     speed = ses["speed_cm_s"]
     light_on = ses["light_on"]
     frame_times = ses["frame_times"]
 
-    use_interp = pos_mode == "Raw"
-
-    if use_interp:
-        # Interpolate NaN gaps for continuous playback
-        x_maze = _interpolate_nans(x_maze)
-        y_maze = _interpolate_nans(y_maze)
-        hd_deg = _interpolate_nans(hd_deg)
-        speed = _interpolate_nans(speed)
-        # All non-bad-behav frames are valid
-        valid = ~ses["bad_behav"]
+    if pos_mode == "Raw":
+        # Truly raw: load x_maze_raw / y_maze_raw written by the kinematics
+        # stage from the unfiltered pose. Older sync.h5 files do not have
+        # these fields — fall back to the cleaned position with a notice.
+        x_maze_raw = ses.get("x_maze_raw")
+        y_maze_raw = ses.get("y_maze_raw")
+        if x_maze_raw is not None and y_maze_raw is not None:
+            x_maze = x_maze_raw
+            y_maze = y_maze_raw
+            ses_bp_maze = ses.get("bp_maze_raw") or ses.get("bp_maze")
+        else:
+            st.warning(
+                "Raw position fields are not present in this session's "
+                "sync.h5 — it predates the raw-fields commit. Showing "
+                "cleaned position instead. Re-run the pipeline to populate "
+                "x_maze_raw / y_maze_raw."
+            )
+            x_maze = ses["x_maze"]
+            y_maze = ses["y_maze"]
+            ses_bp_maze = ses.get("bp_maze")
+        # Raw position has no NaN gaps in the kinematics fields, so no
+        # interpolation is applied. HD and speed remain from the cleaned
+        # pipeline (these are derived signals; raw analogues would be
+        # extremely noisy and not meaningful for visualisation).
+        valid = np.isfinite(x_maze) & np.isfinite(y_maze) & ~ses["bad_behav"]
     else:
+        x_maze = ses["x_maze"]
+        y_maze = ses["y_maze"]
+        ses_bp_maze = ses.get("bp_maze")
         valid = np.isfinite(x_maze) & np.isfinite(y_maze) & ~ses["bad_behav"]
 
     if valid.sum() < 10:
@@ -458,13 +475,11 @@ def _page() -> None:
     n_total = len(frame_times)
     n_confident = (np.isfinite(ses["x_maze"]) & np.isfinite(ses["y_maze"]) & ~ses["bad_behav"]).sum()
     n_valid = valid.sum()
-
-    st.markdown(
-        f"**Frames:** {n_valid}/{n_total} "
-        f"({n_confident} confident, {n_total - n_confident} interpolated)"
-        if use_interp else
-        f"**Frames:** {n_valid}/{n_total} (cleaned only)"
-    )
+    if pos_mode == "Raw":
+        suffix = "(raw, all finite frames)"
+    else:
+        suffix = "(cleaned)"
+    st.markdown(f"**Frames:** {n_valid}/{n_total} ({n_confident} cleaned-confident) {suffix}")
 
     total_dur_s = frame_times[-1] - frame_times[0]
     total_dur_min = total_dur_s / 60.0
@@ -493,8 +508,8 @@ def _page() -> None:
     light_sel = light_on[time_mask]
     ft_sel = frame_times[time_mask]
 
-    # Bodypart positions for skeleton
-    bp_maze_data = ses.get("bp_maze") if show_skeleton else None
+    # Bodypart positions for skeleton — match raw vs cleaned to position mode.
+    bp_maze_data = ses_bp_maze if show_skeleton else None
     bp_sel = None
     if bp_maze_data:
         bp_sel = {}
