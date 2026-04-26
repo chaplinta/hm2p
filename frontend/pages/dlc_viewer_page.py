@@ -321,7 +321,19 @@ with _top_c1:
         st.rerun()
 with _top_c2:
     if st.button("Sync all rendered videos to local cache", key="dlcv_sync_all"):
-        _sync_dir = Path("/workspace/.cache/dlc-videos")
+        # Bind-mounted from the Mac at ~/Neuro/hm2p-dlc-videos
+        # (devcontainer.json). Writes here land directly on the Mac
+        # filesystem outside the repo so the videos are easy to open in
+        # Quicktime / VLC and don't pollute the project tree.
+        _sync_dir = Path("/host-dlc-videos")
+        if not _sync_dir.exists():
+            st.error(
+                f"Local cache directory `{_sync_dir}` is not mounted. "
+                "Create `~/Neuro/hm2p-dlc-videos` on the Mac and rebuild the "
+                "devcontainer (the bind mount is declared in "
+                "`.devcontainer/devcontainer.json`)."
+            )
+            st.stop()
         _sync_dir.mkdir(parents=True, exist_ok=True)
         s3 = get_s3_client()
         paginator = s3.get_paginator("list_objects_v2")
@@ -377,10 +389,15 @@ with _top_c2:
                         text=f"Syncing {i + 1}/{len(sync_keys)} — {rel} ({size / 1024 / 1024:.1f} MB)",
                     )
                 progress.empty()
+                # The container sees /host-dlc-videos but the user-facing
+                # path on macOS is the bind-mount source. Show that one so
+                # they can open the folder in Finder directly.
+                _mac_path = "~/Neuro/hm2p-dlc-videos"
                 st.success(
                     f"Downloaded {len(sync_keys)} videos "
                     f"({total_bytes / 1024 / 1024 / 1024:.2f} GB total) to:\n\n"
-                    f"`{_sync_dir}`"
+                    f"**Mac:** `{_mac_path}`  \n"
+                    f"**Container path:** `{_sync_dir}`"
                 )
 
 # ── Session selector ─────────────────────────────────────────────────────
