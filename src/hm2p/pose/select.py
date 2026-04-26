@@ -310,7 +310,11 @@ def extract_dlc_provenance(dlc_filename: str) -> tuple[str, str]:
     if is_finetuned:
         snap_match = re.search(r"snapshot[_-]best[_-](\d+)", dlc_filename)
         snapshot = snap_match.group(1) if snap_match else "unknown"
-        model_match = re.search(r"DLC_\w+?_(.+?)_shuffle", dlc_filename)
+        # The DLC convention writes ``..._shuffle<N>...``, but real-world
+        # filenames in this project sometimes drop the underscore (e.g.
+        # ``...Mar20shuffle1...``). Accept either form by making the
+        # underscore optional.
+        model_match = re.search(r"DLC_\w+?_(.+?)_?shuffle\d*", dlc_filename)
         model_name = model_match.group(1) if model_match else "unknown"
         return model_name, snapshot
     return "superanimal_topviewmouse", "superanimal"

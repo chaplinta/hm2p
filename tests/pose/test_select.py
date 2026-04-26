@@ -241,6 +241,18 @@ def test_provenance_underscore_snapshot_separator():
     assert snapshot == "290"
 
 
+def test_provenance_no_underscore_before_shuffle():
+    """Real-world DLC filenames sometimes lack the _ before 'shuffle' (e.g.
+    ``...Mar20shuffle1...``). The regex must tolerate that."""
+    filename = (
+        "20210823_17_00_04_1114353_maze-rose_overhead.camera-cropped_30fpsDLC_"
+        "HrnetW32_hm2p-retrainMar20shuffle1_snapshot_best-290.h5"
+    )
+    model_name, snapshot = extract_dlc_provenance(filename)
+    assert model_name == "hm2p-retrainMar20"
+    assert snapshot == "290"
+
+
 # ---------------------------------------------------------------------------
 # extract_architecture
 # ---------------------------------------------------------------------------
