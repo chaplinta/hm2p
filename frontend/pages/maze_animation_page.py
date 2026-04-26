@@ -87,6 +87,22 @@ def _interpolate_nans(arr: np.ndarray) -> np.ndarray:
     return out
 
 
+def _pick_kp_arrays(
+    bp_sub: dict | None, candidates: tuple[str, ...]
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Return the first present keypoint's (x, y) arrays from bp_sub.
+
+    ``candidates`` is an ordered tuple of keypoint names (preferred first,
+    legacy aliases later). Returns None if none are present.
+    """
+    if not bp_sub:
+        return None
+    for name in candidates:
+        if name in bp_sub:
+            return bp_sub[name]["x"], bp_sub[name]["y"]
+    return None
+
+
 def _build_animation_figure(
     x: np.ndarray,
     y: np.ndarray,
@@ -105,9 +121,9 @@ def _build_animation_figure(
 
     Each animation frame shows:
     - The full maze walls
-    - A fading trail of recent positions
-    - The current position as a filled circle
-    - An arrow indicating head direction
+    - A fading trail of recent head positions
+    - The current head position as a filled circle
+    - An arrow drawn from head_midpoint → nose_tip (heading vector)
     - Colour indicates light state (orange = light on, grey = dark)
     """
     # Subsample to reduce frame count
@@ -136,16 +152,50 @@ def _build_animation_figure(
     dt = np.median(np.diff(frame_times)) if n > 1 else 1.0
     trail_frames = max(1, int(trail_seconds / dt))
 
-    # Precompute HD arrow endpoints.
-    # The kinematics module computes HD as ``atan2(ear_left_x - ear_right_x,
-    # ear_left_y - ear_right_y) + 180`` (compute.py:202–205) — note dx, dy
-    # argument order. That convention gives HD=0 → heading +y and
-    # HD=90 → heading +x. The line endpoints therefore use sin/cos in that
-    # swapped order so the line direction matches the HD value (and matches
-    # the plotly arrow-marker ``angle`` parameter which is also y-aligned).
-    hd_rad = np.deg2rad(hd)
-    dx = arrow_length * np.sin(hd_rad)
-    dy = arrow_length * np.cos(hd_rad)
+    # The "position" we plot is the head position, not the body centroid.
+    # Pulled from bp_head_midpoint_*_maze (or the legacy implant_base_rear
+    # alias). Falls back to the body-centroid arrays if no head keypoint is
+    # present in bp_maze.
+    head_arrs = _pick_kp_arrays(bp_sub, ("head_midpoint", "implant_base_rear"))
+    if head_arrs is not None:
+        head_x_arr, head_y_arr = head_arrs
+    else:
+        head_x_arr, head_y_arr = x, y
+
+    # The heading vector is computed directly from keypoint positions:
+    # head_midpoint → nose_tip, in maze coords. This is unambiguous and
+    # bypasses the HD-scalar's convention entirely (the previous code
+    # rendered ``hd_deg`` via sin/cos which produced an arrow off by some
+    # constant offset because the pipeline's HD is ``180 + atan2(dx, dy)``
+    # in a non-standard order with an additional 180° offset).
+    nose_arrs = _pick_kp_arrays(bp_sub, ("nose_tip", "nose"))
+    if nose_arrs is not None and head_arrs is not None:
+        nose_x_arr, nose_y_arr = nose_arrs
+        heading_dx = nose_x_arr - head_x_arr
+        heading_dy = nose_y_arr - head_y_arr
+        heading_norm = np.hypot(heading_dx, heading_dy)
+        # Avoid division-by-zero where keypoints coincide
+        safe = heading_norm > 1e-6
+        unit_dx = np.where(safe, heading_dx / np.where(safe, heading_norm, 1.0), 0.0)
+        unit_dy = np.where(safe, heading_dy / np.where(safe, heading_norm, 1.0), 0.0)
+        # Plotly's marker arrow ``angle`` rotates clockwise from up (+y);
+        # atan2(dx, dy) gives exactly that convention in degrees.
+        marker_angles = np.degrees(np.arctan2(unit_dx, unit_dy))
+        # NaN-safe finite mask: arrow is drawn only when both keypoints
+        # are finite and not coincident.
+        has_arrow_arr = (
+            safe
+            & np.isfinite(head_x_arr) & np.isfinite(head_y_arr)
+            & np.isfinite(nose_x_arr) & np.isfinite(nose_y_arr)
+        )
+    else:
+        # No keypoints — no arrow
+        unit_dx = np.zeros(n, dtype=np.float64)
+        unit_dy = np.zeros(n, dtype=np.float64)
+        marker_angles = np.zeros(n, dtype=np.float64)
+        has_arrow_arr = np.zeros(n, dtype=bool)
+    dx = arrow_length * unit_dx
+    dy = arrow_length * unit_dy
 
     # Build frames — every (post-subsample) input frame becomes one
     # animation frame. No internal decimation: the user controls frame
@@ -160,9 +210,10 @@ def _build_animation_figure(
     _SURROUND_Y = [-0.5, -0.5, 5.5, 5.5, -0.5]
 
     for i in frame_indices:
+        # Trail follows the head position, not the body centroid.
         trail_start = max(0, i - trail_frames)
-        trail_x = x[trail_start:i + 1]
-        trail_y = y[trail_start:i + 1]
+        trail_x = head_x_arr[trail_start:i + 1]
+        trail_y = head_y_arr[trail_start:i + 1]
 
         # Trail opacity: fades from transparent to solid
         n_trail = len(trail_x)
@@ -182,18 +233,24 @@ def _build_animation_figure(
         surround_fill = "rgba(60, 60, 60, 0.55)" if not light_on[i] else "rgba(0, 0, 0, 0)"
         wall_color = "black" if light_on[i] else "rgba(200, 200, 200, 0.8)"
 
-        # Arrow line (head position → arrow tip) — only if HD is valid
-        has_hd = np.isfinite(hd[i])
+        # Heading arrow: from the head position outwards along the
+        # head_midpoint→nose vector. Only drawn if both keypoints are
+        # finite and not coincident.
+        has_hd = bool(has_arrow_arr[i])
+        head_x_i = float(head_x_arr[i]) if np.isfinite(head_x_arr[i]) else float("nan")
+        head_y_i = float(head_y_arr[i]) if np.isfinite(head_y_arr[i]) else float("nan")
         if has_hd:
-            ax = x[i] + dx[i]
-            ay = y[i] + dy[i]
+            ax = head_x_i + float(dx[i])
+            ay = head_y_i + float(dy[i])
 
         t_s = frame_times[i] - frame_times[0]
         t_min = t_s / 60.0
 
-        # Wrap unwrapped HD (cumulative) into [0, 360) for display.
-        hd_wrapped = (hd[i] % 360.0) if has_hd else float("nan")
-        hd_text = f"HD={hd_wrapped:.0f}°, " if has_hd else ""
+        # Wrap stored HD scalar (cumulative, unwrapped) into [0, 360) for the
+        # title-text readout. Note: this is the pipeline's HD scalar; the
+        # arrow itself is drawn from keypoint positions, not from this value.
+        hd_wrapped = (hd[i] % 360.0) if np.isfinite(hd[i]) else float("nan")
+        hd_text = f"HD={hd_wrapped:.0f}°, " if np.isfinite(hd_wrapped) else ""
         spd_text = f"speed={speed[i]:.1f} cm/s" if np.isfinite(speed[i]) else ""
 
         frame_data = [
@@ -251,10 +308,10 @@ def _build_animation_figure(
         # can hide them and watch only the trail + skeleton. Trace count
         # must stay constant across animation frames, so when hidden we
         # keep the trace structure with empty x/y arrays.
-        pos_x = [x[i]] if show_position else []
-        pos_y = [y[i]] if show_position else []
-        arrow_x = [x[i], ax] if (show_position and has_hd) else []
-        arrow_y = [y[i], ay] if (show_position and has_hd) else []
+        pos_x = [head_x_i] if (show_position and np.isfinite(head_x_i)) else []
+        pos_y = [head_y_i] if (show_position and np.isfinite(head_y_i)) else []
+        arrow_x = [head_x_i, ax] if (show_position and has_hd) else []
+        arrow_y = [head_y_i, ay] if (show_position and has_hd) else []
         head_x = [ax] if (show_position and has_hd) else []
         head_y = [ay] if (show_position and has_hd) else []
 
@@ -291,9 +348,10 @@ def _build_animation_figure(
                 line=dict(color="#7F00FF" if light_on[i] else "#A080D0", width=2),
                 showlegend=False, hoverinfo="skip",
             ),
-            # Arrowhead. Plotly arrow marker uses the same y-up convention
-            # as our HD (HD=0 → up), so angle = -hd_wrapped points it the
-            # same direction as the line.
+            # Arrowhead. The marker angle is computed from the actual
+            # head_midpoint→nose vector via atan2(dx, dy), which matches
+            # plotly's clockwise-from-up convention exactly. So the marker
+            # always points the same direction as the arrow line.
             go.Scatter(
                 x=head_x, y=head_y,
                 mode="markers",
@@ -301,7 +359,7 @@ def _build_animation_figure(
                     size=8,
                     color="#7F00FF" if light_on[i] else "#A080D0",
                     symbol="arrow",
-                    angle=-hd_wrapped if has_hd else 0,
+                    angle=float(marker_angles[i]) if has_hd else 0,
                 ),
                 showlegend=False, hoverinfo="skip",
             ),
