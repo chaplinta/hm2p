@@ -511,14 +511,21 @@ def render_session(
                 out_path = tmp / fname
 
             if use_ffmpeg:
+                # -loglevel error + -nostats suppress per-frame progress so
+                # the stderr pipe stays small. Without this ffmpeg's periodic
+                # encoding stats fill the 64 KB OS pipe buffer (stderr is not
+                # drained until communicate() at the end), ffmpeg blocks on
+                # its stderr write, stops reading stdin, and the loop's
+                # stdin.write() deadlocks. Observed at ~20,000 frames in.
                 ffproc = subprocess.Popen(
-                    ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
+                    ["ffmpeg", "-y", "-loglevel", "error", "-nostats",
+                     "-f", "rawvideo", "-pix_fmt", "bgr24",
                      "-s", f"{OUTPUT_WIDTH}x{OUTPUT_HEIGHT}", "-r", str(OUTPUT_FPS),
                      "-i", "pipe:0", "-c:v", "libx264", "-crf", "23",
                      "-preset", "medium", "-movflags", "+faststart", str(out_path)],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,   # capture for error logging
+                    stderr=subprocess.PIPE,   # only errors now; safe to capture
                 )
                 pipes[m] = (out_path, ffproc, None)
             else:
