@@ -91,6 +91,7 @@ def _build_animation_figure(
     arrow_length: float,
     bp_maze: dict | None = None,
     playback_speed: float = 1.0,
+    show_position: bool = True,
 ) -> go.Figure:
     """Build a Plotly figure with animation frames for mouse trajectory.
 
@@ -127,19 +128,25 @@ def _build_animation_figure(
     dt = np.median(np.diff(frame_times)) if n > 1 else 1.0
     trail_frames = max(1, int(trail_seconds / dt))
 
-    # Precompute HD arrow endpoints
+    # Precompute HD arrow endpoints.
+    # The kinematics module computes HD as ``atan2(ear_left_x - ear_right_x,
+    # ear_left_y - ear_right_y) + 180`` (compute.py:202–205) — note dx, dy
+    # argument order. That convention gives HD=0 → heading +y and
+    # HD=90 → heading +x. The line endpoints therefore use sin/cos in that
+    # swapped order so the line direction matches the HD value (and matches
+    # the plotly arrow-marker ``angle`` parameter which is also y-aligned).
     hd_rad = np.deg2rad(hd)
-    dx = arrow_length * np.cos(hd_rad)
-    dy = arrow_length * np.sin(hd_rad)
+    dx = arrow_length * np.sin(hd_rad)
+    dy = arrow_length * np.cos(hd_rad)
 
     # Build frames
     frames = []
-    # We generate frames at intervals to keep total count manageable
     frame_indices = list(range(0, n, 1))
-    if len(frame_indices) > 500:
-        # Cap at 500 animation frames for browser performance.
-        # Each frame has 6 traces; >500 frames overwhelms the browser.
-        skip = len(frame_indices) // 500
+    # Per-frame Plotly trace updates dominate playback cost; >2000 frames
+    # is sluggish in some browsers but fine in modern ones. Anything more
+    # should be reduced via the user-facing Subsample slider.
+    if len(frame_indices) > 2000:
+        skip = len(frame_indices) // 2000
         frame_indices = frame_indices[::skip]
 
     # Surround rectangle (covers entire plot area) — visible only during dark
@@ -180,7 +187,9 @@ def _build_animation_figure(
         t_s = frame_times[i] - frame_times[0]
         t_min = t_s / 60.0
 
-        hd_text = f"HD={hd[i]:.0f}°, " if has_hd else ""
+        # Wrap unwrapped HD (cumulative) into [0, 360) for display.
+        hd_wrapped = (hd[i] % 360.0) if has_hd else float("nan")
+        hd_text = f"HD={hd_wrapped:.0f}°, " if has_hd else ""
         spd_text = f"speed={speed[i]:.1f} cm/s" if np.isfinite(speed[i]) else ""
 
         frame_data = [
@@ -234,6 +243,17 @@ def _build_animation_figure(
                 skel_dot_y.append(by)
                 skel_dot_colors.append(_BP_COLORS.get(bp_name, "#888888"))
 
+        # Position circle + HD arrow are gated by show_position so the user
+        # can hide them and watch only the trail + skeleton. Trace count
+        # must stay constant across animation frames, so when hidden we
+        # keep the trace structure with empty x/y arrays.
+        pos_x = [x[i]] if show_position else []
+        pos_y = [y[i]] if show_position else []
+        arrow_x = [x[i], ax] if (show_position and has_hd) else []
+        arrow_y = [y[i], ay] if (show_position and has_hd) else []
+        head_x = [ax] if (show_position and has_hd) else []
+        head_y = [ay] if (show_position and has_hd) else []
+
         frame_data += [
             # Skeleton lines (single trace with None separators)
             go.Scatter(
@@ -252,7 +272,7 @@ def _build_animation_figure(
             ),
             # Current position (centroid — smaller when skeleton is shown)
             go.Scatter(
-                x=[x[i]], y=[y[i]],
+                x=pos_x, y=pos_y,
                 mode="markers",
                 marker=dict(size=10 if not bp_sub else 4, color=head_color,
                             line=dict(color="black" if light_on[i] else "white", width=1)),
@@ -260,22 +280,24 @@ def _build_animation_figure(
                 hovertext=f"t={t_min:.1f} min, {hd_text}{spd_text}",
                 hoverinfo="text",
             ),
-            # HD arrow — nose_tip color from DLC rainbow (#7F00FF purple)
+            # HD arrow line — nose_tip color from DLC rainbow (#7F00FF purple)
             go.Scatter(
-                x=[x[i], ax] if has_hd else [], y=[y[i], ay] if has_hd else [],
+                x=arrow_x, y=arrow_y,
                 mode="lines",
                 line=dict(color="#7F00FF" if light_on[i] else "#A080D0", width=2),
                 showlegend=False, hoverinfo="skip",
             ),
-            # Arrowhead
+            # Arrowhead. Plotly arrow marker uses the same y-up convention
+            # as our HD (HD=0 → up), so angle = -hd_wrapped points it the
+            # same direction as the line.
             go.Scatter(
-                x=[ax] if has_hd else [], y=[ay] if has_hd else [],
+                x=head_x, y=head_y,
                 mode="markers",
                 marker=dict(
                     size=8,
                     color="#7F00FF" if light_on[i] else "#A080D0",
                     symbol="arrow",
-                    angle=-(hd[i] % 360) if has_hd else 0,
+                    angle=-hd_wrapped if has_hd else 0,
                 ),
                 showlegend=False, hoverinfo="skip",
             ),
@@ -283,7 +305,7 @@ def _build_animation_figure(
         frames.append(go.Frame(
             data=frame_data,
             name=str(i),
-            layout=go.Layout(title_text=f"t = {t_min:.1f} min | {f'HD = {hd[i]:.0f}° | ' if has_hd else ''}{f'{speed[i]:.1f} cm/s | ' if np.isfinite(speed[i]) else ''}{'Light' if light_on[i] else 'Dark'}"),
+            layout=go.Layout(title_text=f"t = {t_min:.1f} min | {f'HD = {hd_wrapped:.0f}° | ' if has_hd else ''}{f'{speed[i]:.1f} cm/s | ' if np.isfinite(speed[i]) else ''}{'Light' if light_on[i] else 'Dark'}"),
         ))
 
     # Initial frame
@@ -394,8 +416,9 @@ def _page() -> None:
         selected_idx = st.selectbox("Session", range(len(session_labels)), format_func=lambda i: session_labels[i], key="maze_anim_session")
 
     with col_opts:
-        c1, c2, c3, c4, c5, c6 = st.columns(6)
-        with c1:
+        # Row 1
+        r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+        with r1c1:
             pos_mode = st.radio(
                 "Position data",
                 ["Raw", "Cleaned"],
@@ -408,12 +431,7 @@ def _page() -> None:
                     "filtered, gap-interpolated, median-smoothed pose."
                 ),
             )
-        with c2:
-            trail_s = st.slider("Trail length (s)", 1.0, 30.0, 10.0, 1.0, key="maze_anim_trail")
-        with c3:
-            subsample = st.slider("Subsample (every N frames)", 1, 30, 1, 1, key="maze_anim_sub",
-                                  help="Reduce frame count for browser performance (does not change playback time-base).")
-        with c4:
+        with r1c2:
             playback_label = st.selectbox(
                 "Playback speed",
                 ["0.25× realtime", "0.5× realtime", "1× realtime", "2× realtime", "4× realtime"],
@@ -422,13 +440,28 @@ def _page() -> None:
                 help="Wall-clock speed relative to recorded time. 1× = real-time replay.",
             )
             playback_speed = float(playback_label.split("×")[0])
-        with c5:
-            arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
-        with c6:
+        with r1c3:
+            subsample = st.slider("Subsample (every N frames)", 1, 30, 1, 1, key="maze_anim_sub",
+                                  help="Reduce frame count for browser performance (does not change playback time-base).")
+        with r1c4:
+            trail_s = st.slider("Trail length (s)", 1.0, 30.0, 10.0, 1.0, key="maze_anim_trail")
+
+        # Row 2
+        r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+        with r2c1:
+            show_position = st.checkbox(
+                "Show position + HD arrow", value=True, key="maze_anim_show_pos",
+                help="Display the body-centroid circle and the head-direction arrow.",
+            )
+        with r2c2:
             show_skeleton = st.checkbox(
                 "Show skeleton", value=True, key="maze_anim_skel",
                 help="Draw DLC bodypart skeleton (requires per-bodypart maze coordinates in sync.h5).",
             )
+        with r2c3:
+            arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
+        with r2c4:
+            st.empty()
 
     ses = sessions_with_pos[selected_idx]
 
@@ -536,6 +569,7 @@ def _page() -> None:
             arrow_length=arrow_len,
             bp_maze=bp_sel,
             playback_speed=playback_speed,
+            show_position=show_position,
         )
 
     st.plotly_chart(fig, use_container_width=False)
