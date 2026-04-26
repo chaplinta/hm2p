@@ -150,7 +150,7 @@ def run(
     # metadata.  session_id is always set from the argument to avoid stale values.
     attrs = dict(read_attrs(ca_h5))
     kin_attrs = read_attrs(kinematics_h5)
-    for key in ("tracker", "dlc_model_name", "dlc_snapshot",
+    for key in ("tracker", "dlc_model_name", "dlc_snapshot", "dlc_champion_id",
                 "confidence_threshold", "orientation_deg", "scale_mm_per_px"):
         if key in kin_attrs:
             attrs[key] = kin_attrs[key]

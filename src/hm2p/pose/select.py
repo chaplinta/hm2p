@@ -198,6 +198,54 @@ def compute_champion_id(
     return f"dlc-{date_compact}-{arch_lower}-snap{snapshot}"
 
 
+def resolve_champion_id(
+    model_name: str,
+    architecture: str | None,
+    snapshot: str,
+    manifest: dict | None,
+) -> str:
+    """Return the ``dlc_champion_id`` to stamp on a derivative.
+
+    The stamp is the manifest's ``champion_id`` only when the tuple
+    ``(model_name, architecture, snapshot)`` matches the current champion
+    exactly. Otherwise the stamp is ``"unknown"`` — the derivative was
+    produced by a different (older or experimental) model, or the
+    manifest does not exist yet.
+
+    The frontend treats ``"unknown"`` as stale and shows a warning. There
+    is intentionally no attempt to reconstruct an old champion id from the
+    triplet alone, because the training date of an old model cannot be
+    inferred from the h5 filename.
+
+    Parameters
+    ----------
+    model_name, architecture, snapshot:
+        Triplet derived from the DLC h5 filename via
+        :func:`extract_dlc_provenance` and :func:`extract_architecture`.
+        ``architecture`` may be ``None`` for SuperAnimal baseline files;
+        in that case the function returns ``"unknown"`` directly.
+    manifest:
+        The current champion manifest dict (from
+        :func:`get_champion_manifest`) or ``None`` when no manifest
+        exists yet.
+
+    Returns
+    -------
+    str
+        Either the manifest's ``champion_id`` value (if matched) or
+        ``"unknown"``.
+    """
+    if manifest is None or architecture is None:
+        return "unknown"
+    if (
+        manifest.get("model_name") == model_name
+        and manifest.get("architecture") == architecture
+        and str(manifest.get("snapshot")) == str(snapshot)
+    ):
+        return str(manifest.get("champion_id", "unknown"))
+    return "unknown"
+
+
 def get_champion_manifest(
     s3_client: object,
     bucket: str,

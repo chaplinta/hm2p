@@ -1628,6 +1628,7 @@ def run(
     camera_height_mm: float = 700.0,
     dlc_model_name: str = "unknown",
     dlc_snapshot: str = "unknown",
+    dlc_champion_id: str = "unknown",
 ) -> None:
     """End-to-end Stage 3: pose file → kinematics.h5.
 
@@ -1651,6 +1652,11 @@ def run(
             the SuperAnimal baseline. Stored as HDF5 attribute for provenance.
         dlc_snapshot: Snapshot iteration number as a string, or
             ``"superanimal"`` for the baseline model. Stored as HDF5 attribute.
+        dlc_champion_id: Project-wide champion identifier from
+            ``dlc-champion.json``. Stored as HDF5 attribute so the frontend
+            can refuse to display sessions whose id does not match the
+            current champion. ``"unknown"`` means the session was processed
+            before the champion system existed (treated as stale).
     """
     from hm2p.io.hdf5 import read_h5, write_h5
     from hm2p.kinematics.perspective import (
@@ -1842,5 +1848,6 @@ def run(
         "speed_active_threshold_cm_s": speed_active_threshold,
         "dlc_model_name": dlc_model_name,
         "dlc_snapshot": dlc_snapshot,
+        "dlc_champion_id": dlc_champion_id,
     }
     write_h5(output_path, datasets, attrs=attrs)

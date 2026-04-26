@@ -170,6 +170,7 @@ def run_session(
     work_dir: Path,
     dry_run: bool = False,
     force: bool = False,
+    champion_manifest: dict | None = None,
 ) -> str:
     """Run Stage 3 for a single session. Returns status string."""
     print(f"\n--- {sub}/{ses} ({exp_id}) ---")
@@ -212,8 +213,22 @@ def run_session(
     if bad_intervals:
         print(f"  Bad behaviour intervals: {bad_intervals}")
 
-    # Extract DLC model provenance from the output filename.
-    dlc_model_name, dlc_snapshot = _extract_dlc_provenance(Path(dlc_key).name)
+    # Extract DLC model provenance from the output filename, then resolve
+    # the project-wide champion id by matching the triplet against the
+    # current champion manifest. "unknown" means this h5 was not produced
+    # by the current champion (or no manifest exists yet) — the frontend
+    # treats that as stale.
+    from hm2p.pose.select import (
+        extract_architecture,
+        extract_dlc_provenance,
+        resolve_champion_id,
+    )
+    dlc_filename = Path(dlc_key).name
+    dlc_model_name, dlc_snapshot = extract_dlc_provenance(dlc_filename)
+    dlc_architecture = extract_architecture(dlc_filename)
+    dlc_champion_id = resolve_champion_id(
+        dlc_model_name, dlc_architecture, dlc_snapshot, champion_manifest,
+    )
 
     if dry_run:
         print(f"  DRY RUN: would process and upload kinematics.h5")
@@ -265,6 +280,7 @@ def run_session(
         output_path = session_dir / "kinematics.h5"
         session_id = f"{sub}/{ses}"
         print(f"  DLC model: {dlc_model_name}, snapshot: {dlc_snapshot}")
+        print(f"  DLC champion id: {dlc_champion_id}")
         run(
             pose_path=dlc_local,
             timestamps_h5=ts_local,
@@ -279,6 +295,7 @@ def run_session(
             camera_height_mm=700.0,
             dlc_model_name=dlc_model_name,
             dlc_snapshot=dlc_snapshot,
+            dlc_champion_id=dlc_champion_id,
         )
 
         # Report stats from kinematics.h5
@@ -346,6 +363,16 @@ def main():
     work_dir = Path(tempfile.mkdtemp(prefix="hm2p-stage3-"))
     print(f"Work dir: {work_dir}")
 
+    # Load champion manifest once. Per-session resolution then matches each
+    # session's chosen DLC h5 against this manifest to decide what to stamp.
+    from hm2p.pose.select import get_champion_manifest as _get_manifest
+    champion_manifest = _get_manifest(s3, DERIVATIVES_BUCKET)
+    if champion_manifest is None:
+        print("No champion manifest found at s3://hm2p-derivatives/dlc-champion.json. "
+              "All sessions will be stamped with dlc_champion_id='unknown'.")
+    else:
+        print(f"Champion: {champion_manifest.get('champion_id', '?')}")
+
     if args.session is not None:
         if args.session.isdigit():
             sessions = [sessions[int(args.session)]]
@@ -369,6 +396,7 @@ def main():
                 work_dir,
                 dry_run=args.dry_run,
                 force=args.force,
+                champion_manifest=champion_manifest,
             )
             results[ses["exp_id"]] = status
     finally:

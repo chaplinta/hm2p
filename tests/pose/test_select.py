@@ -12,6 +12,7 @@ from hm2p.pose.select import (
     extract_architecture,
     extract_dlc_provenance,
     get_champion_manifest,
+    resolve_champion_id,
     select_best_dlc_h5,
     select_best_dlc_h5_s3,
 )
@@ -352,3 +353,61 @@ def test_get_champion_manifest_returns_none_on_corrupt_json():
     body.read.return_value = b"{not json"
     s3.get_object.return_value = {"Body": body}
     assert get_champion_manifest(s3, "hm2p-derivatives") is None
+
+
+# ---------------------------------------------------------------------------
+# resolve_champion_id
+# ---------------------------------------------------------------------------
+
+
+_MANIFEST = {
+    "champion_id": "dlc-20260423-hrnetw32-snap290",
+    "model_name": "hm2p_hrnetw32_shuffle1",
+    "architecture": "HrnetW32",
+    "snapshot": "290",
+}
+
+
+def test_resolve_champion_id_full_match():
+    assert resolve_champion_id(
+        "hm2p_hrnetw32_shuffle1", "HrnetW32", "290", _MANIFEST,
+    ) == "dlc-20260423-hrnetw32-snap290"
+
+
+def test_resolve_champion_id_snapshot_mismatch_returns_unknown():
+    assert resolve_champion_id(
+        "hm2p_hrnetw32_shuffle1", "HrnetW32", "100", _MANIFEST,
+    ) == "unknown"
+
+
+def test_resolve_champion_id_architecture_mismatch_returns_unknown():
+    assert resolve_champion_id(
+        "hm2p_hrnetw32_shuffle1", "Resnet50", "290", _MANIFEST,
+    ) == "unknown"
+
+
+def test_resolve_champion_id_model_name_mismatch_returns_unknown():
+    assert resolve_champion_id(
+        "different_model", "HrnetW32", "290", _MANIFEST,
+    ) == "unknown"
+
+
+def test_resolve_champion_id_no_manifest_returns_unknown():
+    assert resolve_champion_id(
+        "any_model", "HrnetW32", "290", None,
+    ) == "unknown"
+
+
+def test_resolve_champion_id_no_architecture_returns_unknown():
+    """SuperAnimal baseline files have no architecture marker → unknown."""
+    assert resolve_champion_id(
+        "superanimal_topviewmouse", None, "superanimal", _MANIFEST,
+    ) == "unknown"
+
+
+def test_resolve_champion_id_handles_int_snapshot_in_manifest():
+    """Manifest snapshots may sometimes be JSON-int; comparison must coerce."""
+    manifest = {**_MANIFEST, "snapshot": 290}
+    assert resolve_champion_id(
+        "hm2p_hrnetw32_shuffle1", "HrnetW32", "290", manifest,
+    ) == "dlc-20260423-hrnetw32-snap290"

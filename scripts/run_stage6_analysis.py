@@ -265,6 +265,20 @@ def main():
             try:
                 sync = load_h5(sync_path)
 
+                # Forward DLC provenance from sync.h5 root attrs into
+                # analysis.h5 so the frontend's champion check covers
+                # analysis pages too.
+                import h5py as _h5py
+                with _h5py.File(sync_path, "r") as _sf:
+                    dlc_provenance = {}
+                    for _k in ("dlc_model_name", "dlc_snapshot", "dlc_champion_id"):
+                        if _k in _sf.attrs:
+                            _v = _sf.attrs[_k]
+                            dlc_provenance[_k] = (
+                                _v.decode("utf-8", errors="replace")
+                                if isinstance(_v, bytes) else str(_v)
+                            )
+
                 results_by_signal, n_rois, n_frames, fps, avail = run_analysis_all_signals(
                     sync, params,
                 )
@@ -285,6 +299,7 @@ def main():
                     n_frames=n_frames,
                     fps=fps,
                     signal_types_available=avail,
+                    dlc_provenance=dlc_provenance,
                 )
 
                 # Upload to S3 with verify — raises RuntimeError on failure, ensuring
