@@ -33,20 +33,24 @@ _SKELETON = [
     ("mouse_center", "tail_base"),
 ]
 
-# Bodypart colours: RGB hex equivalents of render_dlc_videos.KEYPOINT_COLORS
-# (which is in OpenCV BGR). Keep these two palettes in sync — the rendered
-# DLC overlay videos and the maze animation should look the same.
+# Bodypart colours: matplotlib.cm.rainbow / DLC-native palette, mirrored
+# from frontend/pages/dlc_viewer_page.py (BP_HEX). This is the canonical
+# DLC-rainbow palette used across the frontend (also in training_qc_page
+# and training_fit_page). The legend rendered in dlc_viewer_page uses
+# these colours, so the maze animation must match for cross-page
+# consistency. ``render_dlc_videos.KEYPOINT_COLORS`` uses a different
+# (BGR-bright) palette and is the inconsistent one.
 _BP_COLORS = {
-    "nose_tip": "#FF0000",          # red
-    "nose": "#FF0000",              # red — SuperAnimal alias
-    "left_ear": "#0000FF",          # blue
-    "right_ear": "#00FFFF",         # cyan
-    "head_midpoint": "#FFA500",     # orange
-    "implant_base_rear": "#FFA500", # orange — legacy DLC alias
-    "neck": "#800080",              # purple
-    "mid_back": "#00FF00",          # green
-    "mouse_center": "#FFFF00",      # yellow
-    "tail_base": "#FF00FF",         # magenta
+    "nose_tip": "#7F00FF",          # purple
+    "nose": "#7F00FF",              # SuperAnimal alias
+    "left_ear": "#376DF8",          # blue
+    "right_ear": "#12C7E5",         # cyan
+    "head_midpoint": "#5AF8C7",     # aqua
+    "implant_base_rear": "#5AF8C7", # legacy DLC alias
+    "neck": "#A4F89E",              # green
+    "mid_back": "#ECC76E",          # yellow
+    "mouse_center": "#FF6D38",      # orange
+    "tail_base": "#FF0000",         # red
 }
 
 # ── Maze boundary polygon (7×5 q-rose maze) ───────────────────────────
