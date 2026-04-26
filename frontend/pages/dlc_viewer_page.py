@@ -378,15 +378,21 @@ with _top_c2:
                 progress = st.progress(0.0, text=f"Syncing 0/{len(sync_keys)}...")
                 total_bytes = 0
                 for i, (key, size) in enumerate(sync_keys):
-                    rel = key[len("pose/"):]
-                    local = _sync_dir / rel
-                    local.parent.mkdir(parents=True, exist_ok=True)
+                    # Flat layout: every file lands directly in _sync_dir.
+                    # The S3 key is pose/{sub}/{ses}/labelled_30fps.mp4 — all
+                    # videos share the same basename, so we rename to
+                    # ``{sub}_{ses}_labelled_30fps.mp4`` to keep them
+                    # uniquely identifiable in a single folder.
+                    parts = key.split("/")
+                    _sub, _ses, _fname = parts[1], parts[2], parts[3]
+                    flat_name = f"{_sub}_{_ses}_{_fname}"
+                    local = _sync_dir / flat_name
                     # Always overwrite — no skip-if-exists check.
                     s3.download_file(DERIVATIVES_BUCKET, key, str(local))
                     total_bytes += size
                     progress.progress(
                         (i + 1) / len(sync_keys),
-                        text=f"Syncing {i + 1}/{len(sync_keys)} — {rel} ({size / 1024 / 1024:.1f} MB)",
+                        text=f"Syncing {i + 1}/{len(sync_keys)} — {flat_name} ({size / 1024 / 1024:.1f} MB)",
                     )
                 progress.empty()
                 # The container sees /host-dlc-videos but the user-facing
