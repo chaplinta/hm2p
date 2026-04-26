@@ -2,6 +2,16 @@
 
 All pipeline scripts and frontend pages must import from here. Do not
 duplicate selection logic elsewhere.
+
+Champion model concept (see docs/dlc-champion-model.md):
+    The ``dlc-champion.json`` manifest at the root of the derivatives bucket
+    is the project-wide source of truth for which DLC model is current. The
+    pure helpers in this module — ``compute_champion_id``,
+    ``extract_architecture``, ``get_champion_manifest`` — let any caller
+    derive a deterministic ``champion_id`` string from a manifest, an h5
+    filename, or both. Callers stamp that string into derivative outputs;
+    the frontend reads it back and refuses to display anything that does
+    not match the current champion.
 """
 
 from __future__ import annotations
@@ -11,6 +21,10 @@ import logging
 import re
 
 log = logging.getLogger(__name__)
+
+# S3 key of the project-wide champion manifest, relative to the derivatives
+# bucket. Public constant so callers don't hardcode the path.
+CHAMPION_MANIFEST_KEY = "dlc-champion.json"
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -110,6 +124,114 @@ def select_best_dlc_h5_s3(s3_client: object, bucket: str, prefix: str) -> str | 
             )
 
     return select_best_dlc_h5(all_h5)
+
+
+def extract_architecture(dlc_filename: str) -> str | None:
+    """Extract the DLC architecture name from an output filename.
+
+    Recognises the two architectures the project uses:
+
+    - ``"HrnetW32"`` — DLC 3.0 PyTorch HRNet (W32 width).
+    - ``"Resnet50"`` — DLC 2.x TensorFlow ResNet-50.
+
+    Other variants (``HrnetW48``, ``ResnetXX``) are returned in their
+    canonical capitalised form. Returns ``None`` if the filename does
+    not contain a recognisable architecture marker (e.g. SuperAnimal
+    baseline output).
+
+    Parameters
+    ----------
+    dlc_filename:
+        Bare filename (not a full path) of a DLC .h5 output.
+
+    Returns
+    -------
+    str | None
+        The architecture string, or ``None`` if not recognisable.
+    """
+    m = re.search(r"DLC_(Hrnet[A-Za-z0-9]+|Resnet[0-9]+)_", dlc_filename)
+    return m.group(1) if m else None
+
+
+def compute_champion_id(
+    model_name: str,
+    architecture: str,
+    snapshot: str,
+    training_date: str | None = None,
+) -> str:
+    """Build a deterministic champion-id string.
+
+    Format: ``dlc-{YYYYMMDD}-{arch_lower}-snap{N}``.
+
+    The id is constructed only from the manifest fields so a caller can
+    reconstruct it from HDF5 attributes alone (without having to fetch the
+    manifest from S3). It is the single string compared across all
+    derivatives to decide whether they were produced by the current model.
+
+    Parameters
+    ----------
+    model_name:
+        DLC project name. Currently unused in the id but kept in the
+        signature for forward-compatibility (e.g. if two projects ever
+        coexist).
+    architecture:
+        Architecture string from :func:`extract_architecture` (e.g.
+        ``"HrnetW32"``).
+    snapshot:
+        Training iteration as a string (e.g. ``"50000"``).
+    training_date:
+        ISO date (``YYYY-MM-DD``) of training completion. If ``None``,
+        today's UTC date is used. Pass an explicit date when reconstructing
+        an id retroactively.
+
+    Returns
+    -------
+    str
+        The champion id.
+    """
+    import datetime
+
+    if training_date is None:
+        training_date = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+    date_compact = training_date.replace("-", "")
+    arch_lower = architecture.lower()
+    return f"dlc-{date_compact}-{arch_lower}-snap{snapshot}"
+
+
+def get_champion_manifest(
+    s3_client: object,
+    bucket: str,
+    key: str = CHAMPION_MANIFEST_KEY,
+) -> dict | None:
+    """Fetch and parse the project-wide DLC champion manifest from S3.
+
+    Returns ``None`` when the manifest is absent (e.g. before the first
+    champion has been declared) or when the object cannot be parsed.
+    Errors are logged but never raised.
+
+    Parameters
+    ----------
+    s3_client:
+        A boto3 S3 client.
+    bucket:
+        Derivatives bucket name (e.g. ``"hm2p-derivatives"``).
+    key:
+        S3 object key. Defaults to :data:`CHAMPION_MANIFEST_KEY`.
+
+    Returns
+    -------
+    dict | None
+        Parsed manifest dict, or ``None`` if absent / unreadable.
+    """
+    try:
+        resp = s3_client.get_object(Bucket=bucket, Key=key)
+        return json.loads(resp["Body"].read())
+    except s3_client.exceptions.NoSuchKey:
+        log.debug("No champion manifest at s3://%s/%s", bucket, key)
+        return None
+    except Exception:
+        log.exception("Could not load champion manifest s3://%s/%s", bucket, key)
+        return None
 
 
 def extract_dlc_provenance(dlc_filename: str) -> tuple[str, str]:

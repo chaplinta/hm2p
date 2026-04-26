@@ -6,8 +6,12 @@ import json
 from unittest.mock import MagicMock
 
 from hm2p.pose.select import (
+    CHAMPION_MANIFEST_KEY,
     _snapshot_number,
+    compute_champion_id,
+    extract_architecture,
     extract_dlc_provenance,
+    get_champion_manifest,
     select_best_dlc_h5,
     select_best_dlc_h5_s3,
 )
@@ -234,3 +238,117 @@ def test_provenance_underscore_snapshot_separator():
     filename = "videoDLC_HrnetW32_hm2p-retrainMar20_shuffle1_snapshot_best_290.h5"
     _, snapshot = extract_dlc_provenance(filename)
     assert snapshot == "290"
+
+
+# ---------------------------------------------------------------------------
+# extract_architecture
+# ---------------------------------------------------------------------------
+
+
+def test_extract_architecture_hrnetw32():
+    fn = "videoDLC_HrnetW32_proj_shuffle1_snapshot-best-290.h5"
+    assert extract_architecture(fn) == "HrnetW32"
+
+
+def test_extract_architecture_resnet50():
+    fn = "videoDLC_Resnet50_proj_shuffle1_snapshot-best-50.h5"
+    assert extract_architecture(fn) == "Resnet50"
+
+
+def test_extract_architecture_other_hrnet_variant():
+    fn = "videoDLC_HrnetW48_proj_shuffle1_snapshot-best-100.h5"
+    assert extract_architecture(fn) == "HrnetW48"
+
+
+def test_extract_architecture_returns_none_for_baseline():
+    fn = "video_DLC_SuperAnimalTopViewMouse.h5"
+    assert extract_architecture(fn) is None
+
+
+# ---------------------------------------------------------------------------
+# compute_champion_id
+# ---------------------------------------------------------------------------
+
+
+def test_compute_champion_id_format():
+    cid = compute_champion_id(
+        model_name="hm2p_hrnetw32_shuffle1",
+        architecture="HrnetW32",
+        snapshot="50000",
+        training_date="2026-04-23",
+    )
+    assert cid == "dlc-20260423-hrnetw32-snap50000"
+
+
+def test_compute_champion_id_lowercases_architecture():
+    cid = compute_champion_id(
+        model_name="x", architecture="Resnet50", snapshot="100",
+        training_date="2026-01-01",
+    )
+    assert "resnet50" in cid and "Resnet" not in cid
+
+
+def test_compute_champion_id_deterministic():
+    """Same inputs always produce the same id (no embedded clock when date given)."""
+    a = compute_champion_id("x", "HrnetW32", "10", training_date="2026-04-23")
+    b = compute_champion_id("x", "HrnetW32", "10", training_date="2026-04-23")
+    assert a == b
+
+
+def test_compute_champion_id_uses_today_if_no_date():
+    """When training_date is None, today's UTC date is used. Just verify form."""
+    import datetime
+    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat().replace("-", "")
+    cid = compute_champion_id("x", "HrnetW32", "10")
+    assert cid == f"dlc-{today}-hrnetw32-snap10"
+
+
+# ---------------------------------------------------------------------------
+# get_champion_manifest
+# ---------------------------------------------------------------------------
+
+
+class _FakeS3NoSuchKey(Exception):
+    """Simulates the boto3 ClientError-derived NoSuchKey class."""
+
+
+def _make_s3_with_manifest(manifest_dict: dict | None) -> MagicMock:
+    """Build a MagicMock S3 client that returns ``manifest_dict`` (or 404)."""
+    s3 = MagicMock()
+    s3.exceptions.NoSuchKey = _FakeS3NoSuchKey
+    if manifest_dict is None:
+        s3.get_object.side_effect = _FakeS3NoSuchKey()
+    else:
+        body = MagicMock()
+        body.read.return_value = json.dumps(manifest_dict).encode("utf-8")
+        s3.get_object.return_value = {"Body": body}
+    return s3
+
+
+def test_get_champion_manifest_returns_dict():
+    expected = {
+        "champion_id": "dlc-20260423-hrnetw32-snap290",
+        "model_name": "hm2p_hrnetw32_shuffle1",
+        "architecture": "HrnetW32",
+        "snapshot": "290",
+    }
+    s3 = _make_s3_with_manifest(expected)
+    got = get_champion_manifest(s3, "hm2p-derivatives")
+    assert got == expected
+    s3.get_object.assert_called_once_with(
+        Bucket="hm2p-derivatives", Key=CHAMPION_MANIFEST_KEY,
+    )
+
+
+def test_get_champion_manifest_returns_none_when_absent():
+    s3 = _make_s3_with_manifest(None)
+    assert get_champion_manifest(s3, "hm2p-derivatives") is None
+
+
+def test_get_champion_manifest_returns_none_on_corrupt_json():
+    s3 = MagicMock()
+    s3.exceptions.NoSuchKey = _FakeS3NoSuchKey
+    body = MagicMock()
+    body.read.return_value = b"{not json"
+    s3.get_object.return_value = {"Body": body}
+    assert get_champion_manifest(s3, "hm2p-derivatives") is None

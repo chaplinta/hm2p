@@ -237,17 +237,38 @@ of `exclude` or `primary_exp` flags. Those flags are for analysis-time filtering
 only, not for skipping pipeline processing. Even excluded sessions should have
 sync.h5 and analysis.h5 — they may be useful for QC or later re-evaluation.
 
-**Pipeline invalidation:** When a stage is re-run, **all downstream stages are
-invalidated** and their completion status resets to 0/26. Stale data from
-invalidated stages must NOT be shown in the frontend — pages should check
-whether upstream stages have completed more recently than the data they display.
-The pipeline status page and all analysis pages must reflect the true state:
-- If DLC Training (Stage 2a) is re-running → Stages 2b, 3, 3b, 5, 6 show as "pending re-run"
-- If DLC Inference (Stage 2b) is re-running → Stages 3, 3b, 5, 6 show as "pending re-run"
-- Stale sync.h5 / analysis.h5 from before the re-run should be flagged or hidden
-- Frontend pages loading stale data should show a warning banner
+**Pipeline invalidation:** When a stage is re-run, all downstream stages are
+invalidated. Two mechanisms enforce this in the frontend:
 
-Full details in [PLAN.md](PLAN.md). Architecture in [ARCHITECTURE.md](ARCHITECTURE.md).
+1. **Active re-run detection:** `pipeline_rerun.json` on S3 (written by launch
+   scripts) marks stages as "pending re-run" while EC2 is running.
+   `_get_rerun_status()` in `frontend/data.py` reads this and auto-detects running
+   EC2 instances as a backup. The pipeline status page shows affected stages in red.
+
+2. **Post-run staleness detection via DLC champion model:** Every derivative
+   produced from DLC pose data (kinematics.h5, sync.h5, analysis.h5, rendered
+   videos) records a `dlc_champion_id` attribute that identifies which model produced
+   it. The project-wide champion is declared in `s3://hm2p-derivatives/dlc-champion.json`.
+   Any session whose `dlc_champion_id` does not match the current champion is stale.
+   The frontend loads this manifest (`get_dlc_champion()` in `frontend/data.py`) and
+   calls `is_session_current()` for every session before displaying analysis data.
+   Stale sessions show a prominent warning banner — they are not hidden, so QC
+   remains possible.
+
+**Enforcement contract for DLC-derived pages:**
+- Every page that loads sync.h5 or analysis.h5 must call `is_session_current()`
+  with the result of `get_dlc_champion()`.
+- Every page that displays rendered videos must call `_video_is_current()` to check
+  the `.provenance.json` sidecar.
+- The shared warning banner is `render_champion_staleness_warning()` — do not
+  reimplement it per page.
+- The `load_session()` helper in `frontend/data.py` embeds the staleness check and
+  attaches a `"stale"` key to the returned dict. Pages that call `load_session()`
+  and ignore the `"stale"` key must document why.
+
+Full specification in [docs/dlc-champion-model.md](docs/dlc-champion-model.md).
+Pipeline stage dependencies in [PLAN.md](PLAN.md).
+Architecture in [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ---
 
