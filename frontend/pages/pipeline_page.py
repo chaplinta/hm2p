@@ -110,10 +110,21 @@ st.subheader("Pipeline Overview")
 with st.spinner("Checking pipeline status..."):
     stage_summary = get_stage_summary()
 
+# Show the project-wide DLC champion identity in the DLC Training row.
+from frontend.data import get_dlc_champion
+_champion = get_dlc_champion()
+_champion_id = _champion.get("champion_id") if _champion else None
+
 for key, info in stage_summary.items():
+    extra = ""
+    if key == "dlc_training" and _champion_id:
+        extra = f"  \n&nbsp;&nbsp;&nbsp;&nbsp;Champion: `{_champion_id}`"
+    elif key == "dlc_training" and _champion_id is None:
+        extra = "  \n&nbsp;&nbsp;&nbsp;&nbsp;Champion: not declared"
     st.markdown(
         f":{info['color']}[**{info['label']}**] — {info['status']}  \n"
         f"&nbsp;&nbsp;&nbsp;&nbsp;{info['done']}/{info['expected']} sessions"
+        f"{extra}"
     )
 
 st.markdown("---")

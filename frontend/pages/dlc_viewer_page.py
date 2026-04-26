@@ -18,12 +18,14 @@ from frontend.data import (
     DERIVATIVES_BUCKET,
     check_stale_data_warning,
     download_s3_bytes,
+    get_dlc_champion,
     get_mm_per_pix,
     get_s3_client,
     invalidate_session_cache,
     load_animals,
     load_experiments,
     parse_session_id,
+    video_is_current,
 )
 
 log = logging.getLogger("hm2p.frontend.dlc_viewer")
@@ -331,26 +333,55 @@ with _top_c2:
         if not keys:
             st.warning("No labelled_30fps.mp4 files found under s3://hm2p-derivatives/pose/.")
         else:
-            progress = st.progress(0.0, text=f"Syncing 0/{len(keys)}...")
-            total_bytes = 0
-            for i, (key, size) in enumerate(keys):
+            # Filter to videos rendered with the current champion. Each video's
+            # provenance is read from the sidecar JSON written by the render
+            # script next to the .mp4. Videos without a sidecar (predating the
+            # champion system) are skipped — they cannot be verified as current.
+            champion = get_dlc_champion()
+            sync_keys: list[tuple[str, int]] = []
+            stale_keys: list[str] = []
+            for key, size in keys:
                 # key format: pose/sub-XXX/ses-YYY/labelled_30fps.mp4
-                rel = key[len("pose/"):]
-                local = _sync_dir / rel
-                local.parent.mkdir(parents=True, exist_ok=True)
-                # Always overwrite — no skip-if-exists check.
-                s3.download_file(DERIVATIVES_BUCKET, key, str(local))
-                total_bytes += size
-                progress.progress(
-                    (i + 1) / len(keys),
-                    text=f"Syncing {i + 1}/{len(keys)} — {rel} ({size / 1024 / 1024:.1f} MB)",
+                parts = key.split("/")
+                _sub, _ses, _fname = parts[1], parts[2], parts[3]
+                if video_is_current(_sub, _ses, _fname, champion):
+                    sync_keys.append((key, size))
+                else:
+                    stale_keys.append(key[len("pose/"):])
+            if stale_keys:
+                _examples = ", ".join(stale_keys[:5])
+                _suffix = (
+                    f" (and {len(stale_keys) - 5} more)"
+                    if len(stale_keys) > 5 else ""
                 )
-            progress.empty()
-            st.success(
-                f"Downloaded {len(keys)} videos "
-                f"({total_bytes / 1024 / 1024 / 1024:.2f} GB total) to:\n\n"
-                f"`{_sync_dir}`"
-            )
+                st.warning(
+                    f"Skipping {len(stale_keys)} video(s) that don't match the "
+                    f"current champion (no sidecar, or sidecar doesn't match): "
+                    f"{_examples}{_suffix}.",
+                    icon="⚠️",
+                )
+            if not sync_keys:
+                st.error("No champion-current videos to sync.")
+            else:
+                progress = st.progress(0.0, text=f"Syncing 0/{len(sync_keys)}...")
+                total_bytes = 0
+                for i, (key, size) in enumerate(sync_keys):
+                    rel = key[len("pose/"):]
+                    local = _sync_dir / rel
+                    local.parent.mkdir(parents=True, exist_ok=True)
+                    # Always overwrite — no skip-if-exists check.
+                    s3.download_file(DERIVATIVES_BUCKET, key, str(local))
+                    total_bytes += size
+                    progress.progress(
+                        (i + 1) / len(sync_keys),
+                        text=f"Syncing {i + 1}/{len(sync_keys)} — {rel} ({size / 1024 / 1024:.1f} MB)",
+                    )
+                progress.empty()
+                st.success(
+                    f"Downloaded {len(sync_keys)} videos "
+                    f"({total_bytes / 1024 / 1024 / 1024:.2f} GB total) to:\n\n"
+                    f"`{_sync_dir}`"
+                )
 
 # ── Session selector ─────────────────────────────────────────────────────
 

@@ -992,3 +992,53 @@ class TestDownstreamDeps:
             "kpms", "calcium", "cascade", "sync", "analysis",
         }
         assert set(DOWNSTREAM_DEPS.keys()) == expected_keys
+
+
+# ---------------------------------------------------------------------------
+# Champion-currency helpers (Phase 3 of the DLC champion model)
+# ---------------------------------------------------------------------------
+
+from frontend.data import is_session_current  # noqa: E402
+
+
+_MANIFEST = {
+    "champion_id": "dlc-20260423-hrnetw32-snap290",
+    "model_name": "hm2p_hrnetw32_shuffle1",
+    "architecture": "HrnetW32",
+    "snapshot": "290",
+}
+
+
+class TestIsSessionCurrent:
+    def test_no_manifest_returns_current(self):
+        """Pre-champion state — no manifest exists → all sessions current."""
+        ok, reason = is_session_current({"dlc_champion_id": "anything"}, None)
+        assert ok is True
+        assert "no champion" in reason.lower()
+
+    def test_matching_id_is_current(self):
+        ok, _ = is_session_current(
+            {"dlc_champion_id": _MANIFEST["champion_id"]}, _MANIFEST,
+        )
+        assert ok is True
+
+    def test_mismatched_id_is_stale(self):
+        ok, reason = is_session_current(
+            {"dlc_champion_id": "dlc-20260101-resnet50-snap50"}, _MANIFEST,
+        )
+        assert ok is False
+        assert _MANIFEST["champion_id"] in reason
+
+    def test_missing_id_is_stale(self):
+        """Empty / missing dlc_champion_id with a manifest present → stale."""
+        ok, reason = is_session_current({}, _MANIFEST)
+        assert ok is False
+        assert "predates" in reason.lower()
+
+    def test_unknown_id_is_stale(self):
+        """The 'unknown' sentinel value must read as stale, not current."""
+        ok, reason = is_session_current(
+            {"dlc_champion_id": "unknown"}, _MANIFEST,
+        )
+        assert ok is False
+        assert "predates" in reason.lower()
