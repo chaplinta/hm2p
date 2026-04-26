@@ -305,16 +305,52 @@ def get_xy(dlc_data: dict, bp: str):
 
 # ── Reload button ────────────────────────────────────────────────────────
 
-if st.button("Reload video from S3", key="dlcv_reload"):
-    dl_video_url.clear()
-    dl_video.clear()
-    dl_dlc.clear()
-    get_median_filtered.clear()
-    dl_kinematics.clear()
-    _cache_video_path.clear()
-    st.cache_data.clear()
-    invalidate_session_cache()
-    st.rerun()
+_top_c1, _top_c2 = st.columns([1, 1])
+with _top_c1:
+    if st.button("Reload video from S3", key="dlcv_reload"):
+        dl_video_url.clear()
+        dl_video.clear()
+        dl_dlc.clear()
+        get_median_filtered.clear()
+        dl_kinematics.clear()
+        _cache_video_path.clear()
+        st.cache_data.clear()
+        invalidate_session_cache()
+        st.rerun()
+with _top_c2:
+    if st.button("Sync all rendered videos to local cache", key="dlcv_sync_all"):
+        _sync_dir = Path("/workspace/.cache/dlc-videos")
+        _sync_dir.mkdir(parents=True, exist_ok=True)
+        s3 = get_s3_client()
+        paginator = s3.get_paginator("list_objects_v2")
+        keys: list[tuple[str, int]] = []
+        for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix="pose/"):
+            for obj in page.get("Contents", []):
+                if obj["Key"].endswith("labelled_30fps.mp4"):
+                    keys.append((obj["Key"], obj["Size"]))
+        if not keys:
+            st.warning("No labelled_30fps.mp4 files found under s3://hm2p-derivatives/pose/.")
+        else:
+            progress = st.progress(0.0, text=f"Syncing 0/{len(keys)}...")
+            total_bytes = 0
+            for i, (key, size) in enumerate(keys):
+                # key format: pose/sub-XXX/ses-YYY/labelled_30fps.mp4
+                rel = key[len("pose/"):]
+                local = _sync_dir / rel
+                local.parent.mkdir(parents=True, exist_ok=True)
+                # Always overwrite — no skip-if-exists check.
+                s3.download_file(DERIVATIVES_BUCKET, key, str(local))
+                total_bytes += size
+                progress.progress(
+                    (i + 1) / len(keys),
+                    text=f"Syncing {i + 1}/{len(keys)} — {rel} ({size / 1024 / 1024:.1f} MB)",
+                )
+            progress.empty()
+            st.success(
+                f"Downloaded {len(keys)} videos "
+                f"({total_bytes / 1024 / 1024 / 1024:.2f} GB total) to:\n\n"
+                f"`{_sync_dir}`"
+            )
 
 # ── Session selector ─────────────────────────────────────────────────────
 
