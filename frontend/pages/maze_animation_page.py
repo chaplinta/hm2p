@@ -148,6 +148,13 @@ def _build_animation_figure(
     if len(frame_indices) > 2000:
         skip = len(frame_indices) // 2000
         frame_indices = frame_indices[::skip]
+    # Effective per-displayed-frame time-base. If we just decimated above,
+    # each displayed frame now spans ``decimation × dt`` seconds of session
+    # time. Scaling the wall-clock frame duration by the same factor keeps
+    # ``playback_speed`` honest (1× actually plays back at real-time pace).
+    # Without this scaling the playback runs ``decimation`` times too fast.
+    decimation = (n / len(frame_indices)) if frame_indices else 1.0
+    effective_dt = float(dt) * decimation
 
     # Surround rectangle (covers entire plot area) — visible only during dark
     # We draw it as a filled scatter polygon that sits behind everything.
@@ -325,7 +332,7 @@ def _build_animation_figure(
                 y=1.12, x=0.5, xanchor="center",
                 buttons=[
                     dict(label="Play", method="animate",
-                         args=[None, dict(frame=dict(duration=max(20, int(round(dt * 1000 / playback_speed))), redraw=True), fromcurrent=True, transition=dict(duration=0))]),
+                         args=[None, dict(frame=dict(duration=max(20, int(round(effective_dt * 1000 / playback_speed))), redraw=True), fromcurrent=True, transition=dict(duration=0))]),
                     dict(label="Pause", method="animate",
                          args=[[None], dict(frame=dict(duration=0, redraw=False), mode="immediate", transition=dict(duration=0))]),
                 ],
@@ -556,9 +563,13 @@ def _page() -> None:
     st.caption(f"Generating {n_frames_anim} animation frames...")
 
     if n_frames_anim > 2000:
+        decim = n_frames_anim / 2000
         st.info(
-            f"Large number of frames ({n_frames_anim}). "
-            "Consider increasing subsample or narrowing the time range for smoother playback."
+            f"Large frame count ({n_frames_anim}). To stay browser-friendly the "
+            f"animation will display every ~{decim:.1f}ᵗʰ frame (≤2000 total). "
+            "Playback time-base is preserved (1× = real time) but intermediate "
+            "frames are skipped, which can look jumpy. To keep every frame, "
+            "raise the Subsample slider or narrow the time range."
         )
 
     with st.spinner("Building animation..."):
