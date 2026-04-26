@@ -33,16 +33,20 @@ _SKELETON = [
     ("mouse_center", "tail_base"),
 ]
 
-# DLC rainbow colormap hex (matplotlib.cm.rainbow, 8 bodyparts)
+# Bodypart colours: RGB hex equivalents of render_dlc_videos.KEYPOINT_COLORS
+# (which is in OpenCV BGR). Keep these two palettes in sync — the rendered
+# DLC overlay videos and the maze animation should look the same.
 _BP_COLORS = {
-    "nose_tip": "#7F00FF",
-    "left_ear": "#376DF8",
-    "right_ear": "#12C7E5",
-    "head_midpoint": "#5AF8C7",
-    "neck": "#A4F89E",
-    "mid_back": "#ECC76E",
-    "mouse_center": "#FF6D38",
-    "tail_base": "#FF0000",
+    "nose_tip": "#FF0000",          # red
+    "nose": "#FF0000",              # red — SuperAnimal alias
+    "left_ear": "#0000FF",          # blue
+    "right_ear": "#00FFFF",         # cyan
+    "head_midpoint": "#FFA500",     # orange
+    "implant_base_rear": "#FFA500", # orange — legacy DLC alias
+    "neck": "#800080",              # purple
+    "mid_back": "#00FF00",          # green
+    "mouse_center": "#FFFF00",      # yellow
+    "tail_base": "#FF00FF",         # magenta
 }
 
 # ── Maze boundary polygon (7×5 q-rose maze) ───────────────────────────
@@ -306,15 +310,47 @@ def _build_animation_figure(
 
     # Initial frame
     first = frames[0] if frames else None
+
+    # Static legend traces — one per skeleton bodypart present in the data.
+    # These sit AFTER the animated traces in fig.data; frames update only the
+    # first len(frame.data) traces, so these stay constant and just populate
+    # the legend with the matching DLC colour. Order matches the skeleton's
+    # head-to-tail traversal so the legend reads sensibly.
+    _BP_LEGEND_ORDER = [
+        "nose_tip", "nose", "left_ear", "right_ear", "head_midpoint",
+        "implant_base_rear", "neck", "mid_back", "mouse_center", "tail_base",
+    ]
+    legend_traces: list[go.Scatter] = []
+    if bp_sub:
+        for bp_name in _BP_LEGEND_ORDER:
+            if bp_name not in bp_sub:
+                continue
+            legend_traces.append(go.Scatter(
+                x=[None], y=[None],
+                mode="markers",
+                marker=dict(size=8, color=_BP_COLORS.get(bp_name, "#888888"),
+                            line=dict(color="black", width=0.5)),
+                name=bp_name,
+                showlegend=True,
+                hoverinfo="skip",
+            ))
+
     fig = go.Figure(
-        data=first.data if first else [],
+        data=(list(first.data) + legend_traces) if first else legend_traces,
         layout=go.Layout(
             xaxis=dict(range=[-0.5, 7.5], scaleanchor="y", scaleratio=1, showgrid=False, zeroline=False, title="x (maze units)"),
             yaxis=dict(range=[-0.5, 5.5], showgrid=False, zeroline=False, title="y (maze units)"),
-            width=800,
+            width=900 if legend_traces else 800,
             height=620,
             margin=dict(l=40, r=40, t=60, b=40),
             title=first.layout.title if first else None,
+            showlegend=bool(legend_traces),
+            legend=dict(
+                title="Bodyparts",
+                x=1.02, y=1.0, xanchor="left", yanchor="top",
+                bgcolor="rgba(255,255,255,0.85)",
+                bordercolor="rgba(0,0,0,0.2)", borderwidth=1,
+            ),
             updatemenus=[dict(
                 type="buttons",
                 showactive=False,
