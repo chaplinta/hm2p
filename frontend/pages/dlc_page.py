@@ -17,12 +17,15 @@ from frontend.data import (
     DERIVATIVES_BUCKET,
     REGION,
     download_s3_bytes,
+    get_dlc_champion,
     get_mm_per_pix,
     get_progress,
     get_s3_client,
+    is_session_current,
     list_s3_session_files,
     load_experiments,
     parse_session_id,
+    render_champion_staleness_warning,
     sanitize_error,
 )
 
@@ -139,6 +142,28 @@ else:
     selected = st.selectbox("Session with pose data", pose_sessions, key="dlc_session")
     sub, ses = selected.split("/")
     mm_per_pix = get_mm_per_pix(sub, ses)
+
+    # Champion staleness check — pose output is derived from the DLC model
+    # declared as champion. Staleness is assessed via dlc_champion_id stored
+    # in sync.h5 by Stage 5. If sync.h5 is absent the check is skipped.
+    @st.cache_data(ttl=300)
+    def _read_sync_champion_id_dlc(sub: str, ses: str) -> str:
+        import h5py
+        data = download_s3_bytes(DERIVATIVES_BUCKET, f"sync/{sub}/{ses}/sync.h5")
+        if data is None:
+            return "unknown"
+        try:
+            with h5py.File(io.BytesIO(data), "r") as f:
+                val = f.attrs.get("dlc_champion_id", "unknown")
+                return val.decode("utf-8", errors="replace") if isinstance(val, bytes) else str(val)
+        except Exception:
+            return "unknown"
+
+    _champion = get_dlc_champion()
+    _session_cid = _read_sync_champion_id_dlc(sub, ses)
+    _is_current, _stale_reason = is_session_current({"dlc_champion_id": _session_cid}, _champion)
+    if not _is_current:
+        render_champion_staleness_warning(_stale_reason)
 
     # List files
     files = list_s3_session_files(DERIVATIVES_BUCKET, f"pose/{sub}/{ses}/")

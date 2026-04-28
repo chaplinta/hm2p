@@ -21,10 +21,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 from frontend.data import (
     DERIVATIVES_BUCKET,
     download_s3_bytes,
+    get_dlc_champion,
     get_mm_per_pix,
+    is_session_current,
     list_s3_session_files,
     load_experiments,
     parse_session_id,
+    render_champion_staleness_warning,
 )
 
 log = logging.getLogger("hm2p.frontend.tracking_quality")
@@ -246,6 +249,30 @@ df, meta, bodyparts, scorer = _load_dlc_data(sub, ses)
 if df is None:
     st.warning("Could not load pose data for this session.")
     st.stop()
+
+# Champion staleness check — pose data is derived from DLC; staleness is
+# assessed via the dlc_champion_id attribute stored in sync.h5 by Stage 5.
+# If sync.h5 is absent (Stage 5 not yet run), the check is skipped.
+@st.cache_data(ttl=300)
+def _read_sync_champion_id(sub: str, ses: str) -> str:
+    """Read dlc_champion_id from sync.h5 root attrs. Returns 'unknown' if absent."""
+    import h5py
+
+    data = download_s3_bytes(DERIVATIVES_BUCKET, f"sync/{sub}/{ses}/sync.h5")
+    if data is None:
+        return "unknown"
+    try:
+        with h5py.File(__import__("io").BytesIO(data), "r") as f:
+            val = f.attrs.get("dlc_champion_id", "unknown")
+            return val.decode("utf-8", errors="replace") if isinstance(val, bytes) else str(val)
+    except Exception:
+        return "unknown"
+
+_champion = get_dlc_champion()
+_session_cid = _read_sync_champion_id(sub, ses)
+_is_current, _stale_reason = is_session_current({"dlc_champion_id": _session_cid}, _champion)
+if not _is_current:
+    render_champion_staleness_warning(_stale_reason)
 
 # Display model provenance prominently
 _model_display = scorer if scorer else "unknown"

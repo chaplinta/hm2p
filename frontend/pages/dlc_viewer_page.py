@@ -337,26 +337,37 @@ with _top_c2:
         _sync_dir.mkdir(parents=True, exist_ok=True)
         s3 = get_s3_client()
         paginator = s3.get_paginator("list_objects_v2")
+        _VIDEO_SUFFIXES = (
+            "labelled_30fps.mp4",
+            "labelled_median_30fps.mp4",
+            "labelled_pipeline_30fps.mp4",
+        )
         keys: list[tuple[str, int]] = []
         for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix="pose/"):
             for obj in page.get("Contents", []):
-                if obj["Key"].endswith("labelled_30fps.mp4"):
+                if any(obj["Key"].endswith(s) for s in _VIDEO_SUFFIXES):
                     keys.append((obj["Key"], obj["Size"]))
         if not keys:
-            st.warning("No labelled_30fps.mp4 files found under s3://hm2p-derivatives/pose/.")
+            st.warning("No labelled video files found under s3://hm2p-derivatives/pose/.")
         else:
-            # Filter to videos rendered with the current champion. Each video's
-            # provenance is read from the sidecar JSON written by the render
-            # script next to the .mp4. Videos without a sidecar (predating the
-            # champion system) are skipped — they cannot be verified as current.
+            # Filter to videos rendered with the current champion. All three
+            # modes (raw, median, pipeline) are rendered together from the same
+            # DLC model, so we check the labelled_30fps sidecar for all of them.
             champion = get_dlc_champion()
+            # Pre-compute which sessions are current (one check per session)
+            _session_current: dict[tuple[str, str], bool] = {}
             sync_keys: list[tuple[str, int]] = []
             stale_keys: list[str] = []
             for key, size in keys:
-                # key format: pose/sub-XXX/ses-YYY/labelled_30fps.mp4
+                # key format: pose/sub-XXX/ses-YYY/<filename>.mp4
                 parts = key.split("/")
                 _sub, _ses, _fname = parts[1], parts[2], parts[3]
-                if video_is_current(_sub, _ses, _fname, champion):
+                cache_key = (_sub, _ses)
+                if cache_key not in _session_current:
+                    _session_current[cache_key] = video_is_current(
+                        _sub, _ses, "labelled_30fps.mp4", champion,
+                    )
+                if _session_current[cache_key]:
                     sync_keys.append((key, size))
                 else:
                     stale_keys.append(key[len("pose/"):])

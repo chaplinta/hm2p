@@ -24,9 +24,12 @@ from frontend.data import (
     DERIVATIVES_BUCKET,
     check_stale_data_warning,
     download_s3_bytes,
+    get_dlc_champion,
+    is_session_current,
     load_animals,
     load_experiments,
     parse_session_id,
+    render_champion_staleness_warning,
 )
 
 log = logging.getLogger("hm2p.frontend.rastermap")
@@ -79,7 +82,7 @@ def _page() -> None:
                     if key in f:
                         result[key] = f[key][:]
                 # DLC model provenance
-                for attr in ("dlc_model_name", "dlc_snapshot"):
+                for attr in ("dlc_model_name", "dlc_snapshot", "dlc_champion_id"):
                     val = f.attrs.get(attr, "unknown")
                     result[attr] = val.decode() if isinstance(val, bytes) else str(val)
         return result
@@ -90,6 +93,14 @@ def _page() -> None:
     if data is None:
         st.warning("No calcium data found.")
         st.stop()
+
+    # Champion staleness check — sync.h5 carries dlc_champion_id stamped by Stage 5.
+    _champion = get_dlc_champion()
+    _is_current, _stale_reason = is_session_current(
+        {"dlc_champion_id": data.get("dlc_champion_id", "unknown")}, _champion
+    )
+    if not _is_current:
+        render_champion_staleness_warning(_stale_reason)
 
     # DLC model provenance
     model_name = data.get("dlc_model_name", "unknown")
