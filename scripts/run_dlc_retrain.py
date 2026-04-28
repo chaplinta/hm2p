@@ -536,6 +536,59 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
     )
     print("Promotion complete.")
 
+    # Declare the new project-wide champion. Done here, after promotion to
+    # pose/ has succeeded, so the manifest only ever points at h5 files that
+    # actually exist in pose/. See docs/dlc-champion-model.md.
+    print("\n=== Declaring new DLC champion ===")
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))  # noqa
+        from hm2p.pose.select import extract_architecture, extract_dlc_provenance
+        # Find one promoted h5 to read the identifiers from. Any promoted
+        # session works — they all carry the same model_name and snapshot.
+        sample = sessions_to_promote[0]
+        sample_prefix = f"pose/{sample['sub']}/{sample['ses']}/"
+        sample_resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=sample_prefix)
+        h5_filenames = [
+            obj["Key"].split("/")[-1]
+            for obj in sample_resp.get("Contents", [])
+            if obj["Key"].endswith(".h5")
+            and "_single" not in obj["Key"].split("/")[-1]
+            and "_filtered" not in obj["Key"].split("/")[-1]
+            and ("Hrnet" in obj["Key"] or "Resnet" in obj["Key"])
+        ]
+        if not h5_filenames:
+            raise RuntimeError(
+                f"No finetuned .h5 found under {sample_prefix} after promotion."
+            )
+        h5_filename = h5_filenames[0]
+        model_name, snapshot = extract_dlc_provenance(h5_filename)
+        architecture = extract_architecture(h5_filename)
+        if architecture is None:
+            raise RuntimeError(
+                f"Could not extract architecture from {h5_filename!r}."
+            )
+        notes = (
+            f"Auto-declared by run_dlc_retrain.py. "
+            f"Sessions promoted: {len(sessions_to_promote)}; failed: {len(failed)}; "
+            f"total: {total}."
+        )
+        sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa
+        from declare_dlc_champion import declare_champion  # noqa
+        declare_champion(
+            model_name=model_name,
+            architecture=architecture,
+            snapshot=snapshot,
+            training_run_id=run_id,
+            notes=notes,
+            s3_client=s3,
+            bucket=DERIVATIVES_BUCKET,
+        )
+    except Exception:
+        print("ERROR: champion declaration failed (see traceback). "
+              "The pipeline will continue but the manifest is not updated. "
+              "Run scripts/declare_dlc_champion.py manually to fix.")
+        traceback.print_exc()
+
     update_progress(
         s3, "Inference + promotion complete. Launching CPU instance for downstream + render.",
         completed=len(completed), total=total,

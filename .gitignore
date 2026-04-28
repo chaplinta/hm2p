@@ -36,6 +36,10 @@ dmypy.json
 .pytest_cache/
 .hypothesis/
 
+# Local cache for assets pulled from S3 by the Streamlit dev container
+# (e.g. rendered DLC labelled videos via the dlc_viewer "Download all" button)
+.cache/
+
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb_metadata/

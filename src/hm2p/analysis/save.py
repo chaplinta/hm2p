@@ -46,6 +46,7 @@ def save_analysis_results(
     n_frames: int,
     fps: float,
     signal_types_available: list[str],
+    dlc_provenance: dict[str, str] | None = None,
 ) -> None:
     """Save analysis results for all signal types to a single HDF5 file.
 
@@ -58,6 +59,11 @@ def save_analysis_results(
         n_frames: Number of frames.
         fps: Imaging frame rate.
         signal_types_available: List of signal types that were available.
+        dlc_provenance: Provenance triplet (``dlc_model_name``,
+            ``dlc_snapshot``, ``dlc_champion_id``) sourced from the input
+            ``sync.h5`` root attrs. Stamped onto ``analysis.h5`` so the
+            frontend can detect stale analysis when the DLC champion
+            changes. Pass ``None`` to skip stamping (legacy callers).
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -68,6 +74,10 @@ def save_analysis_results(
         f.attrs["n_frames"] = n_frames
         f.attrs["fps"] = fps
         f.attrs["signal_types_available"] = signal_types_available
+        if dlc_provenance:
+            for k in ("dlc_model_name", "dlc_snapshot", "dlc_champion_id"):
+                if k in dlc_provenance:
+                    f.attrs[k] = dlc_provenance[k]
 
         # Store analysis parameters
         pg = f.create_group("params")

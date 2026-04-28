@@ -18,12 +18,14 @@ from frontend.data import (
     DERIVATIVES_BUCKET,
     check_stale_data_warning,
     download_s3_bytes,
+    get_dlc_champion,
     get_mm_per_pix,
     get_s3_client,
     invalidate_session_cache,
     load_animals,
     load_experiments,
     parse_session_id,
+    video_is_current,
 )
 
 log = logging.getLogger("hm2p.frontend.dlc_viewer")
@@ -305,16 +307,104 @@ def get_xy(dlc_data: dict, bp: str):
 
 # ── Reload button ────────────────────────────────────────────────────────
 
-if st.button("Reload video from S3", key="dlcv_reload"):
-    dl_video_url.clear()
-    dl_video.clear()
-    dl_dlc.clear()
-    get_median_filtered.clear()
-    dl_kinematics.clear()
-    _cache_video_path.clear()
-    st.cache_data.clear()
-    invalidate_session_cache()
-    st.rerun()
+_top_c1, _top_c2 = st.columns([1, 1])
+with _top_c1:
+    if st.button("Reload video from S3", key="dlcv_reload"):
+        dl_video_url.clear()
+        dl_video.clear()
+        dl_dlc.clear()
+        get_median_filtered.clear()
+        dl_kinematics.clear()
+        _cache_video_path.clear()
+        st.cache_data.clear()
+        invalidate_session_cache()
+        st.rerun()
+with _top_c2:
+    if st.button("Sync all rendered videos to local cache", key="dlcv_sync_all"):
+        # Bind-mounted from the Mac at ~/Neuro/hm2p-dlc-videos
+        # (devcontainer.json). Writes here land directly on the Mac
+        # filesystem outside the repo so the videos are easy to open in
+        # Quicktime / VLC and don't pollute the project tree.
+        _sync_dir = Path("/host-dlc-videos")
+        if not _sync_dir.exists():
+            st.error(
+                f"Local cache directory `{_sync_dir}` is not mounted. "
+                "Create `~/Neuro/hm2p-dlc-videos` on the Mac and rebuild the "
+                "devcontainer (the bind mount is declared in "
+                "`.devcontainer/devcontainer.json`)."
+            )
+            st.stop()
+        _sync_dir.mkdir(parents=True, exist_ok=True)
+        s3 = get_s3_client()
+        paginator = s3.get_paginator("list_objects_v2")
+        keys: list[tuple[str, int]] = []
+        for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix="pose/"):
+            for obj in page.get("Contents", []):
+                if obj["Key"].endswith("labelled_30fps.mp4"):
+                    keys.append((obj["Key"], obj["Size"]))
+        if not keys:
+            st.warning("No labelled_30fps.mp4 files found under s3://hm2p-derivatives/pose/.")
+        else:
+            # Filter to videos rendered with the current champion. Each video's
+            # provenance is read from the sidecar JSON written by the render
+            # script next to the .mp4. Videos without a sidecar (predating the
+            # champion system) are skipped — they cannot be verified as current.
+            champion = get_dlc_champion()
+            sync_keys: list[tuple[str, int]] = []
+            stale_keys: list[str] = []
+            for key, size in keys:
+                # key format: pose/sub-XXX/ses-YYY/labelled_30fps.mp4
+                parts = key.split("/")
+                _sub, _ses, _fname = parts[1], parts[2], parts[3]
+                if video_is_current(_sub, _ses, _fname, champion):
+                    sync_keys.append((key, size))
+                else:
+                    stale_keys.append(key[len("pose/"):])
+            if stale_keys:
+                _examples = ", ".join(stale_keys[:5])
+                _suffix = (
+                    f" (and {len(stale_keys) - 5} more)"
+                    if len(stale_keys) > 5 else ""
+                )
+                st.warning(
+                    f"Skipping {len(stale_keys)} video(s) that don't match the "
+                    f"current champion (no sidecar, or sidecar doesn't match): "
+                    f"{_examples}{_suffix}.",
+                    icon="⚠️",
+                )
+            if not sync_keys:
+                st.error("No champion-current videos to sync.")
+            else:
+                progress = st.progress(0.0, text=f"Syncing 0/{len(sync_keys)}...")
+                total_bytes = 0
+                for i, (key, size) in enumerate(sync_keys):
+                    # Flat layout: every file lands directly in _sync_dir.
+                    # The S3 key is pose/{sub}/{ses}/labelled_30fps.mp4 — all
+                    # videos share the same basename, so we rename to
+                    # ``{sub}_{ses}_labelled_30fps.mp4`` to keep them
+                    # uniquely identifiable in a single folder.
+                    parts = key.split("/")
+                    _sub, _ses, _fname = parts[1], parts[2], parts[3]
+                    flat_name = f"{_sub}_{_ses}_{_fname}"
+                    local = _sync_dir / flat_name
+                    # Always overwrite — no skip-if-exists check.
+                    s3.download_file(DERIVATIVES_BUCKET, key, str(local))
+                    total_bytes += size
+                    progress.progress(
+                        (i + 1) / len(sync_keys),
+                        text=f"Syncing {i + 1}/{len(sync_keys)} — {flat_name} ({size / 1024 / 1024:.1f} MB)",
+                    )
+                progress.empty()
+                # The container sees /host-dlc-videos but the user-facing
+                # path on macOS is the bind-mount source. Show that one so
+                # they can open the folder in Finder directly.
+                _mac_path = "~/Neuro/hm2p-dlc-videos"
+                st.success(
+                    f"Downloaded {len(sync_keys)} videos "
+                    f"({total_bytes / 1024 / 1024 / 1024:.2f} GB total) to:\n\n"
+                    f"**Mac:** `{_mac_path}`  \n"
+                    f"**Container path:** `{_sync_dir}`"
+                )
 
 # ── Session selector ─────────────────────────────────────────────────────
 

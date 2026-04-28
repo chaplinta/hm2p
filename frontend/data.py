@@ -786,11 +786,17 @@ def load_all_sync_data() -> dict:
     pipeline_rerun.json on S3 or running EC2 instances), shows an error
     and blocks the page — stale data should not be displayed.
 
+    Also renders a banner naming any sessions whose ``dlc_champion_id``
+    does not match the current champion. Pages that call this function
+    therefore enforce the champion contract automatically; no per-page
+    edits are required.
+
     Returns dict with:
         ``"sessions"`` — list of dicts, each with keys:
             exp_id, sub, ses, animal_id, celltype, dff, hd_deg, speed_cm_s,
             light_on, active, bad_behav, n_rois, n_frames, frame_times,
-            roi_types, deconv (or None), event_masks (or None)
+            roi_types, deconv (or None), event_masks (or None),
+            dlc_champion_id, stale, stale_reason
         ``"n_sessions"`` — number of sessions loaded
         ``"n_total_rois"`` — total ROIs across all sessions
     """
@@ -799,11 +805,33 @@ def load_all_sync_data() -> dict:
 
     cache_key = _session_state_key("sync_data")
     if cache_key in st.session_state:
-        return st.session_state[cache_key]
+        result = st.session_state[cache_key]
+    else:
+        result = _fetch_all_sync_data()
+        st.session_state[cache_key] = result
 
-    result = _fetch_all_sync_data()
-    st.session_state[cache_key] = result
+    # Champion-staleness banner. Rendered once per page render (the cache
+    # check above means we re-evaluate on each Streamlit rerun, but the
+    # warning content is keyed on the live session list).
+    _render_global_champion_staleness(result["sessions"])
     return result
+
+
+def _render_global_champion_staleness(sessions: list[dict]) -> None:
+    """Render the page-top staleness banner for ``load_all_sync_data``."""
+    if not sessions:
+        return
+    stale = [s for s in sessions if s.get("stale", False)]
+    if not stale:
+        return
+    ids = ", ".join(s.get("exp_id", "?") for s in stale[:5])
+    suffix = f" (and {len(stale) - 5} more)" if len(stale) > 5 else ""
+    st.warning(
+        f"{len(stale)} of {len(sessions)} sessions on this page were produced "
+        f"by a superseded DLC model — re-run Stages 3–6 to refresh. "
+        f"Affected: {ids}{suffix}.",
+        icon="⚠️",
+    )
 
 
 @st.cache_data(ttl=1800)
@@ -852,15 +880,29 @@ def _fetch_all_sync_data() -> dict:
                 y_mm = f["y_mm"][:] if "y_mm" in f else None
                 x_maze = f["x_maze"][:] if "x_maze" in f else None
                 y_maze = f["y_maze"][:] if "y_maze" in f else None
+                # Raw maze coords (no confidence filter, no interpolation,
+                # no smoothing). Present only on sync.h5 produced by the
+                # pipeline after the raw-fields commit.
+                x_maze_raw = f["x_maze_raw"][:] if "x_maze_raw" in f else None
+                y_maze_raw = f["y_maze_raw"][:] if "y_maze_raw" in f else None
                 ahv_deg_s = f["ahv_deg_s"][:] if "ahv_deg_s" in f else None
                 # Per-bodypart maze coordinates for skeleton visualisation
                 bp_maze = {}
+                bp_maze_raw = {}
                 for k in f.keys():
                     if k.startswith("bp_") and k.endswith("_x_maze"):
                         bp_name = k[3:-7]  # strip "bp_" and "_x_maze"
                         y_key = f"bp_{bp_name}_y_maze"
                         if y_key in f:
                             bp_maze[bp_name] = {
+                                "x": f[k][:],
+                                "y": f[y_key][:],
+                            }
+                    elif k.startswith("bp_") and k.endswith("_x_maze_raw"):
+                        bp_name = k[3:-11]  # strip "bp_" and "_x_maze_raw"
+                        y_key = f"bp_{bp_name}_y_maze_raw"
+                        if y_key in f:
+                            bp_maze_raw[bp_name] = {
                                 "x": f[k][:],
                                 "y": f[y_key][:],
                             }
@@ -872,6 +914,7 @@ def _fetch_all_sync_data() -> dict:
 
                 dlc_model_name = _decode_attr(f.attrs.get("dlc_model_name"))
                 dlc_snapshot = _decode_attr(f.attrs.get("dlc_snapshot"))
+                dlc_champion_id = _decode_attr(f.attrs.get("dlc_champion_id"))
 
             sessions.append({
                 "exp_id": exp_id,
@@ -897,10 +940,14 @@ def _fetch_all_sync_data() -> dict:
                 "y_mm": y_mm,
                 "x_maze": x_maze,
                 "y_maze": y_maze,
+                "x_maze_raw": x_maze_raw,
+                "y_maze_raw": y_maze_raw,
                 "ahv_deg_s": ahv_deg_s,
                 "bp_maze": bp_maze if bp_maze else None,
+                "bp_maze_raw": bp_maze_raw if bp_maze_raw else None,
                 "dlc_model_name": dlc_model_name,
                 "dlc_snapshot": dlc_snapshot,
+                "dlc_champion_id": dlc_champion_id,
                 "n_rois": dff.shape[0],
                 "n_frames": dff.shape[1],
                 "frame_times": frame_times,
@@ -909,11 +956,184 @@ def _fetch_all_sync_data() -> dict:
             log.exception("Error reading sync.h5 for %s", exp_id)
             continue
 
+    # Stamp staleness onto each session dict so any page that picks it up
+    # has the verdict already in hand. A page that forgets the warning
+    # leaves a visible ``stale=True`` artefact in its data structure
+    # (intentional — visible during code review).
+    champion = get_dlc_champion()
+    for s in sessions:
+        is_current, reason = is_session_current(s, champion)
+        s["stale"] = not is_current
+        s["stale_reason"] = "" if is_current else reason
+
     return {
         "sessions": sessions,
         "n_sessions": len(sessions),
         "n_total_rois": sum(s["n_rois"] for s in sessions),
     }
+
+
+CHAMPION_MANIFEST_KEY = "dlc-champion.json"
+
+
+@st.cache_data(ttl=300)
+def get_dlc_champion() -> dict | None:
+    """Load the current DLC champion manifest from S3.
+
+    Returns the parsed dict, or ``None`` when no manifest exists or when the
+    object is unreadable. ``None`` represents the pre-champion state — the
+    frontend treats it as "all sessions current" (with no comparison) so
+    pages stay usable while the system is being bootstrapped.
+
+    See ``docs/dlc-champion-model.md`` (§3.1).
+    """
+    data = download_s3_bytes(DERIVATIVES_BUCKET, CHAMPION_MANIFEST_KEY)
+    if data is None:
+        return None
+    try:
+        return json.loads(data)
+    except Exception:
+        log.warning("dlc-champion.json is present but not valid JSON")
+        return None
+
+
+def is_session_current(
+    session_attrs: dict,
+    champion: dict | None,
+) -> tuple[bool, str]:
+    """Return ``(is_current, reason)`` for one session against the champion.
+
+    ``session_attrs`` is the dict of identity fields read from a derivative
+    (``sync.h5`` / ``analysis.h5``); the only required key is
+    ``dlc_champion_id``. ``champion`` is the parsed manifest from
+    :func:`get_dlc_champion`, or ``None`` when none exists yet.
+
+    Definitions:
+
+    - No manifest → ``(True, "no champion declared")``. Pre-champion state;
+      we cannot judge currency, so we don't penalise the user.
+    - Session has no ``dlc_champion_id`` (or ``"unknown"``) and a manifest
+      exists → ``(False, ...)``. Derivative predates the system or was
+      produced with a non-current model.
+    - Session id matches manifest id → ``(True, "current")``.
+    - Session id differs from manifest id → ``(False, ...)``.
+
+    See ``docs/dlc-champion-model.md`` (§3.2).
+    """
+    if champion is None:
+        return True, "no champion declared"
+    champion_cid = champion.get("champion_id", "")
+    session_cid = session_attrs.get("dlc_champion_id", "")
+    if not session_cid or session_cid == "unknown":
+        return False, (
+            f"Derivative predates the champion system. "
+            f"Current champion: {champion_cid}. Re-run Stages 3–6."
+        )
+    if session_cid != champion_cid:
+        return False, (
+            f"Derivative produced by model '{session_cid}', "
+            f"current champion is '{champion_cid}'. Re-run Stages 3–6."
+        )
+    return True, "current"
+
+
+def render_champion_staleness_warning(reason: str) -> None:
+    """Display a prominent warning that the current session is stale.
+
+    Call this once per page, after the title/caption block, when
+    :func:`is_session_current` returned ``False``. The page should still
+    render its content below — refusing to render breaks QC workflows.
+
+    See ``docs/dlc-champion-model.md`` (§3.3).
+    """
+    st.warning(
+        "This session's data was produced by a superseded DLC model. "
+        f"{reason} "
+        "Data is shown for reference only and should not be used for analysis.",
+        icon="⚠️",
+    )
+
+
+@st.cache_data(ttl=300)
+def get_video_champion_id(sub: str, ses: str, video_filename: str) -> str | None:
+    """Read ``dlc_champion_id`` from the per-video provenance sidecar.
+
+    The sidecar lives at
+    ``pose/{sub}/{ses}/{video_basename}.provenance.json`` and is written by
+    ``scripts/render_dlc_videos.py`` after each successful upload.
+
+    Returns ``None`` when the sidecar is absent (video predates the
+    champion system) or when the JSON cannot be parsed.
+
+    See ``docs/dlc-champion-model.md`` (§3.5).
+    """
+    base = video_filename.rsplit(".", 1)[0]
+    sidecar_key = f"pose/{sub}/{ses}/{base}.provenance.json"
+    data = download_s3_bytes(DERIVATIVES_BUCKET, sidecar_key)
+    if data is None:
+        return None
+    try:
+        return json.loads(data).get("dlc_champion_id")
+    except Exception:
+        return None
+
+
+def video_is_current(
+    sub: str,
+    ses: str,
+    video_filename: str,
+    champion: dict | None,
+) -> bool:
+    """True iff the rendered video matches the current champion.
+
+    ``True`` when no manifest exists yet (pre-champion). Otherwise compares
+    the sidecar's ``dlc_champion_id`` against the manifest's id; missing
+    sidecar counts as stale.
+
+    See ``docs/dlc-champion-model.md`` (§3.5).
+    """
+    if champion is None:
+        return True
+    video_cid = get_video_champion_id(sub, ses, video_filename)
+    if video_cid is None or video_cid == "unknown":
+        return False
+    return video_cid == champion.get("champion_id")
+
+
+def check_session_currency(session: dict | list[dict] | None) -> None:
+    """Render a staleness warning if the given session(s) are out of date.
+
+    Accepts either a single session dict (returned by ``load_all_sync_data``
+    via the ``sessions`` list) or a list of them. Renders one warning
+    banner per stale session — for multi-session pages the message lists
+    the affected exp_ids.
+
+    Pages should call this once at the top of the body, after session
+    selection, before rendering analysis content. Pre-stamped ``stale`` /
+    ``stale_reason`` keys on the session dict make it visible during code
+    review when a page omits the call. See
+    ``docs/dlc-champion-model.md`` (§3.4).
+    """
+    if session is None:
+        return
+    sessions = session if isinstance(session, list) else [session]
+    stale = [s for s in sessions if s.get("stale", False)]
+    if not stale:
+        return
+    if len(stale) == 1 and len(sessions) == 1:
+        # Single-session page: detailed reason text.
+        reason = stale[0].get("stale_reason", "")
+        render_champion_staleness_warning(reason)
+        return
+    # Multi-session page: aggregate message.
+    ids = ", ".join(s.get("exp_id", "?") for s in stale[:5])
+    suffix = f" (and {len(stale) - 5} more)" if len(stale) > 5 else ""
+    st.warning(
+        f"{len(stale)} of {len(sessions)} sessions on this page were produced "
+        f"by a superseded DLC model — re-run Stages 3–6 to refresh. "
+        f"Affected: {ids}{suffix}.",
+        icon="⚠️",
+    )
 
 
 def render_tracker_provenance(sessions: list[dict]) -> None:

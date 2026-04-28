@@ -33,16 +33,24 @@ _SKELETON = [
     ("mouse_center", "tail_base"),
 ]
 
-# DLC rainbow colormap hex (matplotlib.cm.rainbow, 8 bodyparts)
+# Bodypart colours: matplotlib.cm.rainbow / DLC-native palette, mirrored
+# from frontend/pages/dlc_viewer_page.py (BP_HEX). This is the canonical
+# DLC-rainbow palette used across the frontend (also in training_qc_page
+# and training_fit_page). The legend rendered in dlc_viewer_page uses
+# these colours, so the maze animation must match for cross-page
+# consistency. ``render_dlc_videos.KEYPOINT_COLORS`` uses a different
+# (BGR-bright) palette and is the inconsistent one.
 _BP_COLORS = {
-    "nose_tip": "#7F00FF",
-    "left_ear": "#376DF8",
-    "right_ear": "#12C7E5",
-    "head_midpoint": "#5AF8C7",
-    "neck": "#A4F89E",
-    "mid_back": "#ECC76E",
-    "mouse_center": "#FF6D38",
-    "tail_base": "#FF0000",
+    "nose_tip": "#7F00FF",          # purple
+    "nose": "#7F00FF",              # SuperAnimal alias
+    "left_ear": "#376DF8",          # blue
+    "right_ear": "#12C7E5",         # cyan
+    "head_midpoint": "#5AF8C7",     # aqua
+    "implant_base_rear": "#5AF8C7", # legacy DLC alias
+    "neck": "#A4F89E",              # green
+    "mid_back": "#ECC76E",          # yellow
+    "mouse_center": "#FF6D38",      # orange
+    "tail_base": "#FF0000",         # red
 }
 
 # ── Maze boundary polygon (7×5 q-rose maze) ───────────────────────────
@@ -79,6 +87,22 @@ def _interpolate_nans(arr: np.ndarray) -> np.ndarray:
     return out
 
 
+def _pick_kp_arrays(
+    bp_sub: dict | None, candidates: tuple[str, ...]
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """Return the first present keypoint's (x, y) arrays from bp_sub.
+
+    ``candidates`` is an ordered tuple of keypoint names (preferred first,
+    legacy aliases later). Returns None if none are present.
+    """
+    if not bp_sub:
+        return None
+    for name in candidates:
+        if name in bp_sub:
+            return bp_sub[name]["x"], bp_sub[name]["y"]
+    return None
+
+
 def _build_animation_figure(
     x: np.ndarray,
     y: np.ndarray,
@@ -91,14 +115,15 @@ def _build_animation_figure(
     arrow_length: float,
     bp_maze: dict | None = None,
     playback_speed: float = 1.0,
+    show_position: bool = True,
 ) -> go.Figure:
     """Build a Plotly figure with animation frames for mouse trajectory.
 
     Each animation frame shows:
     - The full maze walls
-    - A fading trail of recent positions
-    - The current position as a filled circle
-    - An arrow indicating head direction
+    - A fading trail of recent head positions
+    - The current head position as a filled circle
+    - An arrow drawn from head_midpoint → nose_tip (heading vector)
     - Colour indicates light state (orange = light on, grey = dark)
     """
     # Subsample to reduce frame count
@@ -127,20 +152,56 @@ def _build_animation_figure(
     dt = np.median(np.diff(frame_times)) if n > 1 else 1.0
     trail_frames = max(1, int(trail_seconds / dt))
 
-    # Precompute HD arrow endpoints
-    hd_rad = np.deg2rad(hd)
-    dx = arrow_length * np.cos(hd_rad)
-    dy = arrow_length * np.sin(hd_rad)
+    # The "position" we plot is the head position, not the body centroid.
+    # Pulled from bp_head_midpoint_*_maze (or the legacy implant_base_rear
+    # alias). Falls back to the body-centroid arrays if no head keypoint is
+    # present in bp_maze.
+    head_arrs = _pick_kp_arrays(bp_sub, ("head_midpoint", "implant_base_rear"))
+    if head_arrs is not None:
+        head_x_arr, head_y_arr = head_arrs
+    else:
+        head_x_arr, head_y_arr = x, y
 
-    # Build frames
+    # The heading vector is computed directly from keypoint positions:
+    # head_midpoint → nose_tip, in maze coords. This is unambiguous and
+    # bypasses the HD-scalar's convention entirely (the previous code
+    # rendered ``hd_deg`` via sin/cos which produced an arrow off by some
+    # constant offset because the pipeline's HD is ``180 + atan2(dx, dy)``
+    # in a non-standard order with an additional 180° offset).
+    nose_arrs = _pick_kp_arrays(bp_sub, ("nose_tip", "nose"))
+    if nose_arrs is not None and head_arrs is not None:
+        nose_x_arr, nose_y_arr = nose_arrs
+        heading_dx = nose_x_arr - head_x_arr
+        heading_dy = nose_y_arr - head_y_arr
+        heading_norm = np.hypot(heading_dx, heading_dy)
+        # Avoid division-by-zero where keypoints coincide
+        safe = heading_norm > 1e-6
+        unit_dx = np.where(safe, heading_dx / np.where(safe, heading_norm, 1.0), 0.0)
+        unit_dy = np.where(safe, heading_dy / np.where(safe, heading_norm, 1.0), 0.0)
+        # Plotly's marker arrow ``angle`` rotates clockwise from up (+y);
+        # atan2(dx, dy) gives exactly that convention in degrees.
+        marker_angles = np.degrees(np.arctan2(unit_dx, unit_dy))
+        # NaN-safe finite mask: arrow is drawn only when both keypoints
+        # are finite and not coincident.
+        has_arrow_arr = (
+            safe
+            & np.isfinite(head_x_arr) & np.isfinite(head_y_arr)
+            & np.isfinite(nose_x_arr) & np.isfinite(nose_y_arr)
+        )
+    else:
+        # No keypoints — no arrow
+        unit_dx = np.zeros(n, dtype=np.float64)
+        unit_dy = np.zeros(n, dtype=np.float64)
+        marker_angles = np.zeros(n, dtype=np.float64)
+        has_arrow_arr = np.zeros(n, dtype=bool)
+    dx = arrow_length * unit_dx
+    dy = arrow_length * unit_dy
+
+    # Build frames — every (post-subsample) input frame becomes one
+    # animation frame. No internal decimation: the user controls frame
+    # count via the Subsample slider on the page.
     frames = []
-    # We generate frames at intervals to keep total count manageable
     frame_indices = list(range(0, n, 1))
-    if len(frame_indices) > 500:
-        # Cap at 500 animation frames for browser performance.
-        # Each frame has 6 traces; >500 frames overwhelms the browser.
-        skip = len(frame_indices) // 500
-        frame_indices = frame_indices[::skip]
 
     # Surround rectangle (covers entire plot area) — visible only during dark
     # We draw it as a filled scatter polygon that sits behind everything.
@@ -149,9 +210,10 @@ def _build_animation_figure(
     _SURROUND_Y = [-0.5, -0.5, 5.5, 5.5, -0.5]
 
     for i in frame_indices:
+        # Trail follows the head position, not the body centroid.
         trail_start = max(0, i - trail_frames)
-        trail_x = x[trail_start:i + 1]
-        trail_y = y[trail_start:i + 1]
+        trail_x = head_x_arr[trail_start:i + 1]
+        trail_y = head_y_arr[trail_start:i + 1]
 
         # Trail opacity: fades from transparent to solid
         n_trail = len(trail_x)
@@ -171,16 +233,24 @@ def _build_animation_figure(
         surround_fill = "rgba(60, 60, 60, 0.55)" if not light_on[i] else "rgba(0, 0, 0, 0)"
         wall_color = "black" if light_on[i] else "rgba(200, 200, 200, 0.8)"
 
-        # Arrow line (head position → arrow tip) — only if HD is valid
-        has_hd = np.isfinite(hd[i])
+        # Heading arrow: from the head position outwards along the
+        # head_midpoint→nose vector. Only drawn if both keypoints are
+        # finite and not coincident.
+        has_hd = bool(has_arrow_arr[i])
+        head_x_i = float(head_x_arr[i]) if np.isfinite(head_x_arr[i]) else float("nan")
+        head_y_i = float(head_y_arr[i]) if np.isfinite(head_y_arr[i]) else float("nan")
         if has_hd:
-            ax = x[i] + dx[i]
-            ay = y[i] + dy[i]
+            ax = head_x_i + float(dx[i])
+            ay = head_y_i + float(dy[i])
 
         t_s = frame_times[i] - frame_times[0]
         t_min = t_s / 60.0
 
-        hd_text = f"HD={hd[i]:.0f}°, " if has_hd else ""
+        # Wrap stored HD scalar (cumulative, unwrapped) into [0, 360) for the
+        # title-text readout. Note: this is the pipeline's HD scalar; the
+        # arrow itself is drawn from keypoint positions, not from this value.
+        hd_wrapped = (hd[i] % 360.0) if np.isfinite(hd[i]) else float("nan")
+        hd_text = f"HD={hd_wrapped:.0f}°, " if np.isfinite(hd_wrapped) else ""
         spd_text = f"speed={speed[i]:.1f} cm/s" if np.isfinite(speed[i]) else ""
 
         frame_data = [
@@ -234,6 +304,17 @@ def _build_animation_figure(
                 skel_dot_y.append(by)
                 skel_dot_colors.append(_BP_COLORS.get(bp_name, "#888888"))
 
+        # Position circle + HD arrow are gated by show_position so the user
+        # can hide them and watch only the trail + skeleton. Trace count
+        # must stay constant across animation frames, so when hidden we
+        # keep the trace structure with empty x/y arrays.
+        pos_x = [head_x_i] if (show_position and np.isfinite(head_x_i)) else []
+        pos_y = [head_y_i] if (show_position and np.isfinite(head_y_i)) else []
+        arrow_x = [head_x_i, ax] if (show_position and has_hd) else []
+        arrow_y = [head_y_i, ay] if (show_position and has_hd) else []
+        head_x = [ax] if (show_position and has_hd) else []
+        head_y = [ay] if (show_position and has_hd) else []
+
         frame_data += [
             # Skeleton lines (single trace with None separators)
             go.Scatter(
@@ -252,7 +333,7 @@ def _build_animation_figure(
             ),
             # Current position (centroid — smaller when skeleton is shown)
             go.Scatter(
-                x=[x[i]], y=[y[i]],
+                x=pos_x, y=pos_y,
                 mode="markers",
                 marker=dict(size=10 if not bp_sub else 4, color=head_color,
                             line=dict(color="black" if light_on[i] else "white", width=1)),
@@ -260,22 +341,25 @@ def _build_animation_figure(
                 hovertext=f"t={t_min:.1f} min, {hd_text}{spd_text}",
                 hoverinfo="text",
             ),
-            # HD arrow — nose_tip color from DLC rainbow (#7F00FF purple)
+            # HD arrow line — nose_tip color from DLC rainbow (#7F00FF purple)
             go.Scatter(
-                x=[x[i], ax] if has_hd else [], y=[y[i], ay] if has_hd else [],
+                x=arrow_x, y=arrow_y,
                 mode="lines",
                 line=dict(color="#7F00FF" if light_on[i] else "#A080D0", width=2),
                 showlegend=False, hoverinfo="skip",
             ),
-            # Arrowhead
+            # Arrowhead. The marker angle is computed from the actual
+            # head_midpoint→nose vector via atan2(dx, dy), which matches
+            # plotly's clockwise-from-up convention exactly. So the marker
+            # always points the same direction as the arrow line.
             go.Scatter(
-                x=[ax] if has_hd else [], y=[ay] if has_hd else [],
+                x=head_x, y=head_y,
                 mode="markers",
                 marker=dict(
                     size=8,
                     color="#7F00FF" if light_on[i] else "#A080D0",
                     symbol="arrow",
-                    angle=-(hd[i] % 360) if has_hd else 0,
+                    angle=float(marker_angles[i]) if has_hd else 0,
                 ),
                 showlegend=False, hoverinfo="skip",
             ),
@@ -283,20 +367,52 @@ def _build_animation_figure(
         frames.append(go.Frame(
             data=frame_data,
             name=str(i),
-            layout=go.Layout(title_text=f"t = {t_min:.1f} min | {f'HD = {hd[i]:.0f}° | ' if has_hd else ''}{f'{speed[i]:.1f} cm/s | ' if np.isfinite(speed[i]) else ''}{'Light' if light_on[i] else 'Dark'}"),
+            layout=go.Layout(title_text=f"t = {t_min:.1f} min | {f'HD = {hd_wrapped:.0f}° | ' if has_hd else ''}{f'{speed[i]:.1f} cm/s | ' if np.isfinite(speed[i]) else ''}{'Light' if light_on[i] else 'Dark'}"),
         ))
 
     # Initial frame
     first = frames[0] if frames else None
+
+    # Static legend traces — one per skeleton bodypart present in the data.
+    # These sit AFTER the animated traces in fig.data; frames update only the
+    # first len(frame.data) traces, so these stay constant and just populate
+    # the legend with the matching DLC colour. Order matches the skeleton's
+    # head-to-tail traversal so the legend reads sensibly.
+    _BP_LEGEND_ORDER = [
+        "nose_tip", "nose", "left_ear", "right_ear", "head_midpoint",
+        "implant_base_rear", "neck", "mid_back", "mouse_center", "tail_base",
+    ]
+    legend_traces: list[go.Scatter] = []
+    if bp_sub:
+        for bp_name in _BP_LEGEND_ORDER:
+            if bp_name not in bp_sub:
+                continue
+            legend_traces.append(go.Scatter(
+                x=[None], y=[None],
+                mode="markers",
+                marker=dict(size=8, color=_BP_COLORS.get(bp_name, "#888888"),
+                            line=dict(color="black", width=0.5)),
+                name=bp_name,
+                showlegend=True,
+                hoverinfo="skip",
+            ))
+
     fig = go.Figure(
-        data=first.data if first else [],
+        data=(list(first.data) + legend_traces) if first else legend_traces,
         layout=go.Layout(
             xaxis=dict(range=[-0.5, 7.5], scaleanchor="y", scaleratio=1, showgrid=False, zeroline=False, title="x (maze units)"),
             yaxis=dict(range=[-0.5, 5.5], showgrid=False, zeroline=False, title="y (maze units)"),
-            width=800,
+            width=900 if legend_traces else 800,
             height=620,
             margin=dict(l=40, r=40, t=60, b=40),
             title=first.layout.title if first else None,
+            showlegend=bool(legend_traces),
+            legend=dict(
+                title="Bodyparts",
+                x=1.02, y=1.0, xanchor="left", yanchor="top",
+                bgcolor="rgba(255,255,255,0.85)",
+                bordercolor="rgba(0,0,0,0.2)", borderwidth=1,
+            ),
             updatemenus=[dict(
                 type="buttons",
                 showactive=False,
@@ -394,25 +510,22 @@ def _page() -> None:
         selected_idx = st.selectbox("Session", range(len(session_labels)), format_func=lambda i: session_labels[i], key="maze_anim_session")
 
     with col_opts:
-        c1, c2, c3, c4, c5, c6 = st.columns(6)
-        with c1:
+        # Row 1
+        r1c1, r1c2, r1c3, r1c4 = st.columns(4)
+        with r1c1:
             pos_mode = st.radio(
                 "Position data",
                 ["Raw", "Cleaned"],
                 index=0,
                 key="maze_anim_pos_mode",
                 help=(
-                    "**Raw:** all frames shown; low-confidence gaps filled with "
-                    "linear interpolation. **Cleaned:** only frames that passed "
-                    "confidence filtering and median smoothing."
+                    "**Raw:** unfiltered DLC pose — no confidence filter, "
+                    "no interpolation, no median smoothing, no confidence "
+                    "weighting in the body centroid. **Cleaned:** confidence-"
+                    "filtered, gap-interpolated, median-smoothed pose."
                 ),
             )
-        with c2:
-            trail_s = st.slider("Trail length (s)", 1.0, 30.0, 10.0, 1.0, key="maze_anim_trail")
-        with c3:
-            subsample = st.slider("Subsample (every N frames)", 1, 30, 1, 1, key="maze_anim_sub",
-                                  help="Reduce frame count for browser performance (does not change playback time-base).")
-        with c4:
+        with r1c2:
             playback_label = st.selectbox(
                 "Playback speed",
                 ["0.25× realtime", "0.5× realtime", "1× realtime", "2× realtime", "4× realtime"],
@@ -421,34 +534,65 @@ def _page() -> None:
                 help="Wall-clock speed relative to recorded time. 1× = real-time replay.",
             )
             playback_speed = float(playback_label.split("×")[0])
-        with c5:
-            arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
-        with c6:
+        with r1c3:
+            subsample = st.slider("Subsample (every N frames)", 1, 30, 1, 1, key="maze_anim_sub",
+                                  help="Reduce frame count for browser performance (does not change playback time-base).")
+        with r1c4:
+            trail_s = st.slider("Trail length (s)", 1.0, 30.0, 10.0, 1.0, key="maze_anim_trail")
+
+        # Row 2
+        r2c1, r2c2, r2c3, r2c4 = st.columns(4)
+        with r2c1:
+            show_position = st.checkbox(
+                "Show position + HD arrow", value=True, key="maze_anim_show_pos",
+                help="Display the body-centroid circle and the head-direction arrow.",
+            )
+        with r2c2:
             show_skeleton = st.checkbox(
                 "Show skeleton", value=True, key="maze_anim_skel",
                 help="Draw DLC bodypart skeleton (requires per-bodypart maze coordinates in sync.h5).",
             )
+        with r2c3:
+            arrow_len = st.slider("Arrow length", 0.1, 1.5, 0.5, 0.1, key="maze_anim_arrow")
+        with r2c4:
+            st.empty()
 
     ses = sessions_with_pos[selected_idx]
 
-    x_maze = ses["x_maze"]
-    y_maze = ses["y_maze"]
     hd_deg = ses["hd_deg"]
     speed = ses["speed_cm_s"]
     light_on = ses["light_on"]
     frame_times = ses["frame_times"]
 
-    use_interp = pos_mode == "Raw"
-
-    if use_interp:
-        # Interpolate NaN gaps for continuous playback
-        x_maze = _interpolate_nans(x_maze)
-        y_maze = _interpolate_nans(y_maze)
-        hd_deg = _interpolate_nans(hd_deg)
-        speed = _interpolate_nans(speed)
-        # All non-bad-behav frames are valid
-        valid = ~ses["bad_behav"]
+    if pos_mode == "Raw":
+        # Truly raw: load x_maze_raw / y_maze_raw written by the kinematics
+        # stage from the unfiltered pose. Older sync.h5 files do not have
+        # these fields — fall back to the cleaned position with a notice.
+        x_maze_raw = ses.get("x_maze_raw")
+        y_maze_raw = ses.get("y_maze_raw")
+        if x_maze_raw is not None and y_maze_raw is not None:
+            x_maze = x_maze_raw
+            y_maze = y_maze_raw
+            ses_bp_maze = ses.get("bp_maze_raw") or ses.get("bp_maze")
+        else:
+            st.warning(
+                "Raw position fields are not present in this session's "
+                "sync.h5 — it predates the raw-fields commit. Showing "
+                "cleaned position instead. Re-run the pipeline to populate "
+                "x_maze_raw / y_maze_raw."
+            )
+            x_maze = ses["x_maze"]
+            y_maze = ses["y_maze"]
+            ses_bp_maze = ses.get("bp_maze")
+        # Raw position has no NaN gaps in the kinematics fields, so no
+        # interpolation is applied. HD and speed remain from the cleaned
+        # pipeline (these are derived signals; raw analogues would be
+        # extremely noisy and not meaningful for visualisation).
+        valid = np.isfinite(x_maze) & np.isfinite(y_maze) & ~ses["bad_behav"]
     else:
+        x_maze = ses["x_maze"]
+        y_maze = ses["y_maze"]
+        ses_bp_maze = ses.get("bp_maze")
         valid = np.isfinite(x_maze) & np.isfinite(y_maze) & ~ses["bad_behav"]
 
     if valid.sum() < 10:
@@ -458,13 +602,11 @@ def _page() -> None:
     n_total = len(frame_times)
     n_confident = (np.isfinite(ses["x_maze"]) & np.isfinite(ses["y_maze"]) & ~ses["bad_behav"]).sum()
     n_valid = valid.sum()
-
-    st.markdown(
-        f"**Frames:** {n_valid}/{n_total} "
-        f"({n_confident} confident, {n_total - n_confident} interpolated)"
-        if use_interp else
-        f"**Frames:** {n_valid}/{n_total} (cleaned only)"
-    )
+    if pos_mode == "Raw":
+        suffix = "(raw, all finite frames)"
+    else:
+        suffix = "(cleaned)"
+    st.markdown(f"**Frames:** {n_valid}/{n_total} ({n_confident} cleaned-confident) {suffix}")
 
     total_dur_s = frame_times[-1] - frame_times[0]
     total_dur_min = total_dur_s / 60.0
@@ -493,8 +635,8 @@ def _page() -> None:
     light_sel = light_on[time_mask]
     ft_sel = frame_times[time_mask]
 
-    # Bodypart positions for skeleton
-    bp_maze_data = ses.get("bp_maze") if show_skeleton else None
+    # Bodypart positions for skeleton — match raw vs cleaned to position mode.
+    bp_maze_data = ses_bp_maze if show_skeleton else None
     bp_sel = None
     if bp_maze_data:
         bp_sel = {}
@@ -509,8 +651,10 @@ def _page() -> None:
 
     if n_frames_anim > 2000:
         st.info(
-            f"Large number of frames ({n_frames_anim}). "
-            "Consider increasing subsample or narrowing the time range for smoother playback."
+            f"Large frame count ({n_frames_anim}). The animation shows every "
+            "frame — no internal decimation — so playback may be slow or "
+            "stutter in the browser. Raise the Subsample slider or narrow "
+            "the time range to lighten the load."
         )
 
     with st.spinner("Building animation..."):
@@ -521,6 +665,7 @@ def _page() -> None:
             arrow_length=arrow_len,
             bp_maze=bp_sel,
             playback_speed=playback_speed,
+            show_position=show_position,
         )
 
     st.plotly_chart(fig, use_container_width=False)

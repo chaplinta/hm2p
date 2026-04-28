@@ -394,6 +394,7 @@ def render_session(
     skip_existing: bool = False,
     no_upload: bool = False,
     modes: list[str] | None = None,
+    champion_manifest: dict | None = None,
 ) -> str | None:
     """Render labelled video(s) for a single session.
 
@@ -432,11 +433,26 @@ def render_session(
         return None
 
     pose_prefix = f"pose/{sub}/{ses}/"
-    from hm2p.pose.select import select_best_dlc_h5_s3
+    from hm2p.pose.select import (
+        extract_architecture,
+        extract_dlc_provenance,
+        resolve_champion_id,
+        select_best_dlc_h5_s3,
+    )
     pose_key = select_best_dlc_h5_s3(s3, DERIV_BUCKET, pose_prefix)
     if not pose_key:
         log.warning("  No DLC .h5 found for %s, skipping", exp_id)
         return None
+
+    # Resolve provenance for the chosen pose file. Stamped onto the
+    # rendered video via a sidecar JSON so the dlc_viewer page can detect
+    # stale renders.
+    pose_filename = pose_key.split("/")[-1]
+    dlc_model_name, dlc_snapshot = extract_dlc_provenance(pose_filename)
+    dlc_architecture = extract_architecture(pose_filename)
+    dlc_champion_id = resolve_champion_id(
+        dlc_model_name, dlc_architecture, dlc_snapshot, champion_manifest,
+    )
 
     if dry_run:
         for m in modes:
@@ -511,14 +527,21 @@ def render_session(
                 out_path = tmp / fname
 
             if use_ffmpeg:
+                # -loglevel error + -nostats suppress per-frame progress so
+                # the stderr pipe stays small. Without this ffmpeg's periodic
+                # encoding stats fill the 64 KB OS pipe buffer (stderr is not
+                # drained until communicate() at the end), ffmpeg blocks on
+                # its stderr write, stops reading stdin, and the loop's
+                # stdin.write() deadlocks. Observed at ~20,000 frames in.
                 ffproc = subprocess.Popen(
-                    ["ffmpeg", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
+                    ["ffmpeg", "-y", "-loglevel", "error", "-nostats",
+                     "-f", "rawvideo", "-pix_fmt", "bgr24",
                      "-s", f"{OUTPUT_WIDTH}x{OUTPUT_HEIGHT}", "-r", str(OUTPUT_FPS),
                      "-i", "pipe:0", "-c:v", "libx264", "-crf", "23",
                      "-preset", "medium", "-movflags", "+faststart", str(out_path)],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,   # capture for error logging
+                    stderr=subprocess.PIPE,   # only errors now; safe to capture
                 )
                 pipes[m] = (out_path, ffproc, None)
             else:
@@ -586,6 +609,15 @@ def render_session(
 
         # Upload all modes that completed successfully (out_path not None)
         last_key = None
+        provenance = {
+            "dlc_model_name": dlc_model_name,
+            "dlc_snapshot": dlc_snapshot,
+            "dlc_champion_id": dlc_champion_id,
+            "source_h5_key": pose_key,
+            "rendered_at": datetime.datetime.now(datetime.timezone.utc).strftime(
+                "%Y-%m-%dT%H:%M:%SZ"
+            ),
+        }
         for m in modes:
             out_path = pipes[m][0]
             if out_path is None:
@@ -598,6 +630,16 @@ def render_session(
                 log.info("  Uploading %s → s3://%s/%s", m, DERIV_BUCKET, upload_key)
                 s3.upload_file(str(out_path), DERIV_BUCKET, upload_key)
                 last_key = upload_key
+                # Sidecar JSON next to each uploaded video — names by stripping
+                # the .mp4 and appending .provenance.json (per the design doc).
+                sidecar_key = upload_key.rsplit(".", 1)[0] + ".provenance.json"
+                s3.put_object(
+                    Bucket=DERIV_BUCKET,
+                    Key=sidecar_key,
+                    Body=json.dumps(provenance, indent=2).encode("utf-8"),
+                    ContentType="application/json",
+                )
+                log.info("  Wrote sidecar s3://%s/%s", DERIV_BUCKET, sidecar_key)
 
         return last_key or str(pipes[modes[0]][0]) if pipes[modes[0]][0] else None
 
@@ -656,6 +698,19 @@ def main():
     instance_id = _get_instance_id()
     error_records: list[dict] = []
 
+    # Load champion manifest once. Each session's resolved champion id is
+    # written to the per-video sidecar JSON.
+    from hm2p.pose.select import get_champion_manifest as _get_manifest
+    champion_manifest = _get_manifest(s3, DERIV_BUCKET)
+    if champion_manifest is None:
+        log.warning(
+            "No champion manifest at s3://%s/dlc-champion.json; "
+            "all rendered videos will be marked dlc_champion_id='unknown'.",
+            DERIV_BUCKET,
+        )
+    else:
+        log.info("Champion: %s", champion_manifest.get("champion_id", "?"))
+
     # Process sessions
     results: list[tuple[str, str | None]] = []
     for i, s in enumerate(sessions, 1):
@@ -667,6 +722,7 @@ def main():
                 dry_run=args.dry_run,
                 skip_existing=args.skip_existing,
                 no_upload=args.no_upload,
+                champion_manifest=champion_manifest,
             )
             results.append((exp_id, result))
         except Exception as exc:

@@ -51,7 +51,8 @@
     "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/z-stacks,target=/data/z-stacks,type=bind,readonly=true",
     "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/brains-sorted,target=/data/brains-sorted,type=bind,readonly=true",
     "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/brains-reg,target=/data/brains-reg,type=bind,readonly=true",
-    "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/video-meta-backup,target=/data/video-meta-backup,type=bind,readonly=true"
+    "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/video-meta-backup,target=/data/video-meta-backup,type=bind,readonly=true",
+    "source=/Users/tristan/Neuro/hm2p-dlc-videos,target=/host-dlc-videos,type=bind"
   ],
   "containerEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096",

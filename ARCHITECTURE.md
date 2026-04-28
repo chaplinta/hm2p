@@ -351,6 +351,9 @@ S3 path: `kinematics/{sub}/{ses}/kinematics.h5`
 Attributes stored on the root group:
 - `session_id`, `tracker`, `confidence_threshold`, `gap_fill_frames`,
   `scale_mm_per_px`, `orientation_deg`, `speed_active_threshold_cm_s`
+- `dlc_model_name`, `dlc_snapshot` — provenance from the DLC h5 filename
+- `dlc_champion_id` — stable project-wide champion identifier; see
+  [docs/dlc-champion-model.md](docs/dlc-champion-model.md)
 
 ```text
 /frame_times         (N,) float64 — camera frame timestamps in seconds since session start
@@ -412,6 +415,10 @@ S3 path: `sync/{sub}/{ses}/sync.h5`
 rate) and appends all ca.h5 datasets verbatim. Field names are therefore identical to those
 in kinematics.h5 and ca.h5. Attributes are inherited from ca.h5 with `session_id` overridden.
 
+Root attributes include the DLC provenance triplet copied from kinematics.h5:
+`dlc_model_name`, `dlc_snapshot`, `dlc_champion_id`. See
+[docs/dlc-champion-model.md](docs/dlc-champion-model.md).
+
 Key datasets at imaging rate T (all kinematics signals resampled from camera rate N):
 
 ```text
@@ -466,6 +473,37 @@ Stage 3b (MoSeq) has been run.
 /speed_slope         (R,) float32 — speed modulation slope
 /decoder_error       (float attr) — population HD decode mean absolute error, degrees
 ```
+
+Root attributes include the DLC provenance triplet: `dlc_model_name`, `dlc_snapshot`,
+`dlc_champion_id`, sourced from the sync.h5 that was the input to Stage 6.
+
+---
+
+## DLC Champion Model
+
+The project maintains a **single project-wide champion model manifest** at
+`s3://hm2p-derivatives/dlc-champion.json`. Every derivative that depends on DLC
+pose data (kinematics.h5, sync.h5, analysis.h5, rendered videos) records the
+`dlc_champion_id` string from this manifest as an attribute or sidecar file.
+
+The frontend compares each session's stored `dlc_champion_id` against the current
+manifest and displays a staleness warning for any session where they diverge.
+
+Full specification: [docs/dlc-champion-model.md](docs/dlc-champion-model.md)
+
+Key paths:
+
+| Path | Purpose |
+| --- | --- |
+| `s3://hm2p-derivatives/dlc-champion.json` | Single source of truth — current champion |
+| `s3://hm2p-derivatives/dlc-champion-history/` | Audit trail of superseded champions |
+| `pose/{sub}/{ses}/promoted.json` | Per-session: which h5 file was selected + champion_id |
+| `pose/{sub}/{ses}/*.provenance.json` | Per-video sidecar with champion_id |
+| `scripts/declare_dlc_champion.py` | Promotes a new champion; called automatically by `run_dlc_retrain.py` on success |
+| `scripts/promote_dlc_model.py` | Writes per-session promoted.json (run before declaring) |
+| `frontend/data.py::get_dlc_champion()` | Frontend loader — cached 300 s |
+| `frontend/data.py::is_session_current()` | Per-session currency check |
+| `frontend/data.py::render_champion_staleness_warning()` | Shared UI warning banner |
 
 ---
 
@@ -651,19 +689,22 @@ s3://hm2p-derivatives/
         → uploads labeled-data + config.yaml to S3
                                            ↓
 5. Mac: uv run python scripts/launch_dlc_finetune_ec2.py
-        → launches g4dn.xlarge which:
+        → launches g4dn.xlarge which runs run_dlc_retrain.py:
           a. Downloads labels from S3
           b. Runs deeplabcut.create_training_dataset(superanimal_transfer=True)
           c. Runs deeplabcut.train_network()
           d. Uploads model weights to S3
           e. Re-runs inference on all 26 sessions → pose-finetuned/
-          f. Self-terminates
+          f. Calls promote_dlc_model.py → writes pose/{sub}/{ses}/promoted.json
+          g. Calls declare_dlc_champion.py → writes dlc-champion.json (auto)
+          h. Self-terminates
                                            ↓
-6. Frontend: compare SuperAnimal vs fine-tuned in Tracking QC page
+6. Frontend: compare fine-tuned vs previous in Tracking QC page
+             (champion manifest already written — pipeline page shows new champion)
                                            ↓
-7. Mac: uv run python scripts/promote_finetuned_pose.py
-        → copies pose-finetuned/ → pose/ on S3
-        → triggers downstream re-run (Stages 3, 5, 6)
+7. Mac: uv run python scripts/run_downstream_pipeline.py
+        → re-runs Stages 3 → 3b → 5 → 6 for all 26 sessions
+        → each HDF5 now carries dlc_champion_id attribute
 ```
 | vulture | Dead code detection — finds unused functions and variables |
 | structlog | Structured JSON logging throughout pipeline stages |
