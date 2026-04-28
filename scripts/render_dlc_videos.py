@@ -77,7 +77,7 @@ SKELETON: list[tuple[str, str]] = [
 # All possible bodypart names (finetuned + SuperAnimal variants)
 BODYPARTS = list(KEYPOINT_COLORS.keys())
 
-CIRCLE_RADIUS = 2
+CIRCLE_RADIUS = 1
 LINE_WIDTH = 1
 # Always show all keypoints regardless of confidence. High-confidence
 # points are filled circles, low-confidence are hollow. No threshold
@@ -251,6 +251,7 @@ def draw_frame(
     frame_idx: int,
     scale_x: float = 1.0,
     scale_y: float = 1.0,
+    always_show: bool = False,
 ) -> np.ndarray:
     """Draw keypoints and skeleton on a single frame.
 
@@ -261,6 +262,8 @@ def draw_frame(
         Coordinates are in original DLC resolution.
     frame_idx : DLC frame index.
     scale_x, scale_y : Scale factors from DLC coords to frame coords.
+    always_show : If True, draw all keypoints as filled circles regardless of
+        confidence (used for the "raw" render mode).
     """
     # Draw skeleton lines first (under circles)
     for bp1, bp2 in SKELETON:
@@ -270,7 +273,7 @@ def draw_frame(
         kp2 = keypoints[bp2][frame_idx]
         if np.isnan(kp1[:2]).any() or np.isnan(kp2[:2]).any():
             continue
-        if kp1[2] < CONFIDENCE_THRESHOLD or kp2[2] < CONFIDENCE_THRESHOLD:
+        if not always_show and (kp1[2] < CONFIDENCE_THRESHOLD or kp2[2] < CONFIDENCE_THRESHOLD):
             continue
         pt1 = (int(round(kp1[0] * scale_x)), int(round(kp1[1] * scale_y)))
         pt2 = (int(round(kp2[0] * scale_x)), int(round(kp2[1] * scale_y)))
@@ -286,7 +289,7 @@ def draw_frame(
             continue
         pt = (int(round(kp[0] * scale_x)), int(round(kp[1] * scale_y)))
         color = KEYPOINT_COLORS.get(bp, (255, 255, 255))
-        if kp[2] >= CONFIDENCE_THRESHOLD:
+        if always_show or kp[2] >= CONFIDENCE_THRESHOLD:
             cv2.circle(frame, pt, CIRCLE_RADIUS, color, -1, cv2.LINE_AA)
         else:
             cv2.circle(frame, pt, CIRCLE_RADIUS, color, 1, cv2.LINE_AA)
@@ -571,7 +574,8 @@ def render_session(
                     frame_copy = frame_resized.copy()
                     kps = keypoints_by_mode[m]
                     frame_copy = draw_frame(frame_copy, kps, dlc_frame_idx,
-                                            scale_x=scale_x, scale_y=scale_y)
+                                            scale_x=scale_x, scale_y=scale_y,
+                                            always_show=(m == "raw"))
 
                     out_path, ffproc, writer = pipes[m]
                     if ffproc is not None:
