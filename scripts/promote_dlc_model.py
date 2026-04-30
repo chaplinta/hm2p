@@ -1,24 +1,37 @@
 #!/usr/bin/env python3
-"""Write promoted.json manifests for all sessions based on the selection heuristic.
+"""Write promoted.json manifests for all sessions.
 
-For each session that has DLC pose output on S3, this script selects the best
-.h5 file using the standard heuristic (highest-snapshot finetuned model) and
-writes a ``promoted.json`` manifest to ``pose/{sub}/{ses}/promoted.json``.
+For each session that has DLC pose output on S3, this script writes a
+``promoted.json`` manifest to ``pose/{sub}/{ses}/promoted.json``. Two
+selection modes:
 
-This bootstraps the manifest system for all existing sessions.  Once
-``promoted.json`` is in place, :func:`hm2p.pose.select.select_best_dlc_h5_s3`
-will use it as an explicit override instead of re-running the heuristic.
+- Default (no flag): pick the .h5 with the highest ``snapshot-best-N`` number
+  (i.e. ``select_best_dlc_h5_s3``).
+- ``--snapshot N``: pick the .h5 whose filename contains
+  ``snapshot_best-N``. Sessions that don't have an inference output for
+  that snapshot are skipped with a warning.
+
+The explicit ``--snapshot`` form is used to switch the project to a non-tip
+snapshot (e.g. an earlier checkpoint that scored better on the training
+metrics that matter for downstream HD analysis).
+
+Once ``promoted.json`` is in place, :func:`hm2p.pose.select.select_best_dlc_h5_s3`
+uses it as an explicit override instead of re-running the heuristic.
 
 Usage
 -----
     # Dry run — print what would be written without uploading
     uv run python scripts/promote_dlc_model.py --dry-run
 
-    # Write manifests for all sessions
+    # Write manifests for all sessions, default heuristic
     uv run python scripts/promote_dlc_model.py
 
     # Write manifest for a specific session
     uv run python scripts/promote_dlc_model.py --session sub-1114353/ses-20210823T165950
+
+    # Promote a specific snapshot (must already exist as a finetuned .h5
+    # output for each session)
+    uv run python scripts/promote_dlc_model.py --snapshot 110
 """
 
 from __future__ import annotations
@@ -36,6 +49,34 @@ import boto3
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from hm2p.pose.select import extract_dlc_provenance, select_best_dlc_h5_s3
+
+
+def _select_snapshot_h5(
+    s3_client: object, bucket: str, prefix: str, snapshot: str
+) -> str | None:
+    """Return the finetuned h5 key whose filename matches ``snapshot_best-{snapshot}``.
+
+    Prefers HrnetW32 (DLC 3.x PyTorch) over Resnet50 when both are present,
+    matching the project default architecture. Returns ``None`` if no
+    matching file exists under *prefix*.
+    """
+    paginator = s3_client.get_paginator("list_objects_v2")
+    matches: list[str] = []
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            if not key.endswith(".h5"):
+                continue
+            fname = key.split("/")[-1]
+            if "_single" in fname or "_filtered" in fname:
+                continue
+            if f"snapshot_best-{snapshot}" not in fname:
+                continue
+            matches.append(key)
+    if not matches:
+        return None
+    hrnet = [k for k in matches if "Hrnet" in k]
+    return hrnet[0] if hrnet else matches[0]
 
 REGION = "ap-southeast-2"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
@@ -123,6 +164,16 @@ def main() -> None:
         metavar="sub-XXX/ses-YYYYMMDDTHHMMSS",
         help="Process a single session instead of all sessions.",
     )
+    parser.add_argument(
+        "--snapshot",
+        metavar="N",
+        help=(
+            "Promote the finetuned .h5 with ``snapshot_best-N`` in its filename. "
+            "Sessions that lack an inference output for this snapshot are "
+            "skipped with a warning. Without this flag the highest-snapshot "
+            "heuristic is used."
+        ),
+    )
     args = parser.parse_args()
 
     s3 = boto3.client("s3", region_name=REGION)
@@ -143,11 +194,21 @@ def main() -> None:
     for sess in sessions:
         sub, ses = sess["sub"], sess["ses"]
         prefix = f"pose/{sub}/{ses}/"
-        h5_key = select_best_dlc_h5_s3(s3, DERIVATIVES_BUCKET, prefix)
-        if h5_key is None:
-            log.warning("No pose .h5 found for %s/%s — skipping", sub, ses)
-            n_skipped += 1
-            continue
+        if args.snapshot is not None:
+            h5_key = _select_snapshot_h5(s3, DERIVATIVES_BUCKET, prefix, args.snapshot)
+            if h5_key is None:
+                log.warning(
+                    "No snapshot-best-%s .h5 found for %s/%s — skipping",
+                    args.snapshot, sub, ses,
+                )
+                n_skipped += 1
+                continue
+        else:
+            h5_key = select_best_dlc_h5_s3(s3, DERIVATIVES_BUCKET, prefix)
+            if h5_key is None:
+                log.warning("No pose .h5 found for %s/%s — skipping", sub, ses)
+                n_skipped += 1
+                continue
         _write_promoted(s3, sub, ses, h5_key, dry_run=args.dry_run)
         n_written += 1
 

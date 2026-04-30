@@ -23,7 +23,9 @@ raw_fps_camera: 100.0
 raw_fps_imaging: 29.97
 
 # ── Stage 3 — Kinematics ───────────────────────────────────────────────────
-pose_confidence_threshold: 0.9   # keypoints below this likelihood → NaN
+pose_confidence_threshold: "quantile:0.25"   # per-keypoint quantile cutoff;
+                                              # use a float in [0,1] for a fixed
+                                              # scalar threshold
 pose_gap_fill_frames: 5          # max consecutive NaN frames to interpolate
 speed_active_threshold_cm_s: 2.0 # cm/s above → active state
 

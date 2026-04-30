@@ -17,6 +17,7 @@ from hm2p.kinematics.compute import (
     _maze_linear_transform,
     _median_filter_1d,
     _rotate_xy,
+    _savgol_filter_1d,
     _unwrap_and_smooth,
     _vector_angle_deg,
     _windowed_gradient,
@@ -1228,6 +1229,97 @@ class TestFusedHdWrapped:
 
 
 # ---------------------------------------------------------------------------
+# _savgol_filter_1d
+# ---------------------------------------------------------------------------
+
+
+class TestSavgolFilter1D:
+    """Savitzky-Golay smoother behaviour on 1D HD-like signals."""
+
+    def test_disabled_returns_input(self) -> None:
+        arr = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        out = _savgol_filter_1d(arr, window=1)
+        np.testing.assert_array_equal(out, arr)
+
+    def test_constant_signal_unchanged(self) -> None:
+        arr = np.full(50, 90.0)
+        out = _savgol_filter_1d(arr, window=5, polyorder=2)
+        np.testing.assert_allclose(out, 90.0, atol=1e-9)
+
+    def test_linear_ramp_unchanged_with_polyorder_2(self) -> None:
+        """A linear ramp is exactly representable by polyorder >= 1, so SG passes it through."""
+        n = 50
+        arr = np.linspace(0.0, 100.0, n)
+        out = _savgol_filter_1d(arr, window=7, polyorder=2)
+        # Interior values should be preserved (boundary handling differs slightly)
+        np.testing.assert_allclose(out[5:-5], arr[5:-5], atol=1e-9)
+
+    def test_quadratic_signal_unchanged_with_polyorder_2(self) -> None:
+        """SG with polyorder=2 reproduces quadratic signals exactly in the interior."""
+        n = 60
+        x = np.linspace(0.0, 1.0, n)
+        arr = 3.0 * x**2 - 2.0 * x + 1.0
+        out = _savgol_filter_1d(arr, window=5, polyorder=2)
+        np.testing.assert_allclose(out[5:-5], arr[5:-5], atol=1e-9)
+
+    def test_smooths_high_frequency_noise(self) -> None:
+        """Adding zero-mean noise to a smooth signal: SG output is closer to truth."""
+        rng = np.random.default_rng(0)
+        n = 200
+        x = np.linspace(0.0, 4 * np.pi, n)
+        truth = np.sin(x)
+        noisy = truth + rng.normal(0.0, 0.2, size=n)
+        out = _savgol_filter_1d(noisy, window=11, polyorder=2)
+        rmse_noisy = float(np.sqrt(np.mean((noisy - truth) ** 2)))
+        rmse_out = float(np.sqrt(np.mean((out - truth) ** 2)))
+        assert rmse_out < rmse_noisy * 0.6, (
+            f"SG should reduce RMSE substantially: noisy={rmse_noisy:.3f}, "
+            f"smoothed={rmse_out:.3f}"
+        )
+
+    def test_nan_preserved(self) -> None:
+        n = 20
+        arr = np.linspace(0.0, 19.0, n)
+        nan_idx = [5, 6, 7]
+        arr[nan_idx] = np.nan
+        out = _savgol_filter_1d(arr, window=5, polyorder=2)
+        for i in nan_idx:
+            assert np.isnan(out[i])
+        non_nan = [i for i in range(n) if i not in nan_idx]
+        assert np.all(np.isfinite(out[non_nan]))
+
+    def test_short_signal_returns_input(self) -> None:
+        """Insufficient valid samples: SG returns the array unchanged."""
+        arr = np.array([1.0, 2.0, np.nan, np.nan, np.nan])
+        out = _savgol_filter_1d(arr, window=5, polyorder=2)
+        # Only 2 valid samples but window=5 — function must not raise
+        np.testing.assert_array_equal(out[~np.isnan(arr)], arr[~np.isnan(arr)])
+
+    def test_all_nan_input_returns_nan(self) -> None:
+        arr = np.full(10, np.nan)
+        out = _savgol_filter_1d(arr, window=5, polyorder=2)
+        assert np.all(np.isnan(out))
+
+    def test_even_window_raises(self) -> None:
+        with pytest.raises(ValueError, match="must be odd"):
+            _savgol_filter_1d(np.zeros(10), window=4)
+
+    def test_polyorder_too_high_raises(self) -> None:
+        with pytest.raises(ValueError, match="polyorder"):
+            _savgol_filter_1d(np.zeros(10), window=3, polyorder=3)
+
+    def test_does_not_introduce_phase_distortion(self) -> None:
+        """Symmetric signal: SG output is also symmetric (zero-phase smoother)."""
+        n = 51  # odd so the center is at index n//2
+        x = np.linspace(-2, 2, n)
+        arr = np.exp(-(x**2))  # gaussian centered at index 25
+        out = _savgol_filter_1d(arr, window=5, polyorder=2)
+        # Compare positions equidistant from the center
+        for k in range(1, 10):
+            np.testing.assert_allclose(out[25 - k], out[25 + k], atol=1e-6)
+
+
+# ---------------------------------------------------------------------------
 # _unwrap_and_smooth
 # ---------------------------------------------------------------------------
 
@@ -1347,6 +1439,64 @@ class TestUnwrapAndSmooth:
         arr = np.array(angles, dtype=np.float64)
         out = _unwrap_and_smooth(arr, median_filter_win=3)
         assert np.all(np.isfinite(out))
+
+    def test_savgol_smooths_high_frequency_jitter(self) -> None:
+        """With SG enabled, jittery HD has lower frame-to-frame noise than without."""
+        rng = np.random.default_rng(0)
+        n = 200
+        # Ground truth: linear ramp at 30 deg/s sampled at 30 fps
+        truth = np.linspace(0.0, 200.0, n)
+        # Add high-frequency tracking jitter (5° standard deviation)
+        noisy = truth + rng.normal(0.0, 5.0, size=n)
+        out_med_only = _unwrap_and_smooth(
+            noisy, median_filter_win=3, savgol_window=1
+        )
+        out_med_sg = _unwrap_and_smooth(
+            noisy, median_filter_win=3, savgol_window=5, savgol_polyorder=2
+        )
+        # The chained SG pass should produce a smoother signal (smaller
+        # frame-to-frame deltas) than the median-only pass.
+        delta_med = float(np.std(np.diff(out_med_only.astype(np.float64))))
+        delta_med_sg = float(np.std(np.diff(out_med_sg.astype(np.float64))))
+        assert delta_med_sg < delta_med * 0.7
+
+    def test_savgol_preserves_constant_hd(self) -> None:
+        """SG smoothing of constant HD does not introduce drift."""
+        out = _unwrap_and_smooth(
+            np.full(60, 180.0),
+            median_filter_win=3,
+            savgol_window=5,
+            savgol_polyorder=2,
+        )
+        np.testing.assert_allclose(out, 180.0, atol=1e-3)
+
+    def test_savgol_preserves_linear_hd(self) -> None:
+        """SG with order=2 reproduces a linear HD ramp exactly."""
+        n = 80
+        truth = np.linspace(10.0, 200.0, n)
+        out = _unwrap_and_smooth(
+            truth,
+            median_filter_win=3,
+            savgol_window=7,
+            savgol_polyorder=2,
+        )
+        # Interior frames should be very close to the input
+        np.testing.assert_allclose(out[5:-5], truth[5:-5], atol=1.0)
+
+    def test_savgol_preserves_nan(self) -> None:
+        """NaN frames in input remain NaN after the SG pass."""
+        n = 30
+        arr = np.linspace(0.0, 200.0, n)
+        nan_idx = [10, 11, 12]
+        arr[nan_idx] = np.nan
+        out = _unwrap_and_smooth(
+            arr,
+            median_filter_win=3,
+            savgol_window=5,
+            savgol_polyorder=2,
+        )
+        for i in nan_idx:
+            assert np.isnan(out[i])
 
 
 # ---------------------------------------------------------------------------
@@ -1884,6 +2034,49 @@ class TestComputeAhv:
         hd_deg = np.full(n, np.nan, dtype=np.float64)
         ahv = compute_ahv(hd_deg, times)
         assert np.all(np.isnan(ahv))
+
+    def test_savgol_reduces_jitter_in_ahv(self) -> None:
+        """A noisy HD signal yields a less-noisy AHV when SG smoothing is on."""
+        rng = np.random.default_rng(0)
+        n = 200
+        times = np.linspace(0, 6.6, n)  # 30 fps
+        hd_truth = 50.0 * times  # 50 deg/s
+        hd_noisy = hd_truth + rng.normal(0.0, 3.0, size=n)
+        ahv_med = compute_ahv(hd_noisy, times, savgol_window=1)
+        ahv_med_sg = compute_ahv(
+            hd_noisy, times, savgol_window=7, savgol_polyorder=2
+        )
+        # The SG-smoothed AHV should be much closer to the true 50 deg/s.
+        rmse_med = float(np.sqrt(np.mean((ahv_med[10:-10] - 50.0) ** 2)))
+        rmse_med_sg = float(np.sqrt(np.mean((ahv_med_sg[10:-10] - 50.0) ** 2)))
+        # The SG pass should reduce RMSE meaningfully (window=7 polyorder=2
+        # typically halves it on independent gaussian jitter, but the exact
+        # ratio depends on the noise spectrum — be generous).
+        assert rmse_med_sg < rmse_med * 0.7
+
+    def test_savgol_preserves_fast_turn(self) -> None:
+        """A genuine fast head turn (large but smooth AHV peak) is preserved."""
+        n = 200
+        times = np.linspace(0, 6.6, n)  # 30 fps
+        # HD ramps slowly then has a brief high-velocity stretch then ramps slowly again
+        hd_deg = np.where(
+            times < 3.0,
+            10.0 * times,  # 10 deg/s baseline
+            np.where(
+                times < 3.5,
+                30.0 + 200.0 * (times - 3.0),  # 200 deg/s for 0.5 s
+                130.0 + 10.0 * (times - 3.5),  # back to 10 deg/s
+            ),
+        )
+        ahv = compute_ahv(
+            hd_deg, times, savgol_window=5, savgol_polyorder=2
+        )
+        # Peak AHV should still be large (within ~30% of 200 deg/s)
+        peak_idx_range = (times >= 3.05) & (times <= 3.45)
+        peak = float(np.nanmax(np.abs(ahv[peak_idx_range])))
+        assert peak > 130.0, (
+            f"SG smoothed away the fast turn: peak AHV was only {peak:.1f} deg/s"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -10,8 +10,33 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _validate_confidence_threshold(v: float | str) -> float | str:
+    """Validate a confidence-threshold value.
+
+    Accepts either a float in [0, 1] (fixed scalar threshold) or a string
+    of the form ``"quantile:Q"`` with Q in [0, 1] (per-keypoint quantile).
+    """
+    if isinstance(v, str):
+        if not v.startswith("quantile:"):
+            raise ValueError(
+                f"string threshold must start with 'quantile:', got {v!r}"
+            )
+        try:
+            q = float(v.split(":", 1)[1])
+        except ValueError as exc:
+            raise ValueError(
+                f"could not parse quantile from {v!r}: {exc}"
+            ) from exc
+        if not 0.0 <= q <= 1.0:
+            raise ValueError(f"quantile must be in [0, 1], got {q}")
+        return v
+    if not 0.0 <= float(v) <= 1.0:
+        raise ValueError(f"float threshold must be in [0, 1], got {v}")
+    return float(v)
 
 
 class PipelineConfig(BaseSettings):
@@ -50,12 +75,23 @@ class PipelineConfig(BaseSettings):
     raw_fps_imaging: float = Field(default=29.97, description="Nominal 2P imaging rate (Hz).")
 
     # ── Stage 3 — Kinematics ───────────────────────────────────────────────
-    pose_confidence_threshold: float = Field(
-        default=0.9,
-        ge=0.0,
-        le=1.0,
-        description="Keypoint detections below this likelihood are set to NaN.",
+    pose_confidence_threshold: float | str = Field(
+        default="quantile:0.25",
+        description=(
+            "Confidence cutoff for keypoint detections. Either a float in "
+            "[0, 1] (fixed scalar threshold) or a string of the form "
+            "``\"quantile:Q\"`` for a per-keypoint quantile threshold. "
+            "Default ``\"quantile:0.25\"`` drops the bottom quartile of each "
+            "keypoint's confidence distribution per session — the recommended "
+            "filter for DLC 3.x PyTorch outputs whose absolute confidence "
+            "values are uncalibrated."
+        ),
     )
+
+    @field_validator("pose_confidence_threshold")
+    @classmethod
+    def _check_pose_confidence_threshold(cls, v: float | str) -> float | str:
+        return _validate_confidence_threshold(v)
     pose_gap_fill_frames: int = Field(
         default=5,
         ge=0,

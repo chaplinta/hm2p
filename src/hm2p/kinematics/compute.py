@@ -134,6 +134,59 @@ def _median_filter_1d(arr: np.ndarray, win: int = 5) -> np.ndarray:
     return out
 
 
+def _savgol_filter_1d(
+    arr: np.ndarray, window: int, polyorder: int = 2
+) -> np.ndarray:
+    """Apply a Savitzky-Golay smoother to a 1D signal, preserving NaN.
+
+    NaN values are linearly interpolated before filtering and restored
+    afterwards so the smoother sees a continuous signal but does not leak
+    smoothed values into frames that were missing in the input.
+
+    Used on the unwrapped HD timeseries to reduce high-frequency tracking
+    jitter while preserving the curvature of fast head turns better than a
+    plain median filter (Schafer 2011 — "What is a Savitzky-Golay filter?",
+    IEEE Signal Process. Mag. 28(4):111-117. doi:10.1109/MSP.2011.941097).
+
+    Args:
+        arr: (N,) input signal (may contain NaN).
+        window: Filter window size. Must be odd and > polyorder. Values
+            ``<= 1`` disable the filter and return ``arr`` unchanged.
+        polyorder: Polynomial order (default 2). Must be < window.
+
+    Returns:
+        (N,) float64 — smoothed signal with NaN preserved. Returns ``arr``
+        unchanged if it has fewer than ``window`` valid samples.
+    """
+    from scipy.signal import savgol_filter
+
+    if window <= 1:
+        return arr.copy()
+    if window % 2 == 0:
+        raise ValueError(f"savgol window must be odd, got {window}")
+    if polyorder >= window:
+        raise ValueError(
+            f"polyorder ({polyorder}) must be < window ({window})"
+        )
+
+    nan_mask = np.isnan(arr)
+    if nan_mask.all():
+        return arr.copy()
+    n_valid = int((~nan_mask).sum())
+    if n_valid < window:
+        return arr.copy()
+
+    filled = arr.copy().astype(np.float64)
+    if nan_mask.any():
+        idx = np.arange(len(arr), dtype=float)
+        valid = ~nan_mask
+        filled[nan_mask] = np.interp(idx[nan_mask], idx[valid], arr[valid])
+
+    out = savgol_filter(filled, window_length=window, polyorder=polyorder)
+    out[nan_mask] = np.nan
+    return out
+
+
 def median_filter_dataset(ds: xr.Dataset, window: int = 3) -> xr.Dataset:
     """Apply movement's rolling median filter to the position DataArray.
 
@@ -208,12 +261,27 @@ def _ear_perpendicular_angle(
 def _unwrap_and_smooth(
     angle_deg: np.ndarray,
     median_filter_win: int = 5,
+    savgol_window: int = 5,
+    savgol_polyorder: int = 2,
 ) -> np.ndarray:
-    """Unwrap a wrapped angle timeseries and apply median smoothing.
+    """Unwrap a wrapped angle timeseries and apply two-pass smoothing.
+
+    Pass 1 (median filter, ``median_filter_win`` frames) removes single-frame
+    impulses from tracking errors.
+
+    Pass 2 (Savitzky-Golay filter, ``savgol_window`` frames, polynomial of
+    order ``savgol_polyorder``) smooths residual high-frequency jitter while
+    preserving the curvature of fast head turns. At 30 fps the default
+    5-frame window corresponds to ~165 ms of smoothing — short relative to
+    the typical HD bin-dwell time, so HD tuning curves are not blurred.
 
     Args:
         angle_deg: (N,) wrapped angle in degrees (may contain NaN).
-        median_filter_win: Window for post-unwrap median filter.
+        median_filter_win: Window for post-unwrap median filter. ``<= 1``
+            disables the median pass.
+        savgol_window: Window for the Savitzky-Golay smoother. ``<= 1``
+            disables the SG pass.
+        savgol_polyorder: Polynomial order for SG. Must be < window.
 
     Returns:
         (N,) float32 — unwrapped, smoothed HD in degrees.
@@ -233,8 +301,13 @@ def _unwrap_and_smooth(
     rad_unwrapped = np.unwrap(np.deg2rad(angle_filled), discont=np.pi)
     deg_unwrapped = np.degrees(rad_unwrapped)
 
-    # Post-unwrap median filter (1D scalar — movement doesn't cover this).
+    # Pass 1: median filter — removes single-frame tracking impulses.
     deg_unwrapped = _median_filter_1d(deg_unwrapped, median_filter_win)
+    # Pass 2: Savitzky-Golay — removes residual high-frequency jitter
+    # without introducing the phase distortion of cumulative median filters.
+    deg_unwrapped = _savgol_filter_1d(
+        deg_unwrapped, window=savgol_window, polyorder=savgol_polyorder
+    )
 
     deg_unwrapped[nan_mask] = np.nan
     return deg_unwrapped.astype(np.float32)
@@ -720,6 +793,71 @@ def filter_low_confidence(
         threshold=threshold,
     )
     return ds.assign(position=filtered_pos)
+
+
+def filter_by_keypoint_quantile(
+    ds: xr.Dataset,
+    quantile: float = 0.25,
+    floor: float = 0.0,
+) -> tuple[xr.Dataset, dict[str, float]]:
+    """Set position to NaN below a per-keypoint confidence quantile threshold.
+
+    For each keypoint, the threshold is the per-keypoint *quantile* of its
+    confidence distribution within this session. Frames whose confidence is
+    below their keypoint's threshold are NaN'd. This is the recommended
+    filter for DLC 3.x PyTorch outputs, whose confidence values are
+    uncalibrated and sit in a low absolute range — a fixed scalar threshold
+    either drops nothing or drops everything, while a per-keypoint quantile
+    consistently drops the worst-tracked frames per keypoint.
+
+    The returned dict maps keypoint name → applied threshold so callers can
+    log it (and unit-test it). NaN-only keypoints get threshold ``floor``
+    and are passed through unchanged.
+
+    Args:
+        ds: movement Dataset with ``position`` and ``confidence`` data
+            variables.
+        quantile: Quantile in [0, 1] used as the per-keypoint cutoff.
+            Default 0.25 (drops the bottom quartile of each keypoint).
+        floor: Minimum threshold value. If a keypoint's quantile lies below
+            this value, ``floor`` is used instead. Useful when even the
+            quantile is implausibly low (default 0.0 — no floor).
+
+    Returns:
+        Tuple of (filtered Dataset, dict mapping keypoint → applied
+        threshold).
+
+    Notes:
+        Implemented with xarray's ``DataArray.where`` so it broadcasts
+        correctly across the (time, keypoints) dimensions. The xarray-based
+        path matches movement's own ``filter_by_confidence`` semantics
+        (data is set to NaN where confidence < threshold) but supports a
+        per-keypoint threshold which the upstream API does not.
+    """
+    if not 0.0 <= quantile <= 1.0:
+        raise ValueError(f"quantile must be in [0, 1], got {quantile}")
+
+    conf = ds.confidence
+    # Compute one threshold per keypoint over (time, individuals).
+    reduce_dims = [d for d in conf.dims if d != "keypoints"]
+    thresholds = conf.quantile(quantile, dim=reduce_dims, skipna=True)
+    thresholds = thresholds.where(~thresholds.isnull(), other=floor)
+    if floor > 0.0:
+        thresholds = thresholds.where(thresholds >= floor, other=floor)
+    # Drop quantile coord introduced by .quantile() if present.
+    if "quantile" in thresholds.coords:
+        thresholds = thresholds.drop_vars("quantile")
+
+    keep = conf >= thresholds
+    filtered_pos = ds.position.where(keep)
+
+    threshold_map: dict[str, float] = {}
+    for kp_name in conf.coords["keypoints"].values.tolist():
+        threshold_map[str(kp_name)] = float(
+            thresholds.sel(keypoints=kp_name).values
+        )
+
+    return ds.assign(position=filtered_pos), threshold_map
 
 
 def interpolate_gaps(ds: xr.Dataset, max_gap_frames: int = 5) -> xr.Dataset:
@@ -1577,11 +1715,15 @@ def compute_ahv(
     hd_deg: np.ndarray,
     frame_times: np.ndarray,
     median_window: int = 3,
+    savgol_window: int = 5,
+    savgol_polyorder: int = 2,
 ) -> np.ndarray:
-    """Compute angular head velocity from unwrapped HD via median filter + gradient.
+    """Compute angular head velocity from smoothed HD via gradient.
 
-    Unwraps ``hd_deg`` to a continuous angle, applies a ``median_window``-point
-    median filter to remove tracking jitter, then computes ``np.gradient``
+    Unwraps ``hd_deg`` to a continuous angle, applies a median filter
+    (``median_window``) to remove single-frame impulses, then a
+    Savitzky-Golay smoother (``savgol_window`` / ``savgol_polyorder``) to
+    suppress high-frequency jitter, and finally computes ``np.gradient``
     using the actual frame timestamps. Returns deg/s.
 
     If ``hd_deg`` is already unwrapped (as returned by ``compute_hd_multi``),
@@ -1596,6 +1738,11 @@ def compute_ahv(
         (N,) frame timestamps in seconds. Must be strictly increasing.
     median_window : int
         Kernel size for the median filter (default 3).
+    savgol_window : int
+        Window length for Savitzky-Golay smoothing (default 5; ~165 ms at
+        30 fps). ``<= 1`` disables.
+    savgol_polyorder : int
+        Polynomial order for the Savitzky-Golay smoother (default 2).
 
     Returns
     -------
@@ -1604,7 +1751,12 @@ def compute_ahv(
     nan_mask = np.isnan(hd_deg)
 
     # Ensure the signal is unwrapped before gradient
-    hd_unwrapped = _unwrap_and_smooth(hd_deg, median_filter_win=median_window)
+    hd_unwrapped = _unwrap_and_smooth(
+        hd_deg,
+        median_filter_win=median_window,
+        savgol_window=savgol_window,
+        savgol_polyorder=savgol_polyorder,
+    )
     ahv = np.gradient(hd_unwrapped, frame_times)
     ahv[nan_mask] = np.nan
 
@@ -1621,7 +1773,7 @@ def run(
     maze_corners_px: np.ndarray,
     bad_behav_intervals: list[tuple[float, float]],
     output_path: Path,
-    confidence_threshold: float = 0.05,
+    confidence_threshold: float | str = "quantile:0.25",
     gap_fill_frames: int = 5,
     speed_active_threshold: float = SPEED_ACTIVE_THRESHOLD,
     camera_center_px: tuple[float, float] | None = None,
@@ -1642,7 +1794,15 @@ def run(
         maze_corners_px: (4, 2) maze corner pixel coordinates.
         bad_behav_intervals: Stuck-fibre periods as (start_s, end_s) tuples.
         output_path: Destination kinematics.h5 file path.
-        confidence_threshold: DLC/SLEAP likelihood cutoff.
+        confidence_threshold: DLC/SLEAP confidence cutoff. Either:
+
+            - ``float`` — a fixed scalar applied uniformly to every
+              keypoint (movement's ``filter_by_confidence`` path).
+            - ``"quantile:Q"`` — a string of the form ``"quantile:0.25"``,
+              which uses the per-keypoint quantile filter
+              (:func:`filter_by_keypoint_quantile`). This is the
+              recommended setting for DLC 3.x PyTorch outputs whose
+              absolute confidence values are uncalibrated.
         gap_fill_frames: Max frames to interpolate over.
         speed_active_threshold: cm/s threshold for active/inactive state.
         camera_center_px: Camera optical centre in cropped-frame pixels for
@@ -1683,7 +1843,21 @@ def run(
     # Orientation rotation is geometric and applied for coordinate alignment;
     # confidence filtering / gap interpolation / median smoothing are skipped.
     ds_raw = ds.copy(deep=True)
-    ds = filter_low_confidence(ds, threshold=confidence_threshold)
+    applied_thresholds: dict[str, float] | None = None
+    if isinstance(confidence_threshold, str) and confidence_threshold.startswith(
+        "quantile:"
+    ):
+        q = float(confidence_threshold.split(":", 1)[1])
+        ds, applied_thresholds = filter_by_keypoint_quantile(ds, quantile=q)
+        _log.info(
+            "Per-keypoint quantile=%g confidence filter applied: %s",
+            q,
+            ", ".join(
+                f"{k}={v:.3f}" for k, v in sorted(applied_thresholds.items())
+            ),
+        )
+    else:
+        ds = filter_low_confidence(ds, threshold=float(confidence_threshold))
     ds = interpolate_gaps(ds, max_gap_frames=gap_fill_frames)
     # 3 frames at 30fps ≈ 100ms (old pipeline: 5 frames at 100fps = 50ms)
     ds = median_filter_dataset(ds, window=3)
@@ -1841,7 +2015,7 @@ def run(
     attrs: dict[str, object] = {
         "session_id": session_id,
         "tracker": tracker,
-        "confidence_threshold": confidence_threshold,
+        "confidence_threshold": str(confidence_threshold),
         "gap_fill_frames": gap_fill_frames,
         "scale_mm_per_px": scale_mm_per_px,
         "orientation_deg": orientation_deg,
@@ -1850,4 +2024,7 @@ def run(
         "dlc_snapshot": dlc_snapshot,
         "dlc_champion_id": dlc_champion_id,
     }
+    if applied_thresholds is not None:
+        for kp_name, thr in applied_thresholds.items():
+            attrs[f"confidence_threshold_{kp_name}"] = float(thr)
     write_h5(output_path, datasets, attrs=attrs)

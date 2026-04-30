@@ -191,6 +191,171 @@ class TestFilterLowConfidence:
 
 
 # ---------------------------------------------------------------------------
+# filter_by_keypoint_quantile
+# ---------------------------------------------------------------------------
+
+
+class TestFilterByKeypointQuantile:
+    """Per-keypoint quantile threshold replaces the bottom Q fraction with NaN."""
+
+    def _make_ds_with_conf(
+        self, conf_per_kp: dict[str, np.ndarray]
+    ) -> xr.Dataset:
+        """Build a Dataset where each keypoint has a custom 1D confidence array."""
+        keypoints = list(conf_per_kp.keys())
+        n_frames = len(next(iter(conf_per_kp.values())))
+        n_kp = len(keypoints)
+        pos = np.ones((n_frames, 2, n_kp, 1), dtype=np.float64) * 100.0
+        conf = np.empty((n_frames, n_kp, 1), dtype=np.float64)
+        for i, kp in enumerate(keypoints):
+            conf[:, i, 0] = conf_per_kp[kp]
+        position = xr.DataArray(
+            pos,
+            dims=["time", "space", "keypoints", "individuals"],
+            coords={
+                "time": np.arange(n_frames, dtype=float),
+                "space": ["x", "y"],
+                "keypoints": keypoints,
+                "individuals": ["mouse"],
+            },
+        )
+        confidence = xr.DataArray(
+            conf,
+            dims=["time", "keypoints", "individuals"],
+            coords={
+                "time": np.arange(n_frames, dtype=float),
+                "keypoints": keypoints,
+                "individuals": ["mouse"],
+            },
+        )
+        return xr.Dataset({"position": position, "confidence": confidence})
+
+    def test_returns_per_keypoint_thresholds(self) -> None:
+        from hm2p.kinematics.compute import filter_by_keypoint_quantile
+
+        # Two keypoints, very different confidence ranges.
+        ds = self._make_ds_with_conf(
+            {
+                "tail_base": np.linspace(0.0, 0.4, 100),
+                "head_midpoint": np.linspace(0.0, 0.8, 100),
+            }
+        )
+        _, thresholds = filter_by_keypoint_quantile(ds, quantile=0.25)
+        # 25th percentile of np.linspace(0, 0.4, 100) is ~0.1
+        assert abs(thresholds["tail_base"] - 0.1) < 0.02
+        # 25th percentile of np.linspace(0, 0.8, 100) is ~0.2
+        assert abs(thresholds["head_midpoint"] - 0.2) < 0.02
+
+    def test_drops_bottom_quartile_per_keypoint(self) -> None:
+        from hm2p.kinematics.compute import filter_by_keypoint_quantile
+
+        n = 100
+        ds = self._make_ds_with_conf(
+            {
+                "left_ear": np.linspace(0.0, 1.0, n),
+                "right_ear": np.linspace(0.0, 1.0, n),
+            }
+        )
+        out, _ = filter_by_keypoint_quantile(ds, quantile=0.25)
+        # The bottom 25% of frames should be NaN; the rest should be finite.
+        for kp in ["left_ear", "right_ear"]:
+            x = out.position.sel(keypoints=kp, space="x").values.squeeze()
+            n_nan = int(np.isnan(x).sum())
+            assert 24 <= n_nan <= 26, (
+                f"{kp}: expected ~25 NaN frames, got {n_nan}"
+            )
+
+    def test_quantile_zero_drops_nothing(self) -> None:
+        from hm2p.kinematics.compute import filter_by_keypoint_quantile
+
+        n = 50
+        ds = self._make_ds_with_conf(
+            {"left_ear": np.linspace(0.1, 1.0, n)}
+        )
+        out, thresholds = filter_by_keypoint_quantile(ds, quantile=0.0)
+        # Threshold equals the minimum value; nothing strictly below it.
+        x = out.position.sel(keypoints="left_ear", space="x").values.squeeze()
+        assert np.isnan(x).sum() == 0
+        assert thresholds["left_ear"] <= 0.1 + 1e-9
+
+    def test_quantile_one_drops_all_but_max(self) -> None:
+        from hm2p.kinematics.compute import filter_by_keypoint_quantile
+
+        n = 50
+        ds = self._make_ds_with_conf(
+            {"left_ear": np.linspace(0.1, 1.0, n)}
+        )
+        out, _ = filter_by_keypoint_quantile(ds, quantile=1.0)
+        # Threshold is max; only the single frame at max survives.
+        x = out.position.sel(keypoints="left_ear", space="x").values.squeeze()
+        assert np.isnan(x).sum() == n - 1
+
+    def test_independent_thresholds_per_keypoint(self) -> None:
+        """High-confidence keypoint shouldn't drag down a low-confidence one."""
+        from hm2p.kinematics.compute import filter_by_keypoint_quantile
+
+        n = 100
+        # tail_base is uniformly bad (0.05–0.2);
+        # head_midpoint is uniformly good (0.4–0.9).
+        ds = self._make_ds_with_conf(
+            {
+                "tail_base": np.linspace(0.05, 0.2, n),
+                "head_midpoint": np.linspace(0.4, 0.9, n),
+            }
+        )
+        out, thresholds = filter_by_keypoint_quantile(ds, quantile=0.25)
+        # Low-conf keypoint gets a low threshold, high-conf gets a high one.
+        assert thresholds["tail_base"] < 0.15
+        assert thresholds["head_midpoint"] > 0.4
+        # Each keypoint should drop ~25% of its own frames, independent of
+        # the other keypoint's confidence range.
+        for kp in ["tail_base", "head_midpoint"]:
+            x = out.position.sel(keypoints=kp, space="x").values.squeeze()
+            n_nan = int(np.isnan(x).sum())
+            assert 24 <= n_nan <= 26
+
+    def test_floor_overrides_low_quantile(self) -> None:
+        from hm2p.kinematics.compute import filter_by_keypoint_quantile
+
+        n = 50
+        # All confidences below 0.05; quantile 0.25 ≈ 0.025, but floor=0.1
+        # forces the threshold higher.
+        ds = self._make_ds_with_conf(
+            {"tail_base": np.linspace(0.0, 0.05, n)}
+        )
+        out, thresholds = filter_by_keypoint_quantile(
+            ds, quantile=0.25, floor=0.1
+        )
+        assert thresholds["tail_base"] == 0.1
+        # All frames are below 0.1 so all should be NaN.
+        x = out.position.sel(keypoints="tail_base", space="x").values.squeeze()
+        assert np.all(np.isnan(x))
+
+    def test_invalid_quantile_raises(self) -> None:
+        from hm2p.kinematics.compute import filter_by_keypoint_quantile
+
+        ds = self._make_ds_with_conf({"left_ear": np.ones(10)})
+        with pytest.raises(ValueError, match="quantile must be"):
+            filter_by_keypoint_quantile(ds, quantile=-0.1)
+        with pytest.raises(ValueError, match="quantile must be"):
+            filter_by_keypoint_quantile(ds, quantile=1.1)
+
+    def test_returns_dataset_with_position_var(self) -> None:
+        from hm2p.kinematics.compute import filter_by_keypoint_quantile
+
+        ds = self._make_ds_with_conf(
+            {"left_ear": np.linspace(0.0, 1.0, 20)}
+        )
+        out, _ = filter_by_keypoint_quantile(ds, quantile=0.5)
+        assert "position" in out.data_vars
+        assert "confidence" in out.data_vars
+        # Confidence array is unchanged.
+        np.testing.assert_array_equal(
+            out.confidence.values, ds.confidence.values
+        )
+
+
+# ---------------------------------------------------------------------------
 # interpolate_gaps
 # ---------------------------------------------------------------------------
 
