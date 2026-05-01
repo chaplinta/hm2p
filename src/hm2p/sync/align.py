@@ -144,14 +144,39 @@ def run(
         else:
             datasets[key] = arr
 
+    # Build combined bad-frame mask: bad_frames = bad_imaging_frames | bad_behav.
+    # bad_imaging_frames comes from Suite2p's motion-correction quality filter
+    # (frames that exceeded th_badframes during registration).
+    # bad_behav comes from kinematics (logged artefactual immobility periods).
+    # Either source alone is sufficient to exclude a frame from analysis.
+    n_frames = len(dst_times)
+    bad_imaging = datasets.get("bad_imaging_frames")
+    bad_behav = datasets.get("bad_behav")
+    if bad_imaging is not None and bad_behav is not None:
+        # Trim to common length in case of minor length mismatches
+        bad_imaging_t = np.asarray(bad_imaging[:n_frames], dtype=bool)
+        bad_behav_t = np.asarray(bad_behav[:n_frames], dtype=bool)
+        datasets["bad_frames"] = bad_imaging_t | bad_behav_t
+    elif bad_imaging is not None:
+        datasets["bad_frames"] = np.asarray(bad_imaging[:n_frames], dtype=bool)
+    elif bad_behav is not None:
+        datasets["bad_frames"] = np.asarray(bad_behav[:n_frames], dtype=bool)
+
     # Build root attrs: start from ca.h5, then overlay provenance attrs from
     # kinematics.h5 (tracker, dlc_model_name, dlc_snapshot, etc.) so that
     # sync.h5 carries the full behavioural-data lineage alongside the calcium
     # metadata.  session_id is always set from the argument to avoid stale values.
     attrs = dict(read_attrs(ca_h5))
     kin_attrs = read_attrs(kinematics_h5)
-    for key in ("tracker", "dlc_model_name", "dlc_snapshot", "dlc_champion_id",
-                "confidence_threshold", "orientation_deg", "scale_mm_per_px"):
+    for key in (
+        "tracker",
+        "dlc_model_name",
+        "dlc_snapshot",
+        "dlc_champion_id",
+        "confidence_threshold",
+        "orientation_deg",
+        "scale_mm_per_px",
+    ):
         if key in kin_attrs:
             attrs[key] = kin_attrs[key]
     attrs["session_id"] = session_id

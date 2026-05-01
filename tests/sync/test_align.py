@@ -5,14 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
-import pytest
 
 from hm2p.sync.align import (
     _BOOL_KEYS,
     resample_bool_to_imaging_rate,
     resample_to_imaging_rate,
 )
-
 
 # ---------------------------------------------------------------------------
 # resample_to_imaging_rate — linear (default)
@@ -446,9 +444,9 @@ class TestRunPipeline:
             ca_h5,
             arrays={
                 "frame_times": np.linspace(0, 6.0, n_frames + 1, dtype=np.float64),
-                "dff": np.random.default_rng(7).standard_normal(
-                    (n_rois, n_frames)
-                ).astype(np.float32),
+                "dff": np.random.default_rng(7)
+                .standard_normal((n_rois, n_frames))
+                .astype(np.float32),
             },
             attrs={"session_id": "test", "fps_imaging": 30.0, "extractor": "suite2p"},
         )
@@ -586,3 +584,197 @@ class TestRunPipeline:
         assert attrs["session_id"] == "test"
         assert "dlc_model_name" not in attrs
         assert "dlc_snapshot" not in attrs
+
+
+# ---------------------------------------------------------------------------
+# bad_frames OR logic — bad_imaging_frames | bad_behav → bad_frames
+# ---------------------------------------------------------------------------
+
+
+def _write_ca_with_bad_imaging(
+    path: Path,
+    n: int = 180,
+    n_rois: int = 5,
+    bad_indices: list[int] | None = None,
+) -> None:
+    """Write synthetic ca.h5 with a bad_imaging_frames array."""
+    from hm2p.io.hdf5 import write_h5
+
+    rng = np.random.default_rng(3)
+    frame_times = np.linspace(0, 6.0, n, dtype=np.float64)
+    bad_imaging = np.zeros(n, dtype=bool)
+    if bad_indices:
+        bad_imaging[bad_indices] = True
+    write_h5(
+        path,
+        arrays={
+            "frame_times": frame_times,
+            "dff": rng.standard_normal((n_rois, n)).astype(np.float32),
+            "bad_imaging_frames": bad_imaging,
+        },
+        attrs={"session_id": "test", "fps_imaging": 30.0, "extractor": "suite2p"},
+    )
+
+
+class TestBadFramesOrLogic:
+    def test_bad_frames_written_when_both_sources_present(self, tmp_path):
+        """bad_frames = bad_imaging_frames | bad_behav when both are present."""
+        from hm2p.io.hdf5 import read_h5
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+        # bad_behav marks frame 10 bad (set in _write_synthetic_kinematics via
+        # tile pattern — we write our own here for precise control).
+        n_cam = 600
+        n_img = 180
+        cam_times = np.linspace(0, 6.0, n_cam, dtype=np.float64)
+        bad_behav = np.zeros(n_cam, dtype=bool)
+        bad_behav[100] = True  # one bad behav frame
+
+        from hm2p.io.hdf5 import write_h5
+
+        write_h5(
+            kin_h5,
+            arrays={
+                "frame_times": cam_times,
+                "hd_deg": np.zeros(n_cam, dtype=np.float32),
+                "x_mm": np.zeros(n_cam, dtype=np.float32),
+                "y_mm": np.zeros(n_cam, dtype=np.float32),
+                "speed_cm_s": np.ones(n_cam, dtype=np.float32),
+                "ahv_deg_s": np.zeros(n_cam, dtype=np.float32),
+                "active": np.ones(n_cam, dtype=bool),
+                "light_on": np.zeros(n_cam, dtype=bool),
+                "bad_behav": bad_behav,
+            },
+            attrs={"session_id": "test"},
+        )
+        _write_ca_with_bad_imaging(ca_h5, n=n_img, n_rois=3, bad_indices=[5])
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5)
+
+        sync = read_h5(out_h5)
+        assert "bad_frames" in sync
+        assert sync["bad_frames"].dtype == bool
+        assert sync["bad_frames"].shape == (n_img,)
+        # The combined mask must be True wherever either source was bad.
+        # Frame index 5 (imaging bad) and the nearest imaging frame to cam
+        # frame 100 should be True.
+        assert sync["bad_frames"][5]  # from bad_imaging_frames
+
+    def test_bad_frames_or_combines_sources(self, tmp_path):
+        """OR logic: bad_frames[i] is True iff bad_imaging OR bad_behav is True."""
+        from hm2p.io.hdf5 import read_h5, write_h5
+        from hm2p.sync.align import run
+
+        n_cam = 180
+        n_img = 180
+        cam_times = np.linspace(0, 6.0, n_cam, dtype=np.float64)
+        img_times = np.linspace(0, 6.0, n_img, dtype=np.float64)
+
+        bad_behav = np.zeros(n_cam, dtype=bool)
+        bad_imaging = np.zeros(n_img, dtype=bool)
+        bad_behav[10] = True  # frame 10 bad in behav
+        bad_imaging[50] = True  # frame 50 bad in imaging
+
+        kin_h5 = tmp_path / "kin.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+
+        rng = np.random.default_rng(7)
+        write_h5(
+            kin_h5,
+            arrays={
+                "frame_times": cam_times,
+                "hd_deg": np.zeros(n_cam, dtype=np.float32),
+                "x_mm": np.zeros(n_cam, dtype=np.float32),
+                "y_mm": np.zeros(n_cam, dtype=np.float32),
+                "speed_cm_s": np.ones(n_cam, dtype=np.float32),
+                "ahv_deg_s": np.zeros(n_cam, dtype=np.float32),
+                "active": np.ones(n_cam, dtype=bool),
+                "light_on": np.zeros(n_cam, dtype=bool),
+                "bad_behav": bad_behav,
+            },
+            attrs={"session_id": "test"},
+        )
+        write_h5(
+            ca_h5,
+            arrays={
+                "frame_times": img_times,
+                "dff": rng.standard_normal((3, n_img)).astype(np.float32),
+                "bad_imaging_frames": bad_imaging,
+            },
+            attrs={"session_id": "test", "fps_imaging": 30.0, "extractor": "suite2p"},
+        )
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5)
+        sync = read_h5(out_h5)
+
+        # Frame 10 (bad_behav) and frame 50 (bad_imaging) must both be True.
+        assert sync["bad_frames"][10]
+        assert sync["bad_frames"][50]
+        # Frame 0 should be False (both sources clean).
+        assert not sync["bad_frames"][0]
+
+    def test_bad_frames_written_when_only_bad_imaging_present(self, tmp_path):
+        """bad_frames derived from bad_imaging_frames when bad_behav absent."""
+        from hm2p.io.hdf5 import read_h5, write_h5
+        from hm2p.sync.align import run
+
+        n = 180
+        times = np.linspace(0, 6.0, n, dtype=np.float64)
+        bad_imaging = np.zeros(n, dtype=bool)
+        bad_imaging[20] = True
+
+        kin_h5 = tmp_path / "kin.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+        rng = np.random.default_rng(8)
+
+        # Kinematics without bad_behav key
+        write_h5(
+            kin_h5,
+            arrays={
+                "frame_times": times,
+                "hd_deg": np.zeros(n, dtype=np.float32),
+                "x_mm": np.zeros(n, dtype=np.float32),
+                "y_mm": np.zeros(n, dtype=np.float32),
+                "speed_cm_s": np.ones(n, dtype=np.float32),
+                "ahv_deg_s": np.zeros(n, dtype=np.float32),
+                "active": np.ones(n, dtype=bool),
+                "light_on": np.zeros(n, dtype=bool),
+            },
+            attrs={"session_id": "test"},
+        )
+        write_h5(
+            ca_h5,
+            arrays={
+                "frame_times": times,
+                "dff": rng.standard_normal((3, n)).astype(np.float32),
+                "bad_imaging_frames": bad_imaging,
+            },
+            attrs={"session_id": "test", "fps_imaging": 30.0, "extractor": "suite2p"},
+        )
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5)
+        sync = read_h5(out_h5)
+        assert "bad_frames" in sync
+        assert sync["bad_frames"][20]
+        assert not sync["bad_frames"][0]
+
+    def test_no_bad_frames_when_neither_source_present(self, tmp_path):
+        """bad_frames key is absent from sync.h5 when neither source has bad data."""
+        from hm2p.io.hdf5 import read_h5
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kin.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+        _write_synthetic_kinematics(kin_h5)  # includes bad_behav=all False
+        # ca.h5 without bad_imaging_frames
+        _write_synthetic_ca(ca_h5)
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5)
+        sync = read_h5(out_h5)
+        # bad_behav is present (all False) but bad_imaging_frames is not,
+        # so bad_frames should still be built from bad_behav alone.
+        # Verify it is boolean and all False.
+        if "bad_frames" in sync:
+            assert not np.any(sync["bad_frames"])

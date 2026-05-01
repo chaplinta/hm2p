@@ -220,3 +220,115 @@ class TestCalciumRun:
         run(suite2p_dir, ts_h5, session_id="test", output_path=out)
 
         validate_ca_h5(read_h5(out))  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# bad_imaging_frames — Suite2p badframes → ca.h5
+# ---------------------------------------------------------------------------
+
+
+def _write_suite2p_with_ops(
+    suite2p_dir: Path,
+    n_rois: int = 10,
+    n_frames: int = 200,
+    bad_frame_indices: list[int] | None = None,
+) -> None:
+    """Write synthetic Suite2p plane0 including ops.npy with badframes."""
+    rng = np.random.default_rng(42)
+    plane = suite2p_dir / "plane0"
+    plane.mkdir(parents=True)
+
+    F = rng.uniform(100, 500, (n_rois, n_frames)).astype(np.float32)
+    Fneu = rng.uniform(50, 200, (n_rois, n_frames)).astype(np.float32)
+    iscell = np.ones((n_rois, 2), dtype=np.float32)
+
+    np.save(plane / "F.npy", F)
+    np.save(plane / "Fneu.npy", Fneu)
+    np.save(plane / "iscell.npy", iscell)
+
+    ops = {"fs": 9.6, "Ly": 64, "Lx": 64, "nframes": n_frames}
+    if bad_frame_indices:
+        ops["badframes"] = np.array(bad_frame_indices, dtype=np.int64)
+    else:
+        ops["badframes"] = np.array([], dtype=np.int64)
+    np.save(plane / "ops.npy", ops)
+
+
+class TestBadImagingFrames:
+    def test_bad_imaging_frames_present_when_ops_has_badframes(self, tmp_path: Path) -> None:
+        """bad_imaging_frames written to ca.h5 when ops.npy has badframes."""
+        from hm2p.io.hdf5 import read_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_ops(suite2p_dir, n_rois=8, n_frames=200, bad_frame_indices=[5, 10, 99])
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert "bad_imaging_frames" in ca
+
+    def test_bad_imaging_frames_is_bool(self, tmp_path: Path) -> None:
+        """bad_imaging_frames dtype is bool."""
+        from hm2p.io.hdf5 import read_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_ops(suite2p_dir, n_rois=6, n_frames=150, bad_frame_indices=[3])
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=150, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert ca["bad_imaging_frames"].dtype == bool
+
+    def test_bad_imaging_frames_marks_correct_indices(self, tmp_path: Path) -> None:
+        """Indices from ops['badframes'] are True in bad_imaging_frames."""
+        from hm2p.io.hdf5 import read_h5
+
+        n = 200
+        bad_idx = [5, 10, 99]
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_ops(suite2p_dir, n_rois=6, n_frames=n, bad_frame_indices=bad_idx)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        for i in bad_idx:
+            assert ca["bad_imaging_frames"][i], f"Expected frame {i} to be marked bad"
+        # A clean frame (not in bad_idx) should be False
+        assert not ca["bad_imaging_frames"][0]
+
+    def test_bad_imaging_frames_all_false_when_no_badframes(self, tmp_path: Path) -> None:
+        """bad_imaging_frames is all False when ops['badframes'] is empty."""
+        from hm2p.io.hdf5 import read_h5
+
+        n = 150
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_ops(suite2p_dir, n_rois=5, n_frames=n, bad_frame_indices=[])
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert "bad_imaging_frames" in ca
+        assert not np.any(ca["bad_imaging_frames"])
+
+    def test_bad_imaging_frames_length_matches_dff(self, tmp_path: Path) -> None:
+        """bad_imaging_frames length equals dff frame count."""
+        from hm2p.io.hdf5 import read_h5
+
+        n = 300
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_ops(suite2p_dir, n_rois=8, n_frames=n, bad_frame_indices=[1, 2, 3])
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert len(ca["bad_imaging_frames"]) == ca["dff"].shape[1]
