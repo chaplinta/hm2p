@@ -285,6 +285,19 @@ def run(
     # SD-threshold method (more sensitive to small transients)
     event_masks_sd = detect_events_sd(dff, fps=fps, sd_threshold=2.0, min_duration_s=0.3)
 
+    # --- Per-ROI QC metrics ---
+    from hm2p.calcium.qc import compute_roi_qc
+
+    qc_datasets = compute_roi_qc(
+        dff=dff,
+        F_raw=F_raw,
+        Fneu_raw=Fneu_raw,
+        event_results=batch_result.events,
+        event_masks=batch_result.event_masks,
+        fps=fps,
+        bad_frames=bad_imaging_frames,
+    )
+
     # Encode roi_types as uint8: 0=soma, 1=dendrite, 2=non-cell
     type_map = {"soma": 0, "dend": 1, "non-cell": 2}
     roi_type_arr = np.array([type_map.get(t, 2) for t in roi_types], dtype=np.uint8)
@@ -326,6 +339,9 @@ def run(
     if deconv is not None:
         datasets["deconv"] = deconv
         datasets["deconv_norm"] = deconv_norm
+
+    # Per-ROI QC metrics (roi_qc/* keys)
+    datasets.update(qc_datasets)
 
     # --- Optional CASCADE spike inference ---
     if run_cascade:

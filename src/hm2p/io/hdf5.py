@@ -37,18 +37,52 @@ def write_h5(
                 f.attrs[key] = val
 
 
+def _collect_datasets(
+    group: h5py.Group,
+    prefix: str = "",
+) -> list[str]:
+    """Recursively collect all dataset paths in an HDF5 group.
+
+    Returns slash-separated paths relative to the given group (e.g.
+    ``"roi_qc/snr_event"``). Groups are traversed but not returned.
+
+    Args:
+        group: An open h5py Group (or File, which is a Group subclass).
+        prefix: Path prefix for the current level (empty at the root).
+
+    Returns:
+        List of full slash-separated dataset names.
+    """
+    paths: list[str] = []
+    for name, item in group.items():
+        full_path = f"{prefix}/{name}" if prefix else name
+        if isinstance(item, h5py.Dataset):
+            paths.append(full_path)
+        elif isinstance(item, h5py.Group):
+            paths.extend(_collect_datasets(item, prefix=full_path))
+    return paths
+
+
 def read_h5(
     path: Path,
     keys: list[str] | None = None,
 ) -> dict[str, np.ndarray]:
     """Read arrays from an HDF5 file.
 
+    When ``keys`` is None, reads all datasets recursively (including those
+    inside sub-groups such as ``roi_qc/snr_event``). Groups themselves are
+    not returned — only leaf datasets.
+
+    When ``keys`` is provided, each entry may be a slash-separated path
+    (e.g. ``"roi_qc/snr_event"``); h5py resolves these as nested paths.
+
     Args:
         path: Path to the HDF5 file.
-        keys: List of dataset names to read. If None, reads all datasets.
+        keys: List of dataset names (or slash-separated paths) to read.
+            If None, reads all datasets in the file recursively.
 
     Returns:
-        Dict mapping dataset name → numpy array.
+        Dict mapping dataset path → numpy array.
 
     Raises:
         FileNotFoundError: If path does not exist.
@@ -57,7 +91,7 @@ def read_h5(
     if not path.exists():
         raise FileNotFoundError(f"HDF5 file not found: {path}")
     with h5py.File(path, "r") as f:
-        _keys = keys if keys is not None else list(f.keys())
+        _keys = keys if keys is not None else _collect_datasets(f)
         return {k: f[k][:] for k in _keys}
 
 
@@ -195,7 +229,22 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
       frame_times  float64  1D  strictly increasing
       dff          float32  2D  shape (n_rois, n_frames)
 
-    If 'spikes' is present it must be float32 2D with the same shape as dff.
+    Optional keys validated when present:
+      spikes              float32  2D  same shape as dff (CASCADE spike rates)
+      roi_qc/roi_index    int32    1D  length n_rois
+      roi_qc/snr_event    float32  1D  length n_rois
+      roi_qc/decay_tau_s  float32  1D  length n_rois
+      roi_qc/fneu_dff_corr float32 1D  length n_rois
+      roi_qc/bleach_slope float32  1D  length n_rois
+      roi_qc/active_fraction float32 1D length n_rois
+
+    The roi_qc/* arrays are written by ``hm2p.calcium.qc.compute_roi_qc`` and
+    use slash-keyed names so that h5py creates a ``roi_qc`` group automatically.
+
+    References:
+        Pnevmatikakis et al. 2016. "Simultaneous Denoising, Deconvolution, and
+        Demixing of Calcium Imaging Data." Neuron 89(2):285-299.
+        doi:10.1016/j.neuron.2015.11.037
 
     Raises:
         pandera.errors.SchemaError: If any validation constraint fails.
@@ -214,6 +263,7 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
         _schema_error(
             f"{ctx}: 'dff' shape {dff.shape} — second dim {dff.shape[1]} != len(frame_times) {T}"
         )
+    n_rois = dff.shape[0]
 
     if "spikes" in arrays:
         spikes = arrays["spikes"]
@@ -221,6 +271,28 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
         _check_ndim(spikes, 2, "spikes", ctx)
         if spikes.shape != dff.shape:
             _schema_error(f"{ctx}: 'spikes' shape {spikes.shape} != 'dff' shape {dff.shape}")
+
+    # Optional roi_qc group: all arrays must be 1D with length n_rois.
+    roi_qc_float32 = (
+        "roi_qc/snr_event",
+        "roi_qc/decay_tau_s",
+        "roi_qc/fneu_dff_corr",
+        "roi_qc/bleach_slope",
+        "roi_qc/active_fraction",
+    )
+    if "roi_qc/roi_index" in arrays:
+        idx = arrays["roi_qc/roi_index"]
+        _check_dtype(idx, np.dtype("int32"), "roi_qc/roi_index", ctx)
+        _check_ndim(idx, 1, "roi_qc/roi_index", ctx)
+        if len(idx) != n_rois:
+            _schema_error(f"{ctx}: 'roi_qc/roi_index' length {len(idx)} != n_rois {n_rois}")
+    for key in roi_qc_float32:
+        if key in arrays:
+            arr = arrays[key]
+            _check_dtype(arr, np.dtype("float32"), key, ctx)
+            _check_ndim(arr, 1, key, ctx)
+            if len(arr) != n_rois:
+                _schema_error(f"{ctx}: '{key}' length {len(arr)} != n_rois {n_rois}")
 
 
 def validate_sync_h5(arrays: dict[str, np.ndarray]) -> None:
