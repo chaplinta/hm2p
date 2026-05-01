@@ -1,14 +1,31 @@
 #!/usr/bin/env python3
 """DLC retraining + re-inference — runs on EC2.
 
-Downloads labeled data from S3, fine-tunes DLC from SuperAnimal weights,
-then re-runs inference on all 26 sessions. Called by the EC2 user-data
-script (launch_dlc_finetune_ec2.py).
+Downloads labeled data from S3, fine-tunes DLC, then re-runs inference
+on all 26 sessions. Called by the EC2 user-data script
+(launch_dlc_finetune_ec2.py).
 
-Usage (on EC2):
+Two training paths:
+
+- **ImageNet HRNet (default):** trains HRNet-W32 from ImageNet weights
+  (current main path). 400 epochs.
+- **SuperAnimal memory-replay (``--sa-finetune``):** warm-starts from
+  the SuperAnimal-TopViewMouse HRNet-W32 release using DLC's
+  ``build_weight_init`` + ``create_training_dataset(weight_init=...)``
+  + ``train_network`` API. Memory-replay protocol per
+  Ye S, Filippova A, Lauer J, Schneider S, Vidal M, Qiu T, Mathis A,
+  Mathis MW. 2024. "SuperAnimal pretrained pose estimation models for
+  behavioral analysis." *Nature Communications* 15:5165.
+  doi:10.1038/s41467-024-48792-2.
+  Code: https://github.com/DeepLabCut/DeepLabCut. 120 epochs, Adam
+  lr 5e-5, frozen BN running stats, step LR decay at 90/110.
+
+Usage (on EC2)::
+
     python scripts/run_dlc_retrain.py --train --infer
     python scripts/run_dlc_retrain.py --train-only
     python scripts/run_dlc_retrain.py --infer-only
+    python scripts/run_dlc_retrain.py --sa-finetune
 """
 
 from __future__ import annotations
@@ -64,8 +81,362 @@ def update_progress(s3, status: str, **extra: object) -> None:
         print(f"  WARNING: progress update failed (non-fatal): {e}")
 
 
-def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> Path:
-    """Download labels from S3, fine-tune DLC, upload model weights."""
+# ---------------------------------------------------------------------------
+# SA-finetune helpers (Ye et al. 2024, doi:10.1038/s41467-024-48792-2)
+# ---------------------------------------------------------------------------
+
+#: Detector candidate order: prefer the v2 model (DLC ≥ 3.0 default), fall
+#: back to the original. The probe is performed by ``_resolve_sa_detector``.
+SA_DETECTOR_CANDIDATES = ("fasterrcnn_resnet50_fpn_v2", "fasterrcnn_resnet50_fpn")
+
+#: Conversion-array indices (project bodyparts -> SA-TVM keypoint indices).
+#: Mirrors the 8-keypoint identity-mapping confirmed in v2 plan §3.
+SA_CONVERSION_ARRAY = [0, 1, 2, 26, 7, 8, 9, 13]
+
+#: Project bodyparts in canonical order. The conversion array assumes this
+#: ordering.
+PROJECT_BODYPARTS = (
+    "nose_tip", "left_ear", "right_ear", "head_midpoint",
+    "neck", "mid_back", "mouse_center", "tail_base",
+)
+
+
+def _ensure_default_net_type_hrnet(config_path: Path) -> bool:
+    """Ensure ``default_net_type: hrnet_w32`` is set in ``config.yaml``.
+
+    Per architect open-question #5, the on-the-fly rewrite-with-warning
+    avoids committing a separate config.yaml change. Returns True iff a
+    rewrite was performed.
+    """
+    import yaml
+
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+    cur = cfg.get("default_net_type")
+    if cur == "hrnet_w32":
+        return False
+    print(
+        f"  WARNING: default_net_type was {cur!r}; rewriting to 'hrnet_w32' "
+        f"in {config_path}"
+    )
+    cfg["default_net_type"] = "hrnet_w32"
+    with open(config_path, "w") as f:
+        yaml.dump(cfg, f)
+    return True
+
+
+def _validate_sa_conversion_table(config_path: Path) -> None:
+    """Assert the ``conversion_tables`` block covers every project bodypart.
+
+    Reads the project's ``config.yaml`` and verifies that every bodypart in
+    :data:`PROJECT_BODYPARTS` has an entry in
+    ``SuperAnimalConversionTables.superanimal_topviewmouse``.
+
+    Raises
+    ------
+    ValueError
+        Naming the missing bodypart(s).
+    """
+    import yaml
+
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+    tables = (
+        cfg.get("SuperAnimalConversionTables", {})
+        .get("superanimal_topviewmouse", {})
+    )
+    missing = [bp for bp in PROJECT_BODYPARTS if bp not in tables]
+    if missing:
+        raise ValueError(
+            f"SuperAnimal conversion table missing entries for: {missing}. "
+            f"Edit config.yaml under 'SuperAnimalConversionTables: "
+            f"superanimal_topviewmouse:' before --sa-finetune."
+        )
+
+
+def _resolve_sa_detector(available_detectors: list[str]) -> str:
+    """Resolve the SA detector name via the candidate list.
+
+    Parameters
+    ----------
+    available_detectors
+        Output of ``dlclibrary.list_available_detectors()``.
+
+    Returns
+    -------
+    str
+        The first detector name in :data:`SA_DETECTOR_CANDIDATES` that is
+        actually available in DLC.
+
+    Raises
+    ------
+    RuntimeError
+        When neither candidate is present, with the available list inlined
+        in the message so the operator can update the candidate order.
+    """
+    for name in SA_DETECTOR_CANDIDATES:
+        if name in available_detectors:
+            return name
+    raise RuntimeError(
+        f"None of {list(SA_DETECTOR_CANDIDATES)!r} are present in "
+        f"dlclibrary.list_available_detectors(). Available detectors: "
+        f"{available_detectors!r}"
+    )
+
+
+def _validate_sa_model_available(available_models: list[str]) -> None:
+    """Assert the SA-TVM HRNet-W32 model is exposed by dlclibrary.
+
+    Raises
+    ------
+    RuntimeError
+        With a clear message when the model is absent.
+    """
+    expected = "superanimal_topviewmouse_hrnet_w32"
+    if expected not in available_models:
+        raise RuntimeError(
+            f"{expected!r} not in dlclibrary.list_available_models(). "
+            f"Got: {available_models!r}. Update dlclibrary or check the "
+            f"DLC release notes."
+        )
+
+
+def _check_sa_input_size(pytorch_cfg_path: Path) -> bool:
+    """Warn if the SA shuffle's training-input size is not 256x256.
+
+    Per design §6 pitfall #1: the SA-TVM HRNet was trained at 256x256.
+    DLC may pick a different size on newer SA snapshot versions. Mismatch
+    is a warning, not a fatal error — the gate will catch any regression.
+
+    Returns True iff the size matches 256x256.
+    """
+    import yaml
+
+    with open(pytorch_cfg_path) as f:
+        pcfg = yaml.safe_load(f)
+    size = pcfg.get("data", {}).get("train", {}).get("input_size")
+    if size in ([256, 256], [256], 256):
+        return True
+    print(
+        f"  WARNING: SA shuffle's data.train.input_size = {size!r}; "
+        f"expected [256, 256]. Continuing (the promotion gate will catch "
+        f"any regression)."
+    )
+    return False
+
+
+def _apply_sa_augmentation_patch(pytorch_cfg_path: Path) -> None:
+    """Apply v2 §4.3 augmentation tweaks to the SA shuffle's pytorch_config.
+
+    The augmentation block is the only YAML edit that survives the
+    `make_super_animal_finetune_config` path (the backbone block is
+    written by DLC and must not be touched). Edits in place.
+    """
+    import yaml
+
+    with open(pytorch_cfg_path) as f:
+        pcfg = yaml.safe_load(f)
+    train_aug = pcfg.setdefault("data", {}).setdefault("train", {})
+    affine = train_aug.setdefault("affine", {})
+    affine["rotation"] = 30
+    affine["scaling"] = [0.7, 1.3]
+    affine.setdefault("translation", 30)
+    affine.setdefault("p", 0.7)
+    train_aug["gaussian_noise"] = 10.0
+    train_aug["motion_blur"] = True
+    train_aug.setdefault("horizontal_flip", {"p": 0.5})
+    train_aug.setdefault("vertical_flip", {"p": 0.5})
+    train_aug.setdefault(
+        "brightness_contrast",
+        {"brightness_limit": 0.15, "contrast_limit": 0.10, "p": 0.5},
+    )
+    with open(pytorch_cfg_path, "w") as f:
+        yaml.dump(pcfg, f)
+    print(
+        "  SA augmentation patch applied: rot=±30°, scale=0.7-1.3, "
+        "noise=10, brightness/contrast=±15%/±10%, flip H+V."
+    )
+
+
+def _build_sa_notes(
+    *, detector: str, conversion_array: list[int], epochs: int,
+    lr: float, batch_size: int,
+) -> str:
+    """Build the auto-declared champion ``notes`` string for the SA path.
+
+    Per design §1.3 step 7. Format is documented so the frontend can
+    parse it back if necessary.
+    """
+    return (
+        "Auto-declared by run_dlc_retrain.py (SA fine-tune). "
+        f"init: superanimal_topviewmouse_hrnet_w32 (memory replay). "
+        f"conversion_array: {conversion_array}. "
+        f"detector: {detector}. "
+        f"epochs: {epochs}; lr: {lr:g}; bs: {batch_size}; "
+        f"freeze_bn_stats: True."
+    )
+
+
+def _train_sa_finetune(
+    s3,
+    work: Path,
+    config_path: Path,
+    *,
+    epochs: int,
+    batch_size: int,
+) -> Path:
+    """SuperAnimal memory-replay fine-tune (Ye et al. 2024).
+
+    Runs the SA-finetune training path on a fresh shuffle. Pre-condition
+    checks fail loud and fast (config.yaml `default_net_type`,
+    SA conversion table coverage, dlclibrary detector + model
+    availability). Augmentation patch is applied to the new shuffle's
+    pytorch_config.yaml; backbone keys are left untouched.
+
+    The SA snapshot, conversion-array channel slicing, and weight init
+    are all handled by DLC's
+    ``deeplabcut.modelzoo.weight_initialization.build_weight_init`` →
+    ``deeplabcut.create_training_dataset(weight_init=...)`` →
+    ``deeplabcut.train_network(...)`` API. The legacy
+    ``superanimal_name`` / ``superanimal_transfer_learning`` kwargs are
+    pre-3.0 and are NOT passed.
+
+    Reference: Ye 2024 Methods §"Memory replay fine tuning" + Fig. 1d.
+    """
+    import deeplabcut
+    import dlclibrary
+
+    print("=== SA-finetune training path (memory replay) ===")
+    update_progress(s3, "Training (SA): pre-flight checks")
+
+    _ensure_default_net_type_hrnet(config_path)
+    _validate_sa_conversion_table(config_path)
+    _validate_sa_model_available(dlclibrary.list_available_models())
+    detector = _resolve_sa_detector(dlclibrary.list_available_detectors())
+    print(f"  Resolved SA detector: {detector}")
+
+    update_progress(s3, "Training (SA): build_weight_init")
+    from deeplabcut.modelzoo.weight_initialization import build_weight_init
+    weight_init = build_weight_init(
+        cfg=str(config_path),
+        super_animal="superanimal_topviewmouse",
+        model_name="hrnet_w32",
+        detector_name=detector,
+        with_decoder=True,
+        memory_replay=True,
+    )
+
+    update_progress(s3, "Training (SA): create_training_dataset")
+    new_shuffles = deeplabcut.create_training_dataset(
+        str(config_path),
+        weight_init=weight_init,
+        num_shuffles=1,
+        net_type="hrnet_w32",
+    )
+    sa_shuffle = new_shuffles[-1] if isinstance(new_shuffles, list) else new_shuffles
+    print(f"  SA shuffle index: {sa_shuffle}")
+
+    # Locate the new shuffle's pytorch_config.yaml and apply the
+    # augmentation patch. The 256x256 input-size check is a soft
+    # warning per pitfall #1.
+    pytorch_cfgs = sorted(work.rglob("pytorch_config.yaml"))
+    if pytorch_cfgs:
+        # Use the most recently-modified one (DLC's create_training_dataset
+        # writes the new shuffle last).
+        latest = max(pytorch_cfgs, key=lambda p: p.stat().st_mtime)
+        _check_sa_input_size(latest)
+        _apply_sa_augmentation_patch(latest)
+    else:
+        print("  WARNING: no pytorch_config.yaml found post-create_training_dataset")
+
+    lr = 5e-5
+    update_progress(s3, f"Training (SA): {epochs} epochs (lr={lr:g})")
+    deeplabcut.train_network(
+        str(config_path),
+        shuffle=sa_shuffle,
+        epochs=epochs,
+        save_epochs=10,
+        displayiters=100,
+        batch_size=batch_size,
+        pytorch_cfg_updates={
+            "train_settings.optimizer.params.lr": lr,
+            "model.backbone.freeze_bn_stats": True,
+            "train_settings.scheduler.type": "MultiStepLR",
+            "train_settings.scheduler.params.milestones": [90, 110],
+            "train_settings.scheduler.params.gamma": 0.1,
+        },
+    )
+    update_progress(s3, "Training (SA): train_network complete")
+
+    # Stash a notes file the eventual declare_champion call will pick up.
+    notes_text = _build_sa_notes(
+        detector=detector,
+        conversion_array=SA_CONVERSION_ARRAY,
+        epochs=epochs,
+        lr=lr,
+        batch_size=batch_size,
+    )
+    (work / "_sa_finetune_notes.txt").write_text(notes_text)
+    print(f"  Notes stashed: {notes_text!r}")
+    return config_path
+
+
+def _upload_model_artifacts(s3, work: Path) -> None:
+    """Upload trained model weights + eval CSVs to S3.
+
+    Shared post-training step for both the ImageNet HRNet path and the
+    SA-finetune path. Walks ``work/dlc-models-pytorch/`` (or
+    ``dlc-models/`` for legacy TF runs) and uploads all files under
+    ``s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/``.
+    """
+    print("Uploading model weights to S3 (shared helper)...")
+    for model_dir_name in ("dlc-models-pytorch", "dlc-models"):
+        dlc_train_dir = work / model_dir_name
+        if not dlc_train_dir.exists():
+            continue
+        print(f"  Found {model_dir_name}/")
+        n_files = 0
+        for f in dlc_train_dir.rglob("*"):
+            if f.is_file():
+                rel = f.relative_to(dlc_train_dir)
+                key = f"{RETRAIN_PREFIX}/models/{rel}"
+                s3.upload_file(str(f), DERIVATIVES_BUCKET, key)
+                n_files += 1
+        print(f"  Uploaded {n_files} files to s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/")
+        # Upload SA-finetune notes if present (consumed by declare_champion).
+        notes_path = work / "_sa_finetune_notes.txt"
+        if notes_path.exists():
+            s3.upload_file(
+                str(notes_path), DERIVATIVES_BUCKET,
+                f"{RETRAIN_PREFIX}/models/_sa_finetune_notes.txt",
+            )
+        return
+    print("  WARNING: no model directory found")
+
+
+def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
+          sa_finetune: bool = False) -> Path:
+    """Download labels from S3, fine-tune DLC, upload model weights.
+
+    Parameters
+    ----------
+    s3
+        boto3 S3 client.
+    maxiters
+        Legacy TF iterations parameter (ignored under DLC 3.0 PyTorch and
+        ignored under ``--sa-finetune``).
+    epochs
+        Training epochs. The CLI default is 400 for the ImageNet path and
+        120 for the SA-finetune path; whatever the operator passes in
+        propagates here.
+    batch_size
+        Training batch size (default 8).
+    sa_finetune
+        When True, runs the SuperAnimal memory-replay fine-tune path
+        (Ye et al. 2024). When False, runs the legacy ImageNet HRNet
+        path. Mutually exclusive at the API level — both paths share
+        the same S3 download / upload scaffolding.
+    """
     import deeplabcut
 
     work = Path("/tmp/dlc-retrain")
@@ -100,15 +471,30 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
     print(f"Config: {config_path}")
     print(f"Bodyparts: {cfg.get('bodyparts', [])}")
     print(f"Epochs: {epochs}")
+    print(f"Mode: {'SA fine-tune (memory replay)' if sa_finetune else 'ImageNet HRNet'}")
 
-    update_progress(s3, "Training: creating dataset")
-
-    # Delete old training data to ensure a clean build.
+    # Delete any stale dlc-models* dirs to ensure a clean shuffle build.
+    # Done here once for both paths.
     for old_dir_name in ("dlc-models-pytorch", "dlc-models", "training-datasets"):
         old_dir = work / old_dir_name
         if old_dir.exists():
             shutil.rmtree(old_dir)
             print(f"  Deleted old {old_dir_name}/")
+
+    if sa_finetune:
+        _train_sa_finetune(
+            s3, work, config_path, epochs=epochs, batch_size=batch_size,
+        )
+        # SA path runs train_network internally; the shared post-training
+        # block (evaluation + uploads) follows below.
+        update_progress(s3, "Training (SA): evaluating")
+        deeplabcut.evaluate_network(str(config_path), plotting=False)
+        update_progress(s3, "Training (SA): evaluation complete")
+        _upload_model_artifacts(s3, work)
+        update_progress(s3, "Training complete (SA fine-tune)")
+        return config_path
+
+    update_progress(s3, "Training: creating dataset")
 
     # Create training dataset (default ResNet50 config — we override below).
     print("Creating training dataset...")
@@ -185,8 +571,8 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8) -> 
             aug["motion_blur"] = True
             # No hue/saturation jitter — images are grayscale (IR overhead camera)
             print(
-                f"  Augmentation: rot=±45°, scale=0.7-1.4x, "
-                f"brightness/contrast=±40%, hflip+vflip, noise=15"
+                "  Augmentation: rot=±45°, scale=0.7-1.4x, "
+                "brightness/contrast=±40%, hflip+vflip, noise=15"
             )
 
         with open(pcfg_path, "w") as f:
@@ -567,11 +953,25 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
             raise RuntimeError(
                 f"Could not extract architecture from {h5_filename!r}."
             )
-        notes = (
-            f"Auto-declared by run_dlc_retrain.py. "
-            f"Sessions promoted: {len(sessions_to_promote)}; failed: {len(failed)}; "
-            f"total: {total}."
-        )
+        notes_lines = [
+            "Auto-declared by run_dlc_retrain.py.",
+            f"Sessions promoted: {len(sessions_to_promote)}; "
+            f"failed: {len(failed)}; total: {total}.",
+        ]
+        # If the SA-finetune training path stashed a notes file on S3,
+        # prepend its contents (init source, conversion array, etc.).
+        try:
+            sa_notes_obj = s3.get_object(
+                Bucket=DERIVATIVES_BUCKET,
+                Key=f"{RETRAIN_PREFIX}/models/_sa_finetune_notes.txt",
+            )
+            sa_notes = sa_notes_obj["Body"].read().decode("utf-8").strip()
+            if sa_notes:
+                notes_lines.insert(0, sa_notes)
+        except Exception:
+            # ImageNet path leaves no notes file — that's expected.
+            pass
+        notes = " ".join(notes_lines)
         sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa
         from declare_dlc_champion import declare_champion  # noqa
         declare_champion(
@@ -607,20 +1007,52 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
         print("Run manually: python3 scripts/launch_downstream_cpu.py")
 
 
-def main() -> None:
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Build the CLI argparse — split out for unit-testing."""
     parser = argparse.ArgumentParser(description="DLC retraining + inference")
     parser.add_argument("--train-only", action="store_true")
     parser.add_argument("--infer-only", action="store_true")
-    parser.add_argument("--maxiters", type=int, default=50000, help="Legacy TF iterations (ignored by PyTorch)")
-    parser.add_argument("--epochs", type=int, default=400, help="Training epochs (DLC 3.0 PyTorch)")
+    parser.add_argument(
+        "--maxiters", type=int, default=50000,
+        help="Legacy TF iterations (ignored by PyTorch; ignored under "
+             "--sa-finetune)",
+    )
+    parser.add_argument(
+        "--epochs", type=int, default=None,
+        help="Training epochs (DLC 3.0 PyTorch). Default depends on the "
+             "training path: 400 for ImageNet HRNet, 120 for --sa-finetune.",
+    )
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument(
-        "--skip-failed",
-        action="store_true",
+        "--sa-finetune", action="store_true",
+        help="Use SuperAnimal-TopViewMouse memory-replay fine-tune instead of "
+             "the legacy ImageNet HRNet path. Per Ye et al. 2024, "
+             "doi:10.1038/s41467-024-48792-2.",
+    )
+    parser.add_argument(
+        "--skip-failed", action="store_true",
         help="Promote completed sessions even if some inference sessions failed. "
              "By default auto-promotion is skipped if any session fails.",
     )
+    return parser
+
+
+def resolve_epochs(epochs: int | None, *, sa_finetune: bool) -> int:
+    """Resolve the default ``--epochs`` based on the training path.
+
+    Per design §2.1: 120 for SA fine-tune, 400 for ImageNet HRNet. When
+    the operator passes ``--epochs`` explicitly, that value is honoured
+    for both paths.
+    """
+    if epochs is not None:
+        return epochs
+    return 120 if sa_finetune else 400
+
+
+def main() -> None:
+    parser = _build_arg_parser()
     args = parser.parse_args()
+    epochs = resolve_epochs(args.epochs, sa_finetune=args.sa_finetune)
 
     s3 = boto3.client("s3", region_name=REGION)
     do_train = not args.infer_only
@@ -628,7 +1060,10 @@ def main() -> None:
 
     config_path = None
     if do_train:
-        config_path = train(s3, maxiters=args.maxiters, epochs=args.epochs, batch_size=args.batch_size)
+        config_path = train(
+            s3, maxiters=args.maxiters, epochs=epochs,
+            batch_size=args.batch_size, sa_finetune=args.sa_finetune,
+        )
 
     if do_infer:
         if config_path is None:
