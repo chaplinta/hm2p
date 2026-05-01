@@ -122,6 +122,8 @@ rule all:
             sub=[sub(s) for s in SESSIONS],
             ses=[ses(s) for s in SESSIONS],
         ),
+        # Stage 5b — sync diagnostics aggregator
+        f"{DATA_ROOT}/derivatives/sync_report/sync_report.parquet",
 
 
 # ---------------------------------------------------------------------------
@@ -134,3 +136,4 @@ include: "rules/pose.smk"
 include: "rules/kinematics.smk"
 include: "rules/calcium.smk"
 include: "rules/sync.smk"
+include: "rules/sync_report.smk"
