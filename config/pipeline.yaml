@@ -33,6 +33,18 @@ pose_confidence_threshold: "quantile:0.25"   # per-keypoint quantile cutoff;
 pose_gap_fill_frames: 5          # max consecutive NaN frames to interpolate
 speed_active_threshold_cm_s: 2.0 # cm/s above → active state
 
+# ── Stage 1 — 2P Extraction ───────────────────────────────────────────────
+# Cellpose 3 anatomical prior for Suite2p ROI detection.
+# Controls Suite2p's anatomical_only setting:
+#   0 — activity-only detection (legacy behaviour; Cellpose not required)
+#   1 — Cellpose segmentation only, no activity refinement
+#   2 — Cellpose seeds refined by activity statistics (recommended default)
+#   3 — stricter Cellpose-then-activity with higher activity weighting
+# Requires cellpose>=3.0 when set to 1, 2, or 3. See docs/manual-installs.md
+# if Cellpose conflicts with another dependency pin.
+# Reference: Stringer & Pachitariu 2025. doi:10.1038/s41592-025-02595-5
+suite2p_anatomical_only: 2
+
 # ── Stage 4 — Calcium ──────────────────────────────────────────────────────
 # Neuropil subtraction method.
 # fissa      — Spatial ICA on raw TIFFs + ROI masks (Keemink et al. 2018,

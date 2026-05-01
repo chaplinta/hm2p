@@ -166,7 +166,8 @@ class TestRunSuite2p:
 
         with patch.dict("sys.modules", {"suite2p": mock_suite2p}):
             # Pass fps explicitly so the test does not depend on timestamps.h5.
-            result = run_suite2p(tiff_dir, output_dir, fps=9.6)
+            # anatomical_only=0 avoids importing cellpose (not under test here).
+            result = run_suite2p(tiff_dir, output_dir, fps=9.6, anatomical_only=0)
 
         assert result == output_dir / "suite2p"
         assert (result / "plane0" / "F.npy").exists()
@@ -224,8 +225,10 @@ class TestRunSuite2p:
         mock_suite2p.run_s2p = fake_run_s2p
 
         with patch.dict("sys.modules", {"suite2p": mock_suite2p}):
-            # Pass fps=9.6 explicitly; we only want to verify ops_overrides merging.
-            run_suite2p(tiff_dir, output_dir, ops_overrides={"tau": 2.0}, fps=9.6)
+            # anatomical_only=0 avoids importing cellpose (not under test here).
+            run_suite2p(
+                tiff_dir, output_dir, ops_overrides={"tau": 2.0}, fps=9.6, anatomical_only=0
+            )
 
         assert captured["settings"]["tau"] == 2.0
         assert captured["settings"]["fs"] == 9.6  # explicit fps preserved
@@ -250,7 +253,8 @@ class TestRunSuite2p:
         mock_suite2p.run_s2p = fake_run_s2p
 
         with patch.dict("sys.modules", {"suite2p": mock_suite2p}):
-            run_suite2p(tiff_dir, output_dir, fps=9.6)
+            # anatomical_only=0 avoids importing cellpose (not under test here).
+            run_suite2p(tiff_dir, output_dir, fps=9.6, anatomical_only=0)
 
         assert str(tiff_dir) in captured["db"]["data_path"]
         assert captured["db"]["save_path0"] == str(output_dir)
@@ -270,7 +274,8 @@ class TestRunSuite2p:
             patch.dict("sys.modules", {"suite2p": mock_suite2p}),
             pytest.raises(RuntimeError, match="plane0"),
         ):
-            run_suite2p(tiff_dir, output_dir, fps=9.6)
+            # anatomical_only=0 avoids importing cellpose (not under test here).
+            run_suite2p(tiff_dir, output_dir, fps=9.6, anatomical_only=0)
 
     def test_missing_output_file_raises_runtime(self, tmp_path):
         tiff_dir = tmp_path / "tiffs"
@@ -293,7 +298,8 @@ class TestRunSuite2p:
             patch.dict("sys.modules", {"suite2p": mock_suite2p}),
             pytest.raises(RuntimeError, match="missing"),
         ):
-            run_suite2p(tiff_dir, output_dir, fps=9.6)
+            # anatomical_only=0 avoids importing cellpose (not under test here).
+            run_suite2p(tiff_dir, output_dir, fps=9.6, anatomical_only=0)
 
     def test_tiff_and_tiff_extension(self, tmp_path):
         tiff_dir = tmp_path / "tiffs"
@@ -312,7 +318,8 @@ class TestRunSuite2p:
         mock_suite2p.run_s2p = fake_run_s2p
 
         with patch.dict("sys.modules", {"suite2p": mock_suite2p}):
-            result = run_suite2p(tiff_dir, output_dir, fps=9.6)
+            # anatomical_only=0 avoids importing cellpose (not under test here).
+            result = run_suite2p(tiff_dir, output_dir, fps=9.6, anatomical_only=0)
         assert result.exists()
 
     def test_custom_fps(self, tmp_path):
@@ -364,7 +371,8 @@ class TestRunSuite2p:
         mock_suite2p.run_s2p = fake_run_s2p
 
         with patch.dict("sys.modules", {"suite2p": mock_suite2p}):
-            run_suite2p(tiff_dir, output_dir, fps=15.0)
+            # anatomical_only=0 avoids importing cellpose (not under test here).
+            run_suite2p(tiff_dir, output_dir, fps=15.0, anatomical_only=0)
 
         assert captured["settings"]["fs"] == 15.0
 
@@ -548,7 +556,8 @@ class TestRunSuite2pWiring:
         mock = self._make_mock_suite2p(captured)
 
         with patch.dict("sys.modules", {"suite2p": mock}):
-            run_suite2p(tiff_dir, tmp_path / "out", timestamps_h5=ts_path)
+            # anatomical_only=0 avoids importing cellpose (not under test here).
+            run_suite2p(tiff_dir, tmp_path / "out", timestamps_h5=ts_path, anatomical_only=0)
 
         np.testing.assert_allclose(captured["settings"]["fs"], 9.6, rtol=0.01)
 
@@ -562,7 +571,10 @@ class TestRunSuite2pWiring:
         mock = self._make_mock_suite2p(captured)
 
         with patch.dict("sys.modules", {"suite2p": mock}):
-            run_suite2p(tiff_dir, tmp_path / "out", fps=15.0, timestamps_h5=ts_path)
+            # anatomical_only=0 avoids importing cellpose (not under test here).
+            run_suite2p(
+                tiff_dir, tmp_path / "out", fps=15.0, timestamps_h5=ts_path, anatomical_only=0
+            )
 
         assert captured["settings"]["fs"] == 15.0
 
@@ -573,7 +585,10 @@ class TestRunSuite2pWiring:
         mock = self._make_mock_suite2p(captured)
 
         with patch.dict("sys.modules", {"suite2p": mock}):
-            run_suite2p(tiff_dir, tmp_path / "out", fps=9.6, indicator="GCaMP6f")
+            # anatomical_only=0 avoids importing cellpose (not under test here).
+            run_suite2p(
+                tiff_dir, tmp_path / "out", fps=9.6, indicator="GCaMP6f", anatomical_only=0
+            )
 
         assert captured["settings"]["tau"] == pytest.approx(0.4)
 
@@ -584,7 +599,187 @@ class TestRunSuite2pWiring:
         mock = self._make_mock_suite2p(captured)
 
         with patch.dict("sys.modules", {"suite2p": mock}):
-            run_suite2p(tiff_dir, tmp_path / "out", fps=9.6)
+            # anatomical_only=0 avoids importing cellpose (not under test here).
+            run_suite2p(tiff_dir, tmp_path / "out", fps=9.6, anatomical_only=0)
 
         # GCaMP6s tau=1.5
         assert captured["settings"]["tau"] == pytest.approx(1.5)
+
+
+# ---------------------------------------------------------------------------
+# Item 5 — Cellpose 3 anatomical prior (anatomical_only parameter)
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultSettingsAnatomicalOnly:
+    """Tests that anatomical_only propagates through default_settings."""
+
+    def test_anatomical_only_default_is_2(self):
+        """Default anatomical_only is 2 (Cellpose seeds + activity refinement)."""
+        settings = default_settings()
+        assert settings.get("anatomical_only") == 2
+
+    def test_anatomical_only_propagates_0(self):
+        """anatomical_only=0 disables Cellpose (activity-only mode)."""
+        settings = default_settings(anatomical_only=0)
+        assert settings.get("anatomical_only") == 0
+
+    def test_anatomical_only_propagates_1(self):
+        settings = default_settings(anatomical_only=1)
+        assert settings.get("anatomical_only") == 1
+
+    def test_anatomical_only_propagates_2(self):
+        settings = default_settings(anatomical_only=2)
+        assert settings.get("anatomical_only") == 2
+
+    def test_anatomical_only_propagates_3(self):
+        settings = default_settings(anatomical_only=3)
+        assert settings.get("anatomical_only") == 3
+
+    @pytest.mark.skipif(not _suite2p_available, reason="suite2p not installed")
+    def test_anatomical_only_in_detection_block(self):
+        """anatomical_only is stored under the detection sub-dict (suite2p API)."""
+        settings = default_settings(anatomical_only=2)
+        # Must appear in the detection block so Suite2p reads it correctly
+        assert "detection" in settings
+        assert settings["detection"].get("anatomical_only") == 2
+
+    def test_anatomical_only_in_top_level_when_suite2p_absent(self):
+        """Without suite2p, fallback dict carries anatomical_only at top level."""
+        with patch.dict("sys.modules", {"suite2p": None}):
+            # Import the module afresh to pick up the patched suite2p
+            import importlib
+
+            import hm2p.extraction.run_suite2p as m
+
+            importlib.reload(m)
+            settings = m.default_settings(anatomical_only=3)
+        assert settings.get("anatomical_only") == 3
+        # Reload back to normal
+        import importlib
+
+        import hm2p.extraction.run_suite2p
+
+        importlib.reload(hm2p.extraction.run_suite2p)
+
+
+class TestRunSuite2pCellposeCheck:
+    """Tests for the Cellpose pre-flight ImportError in run_suite2p."""
+
+    def _make_tiffs(self, tmp_path):
+        tiff_dir = tmp_path / "tiffs"
+        tiff_dir.mkdir()
+        (tiff_dir / "data.tif").write_bytes(b"\x00")
+        return tiff_dir
+
+    def _make_mock_suite2p(self):
+        mock = MagicMock()
+        mock.default_settings.return_value = {
+            "fs": 9.6,
+            "tau": 1.0,
+            "run": {"do_deconvolution": False},
+            "io": {"delete_bin": True},
+            "registration": {
+                "nonrigid": True,
+                "block_size": (96, 96),
+                "batch_size": 100,
+                "maxregshift": 0.15,
+                "smooth_sigma": 1.15,
+                "th_badframes": 1.0,
+                "subpixel": 10,
+            },
+            "detection": {
+                "threshold_scaling": 1.0,
+                "max_overlap": 0.75,
+                "sparsery_settings": {"highpass_neuropil": 25},
+            },
+            "extraction": {
+                "batch_size": 500,
+                "neuropil_extract": True,
+                "neuropil_coefficient": 0.7,
+                "inner_neuropil_radius": 2,
+                "min_neuropil_pixels": 350,
+                "allow_overlap": False,
+            },
+            "classification": {"use_builtin_classifier": True},
+        }
+
+        def fake_run_s2p(db, settings):
+            s2p_dir = Path(db["save_path0"]) / "suite2p" / "plane0"
+            s2p_dir.mkdir(parents=True)
+            for name in ("F.npy", "Fneu.npy", "iscell.npy", "stat.npy", "ops.npy"):
+                np.save(s2p_dir / name, np.zeros(1))
+
+        mock.run_s2p = fake_run_s2p
+        return mock
+
+    def test_anatomical_only_1_raises_if_cellpose_missing(self, tmp_path):
+        """anatomical_only >= 1 must raise ImportError when cellpose is absent."""
+        tiff_dir = self._make_tiffs(tmp_path)
+        mock_s2p = self._make_mock_suite2p()
+
+        with (
+            patch.dict("sys.modules", {"suite2p": mock_s2p, "cellpose": None}),
+            pytest.raises(ImportError, match="cellpose"),
+        ):
+            run_suite2p(tiff_dir, tmp_path / "out", fps=9.6, anatomical_only=1)
+
+    def test_anatomical_only_2_raises_if_cellpose_missing(self, tmp_path):
+        """Default anatomical_only=2 raises ImportError when cellpose absent."""
+        tiff_dir = self._make_tiffs(tmp_path)
+        mock_s2p = self._make_mock_suite2p()
+
+        with (
+            patch.dict("sys.modules", {"suite2p": mock_s2p, "cellpose": None}),
+            pytest.raises(ImportError, match="anatomical_only=2"),
+        ):
+            run_suite2p(tiff_dir, tmp_path / "out", fps=9.6, anatomical_only=2)
+
+    def test_anatomical_only_0_does_not_require_cellpose(self, tmp_path):
+        """anatomical_only=0 (activity-only) must NOT import cellpose."""
+        tiff_dir = self._make_tiffs(tmp_path)
+        mock_s2p = self._make_mock_suite2p()
+
+        # Remove cellpose from sys.modules entirely to simulate absence.
+        with patch.dict("sys.modules", {"suite2p": mock_s2p, "cellpose": None}):
+            # Should not raise — cellpose is not required for anatomical_only=0.
+            result = run_suite2p(tiff_dir, tmp_path / "out", fps=9.6, anatomical_only=0)
+
+        assert result.exists()
+
+    def test_error_message_mentions_install_instructions(self, tmp_path):
+        """ImportError message must reference the install command."""
+        tiff_dir = self._make_tiffs(tmp_path)
+        mock_s2p = self._make_mock_suite2p()
+
+        with (
+            patch.dict("sys.modules", {"suite2p": mock_s2p, "cellpose": None}),
+            pytest.raises(ImportError) as exc_info,
+        ):
+            run_suite2p(tiff_dir, tmp_path / "out", fps=9.6, anatomical_only=1)
+
+        msg = str(exc_info.value)
+        assert "cellpose" in msg.lower()
+        # Should mention how to install
+        assert "pip install" in msg or "install" in msg.lower()
+
+    def test_anatomical_only_wired_into_settings(self, tmp_path):
+        """anatomical_only value is passed through to Suite2p settings dict."""
+        tiff_dir = self._make_tiffs(tmp_path)
+        mock_s2p = self._make_mock_suite2p()
+        captured: dict = {}
+
+        original_run_s2p = mock_s2p.run_s2p
+
+        def capturing_run_s2p(db, settings):
+            captured["settings"] = settings
+            return original_run_s2p(db, settings)
+
+        mock_s2p.run_s2p = capturing_run_s2p
+
+        mock_cellpose = MagicMock()
+
+        with patch.dict("sys.modules", {"suite2p": mock_s2p, "cellpose": mock_cellpose}):
+            run_suite2p(tiff_dir, tmp_path / "out", fps=9.6, anatomical_only=2)
+
+        assert captured["settings"].get("detection", {}).get("anatomical_only") == 2

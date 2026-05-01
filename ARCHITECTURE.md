@@ -149,6 +149,36 @@ are independent of pose data and do not need re-running when pose is updated.
 
 ---
 
+## Architecture Deviation — Cellpose 3 Anatomical Prior (Stage 1)
+
+The Stage 1 extraction uses Cellpose 3 as an anatomical prior for Suite2p ROI
+detection (`anatomical_only=2`). This is a deliberate deviation from a
+purely activity-based detection approach.
+
+**Rationale:** hm2p single-plane recordings contain both somatic and dendritic
+ROIs in the same imaging plane. Activity-based detection (the Suite2p default)
+does not distinguish between them at the detection stage; it discovers any
+fluorescence signal exceeding its threshold, which includes dendritic processes
+that look similar to small somata in activity space. A Cellpose 3 anatomical
+prior seeds ROI candidates from a static mean/max projection image, biasing
+detection toward compact, roughly circular soma morphologies before activity
+statistics refine the candidate set. Shape-based post-hoc classification in
+`extraction/suite2p.py` then separates retained soma and dendrite ROIs.
+
+**Mode 2 (default):** Cellpose seeds + activity refinement. This retains the
+benefits of both approaches: anatomical shape guides initial detection, and
+activity statistics filter out low-quality or contaminated candidates.
+
+**Fallback:** Set `suite2p_anatomical_only: 0` in `config/pipeline.yaml` to
+revert to activity-only detection (legacy behaviour). Cellpose is not required
+in this mode.
+
+Reference: Stringer & Pachitariu 2025. "Cellpose3: one-click image restoration
+for improved cellular segmentation." Nature Methods.
+doi:10.1038/s41592-025-02595-5. https://github.com/MouseLand/cellpose
+
+---
+
 ## Component Architecture
 
 ### Source Layout
