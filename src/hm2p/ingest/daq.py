@@ -5,11 +5,27 @@ during acquisition (SciScan + Basler camera):
 
   - Camera trigger times  → frame_times_camera  (N,) float64 s
   - SciScan line clock    → frame_times_imaging  (T,) float64 s
+  - SciScan line clock    → line_clock_times    (M,) float64 s   (every line)
   - Lighting pulse times  → light_on_times / light_off_times  (L,) float64 s
+  - Channel diagnostics   → tdms_diag/* attrs                   (cam_min/max,
+                                                                  sci_min/max,
+                                                                  light_min/max,
+                                                                  sci_lines_truncated_n,
+                                                                  tdms_sample_rate_hz,
+                                                                  y_pix)
 
 All timestamps are in seconds since session start (first camera trigger = 0).
 
-Output written to derivatives/movement/<sub>/<ses>/timestamps.h5.
+Output written to derivatives/timestamps/<sub>/<ses>/timestamps.h5.
+
+Failure-closed semantics (post-diagnostics rollout):
+
+  - Zero camera trigger pulses  → ValueError (unchanged from legacy).
+  - Zero SciScan line-clock pulses → ValueError (was silent in legacy).
+  - len(line_idxs) % y_pix != 0 → recorded in
+    ``tdms_diag/sci_lines_truncated_n``; ingest still succeeds.
+  - len(light_on) != len(light_off) → no longer raises in ingest;
+    Stage 5 classifies via diagnostics.
 
 TDMS channel layout (from meta.txt [DAQ] section)
 --------------------------------------------------
@@ -34,6 +50,10 @@ from hm2p.io.hdf5 import write_h5
 
 # Keys in the arrays dict that are scalars (stored as HDF5 attrs, not datasets)
 _SCALAR_KEYS: frozenset[str] = frozenset({"fps_camera", "fps_imaging"})
+
+# Keys in the arrays dict that are flat dicts of scalars stored as HDF5
+# attrs under a slash-prefixed name (e.g. ``tdms_diag/cam_min``).
+_DIAG_GROUP_KEY: str = "tdms_diag"
 
 
 # ---------------------------------------------------------------------------
@@ -207,13 +227,23 @@ def parse_tdms(tdms_path: Path) -> dict[str, np.ndarray]:
         light_data = np.asarray(light_chan.data, dtype=float)
         light_time = np.asarray(light_chan.time_track(), dtype=np.float64)
 
+        # TDMS sample rate = 1 / wf_increment from the cam channel.
+        wf_increment = float(cam_chan.properties.get("wf_increment", 0.0)) or 0.0
+
     # --- Detect events ---
     cam_idxs = _rising_edges(cam_data, 0.9)
     if cam_idxs.size == 0:
         raise ValueError("No camera trigger pulses found in TDMS file")
 
     sci_line_idxs = _rising_edges(sci_data, 0.5)
-    sci_frame_idxs = sci_line_idxs[y_pix - 1 :: y_pix]
+    if sci_line_idxs.size == 0:
+        # Fail-closed: legacy code silently produced an empty
+        # frame_times_imaging when this happened.
+        raise ValueError("No SciScan line-clock pulses found in TDMS file")
+
+    n_frames = sci_line_idxs.size // y_pix
+    sci_frame_idxs = sci_line_idxs[y_pix - 1 : n_frames * y_pix : y_pix]
+    sci_lines_truncated_n = int(sci_line_idxs.size - n_frames * y_pix)
 
     light_on_idxs = _rising_edges(light_data, 0.9)
     light_off_idxs = _rising_edges(1.0 - light_data, 0.9)
@@ -221,13 +251,29 @@ def parse_tdms(tdms_path: Path) -> dict[str, np.ndarray]:
     # --- Zero to first camera trigger ---
     t0 = cam_time[cam_idxs[0]]
 
+    tdms_sample_rate_hz = 1.0 / wf_increment if wf_increment > 0 else 0.0
+
+    diag: dict[str, float] = {
+        "cam_min": float(cam_data.min()),
+        "cam_max": float(cam_data.max()),
+        "sci_min": float(sci_data.min()),
+        "sci_max": float(sci_data.max()),
+        "light_min": float(light_data.min()),
+        "light_max": float(light_data.max()),
+        "sci_lines_truncated_n": float(sci_lines_truncated_n),
+        "tdms_sample_rate_hz": float(tdms_sample_rate_hz),
+        "y_pix": float(y_pix),
+    }
+
     return {
         "frame_times_camera": (cam_time[cam_idxs] - t0).astype(np.float64),
         "frame_times_imaging": (sci_time[sci_frame_idxs] - t0).astype(np.float64),
+        "line_clock_times": (sci_time[sci_line_idxs] - t0).astype(np.float64),
         "light_on_times": (light_time[light_on_idxs] - t0).astype(np.float64),
         "light_off_times": (light_time[light_off_idxs] - t0).astype(np.float64),
         "fps_camera": np.float64(fps_camera),
         "fps_imaging": np.float64(fps_imaging),
+        _DIAG_GROUP_KEY: diag,
     }
 
 
@@ -238,16 +284,35 @@ def write_timestamps_h5(
 ) -> None:
     """Write parsed timing arrays to timestamps.h5.
 
+    Datasets:
+        ``frame_times_camera``, ``frame_times_imaging``, ``line_clock_times``,
+        ``light_on_times``, ``light_off_times`` — all float64 1D.
+
+    Attributes:
+        Root: ``session_id``, ``fps_camera``, ``fps_imaging``.
+        ``tdms_diag/`` group: ``cam_min``, ``cam_max``, ``sci_min``,
+        ``sci_max``, ``light_min``, ``light_max``, ``sci_lines_truncated_n``,
+        ``tdms_sample_rate_hz``, ``y_pix``.
+
     Args:
         arrays: Output of parse_tdms().
         session_id: Canonical session identifier stored as HDF5 attribute.
         output_path: Destination file path (created or overwritten).
     """
-    datasets = {k: v for k, v in arrays.items() if k not in _SCALAR_KEYS}
+    datasets = {k: v for k, v in arrays.items() if k not in _SCALAR_KEYS and k != _DIAG_GROUP_KEY}
     attrs: dict[str, object] = {"session_id": session_id}
     for key in _SCALAR_KEYS:
         if key in arrays:
             attrs[key] = float(arrays[key])
+    diag = arrays.get(_DIAG_GROUP_KEY)
+    if isinstance(diag, dict):
+        for k, v in diag.items():
+            # Persist int-typed scalars as int (sci_lines_truncated_n, y_pix);
+            # everything else as float.
+            if k in {"sci_lines_truncated_n", "y_pix"}:
+                attrs[f"{_DIAG_GROUP_KEY}/{k}"] = int(v)
+            else:
+                attrs[f"{_DIAG_GROUP_KEY}/{k}"] = float(v)
     write_h5(output_path, datasets, attrs=attrs)
 
 
