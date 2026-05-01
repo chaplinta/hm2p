@@ -34,9 +34,27 @@ pose_gap_fill_frames: 5          # max consecutive NaN frames to interpolate
 speed_active_threshold_cm_s: 2.0 # cm/s above → active state
 
 # ── Stage 4 — Calcium ──────────────────────────────────────────────────────
-neuropil_method: fixed           # fixed | fissa
+# Neuropil subtraction method.
+# fissa      — Spatial ICA on raw TIFFs + ROI masks (Keemink et al. 2018,
+#              doi:10.1038/s41598-018-21640-2). Most accurate; ~10 min/session.
+#              Requires fissa>=1.0 installed separately (pins scikit-learn<1.2;
+#              see docs/manual-installs.md). Falls back to "estimated" if fissa
+#              import fails or TIFFs are unavailable.
+# estimated  — Per-ROI coefficient from lower-envelope regression on sparse
+#              frames (Dipoppa et al. 2018, doi:10.1016/j.neuron.2018.03.037).
+# fixed      — F_corr = F - neuropil_coefficient * Fneu. Simple; backward-compat.
+neuropil_method: fissa           # fissa | estimated | fixed
 neuropil_coefficient: 0.7        # F_corr = F - coeff * Fneu (fixed method only)
-dff_baseline_window_s: 60.0      # sliding minimum window for F0
+
+# Baseline F0 method for primary dF/F computation.
+# Both methods are always computed and stored in ca.h5 for sensitivity comparison.
+# rolling    — Gaussian-smooth → rolling-min → rolling-max (Suite2p method).
+#              Tracks the very bottom of the trace; may bias dF/F upward for
+#              highly active cells.
+# percentile — Sliding-window 8th percentile (Jia et al. 2011,
+#              doi:10.1038/nprot.2010.169). More robust for active cells.
+f0_method: rolling               # rolling | percentile
+dff_baseline_window_s: 60.0      # sliding window for F0 (both methods)
 
 # CASCADE model — select based on indicator + imaging rate.
 # Rupprecht et al. 2021 (doi:10.1038/s41593-021-00895-5).

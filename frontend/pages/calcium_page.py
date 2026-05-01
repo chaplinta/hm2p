@@ -53,7 +53,7 @@ def load_ca_h5(bucket: str, key: str) -> dict | None:
     try:
         f = h5py.File(io.BytesIO(data), "r")
         result = {}
-        for k in f.keys():
+        for k in f:
             result[k] = f[k][:]
         for k, v in f.attrs.items():
             result[f"_attr_{k}"] = v
@@ -70,16 +70,34 @@ if ca is None:
     st.warning(f"No ca.h5 found at `s3://{DERIVATIVES_BUCKET}/{ca_key}`")
     st.stop()
 
-dff = ca.get("dff")
-if dff is None:
+dff_rolling = ca.get("dff")
+dff_percentile = ca.get("dff_percentile")
+
+if dff_rolling is None:
     st.error("ca.h5 has no 'dff' dataset")
     st.stop()
 
-n_rois, n_frames = dff.shape
+n_rois, n_frames = dff_rolling.shape
 fps = float(ca.get("_attr_fps_imaging", 9.8))
 event_masks = ca.get("event_masks")
 noise_probs = ca.get("noise_probs")
 spks = ca.get("spks")
+
+# dF/F method selector — shown only when both baselines are available
+col_ctrl1, col_ctrl2 = st.columns([2, 3])
+with col_ctrl1:
+    if dff_percentile is not None:
+        dff_method = st.radio(
+            "dF/F baseline method",
+            ["Rolling min–max (Suite2p)", "Sliding percentile (Jia et al. 2011)"],
+            index=0,
+            horizontal=True,
+            key="ca_dff_method",
+        )
+        dff = dff_percentile if "percentile" in dff_method.lower() else dff_rolling
+    else:
+        st.caption("Only rolling-min baseline available in this ca.h5.")
+        dff = dff_rolling
 
 # --- Summary metrics ---
 col1, col2, col3, col4 = st.columns(4)
@@ -88,10 +106,62 @@ col2.metric("Frames", n_frames)
 col3.metric("Duration", f"{n_frames / fps:.0f}s")
 col4.metric("FPS", f"{fps:.1f} Hz")
 
+# --- Methods & References ---
+with st.expander("Methods & References"):
+    st.markdown(
+        """
+**Neuropil subtraction** (Stage 4a)
+
+Three methods available (set in `config/pipeline.yaml` via `neuropil_method`):
+
+- **FISSA** (default): Spatial ICA decontamination on raw TIFF + ROI masks. Most
+  accurate in densely labelled tissue; does not assume a fixed contamination fraction.
+  Processing time ~10 min per session.
+  Keemink et al. 2018. "FISSA: A neuropil decontamination toolbox for calcium imaging
+  signals." Sci Rep 8:3493. doi:10.1038/s41598-018-21640-2
+  <https://github.com/rochefort-lab/fissa>
+
+- **Estimated coefficient**: Per-ROI contamination coefficient estimated from the lower
+  envelope of the fluorescence vs neuropil scatter plot (sparse-activity frames,
+  Dipoppa et al. 2018 method). More principled than a fixed global coefficient.
+  Dipoppa et al. 2018. "Vision and locomotion shape the interactions between neuron
+  types in mouse visual cortex." Neuron 98:602–615. doi:10.1016/j.neuron.2018.03.037
+
+- **Fixed coefficient** (Suite2p default, α = 0.7):
+  F_corr = F − 0.7 × F_neu
+  Pachitariu et al. 2017. "Suite2p: beyond 10,000 neurons with standard two-photon
+  microscopy." bioRxiv 061507. doi:10.1101/061507
+
+GCaMP indicator:
+Chen et al. 2013. "Ultrasensitive fluorescent proteins for imaging neuronal activity."
+Nature 499:295–300. doi:10.1038/nature12354
+
+---
+
+**dF/F baseline estimation** (Stage 4b)
+
+Two baselines are always stored in ca.h5; use the toggle above to switch:
+
+- **Rolling min–max** (Suite2p): Gaussian smooth → rolling minimum → rolling maximum.
+  Tracks the lower envelope of the trace; may overestimate dF/F for highly active cells.
+  Pachitariu et al. 2017. doi:10.1101/061507
+
+- **Sliding percentile** (sensitivity check): 8th-percentile within a 60-s sliding
+  window. More robust for active cells; less prone to baseline underestimation.
+  Jia et al. 2011. "In vivo two-photon imaging of sensory-evoked dendritic calcium
+  signals in cortical neurons." Nat Protoc 6:28–35. doi:10.1038/nprot.2010.169
+"""
+    )
+
 # --- Tabs ---
-tab_overview, tab_traces, tab_events, tab_cell = st.tabs([
-    "Overview", "Trace Viewer", "Event Detection", "Cell Drill-down",
-])
+tab_overview, tab_traces, tab_events, tab_cell = st.tabs(
+    [
+        "Overview",
+        "Trace Viewer",
+        "Event Detection",
+        "Cell Drill-down",
+    ]
+)
 
 
 # --- Tab 1: Overview ---
@@ -106,10 +176,16 @@ with tab_overview:
     max_dff = np.nanmax(dff, axis=1)
     std_dff = np.nanstd(dff, axis=1)
 
-    fig = make_subplots(rows=2, cols=2, subplot_titles=[
-        "Mean dF/F\u2080 per ROI", "Max dF/F\u2080 per ROI",
-        "Std dF/F\u2080 per ROI", "Active fraction per ROI",
-    ])
+    fig = make_subplots(
+        rows=2,
+        cols=2,
+        subplot_titles=[
+            "Mean dF/F\u2080 per ROI",
+            "Max dF/F\u2080 per ROI",
+            "Std dF/F\u2080 per ROI",
+            "Active fraction per ROI",
+        ],
+    )
 
     fig.add_trace(go.Bar(x=list(range(n_rois)), y=mean_dff, name="Mean"), row=1, col=1)
     fig.add_trace(go.Bar(x=list(range(n_rois)), y=max_dff, name="Max"), row=1, col=2)
@@ -119,7 +195,8 @@ with tab_overview:
         active_frac = event_masks.mean(axis=1)
         fig.add_trace(
             go.Bar(x=list(range(n_rois)), y=active_frac, name="Active frac"),
-            row=2, col=2,
+            row=2,
+            col=2,
         )
 
     fig.update_layout(height=600, showlegend=False)
@@ -135,14 +212,16 @@ with tab_overview:
     abs_vals = np.abs(dff_ds)
     z_lim = float(np.percentile(abs_vals, 95)) if abs_vals.size > 0 else 1.0
 
-    fig_heat = go.Figure(data=go.Heatmap(
-        z=dff_ds,
-        x=time_ds,
-        colorscale="RdBu_r",
-        zmin=-z_lim,
-        zmax=z_lim,
-        colorbar=dict(title="dF/F\u2080"),
-    ))
+    fig_heat = go.Figure(
+        data=go.Heatmap(
+            z=dff_ds,
+            x=time_ds,
+            colorscale="RdBu_r",
+            zmin=-z_lim,
+            zmax=z_lim,
+            colorbar=dict(title="dF/F\u2080"),
+        )
+    )
     fig_heat.update_layout(
         xaxis_title="Time (s)",
         yaxis_title="ROI",
@@ -154,15 +233,20 @@ with tab_overview:
     if n_rois > 1 and n_rois <= 100:
         st.subheader("Pairwise Correlation Matrix")
         corr = np.corrcoef(dff)
-        fig_corr = go.Figure(data=go.Heatmap(
-            z=corr,
-            colorscale="RdBu_r",
-            zmin=-1, zmax=1,
-            colorbar=dict(title="r"),
-        ))
+        fig_corr = go.Figure(
+            data=go.Heatmap(
+                z=corr,
+                colorscale="RdBu_r",
+                zmin=-1,
+                zmax=1,
+                colorbar=dict(title="r"),
+            )
+        )
         fig_corr.update_layout(
-            height=400, width=500,
-            xaxis_title="ROI", yaxis_title="ROI",
+            height=400,
+            width=500,
+            xaxis_title="ROI",
+            yaxis_title="ROI",
         )
         st.plotly_chart(fig_corr, use_container_width=True)
 
@@ -179,7 +263,8 @@ with tab_traces:
         show_deconv = st.checkbox("Show deconvolved", value=False, key="trace_deconv")
         time_range = st.slider(
             "Time range (s)",
-            0.0, float(n_frames / fps),
+            0.0,
+            float(n_frames / fps),
             (0.0, min(60.0, float(n_frames / fps))),
             key="trace_time",
         )
@@ -192,7 +277,9 @@ with tab_traces:
 
     rois = list(range(start_roi, start_roi + n_show))
     fig = make_subplots(
-        rows=len(rois), cols=1, shared_xaxes=True,
+        rows=len(rois),
+        cols=1,
+        shared_xaxes=True,
         subplot_titles=[f"ROI {r}" for r in rois],
         vertical_spacing=0.02,
     )
@@ -202,9 +289,15 @@ with tab_traces:
     for idx, roi in enumerate(rois, 1):
         trace = dff[roi, frame_start:frame_end]
         fig.add_trace(
-            go.Scatter(x=time_axis, y=trace, mode="lines",
-                       line=dict(width=0.8, color="black"), name=f"ROI {roi}"),
-            row=idx, col=1,
+            go.Scatter(
+                x=time_axis,
+                y=trace,
+                mode="lines",
+                line=dict(width=0.8, color="black"),
+                name=f"ROI {roi}",
+            ),
+            row=idx,
+            col=1,
         )
 
         if show_events_overlay and event_masks is not None:
@@ -213,20 +306,32 @@ with tab_traces:
                 event_trace = trace.copy()
                 event_trace[~em] = np.nan
                 fig.add_trace(
-                    go.Scatter(x=time_axis, y=event_trace, mode="lines",
-                               line=dict(width=1.5, color="red"), name="Events",
-                               showlegend=(idx == 1)),
-                    row=idx, col=1,
+                    go.Scatter(
+                        x=time_axis,
+                        y=event_trace,
+                        mode="lines",
+                        line=dict(width=1.5, color="red"),
+                        name="Events",
+                        showlegend=(idx == 1),
+                    ),
+                    row=idx,
+                    col=1,
                 )
 
         if show_deconv and spks is not None:
             sp = spks[roi, frame_start:frame_end]
             sp_scaled = sp / max(sp.max(), 1) * max(trace.max(), 0.1)
             fig.add_trace(
-                go.Scatter(x=time_axis, y=sp_scaled, mode="lines",
-                           line=dict(width=0.5, color="blue", dash="dot"),
-                           name="Deconv", showlegend=(idx == 1)),
-                row=idx, col=1,
+                go.Scatter(
+                    x=time_axis,
+                    y=sp_scaled,
+                    mode="lines",
+                    line=dict(width=0.5, color="blue", dash="dot"),
+                    name="Deconv",
+                    showlegend=(idx == 1),
+                ),
+                row=idx,
+                col=1,
             )
 
     fig.update_layout(
@@ -273,9 +378,15 @@ with tab_events:
         col2.metric("Mean rate", f"{np.mean(event_rates):.1f} events/min")
         col3.metric("Active ROIs", sum(1 for c in event_counts if c > 0))
 
-        fig = make_subplots(rows=1, cols=3, subplot_titles=[
-            "Events per ROI", "Event rate (events/min)", "Mean event amplitude",
-        ])
+        fig = make_subplots(
+            rows=1,
+            cols=3,
+            subplot_titles=[
+                "Events per ROI",
+                "Event rate (events/min)",
+                "Mean event amplitude",
+            ],
+        )
         fig.add_trace(go.Bar(x=list(range(n_rois)), y=event_counts), row=1, col=1)
         fig.add_trace(go.Bar(x=list(range(n_rois)), y=event_rates), row=1, col=2)
         fig.add_trace(go.Bar(x=list(range(n_rois)), y=mean_amplitudes), row=1, col=3)
@@ -293,14 +404,37 @@ with tab_events:
             dff_trace = dff[roi_np, ::ds]
 
             from plotly.subplots import make_subplots
-            fig_np = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                                   subplot_titles=["dF/F\u2080", "Noise probability"])
-            fig_np.add_trace(go.Scatter(x=time_np, y=dff_trace, line=dict(width=0.5)), row=1, col=1)
-            fig_np.add_trace(go.Scatter(x=time_np, y=np_trace, line=dict(width=0.5, color="orange")), row=2, col=1)
-            fig_np.add_hline(y=0.2, line_dash="dash", line_color="red", row=2, col=1,
-                             annotation_text="Onset threshold")
-            fig_np.add_hline(y=0.7, line_dash="dash", line_color="blue", row=2, col=1,
-                             annotation_text="Offset threshold")
+
+            fig_np = make_subplots(
+                rows=2,
+                cols=1,
+                shared_xaxes=True,
+                subplot_titles=["dF/F\u2080", "Noise probability"],
+            )
+            fig_np.add_trace(
+                go.Scatter(x=time_np, y=dff_trace, line=dict(width=0.5)), row=1, col=1
+            )
+            fig_np.add_trace(
+                go.Scatter(x=time_np, y=np_trace, line=dict(width=0.5, color="orange")),
+                row=2,
+                col=1,
+            )
+            fig_np.add_hline(
+                y=0.2,
+                line_dash="dash",
+                line_color="red",
+                row=2,
+                col=1,
+                annotation_text="Onset threshold",
+            )
+            fig_np.add_hline(
+                y=0.7,
+                line_dash="dash",
+                line_color="blue",
+                row=2,
+                col=1,
+                annotation_text="Offset threshold",
+            )
             fig_np.update_layout(height=400, showlegend=False)
             st.plotly_chart(fig_np, use_container_width=True)
 
@@ -337,13 +471,24 @@ with tab_cell:
 
     # Full trace with events
     n_plots = 2 if spks is not None else 1
-    fig = make_subplots(rows=n_plots, cols=1, shared_xaxes=True,
-                        subplot_titles=["dF/F\u2080 + Events"] + (["Deconvolved"] if spks is not None else []))
+    extra_titles = ["Deconvolved"] if spks is not None else []
+    fig = make_subplots(
+        rows=n_plots,
+        cols=1,
+        shared_xaxes=True,
+        subplot_titles=["dF/F\u2080 + Events"] + extra_titles,
+    )
 
     fig.add_trace(
-        go.Scatter(x=t_ds, y=trace_ds, mode="lines",
-                   line=dict(width=0.5, color="black"), name="dF/F\u2080"),
-        row=1, col=1,
+        go.Scatter(
+            x=t_ds,
+            y=trace_ds,
+            mode="lines",
+            line=dict(width=0.5, color="black"),
+            name="dF/F\u2080",
+        ),
+        row=1,
+        col=1,
     )
 
     if event_masks is not None:
@@ -351,17 +496,29 @@ with tab_cell:
         event_trace = trace_ds.copy()
         event_trace[~em_ds] = np.nan
         fig.add_trace(
-            go.Scatter(x=t_ds, y=event_trace, mode="lines",
-                       line=dict(width=1.5, color="red"), name="Events"),
-            row=1, col=1,
+            go.Scatter(
+                x=t_ds,
+                y=event_trace,
+                mode="lines",
+                line=dict(width=1.5, color="red"),
+                name="Events",
+            ),
+            row=1,
+            col=1,
         )
 
     if spks is not None:
         sp_ds = spks[roi, ::ds]
         fig.add_trace(
-            go.Scatter(x=t_ds, y=sp_ds, mode="lines",
-                       line=dict(width=0.5, color="blue"), name="Deconvolved"),
-            row=2, col=1,
+            go.Scatter(
+                x=t_ds,
+                y=sp_ds,
+                mode="lines",
+                line=dict(width=0.5, color="blue"),
+                name="Deconvolved",
+            ),
+            row=2,
+            col=1,
         )
 
     fig.update_layout(height=300 * n_plots, showlegend=True)
@@ -374,12 +531,18 @@ with tab_cell:
 
     with col1:
         fig_hist = go.Figure()
-        fig_hist.add_trace(go.Histogram(
-            x=trace[~np.isnan(trace)], nbinsx=100, name="dF/F\u2080",
-        ))
+        fig_hist.add_trace(
+            go.Histogram(
+                x=trace[~np.isnan(trace)],
+                nbinsx=100,
+                name="dF/F\u2080",
+            )
+        )
         fig_hist.update_layout(
-            xaxis_title="dF/F\u2080", yaxis_title="Count",
-            height=300, title="dF/F\u2080 Histogram",
+            xaxis_title="dF/F\u2080",
+            yaxis_title="Count",
+            height=300,
+            title="dF/F\u2080 Histogram",
         )
         st.plotly_chart(fig_hist, use_container_width=True)
 
@@ -394,14 +557,16 @@ with tab_cell:
             if em[-1]:
                 offsets_list = np.concatenate([offsets_list, [n_frames]])
 
-            for on, off in zip(onsets_list, offsets_list[:len(onsets_list)]):
+            for on, off in zip(onsets_list, offsets_list[: len(onsets_list)], strict=False):
                 amplitudes.append(float(np.max(trace[on:off])))
 
             fig_amp = go.Figure()
             fig_amp.add_trace(go.Histogram(x=amplitudes, nbinsx=30, name="Amplitude"))
             fig_amp.update_layout(
-                xaxis_title="Peak dF/F\u2080", yaxis_title="Count",
-                height=300, title="Event Amplitude Distribution",
+                xaxis_title="Peak dF/F\u2080",
+                yaxis_title="Count",
+                height=300,
+                title="Event Amplitude Distribution",
             )
             st.plotly_chart(fig_amp, use_container_width=True)
         else:

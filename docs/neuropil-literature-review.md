@@ -442,7 +442,12 @@ in V1. Analogous condition-dependent neuropil effects may exist in RSP.
 - Keemink SW, Lowe SC, Pakan JMP, Dylda E, van Rossum MCW, Bhatt DH. 2018.
   "FISSA: A neuropil decontamination toolbox for calcium imaging signals."
   Scientific Reports 8:3493. doi:10.1038/s41598-018-21640-2
+  https://github.com/rochefort-lab/fissa
 
 - Chen T-W, Wardill TJ, Sun Y, et al. 2013. "Ultrasensitive fluorescent
   proteins for imaging neuronal activity." Nature 499:295-300.
   doi:10.1038/nature12354
+
+- Jia H, Rochefort NL, Chen X, Konnerth A. 2011. "In vivo two-photon imaging
+  of sensory-evoked dendritic calcium signals in cortical neurons."
+  Nature Protocols 6:28-35. doi:10.1038/nprot.2010.169
