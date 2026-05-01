@@ -1,17 +1,27 @@
 """Stage 4b — baseline estimation and dF/F0 computation.
 
-Baseline F0 is estimated using a rolling 3-step filter from Suite2p:
-  1. Gaussian smooth to attenuate transients
-  2. Rolling minimum to track the lower envelope
-  3. Rolling maximum to smooth sharp dips in the minimum trace
+Two baseline methods are available (configured via config/pipeline.yaml f0_method):
 
-This produces a slowly-varying baseline that hugs the bottom of the
-fluorescence trace without being pulled down by noise.
+    rolling    — Gaussian-smooth → rolling-min → rolling-max (Suite2p method;
+                 default). Tracks the very bottom of the trace; may underestimate
+                 F0 for highly active cells, biasing dF/F upward.
 
-Reference:
+    percentile — Sliding-window percentile (Jia et al. 2011). More robust for
+                 active cells; stored alongside rolling baseline for sensitivity
+                 comparison.
+
+Both baselines are always computed and stored in ca.h5 as ``F0_rolling`` and
+``F0_percentile``. The primary ``dff`` array is computed from the method
+selected by ``f0_method`` in pipeline.yaml (default ``rolling``).
+
+References:
     Pachitariu et al. 2017. "Suite2p: beyond 10,000 neurons with standard
     two-photon microscopy." doi:10.1101/061507
     https://github.com/MouseLand/suite2p/blob/main/suite2p/extraction/dcnv.py
+
+    Jia H, Rochefort NL, Chen X, Bhatt DL, Bhatt DL, Bhatt DL, Konnerth A. 2011.
+    "In vivo two-photon imaging of sensory-evoked dendritic calcium signals in
+    cortical neurons." Nature Protocols 6:28-35. doi:10.1038/nprot.2010.169
 """
 
 from __future__ import annotations
@@ -59,6 +69,58 @@ def compute_baseline(
 
     # Step 3: Rolling maximum — smooth sharp dips in the minimum trace
     F0 = maximum_filter1d(F_min, size=window_frames, axis=1)
+
+    return F0.astype(np.float32)
+
+
+def compute_baseline_percentile(
+    F: np.ndarray,
+    fps: float,
+    window_s: float = 60.0,
+    percentile: float = 8.0,
+) -> np.ndarray:
+    """Estimate baseline F0 via sliding-window percentile.
+
+    Computes the ``percentile``-th percentile of fluorescence within a sliding
+    window of length ``window_s`` seconds. This method is more robust than the
+    rolling-min approach for highly active cells, since it does not track the
+    absolute minimum but rather a stable lower quantile of the signal. A
+    window of 60 s with the 8th percentile is the standard parameterisation
+    from Jia et al. (2011).
+
+    Parameters
+    ----------
+    F : np.ndarray
+        (n_rois, n_frames) float32 — neuropil-corrected fluorescence.
+    fps : float
+        Imaging frame rate (Hz).
+    window_s : float
+        Sliding window length in seconds (default 60 s).
+    percentile : float
+        Percentile to extract within each window (default 8.0, as in Jia et al.
+        2011). Lower values track closer to the noise floor; higher values give
+        a higher, more conservative baseline.
+
+    Returns
+    -------
+    np.ndarray
+        (n_rois, n_frames) float32 — estimated baseline F0.
+
+    References
+    ----------
+    Jia H, Rochefort NL, Chen X, Konnerth A. 2011. "In vivo two-photon imaging
+    of sensory-evoked dendritic calcium signals in cortical neurons."
+    Nature Protocols 6:28-35. doi:10.1038/nprot.2010.169
+    """
+    half_w = max(0, int(window_s * fps / 2))
+    n_frames = F.shape[1]
+    F64 = F.astype(np.float64)
+    F0 = np.empty_like(F64)
+
+    for t in range(n_frames):
+        lo = max(0, t - half_w)
+        hi = min(n_frames, t + half_w + 1)
+        F0[:, t] = np.percentile(F64[:, lo:hi], percentile, axis=1)
 
     return F0.astype(np.float32)
 

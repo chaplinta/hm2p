@@ -7,7 +7,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from hm2p.calcium.dff import compute_baseline, compute_dff
+from hm2p.calcium.dff import compute_baseline, compute_baseline_percentile, compute_dff
 
 # ---------------------------------------------------------------------------
 # compute_dff — pure numpy, fully testable
@@ -182,3 +182,92 @@ class TestComputeDffEdgeCases:
         F_low = np.full((2, 50), -500.0, dtype=np.float32)
         result_low = compute_dff(F_low, F0)
         assert np.all(result_low >= -1.0)
+
+
+# ---------------------------------------------------------------------------
+# compute_baseline_percentile
+# ---------------------------------------------------------------------------
+
+
+class TestComputeBaselinePercentile:
+    """Tests for the sliding-window percentile baseline (Jia et al. 2011)."""
+
+    def test_output_shape(self, rng: np.random.Generator) -> None:
+        """Output shape matches input (n_rois, n_frames)."""
+        F = rng.uniform(100, 500, (6, 400)).astype(np.float32)
+        F0 = compute_baseline_percentile(F, fps=10.0)
+        assert F0.shape == F.shape
+
+    def test_output_dtype_float32(self, rng: np.random.Generator) -> None:
+        """Output is float32."""
+        F = rng.uniform(100, 500, (3, 200)).astype(np.float32)
+        F0 = compute_baseline_percentile(F, fps=10.0)
+        assert F0.dtype == np.float32
+
+    def test_constant_signal_baseline_equals_signal(self) -> None:
+        """Constant trace → percentile baseline equals the constant value."""
+        F = np.full((2, 200), 150.0, dtype=np.float32)
+        F0 = compute_baseline_percentile(F, fps=10.0, window_s=5.0, percentile=8.0)
+        np.testing.assert_allclose(F0, 150.0, rtol=1e-3)
+
+    def test_baseline_leq_signal_median(self, rng: np.random.Generator) -> None:
+        """8th percentile baseline is always <= median of the signal."""
+        F = np.abs(rng.uniform(100, 500, (4, 600)).astype(np.float32))
+        F0 = compute_baseline_percentile(F, fps=10.0, window_s=10.0, percentile=8.0)
+        signal_median = np.median(F, axis=1, keepdims=True)
+        assert np.all(signal_median + 1.0 >= F0)
+
+    def test_transient_does_not_substantially_raise_baseline(self) -> None:
+        """A short transient does not raise the percentile baseline far above the floor."""
+        F = np.full((1, 600), 100.0, dtype=np.float32)
+        F[0, 280:300] = 2000.0  # brief large transient
+        F0 = compute_baseline_percentile(F, fps=10.0, window_s=20.0, percentile=8.0)
+        # Well away from the transient, the baseline should be near 100
+        np.testing.assert_allclose(F0[0, :150], 100.0, atol=10.0)
+        np.testing.assert_allclose(F0[0, 450:], 100.0, atol=10.0)
+
+    def test_higher_percentile_gives_higher_baseline(self, rng: np.random.Generator) -> None:
+        """Higher percentile yields a higher (or equal) baseline."""
+        F = np.abs(rng.uniform(50, 300, (3, 400)).astype(np.float32))
+        F0_low = compute_baseline_percentile(F, fps=10.0, window_s=10.0, percentile=8.0)
+        F0_high = compute_baseline_percentile(F, fps=10.0, window_s=10.0, percentile=50.0)
+        assert np.all(F0_high >= F0_low - 1.0)
+
+    def test_single_roi(self) -> None:
+        """Works for a single ROI without error."""
+        F = np.full((1, 100), 200.0, dtype=np.float32)
+        F0 = compute_baseline_percentile(F, fps=10.0)
+        assert F0.shape == (1, 100)
+
+    def test_very_short_window(self) -> None:
+        """Very short window (fraction of a frame) does not raise."""
+        F = np.full((2, 50), 100.0, dtype=np.float32)
+        F0 = compute_baseline_percentile(F, fps=1.0, window_s=0.01)
+        assert F0.shape == F.shape
+        assert np.all(np.isfinite(F0))
+
+    def test_step_signal_tracks_lower_level(self) -> None:
+        """Baseline in the second half of a step-up signal stays near lower level.
+
+        A step at the midpoint: first half at 100, second half at 300.
+        With a 60-s window at 10 Hz and 8th percentile, the baseline at the
+        start of the signal (well before the step) should be near 100, not 300.
+        """
+        n_frames = 600
+        F = np.full((1, n_frames), 100.0, dtype=np.float32)
+        F[0, n_frames // 2 :] = 300.0
+        F0 = compute_baseline_percentile(F, fps=10.0, window_s=10.0, percentile=8.0)
+        # First 100 frames: baseline should be near 100 (the lower level)
+        np.testing.assert_allclose(F0[0, :100], 100.0, atol=5.0)
+
+    @given(
+        percentile=st.floats(min_value=1.0, max_value=50.0, allow_nan=False, allow_infinity=False),
+    )
+    @settings(max_examples=20)
+    def test_baseline_finite_for_any_valid_percentile(self, percentile: float) -> None:
+        """Baseline is finite for any percentile in [1, 50]."""
+        rng = np.random.default_rng(0)
+        F = rng.uniform(50, 200, (2, 100)).astype(np.float32)
+        F0 = compute_baseline_percentile(F, fps=5.0, window_s=5.0, percentile=percentile)
+        assert np.all(np.isfinite(F0))
+        assert F0.shape == F.shape
