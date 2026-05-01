@@ -201,8 +201,22 @@ class TestCalciumRun:
 
         out_a = tmp_path / "ca_a.h5"
         out_b = tmp_path / "ca_b.h5"
-        run(suite2p_dir, ts_h5, session_id="test", output_path=out_a, neuropil_coefficient=0.3)
-        run(suite2p_dir, ts_h5, session_id="test", output_path=out_b, neuropil_coefficient=0.9)
+        run(
+            suite2p_dir,
+            ts_h5,
+            session_id="test",
+            output_path=out_a,
+            neuropil_method="fixed",
+            neuropil_coefficient=0.3,
+        )
+        run(
+            suite2p_dir,
+            ts_h5,
+            session_id="test",
+            output_path=out_b,
+            neuropil_method="fixed",
+            neuropil_coefficient=0.9,
+        )
 
         dff_a = read_h5(out_a)["dff"]
         dff_b = read_h5(out_b)["dff"]
