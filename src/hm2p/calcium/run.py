@@ -55,7 +55,7 @@ def run(
     dff_baseline_window_s: float = 60.0,
     dff_gaussian_sigma_s: float = 10.0,
     run_cascade: bool = False,
-    cascade_model: str = "Global_EXC_7.5Hz_smoothing200ms",
+    cascade_model: str = "Global_EXC_10Hz_smoothing200ms",
 ) -> None:
     """Stage 4 pipeline: Suite2p output → neuropil subtraction → dF/F0 → ca.h5.
 
@@ -86,10 +86,30 @@ def run(
     F = F_all  # all ROIs, not filtered by iscell
     Fneu = Fneu_all
 
+    # --- Load ops and extract bad imaging frames ---
+    # Suite2p stores ops['badframes'] as an integer array of frame indices
+    # that exceeded the th_badframes threshold during motion correction.
+    # These frames have unreliable motion estimates and should be excluded
+    # from downstream analyses.
+    plane_dir = suite2p_dir / "plane0"
+    ops_path = plane_dir / "ops.npy"
+    bad_imaging_frames: np.ndarray | None = None
+    if ops_path.exists():
+        ops = np.load(ops_path, allow_pickle=True).item()
+        n_total_frames = F.shape[1]
+        badframes_idx = ops.get("badframes", None)
+        if badframes_idx is not None and len(badframes_idx) > 0:
+            bad_mask = np.zeros(n_total_frames, dtype=bool)
+            # badframes contains frame indices; clip to valid range
+            valid_idx = badframes_idx[badframes_idx < n_total_frames]
+            bad_mask[valid_idx] = True
+            bad_imaging_frames = bad_mask
+        else:
+            bad_imaging_frames = np.zeros(n_total_frames, dtype=bool)
+
     # --- Classify ROI types ---
     from hm2p.extraction.suite2p import classify_roi_types
 
-    plane_dir = suite2p_dir / "plane0"
     stat_path = plane_dir / "stat.npy"
     if stat_path.exists():
         stat = list(np.load(stat_path, allow_pickle=True))
@@ -99,9 +119,7 @@ def run(
 
     # Merge iscell=False ROIs and shape-based artefacts into "non-cell"
     for i in range(len(roi_types)):
-        if not cell_mask[i]:
-            roi_types[i] = "non-cell"
-        elif roi_types[i] == "artefact":
+        if not cell_mask[i] or roi_types[i] == "artefact":
             roi_types[i] = "non-cell"
 
     # --- Load imaging frame times ---
@@ -161,6 +179,19 @@ def run(
         "noise_probs": batch_result.noise_probs,
         "roi_types": roi_type_arr,
     }
+
+    # Persist Suite2p's bad-frame mask (frames that failed motion-correction
+    # quality threshold during registration).  Length == number of imaging
+    # frames.  Downstream (Stage 5 sync) ORs this with bad_behav to produce
+    # the combined exclusion mask.
+    if bad_imaging_frames is not None:
+        # Trim/pad to match dff frame count in case of ops off-by-one
+        n_dff = dff.shape[1]
+        if len(bad_imaging_frames) >= n_dff:
+            datasets["bad_imaging_frames"] = bad_imaging_frames[:n_dff]
+        else:
+            pad = np.zeros(n_dff - len(bad_imaging_frames), dtype=bool)
+            datasets["bad_imaging_frames"] = np.concatenate([bad_imaging_frames, pad])
 
     # Suite2p deconvolved spikes (raw + max-normalized)
     if deconv is not None:
