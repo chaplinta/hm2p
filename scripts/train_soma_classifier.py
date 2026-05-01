@@ -85,11 +85,22 @@ def _build_argparser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description=("Train a soma/dend/artefact classifier from curated Suite2p labels."),
     )
-    p.add_argument(
+    label_src = p.add_mutually_exclusive_group(required=True)
+    label_src.add_argument(
         "--labels",
         type=Path,
-        required=True,
         help="Path to labels CSV (columns: session_id, roi_index, label).",
+    )
+    label_src.add_argument(
+        "--curation-csv",
+        type=Path,
+        help=(
+            "Path to the append-only curation CSV produced by the ROI "
+            "Curation Streamlit page (`metadata/roi_curation.csv`). When "
+            "supplied, the latest-timestamp row for each (session_id, "
+            "roi_index) pair is used and the extra `curator` and "
+            "`timestamp` columns are ignored."
+        ),
     )
     p.add_argument(
         "--output",
@@ -305,12 +316,22 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     args = _build_argparser().parse_args(argv)
 
-    labels = _load_labels(args.labels)
+    if args.curation_csv is not None:
+        # Resolve append-only curation CSV → latest-timestamp-wins frame
+        # with exactly the columns ``_load_labels`` expects.
+        from hm2p.extraction.curation import load_latest_labels
+
+        latest = load_latest_labels(args.curation_csv)
+        labels = latest[["session_id", "roi_index", "label"]].copy()
+        source = args.curation_csv
+    else:
+        labels = _load_labels(args.labels)
+        source = args.labels
     log.info(
         "Loaded %d labelled ROIs across %d sessions from %s",
         len(labels),
         labels["session_id"].nunique(),
-        args.labels,
+        source,
     )
 
     if args.dry_run:

@@ -199,3 +199,57 @@ class TestFeaturesForSession:
 
         assert list(df.columns) == list(FEATURE_COLUMNS)
         assert len(df) == 5
+
+
+class TestCurationCsvFlag:
+    """``--curation-csv`` resolves an append-only CSV via load_latest_labels."""
+
+    def test_dry_run_with_curation_csv(self, tmp_path: Path) -> None:
+        from hm2p.extraction.curation import append_curation_row
+
+        csv_path = tmp_path / "roi_curation.csv"
+        # Two labels for one ROI — latest timestamp should win.
+        append_curation_row(
+            csv_path,
+            "20220804_13_52_02_1117646",
+            0,
+            "soma",
+            "alice",
+            "2026-01-01T00:00:00+00:00",
+        )
+        append_curation_row(
+            csv_path,
+            "20220804_13_52_02_1117646",
+            0,
+            "dend",
+            "alice",
+            "2026-01-02T00:00:00+00:00",
+        )
+
+        rc = tsc.main(
+            [
+                "--curation-csv",
+                str(csv_path),
+                "--output",
+                str(tmp_path / "model.pkl"),
+                "--report-dir",
+                str(tmp_path / "reports"),
+                "--dry-run",
+            ]
+        )
+        assert rc == 0
+
+    def test_mutually_exclusive_with_labels(self, tmp_path: Path) -> None:
+        with pytest.raises(SystemExit):
+            tsc.main(
+                [
+                    "--labels",
+                    "x.csv",
+                    "--curation-csv",
+                    "y.csv",
+                    "--output",
+                    str(tmp_path / "model.pkl"),
+                    "--report-dir",
+                    str(tmp_path / "reports"),
+                ]
+            )

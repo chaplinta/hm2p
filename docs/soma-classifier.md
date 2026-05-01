@@ -87,36 +87,90 @@ The dF/F trace is computed inline via a global eighth-percentile baseline
 (Jia et al. 2011) so that feature extraction can run on raw Suite2p
 arrays without re-doing the full Stage 4 pipeline.
 
+## Manual ROI curation workflow
+
+The Streamlit page
+[`frontend/pages/roi_curation_page.py`](../frontend/pages/roi_curation_page.py)
+is the in-pipeline replacement for the legacy Suite2p GUI labelling
+workflow. It surfaces the ROIs that the classifier is most uncertain
+about (default: `0.3 < p_soma < 0.7`) and lets the curator confirm or
+override the model's argmax label one ROI at a time.
+
+### CSV schema
+
+Every saved label is appended to `metadata/roi_curation.csv` with the
+columns:
+
+| Column       | Description                                                         |
+|--------------|---------------------------------------------------------------------|
+| `session_id` | Canonical session identifier `YYYYMMDD_HH_MM_SS_<animal_id>`.       |
+| `roi_index`  | Zero-based ROI index within the session's `dff` array.              |
+| `label`      | One of `"soma"`, `"dend"`, `"artefact"`.                            |
+| `curator`    | Free-form curator name (defaults to `$HM2P_CURATOR` or `$USER`).    |
+| `timestamp`  | ISO-8601 UTC timestamp (no microseconds).                            |
+
+The first three columns match the schema consumed by
+`scripts/train_soma_classifier.py`, so the same file feeds both the
+runtime label resolver and offline classifier training.
+
+The CSV is **append-only**. Re-labelling an ROI never overwrites the
+previous row; instead, a new row is appended with a fresh timestamp, and
+[`hm2p.extraction.curation.load_latest_labels`](../src/hm2p/extraction/curation.py)
+resolves duplicates on read by taking the row with the largest
+timestamp.
+
+### Runtime resolver
+
+[`hm2p.extraction.curation.effective_roi_label(roi_qc, n_rois)`](../src/hm2p/extraction/curation.py)
+returns per-ROI string labels following this resolution order:
+
+1. The curated label, if `roi_qc/curated_label[i]` is one of `soma`,
+   `dend`, `artefact`.
+2. The argmax of `p_soma`, `p_dend`, `p_artefact` when all three are
+   finite.
+3. `"soma"` as the conservative fallback.
+
+Downstream code that wants the curator's verdict should call this
+helper instead of recomputing argmax from probabilities.
+
+### Persisting curated labels into ca.h5
+
+The "Apply curation to ca.h5" button on the curation page calls
+[`apply_curation_to_ca_h5`](../src/hm2p/extraction/curation.py), which
+reads the latest CSV labels for the selected session and writes a
+string array `roi_qc/curated_label` of length `n_rois` into the local
+`ca.h5`. Un-curated ROIs receive an empty string. The function does
+**not** push back to S3 — uploading the curated `ca.h5` is a separate,
+deliberate operation.
+
 ## Training a real classifier
 
 The script
 [`scripts/train_soma_classifier.py`](../scripts/train_soma_classifier.py)
 trains a `LogisticRegressionClassifier` from curated labels and saves it
-to disk via `joblib`.
+to disk via `joblib`. It accepts either:
+
+* `--labels labels.csv` — a plain three-column CSV (`session_id`,
+  `roi_index`, `label`); for hand-curated label sets created outside
+  the curation page.
+* `--curation-csv metadata/roi_curation.csv` — the append-only file
+  produced by the curation page. The script resolves duplicates via
+  `load_latest_labels` and ignores the `curator` and `timestamp`
+  columns.
 
 ### Labelling workflow
 
-1. Open Suite2p's GUI on a session with `ca.h5` already produced.
-2. For ~200 ROIs across 2–3 representative sessions, manually mark each
-   as soma, dendrite, or artefact (Suite2p's classifier UI lets you flip
-   ROIs into `iscell=False` if they are clearly artefactual; for soma vs
-   dend you may need to keep notes externally).
-3. Export the labels to a CSV with columns `session_id`, `roi_index`,
-   `label` — for example:
-
-   ```csv
-   session_id,roi_index,label
-   20220804_13_52_02_1117646,0,soma
-   20220804_13_52_02_1117646,1,artefact
-   20220804_13_52_02_1117646,5,dend
-   ...
-   ```
-
-4. Run the training script:
+1. Run the curation page (`streamlit run frontend/app.py` → ROI
+   Curation) on every session whose `ca.h5` has soma classifier
+   probabilities. The default filter `0.3 < p_soma < 0.7` surfaces the
+   ambiguous ROIs first; widen to review additional cases.
+2. Aim for ~200 confirmed labels across 2–3 representative sessions
+   before training a classifier.
+3. Run the training script:
 
    ```bash
    python -m scripts.train_soma_classifier \
-       --labels labels.csv \
+       --curation-csv metadata/roi_curation.csv \
        --output sourcedata/trackers/suite2p/soma_classifier.pkl \
        --report-dir reports/soma_classifier/
    ```
@@ -126,7 +180,7 @@ to disk via `joblib`.
    matrix (`confusion_matrix.csv`), and per-class feature coefficients
    (`feature_coefficients.csv`) to `--report-dir`.
 
-5. Re-run Stage 4 on every session — the runtime path will pick up the
+4. Re-run Stage 4 on every session — the runtime path will pick up the
    new pickle automatically and write classifier-derived `p_soma` /
    `p_dend` / `p_artefact` arrays into each `ca.h5` file.
 
