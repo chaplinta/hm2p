@@ -346,3 +346,115 @@ class TestBadImagingFrames:
 
         ca = read_h5(out)
         assert len(ca["bad_imaging_frames"]) == ca["dff"].shape[1]
+
+
+# ---------------------------------------------------------------------------
+# Soma-classifier probabilities — written when stat.npy is present
+# ---------------------------------------------------------------------------
+
+
+def _write_suite2p_with_stat(
+    suite2p_dir: Path,
+    n_rois: int = 8,
+    n_frames: int = 200,
+) -> None:
+    """Write synthetic Suite2p plane0 including stat.npy and ops.npy."""
+    rng = np.random.default_rng(123)
+    plane = suite2p_dir / "plane0"
+    plane.mkdir(parents=True)
+
+    F = rng.uniform(100, 500, (n_rois, n_frames)).astype(np.float32)
+    Fneu = rng.uniform(50, 200, (n_rois, n_frames)).astype(np.float32)
+    iscell = np.ones((n_rois, 2), dtype=np.float32)
+
+    np.save(plane / "F.npy", F)
+    np.save(plane / "Fneu.npy", Fneu)
+    np.save(plane / "iscell.npy", iscell)
+
+    stat = []
+    for i in range(n_rois):
+        stat.append(
+            {
+                "radius": 6.0 if i % 2 == 0 else 1.0,  # mix of soma and artefact shapes
+                "compact": 0.7,
+                "aspect_ratio": 1.5,
+                "npix": 200,
+                "npix_norm": 1.5,
+                "skew": 1.0,
+                "std": 1.0,
+                "ypix": np.array([0, 1, 2], dtype=int),
+                "xpix": np.array([0, 1, 2], dtype=int),
+            }
+        )
+    np.save(plane / "stat.npy", np.array(stat, dtype=object), allow_pickle=True)
+    ops = {
+        "fs": 9.6,
+        "Ly": 64,
+        "Lx": 64,
+        "nframes": n_frames,
+        "badframes": np.array([], dtype=np.int64),
+    }
+    np.save(plane / "ops.npy", ops)
+
+
+class TestSomaClassifierProbabilities:
+    def test_p_soma_p_dend_p_artefact_written(self, tmp_path: Path) -> None:
+        """When stat.npy is present, ca.h5 contains roi_qc/p_soma etc."""
+        from hm2p.io.hdf5 import read_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_stat(suite2p_dir, n_rois=8, n_frames=300)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=300, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert "roi_qc/p_soma" in ca
+        assert "roi_qc/p_dend" in ca
+        assert "roi_qc/p_artefact" in ca
+
+    def test_probabilities_sum_to_one(self, tmp_path: Path) -> None:
+        from hm2p.io.hdf5 import read_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_stat(suite2p_dir, n_rois=6, n_frames=300)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=300, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        sums = ca["roi_qc/p_soma"] + ca["roi_qc/p_dend"] + ca["roi_qc/p_artefact"]
+        assert np.allclose(sums, 1.0, atol=1e-5)
+
+    def test_probabilities_length_matches_n_rois(self, tmp_path: Path) -> None:
+        from hm2p.io.hdf5 import read_h5
+
+        n_rois = 8
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_stat(suite2p_dir, n_rois=n_rois, n_frames=300)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=300, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert ca["roi_qc/p_soma"].shape == (n_rois,)
+        assert ca["roi_qc/p_dend"].shape == (n_rois,)
+        assert ca["roi_qc/p_artefact"].shape == (n_rois,)
+
+    def test_no_p_soma_when_stat_missing(self, tmp_path: Path) -> None:
+        """When stat.npy is absent, p_soma is not written (graceful fallback)."""
+        from hm2p.io.hdf5 import read_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        # Use the without-stat helper:
+        _write_suite2p_plane0(suite2p_dir, n_rois=6, n_cells=4, n_frames=200)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert "roi_qc/p_soma" not in ca

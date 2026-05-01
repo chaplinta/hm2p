@@ -162,8 +162,16 @@ fluorescence signal exceeding its threshold, which includes dendritic processes
 that look similar to small somata in activity space. A Cellpose 3 anatomical
 prior seeds ROI candidates from a static mean/max projection image, biasing
 detection toward compact, roughly circular soma morphologies before activity
-statistics refine the candidate set. Shape-based post-hoc classification in
-`extraction/suite2p.py` then separates retained soma and dendrite ROIs.
+statistics refine the candidate set. Post-hoc classification in
+`extraction/soma_classifier.py` (using shape statistics from `stat.npy` plus
+activity features from the dF/F traces) then separates retained soma and
+dendrite ROIs and produces calibrated per-ROI probabilities (`p_soma`,
+`p_dend`, `p_artefact`) stored in `ca.h5`. The current default is a
+provisional rule-based scorer that exactly reproduces the legacy hand-tuned
+thresholds; a logistic-regression replacement can be trained from curated
+labels via `scripts/train_soma_classifier.py` and dropped in at
+`sourcedata/trackers/suite2p/soma_classifier.pkl`. See
+[docs/soma-classifier.md](docs/soma-classifier.md) for details.
 
 **Mode 2 (default):** Cellpose seeds + activity refinement. This retains the
 benefits of both approaches: anatomical shape guides initial detection, and
@@ -200,7 +208,9 @@ hm2p-v2/
 │       ├── extraction/
 │       │   ├── __init__.py
 │       │   ├── base.py            # Abstract extractor interface (wraps roiextractors)
-│       │   ├── suite2p.py         # Suite2pExtractor + post-hoc soma/dend classification
+│       │   ├── suite2p.py         # Suite2pExtractor + classify_roi_types(_with_probs)
+│       │   ├── soma_features.py   # Per-ROI feature extraction (shape + activity)
+│       │   ├── soma_classifier.py # Soma/dend/artefact classifier framework
 │       │   ├── run_suite2p.py     # Suite2p batch runner: wraps suite2p.run_s2p()
 │       │   ├── zdrift.py          # Z-drift estimation from serial2p z-stacks
 │       │   └── caiman.py          # CaimanExtractor

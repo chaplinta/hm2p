@@ -449,7 +449,11 @@ else:
         TAU_MIN_S,
     )
 
-    # Build DataFrame for this session's QC metrics
+    # Build DataFrame for this session's QC metrics.
+    # ``p_soma`` / ``p_dend`` / ``p_artefact`` are written by the soma
+    # classifier framework (hm2p.extraction.soma_classifier).  When they
+    # are absent (e.g. older ca.h5 files), the column is filled with NaN
+    # and rendered as "—" in the table.
     n_rois_ses = ses["n_rois"]
     qc_df = pd.DataFrame(
         {
@@ -468,6 +472,11 @@ else:
             ),
             "active_fraction": roi_qc_ses.get(
                 "active_fraction", np.full(n_rois_ses, np.nan, dtype=np.float32)
+            ),
+            "p_soma": roi_qc_ses.get("p_soma", np.full(n_rois_ses, np.nan, dtype=np.float32)),
+            "p_dend": roi_qc_ses.get("p_dend", np.full(n_rois_ses, np.nan, dtype=np.float32)),
+            "p_artefact": roi_qc_ses.get(
+                "p_artefact", np.full(n_rois_ses, np.nan, dtype=np.float32)
             ),
         }
     )
@@ -491,6 +500,27 @@ else:
         + qc_df["flag_active"].astype(int)
     )
     qc_df["flagged"] = qc_df["n_flags"] > 0
+
+    # ── Soma classifier probabilities for the current ROI ────────────────
+    if roi_idx < len(qc_df):
+        row_classifier = qc_df.iloc[roi_idx]
+        p_soma_val = row_classifier.get("p_soma", float("nan"))
+        p_dend_val = row_classifier.get("p_dend", float("nan"))
+        p_art_val = row_classifier.get("p_artefact", float("nan"))
+        if any(np.isfinite([p_soma_val, p_dend_val, p_art_val])):
+            cps1, cps2, cps3 = st.columns(3)
+            cps1.metric(
+                "p_soma",
+                "—" if not np.isfinite(p_soma_val) else f"{p_soma_val:.3f}",
+            )
+            cps2.metric(
+                "p_dend",
+                "—" if not np.isfinite(p_dend_val) else f"{p_dend_val:.3f}",
+            )
+            cps3.metric(
+                "p_artefact",
+                "—" if not np.isfinite(p_art_val) else f"{p_art_val:.3f}",
+            )
 
     # ── Callout for the currently viewed ROI ─────────────────────────────
     if roi_idx < len(qc_df):
@@ -609,8 +639,17 @@ else:
 
     # ── QC table (all ROIs in session) ────────────────────────────────────
     with st.expander("Full QC table (all ROIs in session)", expanded=False):
+        st.caption(
+            "Sort by **p_soma** ascending to surface ambiguous ROIs that the "
+            "soma classifier is uncertain about — these are the candidates "
+            "for manual curation. The classifier framework lives in "
+            "`hm2p.extraction.soma_classifier`; see `docs/soma-classifier.md`."
+        )
         display_cols = [
             "roi_index",
+            "p_soma",
+            "p_dend",
+            "p_artefact",
             "snr_event",
             "decay_tau_s",
             "fneu_dff_corr",
@@ -622,6 +661,9 @@ else:
         display_df = display_df.rename(
             columns={
                 "roi_index": "ROI",
+                "p_soma": "p_soma",
+                "p_dend": "p_dend",
+                "p_artefact": "p_artefact",
                 "snr_event": "SNR",
                 "decay_tau_s": "Tau (s)",
                 "fneu_dff_corr": "Fneu corr",
@@ -639,6 +681,9 @@ else:
         st.dataframe(
             display_df.style.apply(_highlight_flags, axis=1).format(
                 {
+                    "p_soma": "{:.3f}",
+                    "p_dend": "{:.3f}",
+                    "p_artefact": "{:.3f}",
                     "SNR": "{:.2f}",
                     "Tau (s)": "{:.3f}",
                     "Fneu corr": "{:.3f}",
@@ -689,6 +734,17 @@ with st.expander("Methods & References"):
 Stringer & Pachitariu 2025. "Cellpose3: one-click image restoration for improved
 cellular segmentation." *Nature Methods*. doi:10.1038/s41592-025-02595-5.
 GitHub: https://github.com/MouseLand/cellpose
+
+**Soma / dendrite / artefact probabilities** (`p_soma`, `p_dend`, `p_artefact`):
+classifier framework in `hm2p.extraction.soma_classifier`. The current default
+is a *provisional rule-based scorer* whose argmax exactly reproduces the legacy
+shape-only thresholds — switching to it does not relabel any existing ROI. Once
+~200 manual labels have been curated in Suite2p's GUI, a logistic-regression
+classifier can be trained via `scripts/train_soma_classifier.py` and dropped in
+at `sourcedata/trackers/suite2p/soma_classifier.pkl`. See `docs/soma-classifier.md`
+for the full workflow.
+Pedregosa et al. 2011. "Scikit-learn: Machine Learning in Python." *JMLR*
+12:2825–2830. https://scikit-learn.org
 """)
 
 

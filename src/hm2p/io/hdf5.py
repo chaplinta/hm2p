@@ -237,9 +237,14 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
       roi_qc/fneu_dff_corr float32 1D  length n_rois
       roi_qc/bleach_slope float32  1D  length n_rois
       roi_qc/active_fraction float32 1D length n_rois
+      roi_qc/p_soma       float32  1D  length n_rois
+      roi_qc/p_dend       float32  1D  length n_rois
+      roi_qc/p_artefact   float32  1D  length n_rois
 
-    The roi_qc/* arrays are written by ``hm2p.calcium.qc.compute_roi_qc`` and
-    use slash-keyed names so that h5py creates a ``roi_qc`` group automatically.
+    The roi_qc/* arrays are written by ``hm2p.calcium.qc.compute_roi_qc``
+    (SNR, tau, etc.) and ``hm2p.extraction.soma_classifier`` (the three
+    ``p_*`` probabilities); both use slash-keyed names so that h5py
+    creates a ``roi_qc`` group automatically.
 
     References:
         Pnevmatikakis et al. 2016. "Simultaneous Denoising, Deconvolution, and
@@ -273,12 +278,18 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
             _schema_error(f"{ctx}: 'spikes' shape {spikes.shape} != 'dff' shape {dff.shape}")
 
     # Optional roi_qc group: all arrays must be 1D with length n_rois.
+    # ``p_soma`` / ``p_dend`` / ``p_artefact`` are calibrated probabilities
+    # written by the soma classifier framework (see
+    # ``hm2p.extraction.soma_classifier``).
     roi_qc_float32 = (
         "roi_qc/snr_event",
         "roi_qc/decay_tau_s",
         "roi_qc/fneu_dff_corr",
         "roi_qc/bleach_slope",
         "roi_qc/active_fraction",
+        "roi_qc/p_soma",
+        "roi_qc/p_dend",
+        "roi_qc/p_artefact",
     )
     if "roi_qc/roi_index" in arrays:
         idx = arrays["roi_qc/roi_index"]

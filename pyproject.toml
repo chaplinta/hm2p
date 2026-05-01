@@ -33,6 +33,10 @@ dependencies = [
     # Stage 4 — Calcium processing
     # NOTE: cascade2p is NOT on PyPI; install separately — see [project.optional-dependencies]
     "roiextractors>=0.5.10,<1.0",
+    # scikit-learn powers the soma/dend/artefact classifier (LogisticRegression
+    # + StandardScaler pipeline). joblib persists the fitted pipeline.
+    "scikit-learn>=1.4,<2.0",
+    "joblib>=1.3,<2.0",
     # Stage 5 — Sync
     # (numpy + scipy + pandas already listed above)
     # IO & validation
@@ -172,6 +176,10 @@ ignore = [
 "tests/test_cli.py"       = ["N806"]
 "src/hm2p/io/hdf5.py"    = ["N806"]
 "tests/io/test_hdf5.py"  = ["N803", "N806"]
+# scripts/ — Suite2p variable names + script CLIs are exempt from
+# strict typing / naming enforcement; they're runnable entry points.
+"scripts/**"              = ["N803", "N806", "ANN"]
+"tests/scripts/**"        = ["N803", "N806"]
 
 [tool.ruff.format]
 quote-style = "double"

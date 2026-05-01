@@ -172,12 +172,34 @@ def run(
             bad_imaging_frames = np.zeros(n_total_frames, dtype=bool)
 
     # --- Classify ROI types ---
-    from hm2p.extraction.suite2p import classify_roi_types
-
+    # When stat.npy is present, route through the activity-aware classifier
+    # which records calibrated per-ROI probabilities (p_soma, p_dend,
+    # p_artefact) alongside the hard labels.  When stat.npy is missing
+    # (e.g. degraded Suite2p outputs), default everything to "soma".
     stat_path = plane_dir / "stat.npy"
+    p_soma_arr: np.ndarray | None = None
+    p_dend_arr: np.ndarray | None = None
+    p_artefact_arr: np.ndarray | None = None
+
     if stat_path.exists():
+        from hm2p.extraction.suite2p import classify_roi_types_with_probs
+
         stat = list(np.load(stat_path, allow_pickle=True))
-        roi_types = classify_roi_types(stat)
+
+        # Infer fps for the feature extractor from frame_times below.  At
+        # this point in the function, frame_times has not yet been loaded,
+        # so we compute a provisional fps from ops if possible.  This
+        # avoids a circular dependency on the timestamps load order.
+        ops_for_fps = np.load(ops_path, allow_pickle=True).item() if ops_path.exists() else None
+        fps_for_features = float(ops_for_fps.get("fs", 9.6)) if ops_for_fps is not None else 9.6
+
+        roi_types, probs = classify_roi_types_with_probs(
+            stat, F=F, Fneu=Fneu, fps=fps_for_features
+        )
+        # CLASS_NAMES order: ("soma", "dend", "artefact")
+        p_soma_arr = probs[:, 0].astype(np.float32)
+        p_dend_arr = probs[:, 1].astype(np.float32)
+        p_artefact_arr = probs[:, 2].astype(np.float32)
     else:
         roi_types = ["soma"] * F.shape[0]
 
@@ -342,6 +364,13 @@ def run(
 
     # Per-ROI QC metrics (roi_qc/* keys)
     datasets.update(qc_datasets)
+
+    # Soma-classifier probabilities — surfaced in the ROI viewer to flag
+    # ambiguous ROIs.  See docs/soma-classifier.md.
+    if p_soma_arr is not None and p_dend_arr is not None and p_artefact_arr is not None:
+        datasets["roi_qc/p_soma"] = p_soma_arr
+        datasets["roi_qc/p_dend"] = p_dend_arr
+        datasets["roi_qc/p_artefact"] = p_artefact_arr
 
     # --- Optional CASCADE spike inference ---
     if run_cascade:
