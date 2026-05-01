@@ -160,7 +160,11 @@ dlc_page = st.Page(
 dlc_viewer_page = st.Page(
     str(_app_dir / "pages/dlc_viewer_page.py"), title="DLC Viewer", icon=":material/videocam:"
 )
-sync_page = st.Page(str(_app_dir / "pages/sync_page.py"), title="Sync", icon=":material/sync:")
+sync_page = st.Page(
+    str(_app_dir / "pages/sync_report_page.py"),
+    title="Sync Report",
+    icon=":material/sync:",
+)
 analysis_page = st.Page(
     str(_app_dir / "pages/analysis_page.py"), title="Analysis", icon=":material/analytics:"
 )

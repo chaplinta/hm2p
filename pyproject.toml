@@ -180,6 +180,11 @@ ignore = [
 # strict typing / naming enforcement; they're runnable entry points.
 "scripts/**"              = ["N803", "N806", "ANN"]
 "tests/scripts/**"        = ["N803", "N806"]
+# frontend/ pages have a sys.path.insert before imports (legacy convention)
+# and embed verbatim methodology markdown that exceeds the 99-char limit.
+"frontend/pages/**"       = ["E402", "E501"]
+"frontend/components/**"  = ["E402"]
+"tests/frontend/**"       = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -67,7 +67,7 @@ def signal_type_selector(
     session: dict,
     key_prefix: str = "sig",
     default: str = "dff",
-) -> tuple[str, np.ndarray | None]:
+) -> tuple[str, object | None]:
     """Show a radio button to select the calcium signal type.
 
     Only shows options that are available in the session data.
@@ -76,7 +76,6 @@ def signal_type_selector(
 
     Call in the page body (not sidebar).
     """
-
     options = []
     for key, label in SIGNAL_TYPE_LABELS.items():
         if (
@@ -1674,4 +1673,91 @@ def load_exemplar_summary() -> dict | None:
         return json.loads(data.decode())
     except Exception:
         log.exception("Error parsing exemplar_summary.json")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Sync diagnostics helpers (Stage 5 / Stage 5b)
+# ---------------------------------------------------------------------------
+
+
+def is_sync_clean(sync_attrs: dict) -> tuple[bool, str]:
+    """Decide whether analysis pages should consume a session's data.
+
+    Per ``docs/sync-pipeline-design.md`` §5.1, a session is unclean when
+    its ``sync_status`` starts with ``FAILED_``. ``OK`` and
+    ``OK_WITH_WARNINGS`` are both considered clean for consumption
+    (warnings are reported separately via ``sync_warnings``; pages that
+    care about warnings must read them via ``read_attrs(sync.h5)``).
+
+    Parameters
+    ----------
+    sync_attrs:
+        The dict returned by ``hm2p.io.hdf5.read_attrs`` on a sync.h5,
+        or any dict with a ``sync_status`` key. Bytes-typed status from
+        h5py are decoded automatically.
+
+    Returns
+    -------
+    clean, reason:
+        ``clean`` is True when downstream analysis should proceed.
+        ``reason`` is the empty string for clean sessions and a short
+        human-readable description otherwise.
+    """
+    raw = sync_attrs.get("sync_status")
+    if raw is None:
+        return False, "sync.h5 lacks sync_status — re-run Stage 5"
+    status = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+    if status.startswith("FAILED_"):
+        failures_raw = sync_attrs.get("sync_failures", "[]")
+        if isinstance(failures_raw, bytes):
+            failures_raw = failures_raw.decode("utf-8")
+        try:
+            failures = json.loads(failures_raw)
+        except Exception:
+            failures = []
+        first = failures[0] if failures else status
+        return False, f"{status}: {first}"
+    return True, ""
+
+
+def render_sync_failure_warning(reason: str) -> None:
+    """Display a prominent error banner that the current session failed sync.
+
+    Analysis pages call this immediately after :func:`is_sync_clean`
+    returns ``False`` and follow up with ``st.stop()`` — there is no
+    useful analysis to render when sync verification failed. The sync
+    report page itself remains fully functional; that is where the user
+    triages.
+    """
+    st.error(
+        "This session failed sync verification: "
+        f"{reason}. Re-run Stage 5 or correct the underlying data. "
+        "Analysis pages refuse to render until the failure is resolved.",
+        icon="🛑",
+    )
+
+
+SYNC_REPORT_KEY: str = "sync_report/sync_report.parquet"
+
+
+@st.cache_data(ttl=300)
+def load_sync_report() -> pd.DataFrame | None:  # noqa: F821 (forward ref)
+    """Load the per-session sync diagnostics parquet from S3.
+
+    Returns ``None`` when the parquet is missing (Stage 5b has not been
+    run). The page renders a "Sync report not yet built" banner in that
+    case rather than falling back to synthetic data.
+    """
+    import io as _io
+
+    import pandas as pd
+
+    data = download_s3_bytes(DERIVATIVES_BUCKET, SYNC_REPORT_KEY)
+    if data is None:
+        return None
+    try:
+        return pd.read_parquet(_io.BytesIO(data))
+    except Exception:
+        log.exception("Error parsing sync_report.parquet")
         return None
