@@ -99,7 +99,7 @@ class TestLoadConfig:
             cfg = load_config(yaml_path)
             assert cfg.compute_profile == "local"
             assert cfg.neuropil_coefficient == 0.7
-            assert cfg.cascade_model == "Global_EXC_7.5Hz_smoothing200ms"
+            assert cfg.cascade_model == "Global_EXC_10Hz_smoothing200ms"
 
     def test_yaml_extra_keys_ignored(self, tmp_path: Path) -> None:
         """Unknown keys in YAML are ignored (extra='ignore' in model_config)."""

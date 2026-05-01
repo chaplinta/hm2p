@@ -12,7 +12,9 @@ from hm2p.extraction.run_suite2p import (
     _deep_update,
     default_ops,
     default_settings,
+    fps_from_timestamps,
     run_suite2p,
+    tau_for_indicator,
 )
 
 # ---------------------------------------------------------------------------
@@ -23,6 +25,7 @@ from hm2p.extraction.run_suite2p import (
 _suite2p_available = False
 try:
     import suite2p  # noqa: F401
+
     _suite2p_available = True
 except ImportError:
     pass
@@ -41,11 +44,16 @@ class TestDefaultSettings:
 
     def test_default_fs(self):
         settings = default_settings()
-        assert settings["fs"] == 29.97
+        assert settings["fs"] == 9.6
 
-    def test_tau_gcamg7f(self):
+    def test_tau_default(self):
+        # Default tau is 1.0 s (_INDICATOR_TAU_DEFAULT).
         settings = default_settings()
         assert settings["tau"] == 1.0
+
+    def test_tau_from_arg(self):
+        settings = default_settings(fps=9.6, tau=0.4)
+        assert settings["tau"] == 0.4
 
     @pytest.mark.skipif(not _suite2p_available, reason="suite2p not installed")
     def test_deconvolution_off(self):
@@ -77,7 +85,7 @@ class TestDefaultOps:
 
     def test_default_fs(self):
         ops = default_ops()
-        assert ops["fs"] == 29.97
+        assert ops["fs"] == 9.6
 
 
 # ---------------------------------------------------------------------------
@@ -152,12 +160,13 @@ class TestRunSuite2p:
                 np.array([{"ypix": np.array([0]), "xpix": np.array([0])}] * 5, dtype=object),
                 allow_pickle=True,
             )
-            np.save(s2p_dir / "ops.npy", {"fs": 29.97, "Ly": 64, "Lx": 64})
+            np.save(s2p_dir / "ops.npy", {"fs": 9.6, "Ly": 64, "Lx": 64})
 
         mock_suite2p.run_s2p = fake_run_s2p
 
         with patch.dict("sys.modules", {"suite2p": mock_suite2p}):
-            result = run_suite2p(tiff_dir, output_dir)
+            # Pass fps explicitly so the test does not depend on timestamps.h5.
+            result = run_suite2p(tiff_dir, output_dir, fps=9.6)
 
         assert result == output_dir / "suite2p"
         assert (result / "plane0" / "F.npy").exists()
@@ -174,17 +183,32 @@ class TestRunSuite2p:
         mock_suite2p = MagicMock()
         # default_settings returns a real nested dict so deep_update works
         mock_suite2p.default_settings.return_value = {
-            "fs": 29.97, "tau": 1.0,
+            "fs": 29.97,
+            "tau": 1.0,
             "run": {"do_deconvolution": False},
             "io": {"delete_bin": True},
-            "registration": {"nonrigid": True, "block_size": (128, 128),
-                             "batch_size": 100, "maxregshift": 0.1,
-                             "smooth_sigma": 1.15, "th_badframes": 1.0, "subpixel": 10},
-            "detection": {"threshold_scaling": 1.0, "max_overlap": 0.75,
-                          "sparsery_settings": {"highpass_neuropil": 25}},
-            "extraction": {"batch_size": 500, "neuropil_extract": True,
-                           "neuropil_coefficient": 0.7, "inner_neuropil_radius": 2,
-                           "min_neuropil_pixels": 350, "allow_overlap": False},
+            "registration": {
+                "nonrigid": True,
+                "block_size": (128, 128),
+                "batch_size": 100,
+                "maxregshift": 0.1,
+                "smooth_sigma": 1.15,
+                "th_badframes": 1.0,
+                "subpixel": 10,
+            },
+            "detection": {
+                "threshold_scaling": 1.0,
+                "max_overlap": 0.75,
+                "sparsery_settings": {"highpass_neuropil": 25},
+            },
+            "extraction": {
+                "batch_size": 500,
+                "neuropil_extract": True,
+                "neuropil_coefficient": 0.7,
+                "inner_neuropil_radius": 2,
+                "min_neuropil_pixels": 350,
+                "allow_overlap": False,
+            },
             "classification": {"use_builtin_classifier": True},
         }
         captured = {}
@@ -200,10 +224,11 @@ class TestRunSuite2p:
         mock_suite2p.run_s2p = fake_run_s2p
 
         with patch.dict("sys.modules", {"suite2p": mock_suite2p}):
-            run_suite2p(tiff_dir, output_dir, ops_overrides={"tau": 2.0})
+            # Pass fps=9.6 explicitly; we only want to verify ops_overrides merging.
+            run_suite2p(tiff_dir, output_dir, ops_overrides={"tau": 2.0}, fps=9.6)
 
         assert captured["settings"]["tau"] == 2.0
-        assert captured["settings"]["fs"] == 29.97  # default preserved
+        assert captured["settings"]["fs"] == 9.6  # explicit fps preserved
 
     def test_db_contains_paths(self, tmp_path):
         """db dict passed to run_s2p contains the right paths."""
@@ -225,7 +250,7 @@ class TestRunSuite2p:
         mock_suite2p.run_s2p = fake_run_s2p
 
         with patch.dict("sys.modules", {"suite2p": mock_suite2p}):
-            run_suite2p(tiff_dir, output_dir)
+            run_suite2p(tiff_dir, output_dir, fps=9.6)
 
         assert str(tiff_dir) in captured["db"]["data_path"]
         assert captured["db"]["save_path0"] == str(output_dir)
@@ -245,7 +270,7 @@ class TestRunSuite2p:
             patch.dict("sys.modules", {"suite2p": mock_suite2p}),
             pytest.raises(RuntimeError, match="plane0"),
         ):
-            run_suite2p(tiff_dir, output_dir)
+            run_suite2p(tiff_dir, output_dir, fps=9.6)
 
     def test_missing_output_file_raises_runtime(self, tmp_path):
         tiff_dir = tmp_path / "tiffs"
@@ -268,7 +293,7 @@ class TestRunSuite2p:
             patch.dict("sys.modules", {"suite2p": mock_suite2p}),
             pytest.raises(RuntimeError, match="missing"),
         ):
-            run_suite2p(tiff_dir, output_dir)
+            run_suite2p(tiff_dir, output_dir, fps=9.6)
 
     def test_tiff_and_tiff_extension(self, tmp_path):
         tiff_dir = tmp_path / "tiffs"
@@ -287,7 +312,7 @@ class TestRunSuite2p:
         mock_suite2p.run_s2p = fake_run_s2p
 
         with patch.dict("sys.modules", {"suite2p": mock_suite2p}):
-            result = run_suite2p(tiff_dir, output_dir)
+            result = run_suite2p(tiff_dir, output_dir, fps=9.6)
         assert result.exists()
 
     def test_custom_fps(self, tmp_path):
@@ -299,17 +324,32 @@ class TestRunSuite2p:
 
         mock_suite2p = MagicMock()
         mock_suite2p.default_settings.return_value = {
-            "fs": 29.97, "tau": 1.0,
+            "fs": 29.97,
+            "tau": 1.0,
             "run": {"do_deconvolution": False},
             "io": {"delete_bin": True},
-            "registration": {"nonrigid": True, "block_size": (128, 128),
-                             "batch_size": 100, "maxregshift": 0.1,
-                             "smooth_sigma": 1.15, "th_badframes": 1.0, "subpixel": 10},
-            "detection": {"threshold_scaling": 1.0, "max_overlap": 0.75,
-                          "sparsery_settings": {"highpass_neuropil": 25}},
-            "extraction": {"batch_size": 500, "neuropil_extract": True,
-                           "neuropil_coefficient": 0.7, "inner_neuropil_radius": 2,
-                           "min_neuropil_pixels": 350, "allow_overlap": False},
+            "registration": {
+                "nonrigid": True,
+                "block_size": (128, 128),
+                "batch_size": 100,
+                "maxregshift": 0.1,
+                "smooth_sigma": 1.15,
+                "th_badframes": 1.0,
+                "subpixel": 10,
+            },
+            "detection": {
+                "threshold_scaling": 1.0,
+                "max_overlap": 0.75,
+                "sparsery_settings": {"highpass_neuropil": 25},
+            },
+            "extraction": {
+                "batch_size": 500,
+                "neuropil_extract": True,
+                "neuropil_coefficient": 0.7,
+                "inner_neuropil_radius": 2,
+                "min_neuropil_pixels": 350,
+                "allow_overlap": False,
+            },
             "classification": {"use_builtin_classifier": True},
         }
         captured = {}
@@ -327,3 +367,224 @@ class TestRunSuite2p:
             run_suite2p(tiff_dir, output_dir, fps=15.0)
 
         assert captured["settings"]["fs"] == 15.0
+
+
+# ---------------------------------------------------------------------------
+# tau_for_indicator
+# ---------------------------------------------------------------------------
+
+
+class TestTauForIndicator:
+    def test_known_gcamps(self):
+        from hm2p.extraction.run_suite2p import INDICATOR_TAU
+
+        for name, expected in INDICATOR_TAU.items():
+            assert tau_for_indicator(name) == expected
+
+    def test_gcamps6s_value(self):
+        assert tau_for_indicator("GCaMP6s") == 1.5
+
+    def test_gcamps6f_value(self):
+        assert tau_for_indicator("GCaMP6f") == 0.4
+
+    def test_gcamps8f_value(self):
+        assert tau_for_indicator("GCaMP8f") == 0.2
+
+    def test_unknown_returns_default(self):
+        result = tau_for_indicator("SomeNewIndicator")
+        assert result == 1.0  # _INDICATOR_TAU_DEFAULT
+
+    def test_unknown_logs_warning(self, caplog):
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="hm2p.extraction.run_suite2p"):
+            tau_for_indicator("FakeGCaMP99x")
+        assert "FakeGCaMP99x" in caplog.text
+        assert "default tau" in caplog.text.lower() or "using default" in caplog.text.lower()
+
+    def test_empty_string_returns_default(self):
+        result = tau_for_indicator("")
+        assert result == 1.0
+
+    def test_case_sensitive(self):
+        # Lookup is case-sensitive; lowercase should fall back to default.
+        result = tau_for_indicator("gcamps6s")
+        assert result == 1.0
+
+
+# ---------------------------------------------------------------------------
+# fps_from_timestamps
+# ---------------------------------------------------------------------------
+
+
+def _write_timestamps_h5(path: Path, frame_times: np.ndarray) -> None:
+    """Write a minimal timestamps.h5 for testing."""
+    from hm2p.io.hdf5 import write_h5
+
+    write_h5(path, {"frame_times_imaging": frame_times}, attrs={})
+
+
+class TestFpsFromTimestamps:
+    def test_uniform_10hz(self, tmp_path):
+        """10 Hz uniform timestamps → fps ~ 10.0."""
+        ts_path = tmp_path / "timestamps.h5"
+        frame_times = np.arange(100) / 10.0  # 100 frames at 10 Hz
+        _write_timestamps_h5(ts_path, frame_times)
+        fps = fps_from_timestamps(ts_path)
+        np.testing.assert_allclose(fps, 10.0, rtol=1e-4)
+
+    def test_uniform_9p6hz(self, tmp_path):
+        """9.6 Hz uniform timestamps → fps ~ 9.6."""
+        ts_path = tmp_path / "timestamps.h5"
+        frame_times = np.arange(200) / 9.6
+        _write_timestamps_h5(ts_path, frame_times)
+        fps = fps_from_timestamps(ts_path)
+        np.testing.assert_allclose(fps, 9.6, rtol=1e-3)
+
+    def test_missing_file_returns_fallback(self, tmp_path):
+        """Missing timestamps.h5 → fallback 29.97 Hz with warning."""
+        ts_path = tmp_path / "nonexistent.h5"
+        fps = fps_from_timestamps(ts_path)
+        assert fps == pytest.approx(29.97, rel=1e-3)
+
+    def test_missing_file_logs_warning(self, tmp_path, caplog):
+        import logging
+
+        ts_path = tmp_path / "nonexistent.h5"
+        with caplog.at_level(logging.WARNING, logger="hm2p.extraction.run_suite2p"):
+            fps_from_timestamps(ts_path)
+        assert "fallback" in caplog.text.lower() or "not found" in caplog.text.lower()
+
+    def test_fewer_than_2_frames_returns_fallback(self, tmp_path):
+        """Single frame in timestamps → fallback 29.97 Hz."""
+        ts_path = tmp_path / "timestamps.h5"
+        _write_timestamps_h5(ts_path, np.array([0.0]))
+        fps = fps_from_timestamps(ts_path)
+        assert fps == pytest.approx(29.97, rel=1e-3)
+
+    def test_returns_float(self, tmp_path):
+        ts_path = tmp_path / "timestamps.h5"
+        _write_timestamps_h5(ts_path, np.linspace(0, 10, 100))
+        fps = fps_from_timestamps(ts_path)
+        assert isinstance(fps, float)
+
+    def test_jittered_timestamps(self, tmp_path):
+        """Slightly jittered timestamps: mean fps should be close to nominal."""
+        rng = np.random.default_rng(0)
+        nominal_dt = 1.0 / 9.6
+        dt = nominal_dt + rng.standard_normal(199) * 0.0001  # 0.1 ms jitter
+        frame_times = np.concatenate([[0.0], np.cumsum(dt)])
+        ts_path = tmp_path / "timestamps.h5"
+        _write_timestamps_h5(ts_path, frame_times)
+        fps = fps_from_timestamps(ts_path)
+        np.testing.assert_allclose(fps, 9.6, rtol=0.01)
+
+
+# ---------------------------------------------------------------------------
+# run_suite2p — indicator + timestamps_h5 wiring
+# ---------------------------------------------------------------------------
+
+
+class TestRunSuite2pWiring:
+    """Tests for per-session fps/tau resolution inside run_suite2p."""
+
+    def _make_tiffs(self, tmp_path):
+        tiff_dir = tmp_path / "tiffs"
+        tiff_dir.mkdir()
+        (tiff_dir / "data.tif").write_bytes(b"\x00")
+        return tiff_dir
+
+    def _make_mock_suite2p(self, captured: dict):
+        mock = MagicMock()
+        # Return a real dict so deep_update and key access work correctly.
+        mock.default_settings.return_value = {
+            "fs": 9.6,
+            "tau": 1.0,
+            "run": {"do_deconvolution": False},
+            "io": {"delete_bin": True},
+            "registration": {
+                "nonrigid": True,
+                "block_size": (96, 96),
+                "batch_size": 100,
+                "maxregshift": 0.15,
+                "smooth_sigma": 1.15,
+                "th_badframes": 1.0,
+                "subpixel": 10,
+            },
+            "detection": {
+                "threshold_scaling": 1.0,
+                "max_overlap": 0.75,
+                "sparsery_settings": {"highpass_neuropil": 25},
+            },
+            "extraction": {
+                "batch_size": 500,
+                "neuropil_extract": True,
+                "neuropil_coefficient": 0.7,
+                "inner_neuropil_radius": 2,
+                "min_neuropil_pixels": 350,
+                "allow_overlap": False,
+            },
+            "classification": {"use_builtin_classifier": True},
+        }
+
+        def fake_run_s2p(db, settings):
+            captured["settings"] = settings
+            s2p_dir = Path(db["save_path0"]) / "suite2p" / "plane0"
+            s2p_dir.mkdir(parents=True)
+            for name in ("F.npy", "Fneu.npy", "iscell.npy", "stat.npy", "ops.npy"):
+                np.save(s2p_dir / name, np.zeros(1))
+
+        mock.run_s2p = fake_run_s2p
+        return mock
+
+    def test_fps_read_from_timestamps_h5(self, tmp_path):
+        """fps is read from timestamps.h5 when not supplied explicitly."""
+        tiff_dir = self._make_tiffs(tmp_path)
+        ts_path = tmp_path / "timestamps.h5"
+        # Write 9.6 Hz uniform timestamps.
+        _write_timestamps_h5(ts_path, np.arange(500) / 9.6)
+
+        captured: dict = {}
+        mock = self._make_mock_suite2p(captured)
+
+        with patch.dict("sys.modules", {"suite2p": mock}):
+            run_suite2p(tiff_dir, tmp_path / "out", timestamps_h5=ts_path)
+
+        np.testing.assert_allclose(captured["settings"]["fs"], 9.6, rtol=0.01)
+
+    def test_explicit_fps_overrides_timestamps(self, tmp_path):
+        """Explicit fps= overrides reading from timestamps.h5."""
+        tiff_dir = self._make_tiffs(tmp_path)
+        ts_path = tmp_path / "timestamps.h5"
+        _write_timestamps_h5(ts_path, np.arange(500) / 9.6)
+
+        captured: dict = {}
+        mock = self._make_mock_suite2p(captured)
+
+        with patch.dict("sys.modules", {"suite2p": mock}):
+            run_suite2p(tiff_dir, tmp_path / "out", fps=15.0, timestamps_h5=ts_path)
+
+        assert captured["settings"]["fs"] == 15.0
+
+    def test_indicator_sets_tau(self, tmp_path):
+        """indicator='GCaMP6f' → tau=0.4 in settings."""
+        tiff_dir = self._make_tiffs(tmp_path)
+        captured: dict = {}
+        mock = self._make_mock_suite2p(captured)
+
+        with patch.dict("sys.modules", {"suite2p": mock}):
+            run_suite2p(tiff_dir, tmp_path / "out", fps=9.6, indicator="GCaMP6f")
+
+        assert captured["settings"]["tau"] == pytest.approx(0.4)
+
+    def test_default_indicator_gcamps6s(self, tmp_path):
+        """Default indicator='GCaMP6s' → tau=1.5."""
+        tiff_dir = self._make_tiffs(tmp_path)
+        captured: dict = {}
+        mock = self._make_mock_suite2p(captured)
+
+        with patch.dict("sys.modules", {"suite2p": mock}):
+            run_suite2p(tiff_dir, tmp_path / "out", fps=9.6)
+
+        # GCaMP6s tau=1.5
+        assert captured["settings"]["tau"] == pytest.approx(1.5)

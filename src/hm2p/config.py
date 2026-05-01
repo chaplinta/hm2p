@@ -22,15 +22,11 @@ def _validate_confidence_threshold(v: float | str) -> float | str:
     """
     if isinstance(v, str):
         if not v.startswith("quantile:"):
-            raise ValueError(
-                f"string threshold must start with 'quantile:', got {v!r}"
-            )
+            raise ValueError(f"string threshold must start with 'quantile:', got {v!r}")
         try:
             q = float(v.split(":", 1)[1])
         except ValueError as exc:
-            raise ValueError(
-                f"could not parse quantile from {v!r}: {exc}"
-            ) from exc
+            raise ValueError(f"could not parse quantile from {v!r}: {exc}") from exc
         if not 0.0 <= q <= 1.0:
             raise ValueError(f"quantile must be in [0, 1], got {q}")
         return v
@@ -72,7 +68,14 @@ class PipelineConfig(BaseSettings):
 
     # ── Stage 0 — Ingest ───────────────────────────────────────────────────
     raw_fps_camera: float = Field(default=100.0, description="Nominal camera frame rate (Hz).")
-    raw_fps_imaging: float = Field(default=29.97, description="Nominal 2P imaging rate (Hz).")
+    raw_fps_imaging: float | None = Field(
+        default=None,
+        description=(
+            "Nominal 2P imaging rate (Hz). Set to null (default) to read fps per-session "
+            "from timestamps.h5 via fps_from_timestamps(). Falls back to 29.97 Hz if "
+            "timestamps.h5 is missing."
+        ),
+    )
 
     # ── Stage 3 — Kinematics ───────────────────────────────────────────────
     pose_confidence_threshold: float | str = Field(
@@ -80,8 +83,8 @@ class PipelineConfig(BaseSettings):
         description=(
             "Confidence cutoff for keypoint detections. Either a float in "
             "[0, 1] (fixed scalar threshold) or a string of the form "
-            "``\"quantile:Q\"`` for a per-keypoint quantile threshold. "
-            "Default ``\"quantile:0.25\"`` drops the bottom quartile of each "
+            '``"quantile:Q"`` for a per-keypoint quantile threshold. '
+            'Default ``"quantile:0.25"`` drops the bottom quartile of each '
             "keypoint's confidence distribution per session — the recommended "
             "filter for DLC 3.x PyTorch outputs whose absolute confidence "
             "values are uncalibrated."
@@ -92,6 +95,7 @@ class PipelineConfig(BaseSettings):
     @classmethod
     def _check_pose_confidence_threshold(cls, v: float | str) -> float | str:
         return _validate_confidence_threshold(v)
+
     pose_gap_fill_frames: int = Field(
         default=5,
         ge=0,
@@ -118,10 +122,13 @@ class PipelineConfig(BaseSettings):
         description="Sliding window length (s) for baseline F0 computation.",
     )
     cascade_model: str = Field(
-        default="Global_EXC_7.5Hz_smoothing200ms",
+        default="Global_EXC_10Hz_smoothing200ms",
         description=(
             "CASCADE pre-trained model name. Select based on indicator + imaging rate. "
-            "See cascade2p.utils.get_model_folder() for available models."
+            "hm2p records at ~9.6 Hz; Global_EXC_10Hz_smoothing200ms is the closest "
+            "available pre-trained model. "
+            "See cascade2p.utils.get_model_folder() for available models. "
+            "Rupprecht et al. 2021. doi:10.1038/s41593-021-00895-5"
         ),
     )
 

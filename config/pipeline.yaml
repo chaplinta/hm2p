@@ -20,7 +20,11 @@ run_cascade: false
 
 # ── Stage 0 — Ingest ───────────────────────────────────────────────────────
 raw_fps_camera: 100.0
-raw_fps_imaging: 29.97
+# raw_fps_imaging is read per-session from timestamps.h5
+# (mean of 1.0 / diff(frame_times_imaging)). Set to null to require that
+# per-session value. If timestamps.h5 is missing the fallback is 29.97 Hz,
+# which is logged as a warning.
+raw_fps_imaging: null
 
 # ── Stage 3 — Kinematics ───────────────────────────────────────────────────
 pose_confidence_threshold: "quantile:0.25"   # per-keypoint quantile cutoff;
@@ -34,9 +38,12 @@ neuropil_method: fixed           # fixed | fissa
 neuropil_coefficient: 0.7        # F_corr = F - coeff * Fneu (fixed method only)
 dff_baseline_window_s: 60.0      # sliding minimum window for F0
 
-# CASCADE model — select based on indicator + imaging rate
-# GCaMP7f / GCaMP8f at ~30 Hz → closest available model:
-cascade_model: Global_EXC_7.5Hz_smoothing200ms
+# CASCADE model — select based on indicator + imaging rate.
+# Rupprecht et al. 2021 (doi:10.1038/s41593-021-00895-5).
+# hm2p records at ~9.6 Hz → Global_EXC_10Hz_smoothing200ms is the
+# closest available pre-trained model. See:
+# https://github.com/HelmchenLabSoftware/Cascade/blob/master/Pretrained_models/available_models.yaml
+cascade_model: Global_EXC_10Hz_smoothing200ms
 
 # ── Stage 5 — Sync ─────────────────────────────────────────────────────────
 sync_interp_method: linear       # linear | nearest
