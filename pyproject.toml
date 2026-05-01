@@ -211,6 +211,9 @@ testpaths = ["tests"]
 # Coverage threshold enforced in CI once stages are implemented.
 # During skeleton phase, run without --cov-fail-under.
 addopts = "--cov=hm2p --cov-report=term-missing"
+markers = [
+    "golden: regression tests against three real sessions on S3 — not run in CI",
+]
 
 [tool.coverage.run]
 source = ["src/hm2p"]

@@ -1,0 +1,48 @@
+# Sync pipeline diagnostic thresholds.
+#
+# Thresholds for the Stage 5 sync diagnostics module. Values are
+# read at runtime by ``hm2p.sync.diagnostics.load_config`` and used by
+# ``classify(scalars, *, cfg)`` to assign a ``sync_status`` per session.
+#
+# Keep all thresholds non-parametric: medians, MAD, CV. See
+# ``docs/sync-pipeline-design.md`` §3.3 for the full schema and
+# ``docs/stats-strategy.md`` for the rationale.
+
+# Hard failures — crossing any of these makes the session FAILED_*
+hard:
+  # |img_pulses − tiff_frames| after off-by-1 fix
+  frame_count_diff_max: 5
+  # cross_overlap_s / max(cam_duration, img_duration)
+  temporal_overlap_min_frac: 0.95
+  # cam_duration / img_duration
+  truncation_min_frac: 0.5
+
+# Warnings — exceeding any of these demotes OK → OK_WITH_WARNINGS
+warn:
+  # camera ISI coefficient of variation (MAD/median)
+  cv_cam_max: 0.02
+  # imaging ISI CV
+  cv_img_max: 0.005
+  # |drift_slope_ppm|; equivalent to drift in parts per million
+  drift_ppm_max: 100
+  # |median(diff(light_on)) − expected_period_s|
+  light_period_tolerance_s: 10.0
+  # |img[0] − cam[0]|
+  cross_start_offset_ms_max: 50.0
+  # cross_overlap_s / max_duration upper warn band (just below 1.0)
+  temporal_overlap_warn_frac: 0.99
+  # max < 1−margin or min > margin → non_saturated
+  digital_saturation_margin: 0.05
+  # min_isi < frac × median → duplicate pulses
+  duplicate_pulse_isi_frac: 0.25
+  # |ISI − median| > k×MAD → outlier
+  isi_outlier_mad_k: 5.0
+
+# Light protocol expectation (architect-confirmed: polarity = HIGH means lights on)
+light:
+  expected_period_s: 120.0
+  # "on" | "off" — phase at t = 0 is auto-detected per session from the
+  # first edge timestamp, so this field is informational only and does
+  # NOT trigger a light_phase_unknown warning. See architect resolution
+  # in feat/sync-pipeline-diagnostics commit 1.
+  expected_first_state: auto

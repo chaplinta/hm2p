@@ -345,3 +345,304 @@ class TestValidateSyncH5:
         arrays["dff"] = np.zeros((5, 50), dtype=np.float32)  # wrong T
         with pytest.raises(SchemaError):
             validate_sync_h5(arrays)
+
+
+# ---------------------------------------------------------------------------
+# Sync diagnostics — new schema (timestamps.h5 with require_diagnostics=True)
+# ---------------------------------------------------------------------------
+
+
+def _valid_timestamps_with_diag(
+    n_cam: int = 600, n_img: int = 180, y_pix: int = 162
+) -> tuple[dict, dict]:
+    """Return (arrays, attrs) for a valid timestamps.h5 with diagnostics."""
+    arrays = _valid_timestamps(n_cam=n_cam, n_img=n_img)
+    arrays["line_clock_times"] = np.linspace(0.0, 6.0, n_img * y_pix, dtype=np.float64)
+    attrs = {
+        "session_id": "test",
+        "fps_camera": 100.0,
+        "fps_imaging": 30.0,
+        "tdms_diag/cam_min": 0.0,
+        "tdms_diag/cam_max": 1.0,
+        "tdms_diag/sci_min": 0.0,
+        "tdms_diag/sci_max": 1.0,
+        "tdms_diag/light_min": 0.0,
+        "tdms_diag/light_max": 1.0,
+        "tdms_diag/sci_lines_truncated_n": 0,
+        "tdms_diag/tdms_sample_rate_hz": 10000.0,
+        "tdms_diag/y_pix": y_pix,
+    }
+    return arrays, attrs
+
+
+class TestValidateTimestampsH5WithDiagnostics:
+    def test_valid_passes(self) -> None:
+        arrays, attrs = _valid_timestamps_with_diag()
+        validate_timestamps_h5(arrays, attrs=attrs, require_diagnostics=True)
+
+    def test_missing_line_clock_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays, attrs = _valid_timestamps_with_diag()
+        del arrays["line_clock_times"]
+        with pytest.raises(SchemaError, match="line_clock_times"):
+            validate_timestamps_h5(arrays, attrs=attrs, require_diagnostics=True)
+
+    def test_line_clock_wrong_dtype_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays, attrs = _valid_timestamps_with_diag()
+        arrays["line_clock_times"] = arrays["line_clock_times"].astype(np.float32)
+        with pytest.raises(SchemaError, match="float64"):
+            validate_timestamps_h5(arrays, attrs=attrs, require_diagnostics=True)
+
+    def test_line_clock_non_monotonic_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays, attrs = _valid_timestamps_with_diag()
+        arrays["line_clock_times"][10] = arrays["line_clock_times"][5]
+        with pytest.raises(SchemaError, match="strictly increasing"):
+            validate_timestamps_h5(arrays, attrs=attrs, require_diagnostics=True)
+
+    def test_missing_tdms_diag_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays, _ = _valid_timestamps_with_diag()
+        with pytest.raises(SchemaError, match="tdms_diag"):
+            validate_timestamps_h5(arrays, attrs=None, require_diagnostics=True)
+
+    def test_missing_diag_attr_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays, attrs = _valid_timestamps_with_diag()
+        del attrs["tdms_diag/cam_min"]
+        with pytest.raises(SchemaError, match="tdms_diag/cam_min"):
+            validate_timestamps_h5(arrays, attrs=attrs, require_diagnostics=True)
+
+    def test_negative_truncated_lines_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays, attrs = _valid_timestamps_with_diag()
+        attrs["tdms_diag/sci_lines_truncated_n"] = -1
+        with pytest.raises(SchemaError, match="sci_lines_truncated_n"):
+            validate_timestamps_h5(arrays, attrs=attrs, require_diagnostics=True)
+
+    def test_legacy_mode_does_not_require_diag(self) -> None:
+        """Without require_diagnostics, the new keys are not required."""
+        arrays = _valid_timestamps()
+        validate_timestamps_h5(arrays)  # should not raise
+
+
+def _valid_sync_attrs(status: str = "OK") -> dict:
+    return {
+        "session_id": "test",
+        "sync_status": status,
+        "sync_status_version": "1.0",
+        "sync_warnings": "[]",
+        "sync_failures": "[]",
+    }
+
+
+class TestValidateSyncH5WithStatus:
+    def test_ok_with_full_payload_passes(self) -> None:
+        arrays = _valid_sync()
+        attrs = _valid_sync_attrs("OK")
+        validate_sync_h5(arrays, attrs=attrs)
+
+    def test_failed_stub_passes_without_payload(self) -> None:
+        """FAILED_* status accepts a stub with no resampled signals."""
+        arrays = {}  # no resampled datasets
+        attrs = _valid_sync_attrs("FAILED_NO_TIMESTAMPS")
+        validate_sync_h5(arrays, attrs=attrs)
+
+    def test_missing_sync_status_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays = _valid_sync()
+        attrs = _valid_sync_attrs("OK")
+        del attrs["sync_status"]
+        with pytest.raises(SchemaError, match="sync_status"):
+            validate_sync_h5(arrays, attrs=attrs)
+
+    def test_invalid_status_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays = _valid_sync()
+        attrs = _valid_sync_attrs("BOGUS")
+        with pytest.raises(SchemaError, match="sync_status"):
+            validate_sync_h5(arrays, attrs=attrs)
+
+    def test_legacy_version_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays = _valid_sync()
+        attrs = _valid_sync_attrs("OK")
+        attrs["sync_status_version"] = "0.0"
+        with pytest.raises(SchemaError, match="0.0"):
+            validate_sync_h5(arrays, attrs=attrs)
+
+    def test_unknown_future_version_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays = _valid_sync()
+        attrs = _valid_sync_attrs("OK")
+        attrs["sync_status_version"] = "2.0"
+        with pytest.raises(SchemaError, match="2.0"):
+            validate_sync_h5(arrays, attrs=attrs)
+
+    def test_missing_warnings_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays = _valid_sync()
+        attrs = _valid_sync_attrs("OK")
+        del attrs["sync_warnings"]
+        with pytest.raises(SchemaError, match="sync_warnings"):
+            validate_sync_h5(arrays, attrs=attrs)
+
+    def test_warnings_not_json_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays = _valid_sync()
+        attrs = _valid_sync_attrs("OK")
+        attrs["sync_warnings"] = "not-json"
+        with pytest.raises(SchemaError, match="JSON"):
+            validate_sync_h5(arrays, attrs=attrs)
+
+    def test_warnings_not_a_list_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        arrays = _valid_sync()
+        attrs = _valid_sync_attrs("OK")
+        attrs["sync_warnings"] = '{"foo": "bar"}'
+        with pytest.raises(SchemaError, match="JSON array"):
+            validate_sync_h5(arrays, attrs=attrs)
+
+    def test_attrs_with_bytes_strings(self) -> None:
+        """HDF5 returns bytes for strings — validator must decode."""
+        arrays = _valid_sync()
+        attrs = _valid_sync_attrs("OK")
+        attrs["sync_status"] = b"OK"
+        attrs["sync_status_version"] = b"1.0"
+        attrs["sync_warnings"] = b"[]"
+        attrs["sync_failures"] = b"[]"
+        validate_sync_h5(arrays, attrs=attrs)  # should not raise
+
+    def test_legacy_validate_without_attrs_still_works(self) -> None:
+        """Old call signature (no attrs) still validates the array payload."""
+        arrays = _valid_sync()
+        validate_sync_h5(arrays)  # should not raise
+
+    def test_ok_with_warnings_requires_full_payload(self) -> None:
+        """OK_WITH_WARNINGS requires the full resampled payload."""
+        from pandera.errors import SchemaError
+
+        arrays = {}
+        attrs = _valid_sync_attrs("OK_WITH_WARNINGS")
+        with pytest.raises(SchemaError):
+            validate_sync_h5(arrays, attrs=attrs)
+
+
+# ---------------------------------------------------------------------------
+# validate_sync_report_parquet
+# ---------------------------------------------------------------------------
+
+
+def _valid_sync_report_row(status: str = "OK") -> dict:
+    return {
+        "exp_id": "20220804_13_52_02_1117646",
+        "sub": "sub-1117646",
+        "ses": "ses-20220804T135202",
+        "sync_status": status,
+        "sync_warnings": "[]",
+        "sync_failures": "[]",
+        "dlc_champion_id": "champ-1",
+        "read_error": "",
+        # Integer scalars
+        "cam_n_pulses": 600,
+        "cam_n_isi_outliers": 0,
+        "img_n_pulses": 180,
+        "img_n_isi_outliers": 0,
+        "line_n_pulses": 29160,
+        "n_tiff_frames": 180,
+        "pulse_count_diff": 0,
+        "pulse_count_diff_after_off_by_one": 0,
+        "light_n_on": 5,
+        "light_n_off": 5,
+        "light_first_state_at_t0": 1,
+        "kin_pose_decimation_uniform": 1,
+        "s2p_off_by_one_fix_applied": 0,
+        # Float scalars
+        "cam_duration_s": 6.0,
+        "cam_isi_median_ms": 10.0,
+        "cam_isi_mad_ms": 0.5,
+        "cam_isi_cv": 0.005,
+        "cam_drift_slope_ppm": 5.0,
+        "cam_min_isi_ms": 9.5,
+        "img_duration_s": 6.0,
+        "img_isi_median_ms": 33.3,
+        "img_isi_mad_ms": 0.1,
+        "img_isi_cv": 0.001,
+        "img_drift_slope_ppm": 1.0,
+        "line_isi_median_ms": 0.2,
+        "cross_overlap_s": 6.0,
+        "cross_start_offset_ms": 0.0,
+        "cross_end_offset_ms": 0.0,
+        "light_period_median_s": 120.0,
+        "light_period_mad_s": 0.1,
+        "light_duty_cycle": 0.5,
+        "kin_pose_decimation_ratio": 1.0,
+    }
+
+
+class TestValidateSyncReportParquet:
+    def test_valid_passes(self) -> None:
+        import pandas as pd
+
+        from hm2p.io.hdf5 import validate_sync_report_parquet
+
+        df = pd.DataFrame([_valid_sync_report_row(), _valid_sync_report_row("OK_WITH_WARNINGS")])
+        validate_sync_report_parquet(df)
+
+    def test_missing_required_string_raises(self) -> None:
+        import pandas as pd
+        from pandera.errors import SchemaError
+
+        from hm2p.io.hdf5 import validate_sync_report_parquet
+
+        row = _valid_sync_report_row()
+        del row["sync_status"]
+        df = pd.DataFrame([row])
+        with pytest.raises(SchemaError, match="sync_status"):
+            validate_sync_report_parquet(df)
+
+    def test_wrong_dtype_int_column_raises(self) -> None:
+        import pandas as pd
+        from pandera.errors import SchemaError
+
+        from hm2p.io.hdf5 import validate_sync_report_parquet
+
+        row = _valid_sync_report_row()
+        row["cam_n_pulses"] = 600.5  # float when int expected
+        df = pd.DataFrame([row])
+        with pytest.raises(SchemaError, match="cam_n_pulses"):
+            validate_sync_report_parquet(df)
+
+    def test_wrong_dtype_float_column_raises(self) -> None:
+        import pandas as pd
+        from pandera.errors import SchemaError
+
+        from hm2p.io.hdf5 import validate_sync_report_parquet
+
+        row = _valid_sync_report_row()
+        df = pd.DataFrame([row])
+        df["cam_isi_cv"] = df["cam_isi_cv"].astype("int64")
+        with pytest.raises(SchemaError, match="cam_isi_cv"):
+            validate_sync_report_parquet(df)
+
+    def test_non_dataframe_raises(self) -> None:
+        from pandera.errors import SchemaError
+
+        from hm2p.io.hdf5 import validate_sync_report_parquet
+
+        with pytest.raises(SchemaError, match="DataFrame"):
+            validate_sync_report_parquet([{"x": 1}])  # type: ignore[arg-type]
