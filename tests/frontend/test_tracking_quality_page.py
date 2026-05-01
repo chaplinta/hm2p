@@ -153,3 +153,67 @@ class TestMethodsExpanderCitation:
         assert "Wilcoxon" in src
         assert "rank-biserial" in src
         assert "Bonferroni" in src
+
+
+class TestVerdictDisplay:
+    """Verdict-display section consumes the schema-1.0 contract."""
+
+    def _read_page_source(self) -> str:
+        from pathlib import Path
+
+        return (
+            Path(__file__).resolve().parent.parent.parent
+            / "frontend" / "pages" / "tracking_quality_page.py"
+        ).read_text()
+
+    def test_uses_load_verdict_helper(self):
+        src = self._read_page_source()
+        assert "load_verdict" in src
+
+    def test_display_logic_handles_missing_verdict(self):
+        """The page must show a friendly banner when verdict is None."""
+        src = self._read_page_source()
+        assert "Verdict not yet computed" in src
+
+    def test_display_logic_handles_pass_and_fail(self):
+        src = self._read_page_source()
+        assert "Promotion gate: PASS" in src
+        assert "Promotion gate: FAIL" in src
+
+    def test_display_logic_rejects_unsupported_schema(self):
+        src = self._read_page_source()
+        assert "Unsupported verdict schema version" in src
+
+
+class TestLoadVerdict:
+    """Unit tests on the cached loader in frontend/data.py."""
+
+    def test_returns_none_when_object_absent(self, monkeypatch):
+        from frontend import data as fdata
+
+        monkeypatch.setattr(fdata, "download_s3_bytes", lambda b, k: None)
+        assert fdata.load_verdict() is None
+
+    def test_returns_dict_for_valid_json(self, monkeypatch):
+        import json
+
+        from frontend import data as fdata
+
+        payload = {"schema_version": "1.0", "baseline_id": "b", "candidate_id": "c"}
+        monkeypatch.setattr(
+            fdata, "download_s3_bytes",
+            lambda b, k: json.dumps(payload).encode(),
+        )
+        loaded = fdata.load_verdict()
+        assert loaded == payload
+
+    def test_returns_none_for_corrupt_json(self, monkeypatch):
+        from frontend import data as fdata
+
+        monkeypatch.setattr(fdata, "download_s3_bytes", lambda b, k: b"not json")
+        assert fdata.load_verdict() is None
+
+    def test_verdict_s3_key_is_canonical(self):
+        from frontend import data as fdata
+
+        assert fdata.VERDICT_S3_KEY == "dlc-retrain/models/_compare_verdict.json"

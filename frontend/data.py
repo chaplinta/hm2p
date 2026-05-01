@@ -1042,6 +1042,34 @@ def is_session_current(
     return True, "current"
 
 
+VERDICT_S3_KEY = "dlc-retrain/models/_compare_verdict.json"
+
+
+def load_verdict() -> dict | None:
+    """Load the SA fine-tune comparison verdict from S3.
+
+    Returns ``None`` when no verdict has been written yet (pre-comparison
+    state) or when the object cannot be parsed against the schema-1.0
+    contract (frontend prefers a clean "not yet computed" banner over a
+    schema-mismatch traceback).
+
+    See ``docs/superanimal-fine-tune-design.md`` and
+    ``scripts/compare_models.py``.
+    """
+    data = download_s3_bytes(DERIVATIVES_BUCKET, VERDICT_S3_KEY)
+    if data is None:
+        return None
+    try:
+        # We use json.loads (not verdict_from_json) here so the frontend
+        # is resilient to schema-version drift: if a future verdict
+        # version writes additional fields, we still display the bits we
+        # understand. Strict schema validation lives in the CLI.
+        return json.loads(data)
+    except Exception:
+        log.warning("_compare_verdict.json is present but not valid JSON")
+        return None
+
+
 def render_champion_staleness_warning(reason: str) -> None:
     """Display a prominent warning that the current session is stale.
 

@@ -145,6 +145,92 @@ def _extract_keypoint_data(df, scorer, bodyparts):
 
 
 # ---------------------------------------------------------------------------
+# SA fine-tune comparison verdict (read-only display)
+# ---------------------------------------------------------------------------
+
+
+def _render_verdict_section() -> None:
+    """Display the SA fine-tune promotion-gate verdict if present on S3.
+
+    Shows a green/red banner + per-keypoint table. The verdict itself is
+    produced by ``scripts/compare_models.py`` after a SA fine-tune EC2
+    run; see ``docs/dlc-champion-model.md`` §4.5.
+    """
+    from frontend.data import load_verdict
+
+    verdict = load_verdict()
+    st.header("DLC model comparison (SA fine-tune)")
+    if verdict is None:
+        st.info(
+            "Verdict not yet computed. Run "
+            "`scripts/compare_models.py --upload-s3` after a SA fine-tune "
+            "to populate this section."
+        )
+        return
+
+    schema = verdict.get("schema_version")
+    if schema != "1.0":
+        st.warning(
+            f"Unsupported verdict schema version: {schema!r}. "
+            "Update the frontend or downgrade the verdict."
+        )
+        return
+
+    overall = bool(verdict.get("overall_pass", False))
+    base_id = verdict.get("baseline_id", "?")
+    cand_id = verdict.get("candidate_id", "?")
+    n_frames = int(verdict.get("n_frames_compared", 0))
+    if overall:
+        st.success(
+            f"Promotion gate: PASS — candidate `{cand_id}` beats baseline "
+            f"`{base_id}` ({n_frames} frames compared)."
+        )
+    else:
+        reasons = verdict.get("fail_reasons", [])
+        st.error(
+            f"Promotion gate: FAIL — candidate `{cand_id}` did not beat "
+            f"baseline `{base_id}` ({n_frames} frames compared)."
+        )
+        if reasons:
+            st.markdown("Failure reasons:")
+            for r in reasons:
+                st.markdown(f"- `{r}`")
+
+    # Per-keypoint table
+    rows = []
+    pass_per_kp = verdict.get("gate_pass_per_keypoint", {})
+    for kp in verdict.get("keypoints", []):
+        passed = bool(pass_per_kp.get(kp["keypoint"], {}).get("pass", False))
+        rows.append({
+            "keypoint": kp["keypoint"],
+            "pass": "PASS" if passed else "FAIL",
+            "n_pairs": kp["n_pairs"],
+            "median_baseline_px": kp["median_baseline_px"],
+            "median_candidate_px": kp["median_candidate_px"],
+            "pct_change_median": kp["pct_change_median"],
+            "p_value": kp["p_value_wilcoxon"],
+            "rank_biserial_r": kp["rank_biserial_r"],
+        })
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+    # HD descriptive panel.
+    hd = verdict.get("hd", {})
+    if hd.get("median_abs_error_baseline_rad") is not None:
+        st.markdown(
+            "**Head-direction (descriptive only — not gated):**  "
+            f"baseline median |Δθ| = {hd['median_abs_error_baseline_rad']:.3f} rad, "
+            f"candidate = {hd['median_abs_error_candidate_rad']:.3f} rad, "
+            f"paired Wilcoxon p = {hd.get('p_value_wilcoxon', float('nan')):.2e}, "
+            f"rank-biserial r = {hd.get('rank_biserial_r', 0.0):+.2f} "
+            f"(n={hd.get('n_frames', 0)})."
+        )
+
+
+_render_verdict_section()
+
+
+# ---------------------------------------------------------------------------
 # Session-level quality overview
 # ---------------------------------------------------------------------------
 
