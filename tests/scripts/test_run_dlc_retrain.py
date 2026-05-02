@@ -337,8 +337,8 @@ class TestTrainSaFinetune:
         dlc_mock.train_network = train_network
         dlc_mock.modelzoo.weight_initialization.build_weight_init = build_weight_init
         dlclib_mock = MagicMock()
-        dlclib_mock.list_available_models = list_models
-        dlclib_mock.list_available_detectors = list_detectors
+        dlclib_mock.get_available_models = list_models
+        dlclib_mock.get_available_detectors = list_detectors
         monkeypatch.setitem(sys.modules, "deeplabcut", dlc_mock)
         monkeypatch.setitem(sys.modules, "dlclibrary", dlclib_mock)
         # The "from deeplabcut.modelzoo.weight_initialization import ..."
@@ -396,10 +396,10 @@ class TestTrainSaFinetune:
         dlc_mock.create_training_dataset = MagicMock(return_value=2)
         dlc_mock.train_network = MagicMock()
         dlclib_mock = MagicMock()
-        dlclib_mock.list_available_models = MagicMock(
+        dlclib_mock.get_available_models = MagicMock(
             return_value=["superanimal_topviewmouse_hrnet_w32"]
         )
-        dlclib_mock.list_available_detectors = MagicMock(
+        dlclib_mock.get_available_detectors = MagicMock(
             return_value=["fasterrcnn_resnet50_fpn_v2"]
         )
         for name, mod in [
@@ -425,10 +425,10 @@ class TestTrainSaFinetune:
         dlc_mock.create_training_dataset = MagicMock(return_value=2)
         dlc_mock.train_network = MagicMock()
         dlclib_mock = MagicMock()
-        dlclib_mock.list_available_models = MagicMock(
+        dlclib_mock.get_available_models = MagicMock(
             return_value=["superanimal_topviewmouse_hrnet_w32"]
         )
-        dlclib_mock.list_available_detectors = MagicMock(
+        dlclib_mock.get_available_detectors = MagicMock(
             return_value=["fasterrcnn_resnet50_fpn_v2"]
         )
         for name, mod in [
@@ -459,7 +459,7 @@ class TestTrainSaFinetune:
 
         dlc_mock = MagicMock()
         dlclib_mock = MagicMock()
-        dlclib_mock.list_available_models = MagicMock(return_value=[])
+        dlclib_mock.get_available_models = MagicMock(return_value=[])
         for name, mod in [
             ("deeplabcut", dlc_mock),
             ("dlclibrary", dlclib_mock),
@@ -472,7 +472,7 @@ class TestTrainSaFinetune:
         work, cfg, _ = _make_minimal_project(tmp_path)
         dlc_mock = MagicMock()
         dlclib_mock = MagicMock()
-        dlclib_mock.list_available_models = MagicMock(return_value=["something_else"])
+        dlclib_mock.get_available_models = MagicMock(return_value=["something_else"])
         for name, mod in [
             ("deeplabcut", dlc_mock),
             ("dlclibrary", dlclib_mock),
@@ -488,10 +488,10 @@ class TestTrainSaFinetune:
         dlc_mock.create_training_dataset = MagicMock(return_value=2)
         dlc_mock.train_network = MagicMock()
         dlclib_mock = MagicMock()
-        dlclib_mock.list_available_models = MagicMock(
+        dlclib_mock.get_available_models = MagicMock(
             return_value=["superanimal_topviewmouse_hrnet_w32"]
         )
-        dlclib_mock.list_available_detectors = MagicMock(
+        dlclib_mock.get_available_detectors = MagicMock(
             return_value=["fasterrcnn_resnet50_fpn_v2"]
         )
         for name, mod in [
