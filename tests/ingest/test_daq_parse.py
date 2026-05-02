@@ -145,7 +145,12 @@ class TestParseTdms:
         with patch("nptdms.TdmsFile.read", return_value=mock_file):
             result = parse_tdms(tdms_path)
 
-        expected_keys = {
+        # Stage 0 emits the legacy four time arrays + fps attrs, plus the
+        # diagnostic line clock array and tdms_diag dict added when the sync
+        # diagnostics rollout landed (commit 58d4e9b). Use issubset so future
+        # additions don't fail this test gratuitously, but still pin the
+        # legacy keys.
+        legacy_keys = {
             "frame_times_camera",
             "frame_times_imaging",
             "light_on_times",
@@ -153,7 +158,9 @@ class TestParseTdms:
             "fps_camera",
             "fps_imaging",
         }
-        assert expected_keys == set(result.keys())
+        diagnostic_keys = {"line_clock_times", "tdms_diag"}
+        assert legacy_keys.issubset(result.keys())
+        assert diagnostic_keys.issubset(result.keys())
 
     def test_frame_times_camera_dtype(self, tmp_path: Path) -> None:
         session_name = "20210823_17_00_04_1114353_maze-rose"

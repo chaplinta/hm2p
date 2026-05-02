@@ -165,7 +165,10 @@ class TestSyncH5E2E:
     def test_sync_run_produces_valid_sync_h5(self, tmp_path: Path) -> None:
         from hm2p.sync.align import run as sync_run
 
-        n_cam, n_img, n_rois = 3000, 900, 8
+        # n_cam @ 100 Hz must span same duration as n_img @ 9.6 Hz so the
+        # sync diagnostics classifier doesn't reject for temporal-overlap.
+        # 9375 / 100 ≈ 93.75 s ≈ 900 / 9.6.
+        n_cam, n_img, n_rois = 9375, 900, 8
 
         # Write synthetic kinematics.h5
         kin_arrays = _build_kinematics_arrays(T=n_cam)
@@ -177,6 +180,28 @@ class TestSyncH5E2E:
         ca_path = tmp_path / "ca.h5"
         write_h5(ca_path, ca_arrays, attrs={"session_id": "test", "fps_imaging": 9.6})
 
+        # Write synthetic timestamps.h5 so Stage 5 can compute sync_status
+        # and produce a full (non-stub) sync.h5 for the happy-path test.
+        ts_path = tmp_path / "timestamps.h5"
+        cam_dt = 1.0 / 100.0
+        img_dt = 1.0 / 9.6
+        ts_arrays = {
+            "frame_times_camera": np.arange(n_cam, dtype=np.float64) * cam_dt,
+            "frame_times_imaging": np.arange(n_img, dtype=np.float64) * img_dt,
+            "line_clock_times": np.arange(n_img * 162, dtype=np.float64) * (img_dt / 162),
+            "light_on_times": np.array([0.0, 120.0], dtype=np.float64),
+            "light_off_times": np.array([60.0, 180.0], dtype=np.float64),
+        }
+        write_h5(
+            ts_path,
+            ts_arrays,
+            attrs={
+                "session_id": "test",
+                "fps_camera": 100.0,
+                "fps_imaging": 9.6,
+            },
+        )
+
         # Run the sync pipeline
         sync_path = tmp_path / "sync.h5"
         sync_run(
@@ -184,11 +209,16 @@ class TestSyncH5E2E:
             ca_h5=ca_path,
             session_id="20220804_13_52_02_1117646",
             output_path=sync_path,
+            timestamps_h5=ts_path,
         )
 
-        # Read back and validate
+        # Read back and validate. The new validator branches on sync_status,
+        # so we must pass attrs.
         loaded = read_h5(sync_path)
-        validate_sync_h5(loaded)
+        from hm2p.io.hdf5 import read_attrs
+
+        attrs = read_attrs(sync_path)
+        validate_sync_h5(loaded, attrs=attrs)
 
         # All arrays should be at imaging rate (n_img frames)
         assert loaded["frame_times"].shape == (n_img,)
