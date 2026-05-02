@@ -48,6 +48,44 @@ UPLOAD_PID=$!
 done) &
 WATCHDOG_PID=$!
 echo "GPU guard started (monitor=$GPU_CSV_PID, upload=$UPLOAD_PID, watchdog=$WATCHDOG_PID)"
+
+# === DIAGNOSTIC CAPTURE: dump py-spy stack + network + HF cache every 60s ===
+# Installs py-spy lazily; on each iteration finds the run_dlc_retrain
+# python pid and writes a stack dump + nvidia-smi + ss + HF cache size.
+# Uploaded to S3 each iteration so we can debug hangs without SSH.
+pip3 install --break-system-packages py-spy 2>&1 | tail -2 || true
+apt-get install -y -qq iproute2 procps 2>/dev/null || true
+
+(
+    while true; do
+        sleep 60
+        PID=$(pgrep -f run_dlc_retrain.py | head -1 || true)
+        {{
+            echo "=== $(date -u) ==="
+            if [ -n "$PID" ]; then
+                echo "[pid] $PID"
+                echo "[ps]"
+                ps -o pid,stat,etime,pcpu,pmem,cmd -p $PID 2>/dev/null || true
+                echo "[py-spy dump]"
+                py-spy dump --pid $PID --threads 2>&1 | head -80 || true
+            else
+                echo "[pid] (no run_dlc_retrain.py process found)"
+            fi
+            echo "[nvidia-smi]"
+            nvidia-smi --query-gpu=utilization.gpu,memory.used --format=csv,noheader 2>/dev/null || echo "no nvidia-smi"
+            echo "[network: established to non-loopback]"
+            ss -tn state established 2>/dev/null | head -10 || true
+            echo "[hf cache size]"
+            du -sh /root/.cache/huggingface 2>/dev/null || true
+            ls -la /root/.cache/huggingface/hub 2>/dev/null | head -10 || true
+            echo
+        }} >> /var/log/diagnostics.log 2>&1
+        # Upload (best-effort).
+        aws s3 cp /var/log/diagnostics.log s3://{bucket}/{log_prefix}/_diagnostics.log 2>/dev/null || true
+    done
+) &
+DIAG_PID=$!
+echo "Diagnostic capture started (diag=$DIAG_PID)"
 """
 
 PYTORCH_CUDA_INSTALL_SNIPPET = """
