@@ -199,25 +199,19 @@ else:
 # DLC 3.0rc13 assumes detector always returns these, but when no animal
 # is detected the keys are absent → KeyError at lines 120 and 217.
 # Fix: after inference, ensure every prediction dict has defaults.
-python3 << 'MRPATCH'
-import deeplabcut, pathlib, inspect, re
-mr_path = pathlib.Path(inspect.getfile(deeplabcut)).parent / 'pose_estimation_pytorch' / 'modelzoo' / 'memory_replay.py'
+python3 -c '
+import deeplabcut, pathlib, inspect
+mr_path = pathlib.Path(inspect.getfile(deeplabcut)).parent / "pose_estimation_pytorch" / "modelzoo" / "memory_replay.py"
 code = mr_path.read_text()
-# Insert a defaulting block right after "sa_predictions[image] = prediction"
-# This ensures every prediction dict has bboxes/bodyparts keys.
-marker = '    for image, prediction in zip(images_to_process, predictions):\n        sa_predictions[image] = prediction'
-patch = '''    for image, prediction in zip(images_to_process, predictions):
-        # hm2p patch: ensure bboxes/bodyparts keys exist (DLC 3.0rc13 bug)
-        prediction.setdefault("bboxes", [])
-        prediction.setdefault("bodyparts", [])
-        sa_predictions[image] = prediction'''
-if marker in code and 'hm2p patch' not in code:
-    code = code.replace(marker, patch)
+marker = "sa_predictions[image] = prediction"
+patch_line = "        prediction.setdefault(\"bboxes\", []); prediction.setdefault(\"bodyparts\", [])  # hm2p patch"
+if marker in code and "hm2p patch" not in code:
+    code = code.replace(marker, patch_line + "\n        " + marker)
     mr_path.write_text(code)
     print("Patched memory_replay.py: setdefault for bboxes/bodyparts")
 else:
     print("memory_replay.py: already patched or marker not found")
-MRPATCH
+'
 
 # Clone repo and run — disable set -e so Python errors don't kill
 # the script before the EXIT trap can upload logs.
