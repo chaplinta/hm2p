@@ -333,7 +333,7 @@ def _train_sa_finetune(
         model_name="hrnet_w32",
         detector_name=detector,
         with_decoder=True,
-        memory_replay=True,
+        memory_replay=False,  # disabled: DLC 3.0rc13 memory_replay has KeyError bugs
     )
 
     update_progress(s3, "Training (SA): create_training_dataset")
