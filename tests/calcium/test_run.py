@@ -332,6 +332,49 @@ class TestBadImagingFrames:
         assert "bad_imaging_frames" in ca
         assert not np.any(ca["bad_imaging_frames"])
 
+    def test_bad_imaging_frames_out_of_range_indices_warn(self, tmp_path: Path, caplog) -> None:
+        """QA 1.10 — badframes indices >= n_total_frames log a warning.
+
+        Previously the implementation silently dropped any badframes
+        index beyond the F.npy length via ``valid_idx``, hiding a real
+        Suite2p frame-count inconsistency. The fix logs a warning when
+        this happens so the discrepancy is auditable.
+        """
+        import logging
+
+        from hm2p.io.hdf5 import read_h5
+
+        n = 100
+        suite2p_dir = tmp_path / "suite2p"
+        # ops['badframes'] points at frames 5, 50, 150, 200 — the latter
+        # two are beyond F.npy length (100). Without the fix they would
+        # be silently discarded.
+        _write_suite2p_with_ops(
+            suite2p_dir,
+            n_rois=4,
+            n_frames=n,
+            bad_frame_indices=[5, 50, 150, 200],
+        )
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n, fps=9.6)
+        out = tmp_path / "ca.h5"
+
+        with caplog.at_level(logging.WARNING, logger="hm2p.calcium.run"):
+            run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        # Two indices were beyond range — expect one warning record.
+        assert any(
+            "beyond F.npy length" in rec.message
+            and rec.levelno == logging.WARNING
+            and rec.name == "hm2p.calcium.run"
+            for rec in caplog.records
+        ), "Out-of-range badframes indices must log a warning."
+        # Output is still aligned to dff length, with valid indices marked
+        ca = read_h5(out)
+        assert ca["bad_imaging_frames"][5]
+        assert ca["bad_imaging_frames"][50]
+        assert len(ca["bad_imaging_frames"]) == ca["dff"].shape[1]
+
     def test_bad_imaging_frames_length_matches_dff(self, tmp_path: Path) -> None:
         """bad_imaging_frames length equals dff frame count."""
         from hm2p.io.hdf5 import read_h5

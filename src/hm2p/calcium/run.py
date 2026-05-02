@@ -168,8 +168,24 @@ def run(
         badframes_idx = ops.get("badframes", None)
         if badframes_idx is not None and len(badframes_idx) > 0:
             bad_mask = np.zeros(n_total_frames, dtype=bool)
-            # badframes contains frame indices; clip to valid range
-            valid_idx = badframes_idx[badframes_idx < n_total_frames]
+            # ``badframes`` contains frame indices into the original
+            # registration stream; clip to valid range. Indices beyond
+            # ``n_total_frames`` indicate Suite2p's badframes catalogue
+            # is out of step with the F.npy length — log a warning so
+            # the inconsistency is auditable rather than silently
+            # discarded (QA issue 1.10).
+            beyond_mask = badframes_idx >= n_total_frames
+            n_beyond = int(beyond_mask.sum())
+            if n_beyond > 0:
+                log.warning(
+                    "Suite2p ops['badframes'] contains %d index/indices "
+                    "beyond F.npy length (%d). Suite2p frame catalogue "
+                    "is inconsistent with F traces — out-of-range "
+                    "indices ignored, but please investigate ops.npy.",
+                    n_beyond,
+                    n_total_frames,
+                )
+            valid_idx = badframes_idx[~beyond_mask]
             bad_mask[valid_idx] = True
             bad_imaging_frames = bad_mask
         else:
@@ -362,13 +378,52 @@ def run(
     # frames.  Downstream (Stage 5 sync) ORs this with bad_behav to produce
     # the combined exclusion mask.
     if bad_imaging_frames is not None:
-        # Trim/pad to match dff frame count in case of ops off-by-one
+        # Trim/pad to match dff frame count when off by ±1 (a known
+        # Suite2p edge case — see sync diagnostics off-by-one heuristic).
+        # Larger mismatches indicate a real Suite2p frame-count
+        # inconsistency; log a warning so it is auditable, and refuse to
+        # silently absorb mismatches > 1 frame.
         n_dff = dff.shape[1]
-        if len(bad_imaging_frames) >= n_dff:
-            datasets["bad_imaging_frames"] = bad_imaging_frames[:n_dff]
+        n_bad = len(bad_imaging_frames)
+        delta = n_bad - n_dff
+        if delta == 0:
+            datasets["bad_imaging_frames"] = bad_imaging_frames
+        elif abs(delta) <= 1:
+            # Off-by-one: trim or pad with False, log info-level note.
+            log.info(
+                "bad_imaging_frames length %d ≠ dff frames %d (delta=%+d) — "
+                "applying off-by-one trim/pad.",
+                n_bad,
+                n_dff,
+                delta,
+            )
+            if delta > 0:
+                datasets["bad_imaging_frames"] = bad_imaging_frames[:n_dff]
+            else:
+                pad = np.zeros(-delta, dtype=bool)
+                datasets["bad_imaging_frames"] = np.concatenate([bad_imaging_frames, pad])
         else:
-            pad = np.zeros(n_dff - len(bad_imaging_frames), dtype=bool)
-            datasets["bad_imaging_frames"] = np.concatenate([bad_imaging_frames, pad])
+            # >1 frame mismatch is a real Suite2p inconsistency, not a
+            # benign off-by-one. Warn loudly so the user investigates,
+            # and still align to dff frame count (truncate / pad with
+            # False) rather than crashing — analysis can proceed but the
+            # warning is preserved in the log for QC.
+            log.warning(
+                "bad_imaging_frames length %d differs from dff frames %d "
+                "by %+d — this is beyond the off-by-one tolerance and "
+                "indicates a Suite2p frame-count inconsistency. "
+                "Aligning to dff length (filling with False where short, "
+                "truncating where long); investigate the underlying "
+                "Suite2p output.",
+                n_bad,
+                n_dff,
+                delta,
+            )
+            if delta > 0:
+                datasets["bad_imaging_frames"] = bad_imaging_frames[:n_dff]
+            else:
+                pad = np.zeros(-delta, dtype=bool)
+                datasets["bad_imaging_frames"] = np.concatenate([bad_imaging_frames, pad])
 
     # Suite2p deconvolved spikes (raw + max-normalized)
     if deconv is not None:
