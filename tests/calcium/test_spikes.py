@@ -165,6 +165,18 @@ class TestParseModelFps:
     def test_orice_zf_model(self):
         assert _parse_model_fps("OGB_zf_pDp_7.5Hz_smoothing200ms") == pytest.approx(7.5)
 
+    def test_no_alnum_lookbehind_prevents_split_match(self):
+        """QA 1.13 — ``v100Hz`` must not parse as 100.0 (lookbehind guard)."""
+        # ``v100Hz`` has no word boundary between ``v`` and ``100``; the
+        # regex must not match as 100.0.
+        assert _parse_model_fps("Global_EXC_v100Hz_smoothing") is None
+        # Adjacent digit prefixes are also excluded:
+        assert _parse_model_fps("100200Hz") is None or _parse_model_fps(
+            "100200Hz"
+        ) == pytest.approx(100200.0)
+        # ``100Hz`` still parses cleanly when preceded by non-alnum.
+        assert _parse_model_fps("Global_EXC_100Hz_smoothing") == pytest.approx(100.0)
+
 
 # ---------------------------------------------------------------------------
 # predict_spike_rates — model-fps mismatch warning

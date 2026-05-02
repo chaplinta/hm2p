@@ -44,7 +44,9 @@ def _parse_model_fps(model_name: str) -> float | None:
     Returns:
         Nominal frame rate in Hz, or ``None`` if no pattern found.
     """
-    match = re.search(r"(\d+(?:\.\d+)?)Hz", model_name)
+    # Lookbehind ensures the leading digit is not preceded by another
+    # alnum, so e.g. ``v100Hz`` would not parse as 100 Hz (QA 1.13).
+    match = re.search(r"(?<![A-Za-z0-9])(\d+(?:\.\d+)?)Hz", model_name)
     if match:
         return float(match.group(1))
     return None
