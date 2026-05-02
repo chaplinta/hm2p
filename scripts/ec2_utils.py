@@ -98,10 +98,12 @@ pip3 install --break-system-packages \\
 # Step 2: Install DLC with all deps (--pre for 3.0rc)
 # PyTorch CUDA was installed in Step 1 with --index-url pinning.
 # DLC's pip install may pull CPU torch — we re-verify CUDA afterwards.
-# Disable hf_transfer/xet Rust backend — it stalls indefinitely on
-# HuggingFace downloads from ap-southeast-2 (two consecutive instances
+# Disable xet Rust download backend — it stalls indefinitely on
+# HuggingFace downloads from ap-southeast-2 (three consecutive instances
 # hung at xet_get for 15-30 min with zero network activity).
-# The Python requests fallback is slower but reliable.
+# HF_HUB_DISABLE_XET=1 falls back to Python requests (slower but reliable).
+# HF_HUB_ENABLE_HF_TRANSFER=0 disables the older hf_transfer backend too.
+export HF_HUB_DISABLE_XET=1
 export HF_HUB_ENABLE_HF_TRANSFER=0
 
 pip3 install --break-system-packages --quiet --pre deeplabcut
