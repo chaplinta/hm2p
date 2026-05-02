@@ -1059,6 +1059,139 @@ class TestStage5FailureClosedSemantics:
         attrs = _read_sync_attrs(out_h5)
         assert attrs["sync_status_version"] == "1.0"
 
+    def test_failed_stub_carries_dlc_champion_id(self, tmp_path):
+        """FAILED_* sync.h5 stubs must carry dlc_champion_id (QA 2.1).
+
+        The staleness contract documented in ``docs/dlc-champion-model.md``
+        says every derivative produced from DLC pose data records a
+        ``dlc_champion_id`` so the frontend can decide whether the
+        derivative is current. Stubs are derivatives too — without the
+        attr, a stale-but-failed session is indistinguishable from a
+        current-but-failed session in the report parquet.
+        """
+        from hm2p.io.hdf5 import write_h5
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+
+        # Kinematics with full champion provenance.
+        n = 600
+        write_h5(
+            kin_h5,
+            arrays={
+                "frame_times": np.linspace(0, 6.0, n, dtype=np.float64),
+                "hd_deg": np.zeros(n, dtype=np.float32),
+                "x_mm": np.zeros(n, dtype=np.float32),
+                "y_mm": np.zeros(n, dtype=np.float32),
+                "speed_cm_s": np.ones(n, dtype=np.float32),
+                "ahv_deg_s": np.zeros(n, dtype=np.float32),
+                "active": np.ones(n, dtype=bool),
+                "light_on": np.zeros(n, dtype=bool),
+                "bad_behav": np.zeros(n, dtype=bool),
+            },
+            attrs={
+                "session_id": "test",
+                "tracker": "dlc",
+                "dlc_model_name": "hm2p-retrain-tristan-2026-03-20",
+                "dlc_snapshot": "200000",
+                "dlc_champion_id": "dlc-20260423-hrnetw32-snap50000",
+                "confidence_threshold": 0.05,
+                "orientation_deg": 0.0,
+                "scale_mm_per_px": 0.5,
+            },
+        )
+        _write_synthetic_ca(ca_h5)
+        # Force FAILED_NO_TIMESTAMPS by pointing at a missing timestamps.h5
+        run(
+            kin_h5,
+            ca_h5,
+            session_id="test",
+            output_path=out_h5,
+            timestamps_h5=tmp_path / "MISSING.h5",
+        )
+        attrs = _read_sync_attrs(out_h5)
+        assert attrs["sync_status"] == "FAILED_NO_TIMESTAMPS"
+        # dlc_champion_id and the rest of the kin provenance must be present.
+        assert attrs["dlc_champion_id"] == "dlc-20260423-hrnetw32-snap50000"
+        assert attrs["dlc_model_name"] == "hm2p-retrain-tristan-2026-03-20"
+        assert attrs["dlc_snapshot"] == "200000"
+        assert attrs["tracker"] == "dlc"
+
+    def test_failed_stub_with_no_kinematics_does_not_crash(self, tmp_path):
+        """If kinematics.h5 is missing, FAILED_* stubs are still written.
+
+        No champion id is available — the attr is simply omitted, not
+        invented. The contract is satisfied by NOT silently lying about
+        the champion id; absence is an acceptable signal.
+        """
+        from hm2p.sync.align import run
+
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+        _write_synthetic_ca(ca_h5)
+        # No kinematics.h5 written.
+        run(
+            tmp_path / "kinematics.h5",  # absent
+            ca_h5,
+            session_id="test",
+            output_path=out_h5,
+            timestamps_h5=tmp_path / "MISSING.h5",
+        )
+        attrs = _read_sync_attrs(out_h5)
+        assert attrs["sync_status"] in {
+            "FAILED_NO_TIMESTAMPS",
+            "FAILED_NO_PULSES",
+        }
+        # Champion id absent (kinematics.h5 missing) — not invented.
+        assert "dlc_champion_id" not in attrs
+
+    def test_failed_frame_count_mismatch_stub_carries_champion(self, tmp_path):
+        """FAILED_FRAME_COUNT_MISMATCH stubs also stamp dlc_champion_id."""
+        from hm2p.io.hdf5 import write_h5
+        from hm2p.sync.align import run
+        from tests.sync.conftest import write_synthetic_timestamps_h5
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        ts_h5 = tmp_path / "timestamps.h5"
+        out_h5 = tmp_path / "sync.h5"
+
+        n = 600
+        write_h5(
+            kin_h5,
+            arrays={
+                "frame_times": np.linspace(0, 6.0, n, dtype=np.float64),
+                "hd_deg": np.zeros(n, dtype=np.float32),
+                "x_mm": np.zeros(n, dtype=np.float32),
+                "y_mm": np.zeros(n, dtype=np.float32),
+                "speed_cm_s": np.ones(n, dtype=np.float32),
+                "ahv_deg_s": np.zeros(n, dtype=np.float32),
+                "active": np.ones(n, dtype=bool),
+                "light_on": np.zeros(n, dtype=bool),
+                "bad_behav": np.zeros(n, dtype=bool),
+            },
+            attrs={
+                "session_id": "test",
+                "tracker": "dlc",
+                "dlc_champion_id": "dlc-20260501-test",
+            },
+        )
+        # Mismatch: 50 dff columns vs 180 imaging pulses
+        _write_synthetic_ca(ca_h5, t=50)
+        write_synthetic_timestamps_h5(
+            ts_h5,
+            cam_times=np.linspace(0.0, 6.0, 600, dtype=np.float64),
+            img_times=np.linspace(0.0, 6.0, 180, dtype=np.float64),
+            line_times=np.linspace(0.0, 6.0, 180 * 162, dtype=np.float64),
+        )
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5, timestamps_h5=ts_h5)
+        attrs = _read_sync_attrs(out_h5)
+        assert attrs["sync_status"] == "FAILED_FRAME_COUNT_MISMATCH"
+        assert attrs["dlc_champion_id"] == "dlc-20260501-test"
+        assert attrs["tracker"] == "dlc"
+
     def test_run_emits_off_by_one_warning_when_trim_applied(self, tmp_path):
         """Suite2p off-by-one trim is recorded as a warning."""
         from hm2p.io.hdf5 import write_h5

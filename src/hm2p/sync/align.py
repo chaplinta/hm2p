@@ -88,14 +88,38 @@ def resample_bool_to_imaging_rate(
     return mask[indices]
 
 
+# Provenance attributes copied from kinematics.h5 onto sync.h5 (full *or*
+# stub). ``dlc_champion_id`` in particular is required for the staleness
+# contract documented in ``docs/dlc-champion-model.md`` — every derivative
+# produced from DLC pose data must be stamped with the champion id, and
+# that holds for FAILED_* stubs too. Without it, the report parquet cannot
+# distinguish a stale-but-failed session from a current-but-failed one.
+_KIN_PROVENANCE_KEYS: tuple[str, ...] = (
+    "tracker",
+    "dlc_model_name",
+    "dlc_snapshot",
+    "dlc_champion_id",
+    "confidence_threshold",
+    "orientation_deg",
+    "scale_mm_per_px",
+)
+
+
 def _stub_attrs(
     session_id: str,
     status: str,
     warnings: list[str],
     failures: list[str],
     diag_attrs: dict | None = None,
+    provenance_attrs: dict | None = None,
 ) -> dict:
-    """Build the diag-only root attrs for a sync.h5 (stub or full)."""
+    """Build the diag-only root attrs for a sync.h5 (stub or full).
+
+    ``provenance_attrs`` carries the kinematics.h5 provenance keys
+    (``dlc_champion_id`` etc.) that must be stamped on every sync.h5,
+    including FAILED_* stubs, per the staleness contract in
+    ``docs/dlc-champion-model.md``.
+    """
     from hm2p.io.hdf5 import SYNC_STATUS_VERSION_CURRENT
     from hm2p.sync.diagnostics import encode_codes_json
 
@@ -106,6 +130,10 @@ def _stub_attrs(
         "sync_warnings": encode_codes_json(warnings),
         "sync_failures": encode_codes_json(failures),
     }
+    if provenance_attrs:
+        for k, v in provenance_attrs.items():
+            if v is not None:
+                attrs[k] = v
     if diag_attrs:
         for k, v in diag_attrs.items():
             attrs[f"sync_diag/{k}"] = v
@@ -119,11 +147,19 @@ def _write_stub(
     warnings: list[str],
     failures: list[str],
     diag_attrs: dict | None = None,
+    provenance_attrs: dict | None = None,
 ) -> None:
-    """Write a stub sync.h5 — diag attrs only, no resampled signals."""
+    """Write a stub sync.h5 — diag + provenance attrs only, no resampled signals."""
     from hm2p.io.hdf5 import write_h5
 
-    attrs = _stub_attrs(session_id, status, warnings, failures, diag_attrs=diag_attrs)
+    attrs = _stub_attrs(
+        session_id,
+        status,
+        warnings,
+        failures,
+        diag_attrs=diag_attrs,
+        provenance_attrs=provenance_attrs,
+    )
     log.info(
         "sync stub written: session=%s status=%s warnings=%s failures=%s",
         session_id,
@@ -132,6 +168,27 @@ def _write_stub(
         failures,
     )
     write_h5(output_path, arrays={}, attrs=attrs)
+
+
+def _read_kin_provenance(kinematics_h5: Path) -> dict:
+    """Read kinematics.h5 provenance attrs (or empty dict if file is missing).
+
+    Reads the keys listed in :data:`_KIN_PROVENANCE_KEYS`. Missing keys are
+    silently omitted from the returned dict. This is called early in
+    ``run()`` so that even FAILED_* sessions stamp ``dlc_champion_id`` (and
+    related provenance) onto the stub sync.h5 — required by the staleness
+    contract in ``docs/dlc-champion-model.md``.
+    """
+    from hm2p.io.hdf5 import read_attrs
+
+    if not Path(kinematics_h5).exists():
+        return {}
+    try:
+        kin_attrs = read_attrs(kinematics_h5)
+    except Exception as exc:  # pragma: no cover — defensive path
+        log.warning("Failed to read kinematics.h5 attrs at %s: %s", kinematics_h5, exc)
+        return {}
+    return {k: kin_attrs[k] for k in _KIN_PROVENANCE_KEYS if k in kin_attrs}
 
 
 def _build_diagnostics(
@@ -250,6 +307,11 @@ def run(
 
     cfg = load_config(config_path)
 
+    # --- Read kinematics provenance early so it is available to FAILED_*
+    #     stubs (champion-id staleness contract — see
+    #     docs/dlc-champion-model.md). Empty dict if kinematics.h5 absent. ---
+    provenance_attrs = _read_kin_provenance(Path(kinematics_h5))
+
     # --- Resolve timestamps.h5 path ---
     ts_path = timestamps_h5
     if ts_path is None:
@@ -317,7 +379,15 @@ def run(
 
     # --- Stub path: FAILED_* sessions get only the classification ---
     if status.startswith("FAILED_"):
-        _write_stub(output_path, session_id, status, warnings, failures, diag_attrs=diag_attrs)
+        _write_stub(
+            output_path,
+            session_id,
+            status,
+            warnings,
+            failures,
+            diag_attrs=diag_attrs,
+            provenance_attrs=provenance_attrs,
+        )
         return
 
     # --- Full payload required: resample + write ---
@@ -331,6 +401,7 @@ def run(
             warnings,
             ["no_pulses: kinematics or ca arrays missing"],
             diag_attrs=diag_attrs,
+            provenance_attrs=provenance_attrs,
         )
         return
 
@@ -379,24 +450,16 @@ def run(
     elif bad_behav is not None:
         datasets["bad_frames"] = np.asarray(bad_behav[:n_frames], dtype=bool)
 
-    # Build root attrs: start from ca.h5, then overlay provenance attrs from
-    # kinematics.h5, then sync_status + diag attrs.
+    # Build root attrs: start from ca.h5, overlay kinematics provenance
+    # (read once at the top of run() so the same dict is used for full and
+    # stub paths), then sync_status + diag attrs.
     from hm2p.io.hdf5 import SYNC_STATUS_VERSION_CURRENT
     from hm2p.sync.diagnostics import encode_codes_json
 
     attrs = dict(read_attrs(ca_h5))
-    kin_attrs = read_attrs(kinematics_h5)
-    for key in (
-        "tracker",
-        "dlc_model_name",
-        "dlc_snapshot",
-        "dlc_champion_id",
-        "confidence_threshold",
-        "orientation_deg",
-        "scale_mm_per_px",
-    ):
-        if key in kin_attrs:
-            attrs[key] = kin_attrs[key]
+    for key, value in provenance_attrs.items():
+        if value is not None:
+            attrs[key] = value
     attrs["session_id"] = session_id
     attrs["sync_status"] = status
     attrs["sync_status_version"] = SYNC_STATUS_VERSION_CURRENT
