@@ -18,6 +18,7 @@ or similar. State what the code does, not how impressive it is.
 - `/data/brains-sorted/` — serial-2P brain volumes (read-only bind mount)
 - `/data/brains-reg/` — brainreg registered volumes (read-only bind mount)
 - `/data/video-meta-backup/` — video metadata backups (read-only bind mount)
+- `/legacy/dlc-old/` — old DLC model attempt (weights, snapshots, training artefacts) — read-only reference, NOT current data (read-only bind mount)
 - `retrain_frames/` — extracted PNGs for DLC retraining (untracked but not regenerated automatically)
 - `sourcedata/trackers/dlc/*/labeled-data/**/*.png` — same PNGs inside DLC project (untracked)
 
