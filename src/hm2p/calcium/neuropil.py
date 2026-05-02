@@ -72,10 +72,20 @@ def estimate_neuropil_coefficient(
 
     For each ROI, selects frames where fluorescence is in its lowest
     ``percentile`` (sparse-firing epochs) and regresses F on Fneu over those
-    frames. The slope of this regression is the estimated contamination
-    coefficient for that ROI. This approach is adapted from Dipoppa et al.
-    (2018), where they estimated the coefficient from the lower envelope of the
-    F vs Fneu scatter plot using sparsely-firing cells.
+    frames **with an intercept** (equivalent to mean-centring both signals
+    before slope estimation). The slope of this regression is the
+    estimated contamination coefficient for that ROI. This approach is
+    adapted from Dipoppa et al. (2018), where they estimated the
+    coefficient from the lower envelope of the F vs Fneu scatter plot
+    using sparsely-firing cells.
+
+    The intercept is required because resting somatic fluorescence has a
+    DC offset independent of the neuropil signal: regressing through the
+    origin would absorb that offset into the slope and bias the
+    coefficient upward, especially for sparsely-firing somas with bright
+    baselines. Mean-centring both vectors before computing the OLS slope
+    is mathematically identical to fitting an intercept and is cheaper
+    and numerically more stable than building a design matrix.
 
     Parameters
     ----------
@@ -135,12 +145,18 @@ def estimate_neuropil_coefficient(
         f_sel = f_roi[mask]
         fneu_sel = fneu_roi[mask]
 
-        # Least-squares regression: F ~ alpha * Fneu (no intercept to match
-        # the physical model: F_corr = F - alpha * Fneu, where alpha is the
-        # pure contamination fraction)
-        fneu_sq = np.dot(fneu_sel, fneu_sel)
-        if fneu_sq < 1e-12:
-            # Near-zero neuropil — cannot estimate coefficient reliably
+        # OLS slope **with intercept** via mean-centring (Dipoppa et al.
+        # 2018). Equivalent to ``F = a + alpha * Fneu``: the per-ROI DC
+        # offset of F is absorbed into the intercept rather than biasing
+        # the slope. Required because resting somatic fluorescence has a
+        # baseline independent of neuropil — fitting through the origin
+        # mixes that baseline into ``alpha`` and inflates the coefficient.
+        f_centred = f_sel - f_sel.mean()
+        fneu_centred = fneu_sel - fneu_sel.mean()
+        fneu_var = float(np.dot(fneu_centred, fneu_centred))
+        if fneu_var < 1e-12:
+            # Near-zero neuropil variance in the selected window — cannot
+            # estimate coefficient reliably.
             log.warning(
                 "ROI %d: near-zero neuropil variance; using default coefficient 0.7",
                 i,
@@ -148,8 +164,8 @@ def estimate_neuropil_coefficient(
             coefficients[i] = 0.7
             continue
 
-        alpha = np.dot(f_sel, fneu_sel) / fneu_sq
-        # Clip to physically plausible range
+        alpha = float(np.dot(f_centred, fneu_centred) / fneu_var)
+        # Clip to physically plausible range.
         coefficients[i] = float(np.clip(alpha, 0.0, 1.0))
 
     return coefficients

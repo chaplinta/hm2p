@@ -158,6 +158,34 @@ def test_estimate_coefficient_raises_on_bad_percentile(rng: np.random.Generator)
         estimate_neuropil_coefficient(F, Fneu, percentile=100.0)
 
 
+def test_estimate_coefficient_unbiased_with_dc_offset() -> None:
+    """QA 1.6 — soma DC offset must not bias the slope upward.
+
+    Construct ``F = alpha * Fneu + DC + sparse_signal`` where ``DC`` is a
+    large per-ROI baseline independent of Fneu. The previous estimator
+    fitted through the origin and absorbed ``DC`` into the slope, biasing
+    ``alpha`` upward. The mean-centred OLS slope should recover ``alpha``
+    even when ``DC`` is large relative to ``alpha * Fneu``.
+    """
+    rng = np.random.default_rng(0)
+    alpha_true = 0.5
+    n_frames = 4000
+    # Per-ROI bright DC offsets: 500, 1000, 2000 photons. Without
+    # mean-centring, these would inflate alpha because in the bottom-20 %
+    # window F has a large mean while Fneu has a much smaller one.
+    dc = np.array([500.0, 1000.0, 2000.0])
+    Fneu = rng.uniform(50.0, 150.0, (3, n_frames)).astype(np.float32)
+    sparse = np.zeros((3, n_frames), dtype=np.float32)
+    active = rng.random((3, n_frames)) < 0.05
+    sparse[active] = rng.uniform(50.0, 200.0, int(active.sum())).astype(np.float32)
+    F = (alpha_true * Fneu + dc[:, None] + sparse).astype(np.float32)
+
+    coeffs = estimate_neuropil_coefficient(F, Fneu, percentile=20.0)
+    # All three ROIs should recover alpha within ±0.05 even with very
+    # different DC offsets.
+    np.testing.assert_allclose(coeffs, alpha_true, atol=0.05)
+
+
 def test_estimate_coefficient_fallback_on_near_zero_neuropil() -> None:
     """Falls back to 0.7 when neuropil variance is near zero (warns, no crash)."""
     F = np.full((1, 200), 300.0, dtype=np.float32)
