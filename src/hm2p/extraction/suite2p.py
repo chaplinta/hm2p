@@ -1,13 +1,33 @@
 """Suite2p extractor with post-hoc soma/dendrite ROI classification.
 
 Wraps Suite2p's plane0/ numpy output files directly. Each ROI is classified
-as 'soma', 'dend', or 'artefact' using shape statistics from stat.npy and
-pre-trained classifiers:
-    - classifier_soma.npy   (existing, reused unchanged)
-    - classifier_dend.npy   (existing, reused unchanged)
+as 'soma', 'dend', or 'artefact' using a small classifier framework
+(:mod:`hm2p.extraction.soma_classifier`).
 
-There is a single imaging plane — soma and dendrite ROIs co-exist.
-No second Suite2p run is needed.
+Two routes exist:
+
+* :func:`classify_roi_types` — shape-only classification that exactly
+  reproduces the legacy hand-tuned thresholds.  Kept primarily for
+  regression tests and as a fallback when activity features are not
+  available.  Returns a flat ``list[str]``.
+
+* :func:`classify_roi_types_with_probs` — full classification path that
+  takes Suite2p ``stat``, ``F``, and ``Fneu`` arrays plus an imaging
+  ``fps``, builds a feature table via
+  :func:`hm2p.extraction.soma_features.extract_soma_features`, and runs
+  whichever classifier :func:`hm2p.extraction.soma_classifier.load_classifier`
+  returns.  Used by Stage 4 (:mod:`hm2p.calcium.run`) so that ``ca.h5``
+  records calibrated per-ROI probabilities (``roi_qc/p_soma``,
+  ``roi_qc/p_dend``, ``roi_qc/p_artefact``).
+
+References:
+    Pachitariu et al. 2017. "Suite2p: beyond 10,000 neurons with standard
+    two-photon microscopy." bioRxiv. doi:10.1101/061507.
+    https://github.com/MouseLand/suite2p
+
+    Pedregosa et al. 2011. "Scikit-learn: Machine Learning in Python."
+    Journal of Machine Learning Research 12:2825–2830.
+    https://scikit-learn.org
 """
 
 from __future__ import annotations
@@ -126,14 +146,14 @@ class Suite2pExtractor(BaseExtractor):
     def get_roi_types(self) -> list[str]:
         """Classify accepted ROIs as 'soma', 'dend', or 'artefact'.
 
-        Uses Suite2p's pre-trained classifiers (classifier_soma.npy,
-        classifier_dend.npy) from sourcedata/trackers/suite2p/.
+        Uses the shape-only classifier in :func:`classify_roi_types`.  This
+        path is preserved for backward compatibility; for activity-aware
+        classification use :func:`classify_roi_types_with_probs` directly.
 
         Returns:
             List of strings, length == len(get_accepted_roi_ids()).
 
         Raises:
-            FileNotFoundError: If classifier files are missing.
             RuntimeError: If stat.npy was not loaded.
         """
         if self._stat is None:
@@ -156,23 +176,21 @@ class Suite2pExtractor(BaseExtractor):
         return cls(path)
 
 
-_CLASSIFIER_DIR = Path(__file__).resolve().parent.parent.parent.parent / "sourcedata" / "trackers" / "suite2p"
-
-
 def classify_roi_types(
     stat: list[dict],  # type: ignore[type-arg]
 ) -> list[str]:
-    """Classify each ROI as 'soma', 'dend', or 'artefact'.
+    """Shape-only soma/dend/artefact classification (backward-compatible).
 
-    Uses a shape-feature heuristic from the legacy pipeline
-    (old-pipeline/utils/classify.py):
+    This function reproduces the legacy hand-tuned thresholds:
 
     1. ``radius < 2.0`` or ``compact < 0.1`` → artefact (too small or diffuse)
     2. ``aspect_ratio > 2.5`` → dendrite (elongated)
     3. Otherwise → soma
 
-    These thresholds were hand-tuned for single-plane RSP imaging and
-    match the classification used in the original hm2p-analysis pipeline.
+    The thresholds are kept verbatim because they match the labels recorded
+    in existing ``ca.h5`` files and the legacy ``hm2p-analysis`` outputs.
+    For activity-aware classification with calibrated probabilities use
+    :func:`classify_roi_types_with_probs`.
 
     Args:
         stat: List of per-ROI stat dicts loaded from Suite2p stat.npy.
@@ -180,6 +198,10 @@ def classify_roi_types(
 
     Returns:
         List of strings ('soma', 'dend', 'artefact'), one per ROI.
+
+    References:
+        Pachitariu et al. 2017. "Suite2p: beyond 10,000 neurons with standard
+        two-photon microscopy." bioRxiv. doi:10.1101/061507.
     """
     labels: list[str] = []
     for s in stat:
@@ -195,6 +217,61 @@ def classify_roi_types(
             labels.append("soma")
 
     return labels
+
+
+def classify_roi_types_with_probs(
+    stat: list[dict],  # type: ignore[type-arg]
+    F: np.ndarray,
+    Fneu: np.ndarray,
+    fps: float,
+    classifier_path: Path | None = None,
+) -> tuple[list[str], np.ndarray]:
+    """Classify ROIs and return both hard labels and class probabilities.
+
+    Builds a per-ROI feature table via
+    :func:`hm2p.extraction.soma_features.extract_soma_features` and runs the
+    classifier returned by
+    :func:`hm2p.extraction.soma_classifier.load_classifier`.  When no fitted
+    pickle is available, the rule-based scorer is used and the resulting
+    argmax labels match :func:`classify_roi_types` on identical shape inputs
+    (verified by tests).
+
+    Args:
+        stat: Suite2p ``stat.npy`` contents (one dict per ROI).
+        F: ``(n_rois, n_frames)`` raw fluorescence array.
+        Fneu: ``(n_rois, n_frames)`` neuropil array.
+        fps: Imaging frame rate (Hz).
+        classifier_path: Optional override for the soma classifier pickle
+            path.  When ``None``, the default path
+            (:data:`hm2p.extraction.soma_classifier.DEFAULT_CLASSIFIER_PATH`)
+            is used.
+
+    Returns:
+        Tuple ``(labels, probs)``:
+
+        * ``labels`` — list of length ``n_rois`` containing
+          ``"soma"`` / ``"dend"`` / ``"artefact"`` (argmax of probabilities).
+        * ``probs`` — ``(n_rois, 3)`` float numpy array; columns ordered as
+          :data:`hm2p.extraction.soma_classifier.CLASS_NAMES`.
+
+    References:
+        Pachitariu et al. 2017. "Suite2p: beyond 10,000 neurons with standard
+        two-photon microscopy." bioRxiv. doi:10.1101/061507.
+
+        Pedregosa et al. 2011. "Scikit-learn: Machine Learning in Python."
+        Journal of Machine Learning Research 12:2825–2830.
+    """
+    # Local imports keep the module light at import time; both modules pull
+    # in pandas + sklearn-adjacent code only when classification is invoked.
+    from hm2p.extraction.soma_classifier import (
+        classify_rois_with_probs,
+        load_classifier,
+    )
+    from hm2p.extraction.soma_features import extract_soma_features
+
+    features = extract_soma_features(stat, F, Fneu, fps=fps)
+    classifier = load_classifier(classifier_path)
+    return classify_rois_with_probs(features, classifier=classifier)
 
 
 # Legacy alias — classify_roi_types IS the heuristic now.

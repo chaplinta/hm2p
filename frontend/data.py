@@ -52,6 +52,7 @@ def sanitize_error(msg: str, max_length: int = 200) -> str:
         msg = msg[:max_length] + "..."
     return msg or "Unknown error"
 
+
 # ── Signal type labels and selector ────────────────────────────────────────
 SIGNAL_TYPE_LABELS: dict[str, str] = {
     "dff": "dF/F0",
@@ -66,7 +67,7 @@ def signal_type_selector(
     session: dict,
     key_prefix: str = "sig",
     default: str = "dff",
-) -> tuple[str, np.ndarray | None]:
+) -> tuple[str, object | None]:
     """Show a radio button to select the calcium signal type.
 
     Only shows options that are available in the session data.
@@ -75,19 +76,20 @@ def signal_type_selector(
 
     Call in the page body (not sidebar).
     """
-    import numpy as np
-
     options = []
     for key, label in SIGNAL_TYPE_LABELS.items():
-        if key == "dff" and "dff" in session:
-            options.append((key, label))
-        elif key == "deconv_norm" and session.get("deconv_norm") is not None:
-            options.append((key, label))
-        elif key == "events" and session.get("event_masks") is not None:
-            options.append((key, label))
-        elif key == "events_sd" and session.get("event_masks_sd") is not None:
-            options.append((key, label))
-        elif key == "spikes" and session.get("spikes") is not None:
+        if (
+            key == "dff"
+            and "dff" in session
+            or key == "deconv_norm"
+            and session.get("deconv_norm") is not None
+            or key == "events"
+            and session.get("event_masks") is not None
+            or key == "events_sd"
+            and session.get("event_masks_sd") is not None
+            or key == "spikes"
+            and session.get("spikes") is not None
+        ):
             options.append((key, label))
 
     if not options:
@@ -319,9 +321,7 @@ def get_stage_summary() -> dict[str, dict]:
             # DLC Training: check for trained model weights on S3
             done = _count_dlc_training_outputs()
         else:
-            done = sum(
-                1 for s in pipeline_status.values() if s.get(key, False)
-            )
+            done = sum(1 for s in pipeline_status.values() if s.get(key, False))
 
         if done >= expected:
             status, color = "Complete", "green"
@@ -382,7 +382,7 @@ def get_stage_summary() -> dict[str, dict]:
 @st.cache_data(ttl=120)
 def _count_new_outputs(stage_key: str, since_iso: str) -> int:
     """Count S3 outputs for a stage that were modified after a given timestamp."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     try:
         since = datetime.fromisoformat(since_iso.replace("Z", "+00:00"))
@@ -452,10 +452,7 @@ def _count_dlc_training_outputs() -> int:
         model_suffixes = (".pt", ".pth", ".pb", ".index", ".data-00000-of-00001", ".pkl", ".json")
         for prefix in ("dlc_training/models/", "dlc-retrain/models/"):
             resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=prefix)
-            if any(
-                obj["Key"].endswith(model_suffixes)
-                for obj in resp.get("Contents", [])
-            ):
+            if any(obj["Key"].endswith(model_suffixes) for obj in resp.get("Contents", [])):
                 return 1
         return 0
     except Exception:
@@ -490,12 +487,10 @@ def _count_kpms_outputs() -> int:
     try:
         s3 = get_s3_client()
         resp = s3.list_objects_v2(
-            Bucket=DERIVATIVES_BUCKET, Prefix="kinematics/",
+            Bucket=DERIVATIVES_BUCKET,
+            Prefix="kinematics/",
         )
-        return sum(
-            1 for obj in resp.get("Contents", [])
-            if obj["Key"].endswith("syllables.npz")
-        )
+        return sum(1 for obj in resp.get("Contents", []) if obj["Key"].endswith("syllables.npz"))
     except Exception:
         return 0
 
@@ -589,17 +584,14 @@ def get_pipeline_status() -> dict[str, dict[str, bool]]:
         for prefix in STAGE_PREFIXES:
             s3_prefix = f"{prefix}/{sub}/{ses}/"
             try:
-                resp = s3.list_objects_v2(
-                    Bucket=DERIVATIVES_BUCKET, Prefix=s3_prefix, MaxKeys=1
-                )
+                resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=s3_prefix, MaxKeys=1)
                 status[exp_id][prefix] = resp.get("KeyCount", 0) > 0
             except Exception:
                 log.exception("Error checking S3 %s/%s", DERIVATIVES_BUCKET, s3_prefix)
                 status[exp_id][prefix] = False
 
     done_counts = {
-        prefix: sum(1 for s in status.values() if s.get(prefix))
-        for prefix in STAGE_PREFIXES
+        prefix: sum(1 for s in status.values() if s.get(prefix)) for prefix in STAGE_PREFIXES
     }
     log.info("Pipeline status: %s", done_counts)
     return status
@@ -610,9 +602,7 @@ def get_progress(stage: str) -> dict[str, Any] | None:
     """Get _progress.json for a pipeline stage."""
     s3 = get_s3_client()
     try:
-        obj = s3.get_object(
-            Bucket=DERIVATIVES_BUCKET, Key=f"{stage}/_progress.json"
-        )
+        obj = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key=f"{stage}/_progress.json")
         data = json.loads(obj["Body"].read())
         log.info("Progress for %s: %s", stage, data.get("status", "?"))
         return data
@@ -861,11 +851,23 @@ def _fetch_all_sync_data() -> dict:
                 dff = f["dff"][:]  # (n_rois, n_frames)
                 hd_deg = f["hd_deg"][:]
                 speed = f["speed_cm_s"][:] if "speed_cm_s" in f else np.zeros(len(hd_deg))
-                light_on = f["light_on"][:] if "light_on" in f else np.ones(len(hd_deg), dtype=bool)
+                light_on = (
+                    f["light_on"][:] if "light_on" in f else np.ones(len(hd_deg), dtype=bool)
+                )
                 active = f["active"][:] if "active" in f else np.ones(len(hd_deg), dtype=bool)
-                bad_behav = f["bad_behav"][:] if "bad_behav" in f else np.zeros(len(hd_deg), dtype=bool)
-                frame_times = f["frame_times"][:] if "frame_times" in f else np.arange(len(hd_deg), dtype=float)
-                roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
+                bad_behav = (
+                    f["bad_behav"][:] if "bad_behav" in f else np.zeros(len(hd_deg), dtype=bool)
+                )
+                frame_times = (
+                    f["frame_times"][:]
+                    if "frame_times" in f
+                    else np.arange(len(hd_deg), dtype=float)
+                )
+                roi_types = (
+                    f["roi_types"][:]
+                    if "roi_types" in f
+                    else np.zeros(dff.shape[0], dtype=np.uint8)
+                )
                 # Suite2p deconvolved spikes
                 deconv = f["deconv"][:] if "deconv" in f else None
                 # CASCADE calibrated spike rates (separate from deconv)
@@ -906,6 +908,7 @@ def _fetch_all_sync_data() -> dict:
                                 "x": f[k][:],
                                 "y": f[y_key][:],
                             }
+
                 # DLC model provenance — stored as HDF5 root attrs by Stage 5
                 def _decode_attr(val: object) -> str:
                     if isinstance(val, bytes):
@@ -916,42 +919,44 @@ def _fetch_all_sync_data() -> dict:
                 dlc_snapshot = _decode_attr(f.attrs.get("dlc_snapshot"))
                 dlc_champion_id = _decode_attr(f.attrs.get("dlc_champion_id"))
 
-            sessions.append({
-                "exp_id": exp_id,
-                "sub": sub,
-                "ses": ses,
-                "animal_id": animal_id,
-                "celltype": animal_info.get("celltype", "unknown"),
-                "exclude": str(exp.get("exclude", "0")).strip(),
-                "primary_exp": str(exp.get("primary_exp", "1")).strip(),
-                "dff": dff,
-                "deconv": deconv,
-                "deconv_norm": deconv_norm,
-                "spikes": spikes,
-                "event_masks": event_masks,
-                "event_masks_sd": event_masks_sd,
-                "hd_deg": hd_deg,
-                "speed_cm_s": speed,
-                "light_on": light_on,
-                "active": active,
-                "bad_behav": bad_behav,
-                "roi_types": roi_types,
-                "x_mm": x_mm,
-                "y_mm": y_mm,
-                "x_maze": x_maze,
-                "y_maze": y_maze,
-                "x_maze_raw": x_maze_raw,
-                "y_maze_raw": y_maze_raw,
-                "ahv_deg_s": ahv_deg_s,
-                "bp_maze": bp_maze if bp_maze else None,
-                "bp_maze_raw": bp_maze_raw if bp_maze_raw else None,
-                "dlc_model_name": dlc_model_name,
-                "dlc_snapshot": dlc_snapshot,
-                "dlc_champion_id": dlc_champion_id,
-                "n_rois": dff.shape[0],
-                "n_frames": dff.shape[1],
-                "frame_times": frame_times,
-            })
+            sessions.append(
+                {
+                    "exp_id": exp_id,
+                    "sub": sub,
+                    "ses": ses,
+                    "animal_id": animal_id,
+                    "celltype": animal_info.get("celltype", "unknown"),
+                    "exclude": str(exp.get("exclude", "0")).strip(),
+                    "primary_exp": str(exp.get("primary_exp", "1")).strip(),
+                    "dff": dff,
+                    "deconv": deconv,
+                    "deconv_norm": deconv_norm,
+                    "spikes": spikes,
+                    "event_masks": event_masks,
+                    "event_masks_sd": event_masks_sd,
+                    "hd_deg": hd_deg,
+                    "speed_cm_s": speed,
+                    "light_on": light_on,
+                    "active": active,
+                    "bad_behav": bad_behav,
+                    "roi_types": roi_types,
+                    "x_mm": x_mm,
+                    "y_mm": y_mm,
+                    "x_maze": x_maze,
+                    "y_maze": y_maze,
+                    "x_maze_raw": x_maze_raw,
+                    "y_maze_raw": y_maze_raw,
+                    "ahv_deg_s": ahv_deg_s,
+                    "bp_maze": bp_maze if bp_maze else None,
+                    "bp_maze_raw": bp_maze_raw if bp_maze_raw else None,
+                    "dlc_model_name": dlc_model_name,
+                    "dlc_snapshot": dlc_snapshot,
+                    "dlc_champion_id": dlc_champion_id,
+                    "n_rois": dff.shape[0],
+                    "n_frames": dff.shape[1],
+                    "frame_times": frame_times,
+                }
+            )
         except Exception:
             log.exception("Error reading sync.h5 for %s", exp_id)
             continue
@@ -1035,6 +1040,34 @@ def is_session_current(
             f"current champion is '{champion_cid}'. Re-run Stages 3–6."
         )
     return True, "current"
+
+
+VERDICT_S3_KEY = "dlc-retrain/models/_compare_verdict.json"
+
+
+def load_verdict() -> dict | None:
+    """Load the SA fine-tune comparison verdict from S3.
+
+    Returns ``None`` when no verdict has been written yet (pre-comparison
+    state) or when the object cannot be parsed against the schema-1.0
+    contract (frontend prefers a clean "not yet computed" banner over a
+    schema-mismatch traceback).
+
+    See ``docs/superanimal-fine-tune-design.md`` and
+    ``scripts/compare_models.py``.
+    """
+    data = download_s3_bytes(DERIVATIVES_BUCKET, VERDICT_S3_KEY)
+    if data is None:
+        return None
+    try:
+        # We use json.loads (not verdict_from_json) here so the frontend
+        # is resilient to schema-version drift: if a future verdict
+        # version writes additional fields, we still display the bits we
+        # understand. Strict schema validation lives in the CLI.
+        return json.loads(data)
+    except Exception:
+        log.warning("_compare_verdict.json is present but not valid JSON")
+        return None
 
 
 def render_champion_staleness_warning(reason: str) -> None:
@@ -1211,30 +1244,43 @@ def _fetch_all_ca_data() -> list[dict]:
             with h5py.File(io.BytesIO(data), "r") as f:
                 dff = f["dff"][:]
                 fps = float(f.attrs.get("fps_imaging", 30.0))
-                roi_types = f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
+                roi_types = (
+                    f["roi_types"][:]
+                    if "roi_types" in f
+                    else np.zeros(dff.shape[0], dtype=np.uint8)
+                )
                 event_masks = f["event_masks"][:] if "event_masks" in f else None
                 event_masks_sd = f["event_masks_sd"][:] if "event_masks_sd" in f else None
                 deconv_norm = f["deconv_norm"][:] if "deconv_norm" in f else None
                 spikes_ca = f["spikes"][:] if "spikes" in f else None
                 frame_times_ca = f["frame_times"][:] if "frame_times" in f else None
 
-            sessions.append({
-                "exp_id": exp_id,
-                "sub": sub,
-                "ses": ses,
-                "animal_id": animal_id,
-                "celltype": animal_info.get("celltype", "unknown"),
-                "dff": dff,
-                "fps": fps,
-                "roi_types": roi_types,
-                "event_masks": event_masks,
-                "event_masks_sd": event_masks_sd,
-                "deconv_norm": deconv_norm,
-                "spikes": spikes_ca,
-                "frame_times": frame_times_ca,
-                "n_rois": dff.shape[0],
-                "n_frames": dff.shape[1],
-            })
+                # Per-ROI QC metrics (optional, written by Stage 4 qc.py)
+                roi_qc: dict[str, np.ndarray] | None = None
+                if "roi_qc" in f:
+                    grp = f["roi_qc"]
+                    roi_qc = {k: grp[k][:] for k in grp}
+
+            sessions.append(
+                {
+                    "exp_id": exp_id,
+                    "sub": sub,
+                    "ses": ses,
+                    "animal_id": animal_id,
+                    "celltype": animal_info.get("celltype", "unknown"),
+                    "dff": dff,
+                    "fps": fps,
+                    "roi_types": roi_types,
+                    "event_masks": event_masks,
+                    "event_masks_sd": event_masks_sd,
+                    "deconv_norm": deconv_norm,
+                    "spikes": spikes_ca,
+                    "frame_times": frame_times_ca,
+                    "roi_qc": roi_qc,
+                    "n_rois": dff.shape[0],
+                    "n_frames": dff.shape[1],
+                }
+            )
         except Exception:
             log.exception("Error reading ca.h5 for %s", exp_id)
             continue
@@ -1268,8 +1314,6 @@ def session_filter_controls(
     if not sessions:
         return sessions
 
-    import numpy as np
-
     celltypes = sorted(set(s["celltype"] for s in sessions))
     animals = sorted(set(s["animal_id"] for s in sessions))
 
@@ -1297,12 +1341,16 @@ def session_filter_controls(
 
         with fc2:
             sel_celltypes = st.multiselect(
-                "Cell type", celltypes, default=celltypes,
+                "Cell type",
+                celltypes,
+                default=celltypes,
                 key=f"{key_prefix}_celltype",
             )
         with fc3:
             sel_animals = st.multiselect(
-                "Animal", animals, default=animals,
+                "Animal",
+                animals,
+                default=animals,
                 key=f"{key_prefix}_animal",
             )
         with fc4:
@@ -1495,17 +1543,19 @@ def _fetch_all_suite2p_spatial() -> dict[str, dict]:
             for global_idx in accepted_ids:
                 if global_idx < len(stat_list):
                     s = stat_list[global_idx]
-                    shape_features.append({
-                        "aspect_ratio": float(s.get("aspect_ratio", 1.0)),
-                        "radius": float(s.get("radius", 5.0)),
-                        "compact": float(s.get("compact", 1.0)),
-                        "npix": int(s.get("npix", 0)),
-                        "skew": float(s.get("skew", 0.0)),
-                        "med_y": int(s.get("med", [0, 0])[0]),
-                        "med_x": int(s.get("med", [0, 0])[1]),
-                        "ypix": s.get("ypix", np.array([], dtype=int)),
-                        "xpix": s.get("xpix", np.array([], dtype=int)),
-                    })
+                    shape_features.append(
+                        {
+                            "aspect_ratio": float(s.get("aspect_ratio", 1.0)),
+                            "radius": float(s.get("radius", 5.0)),
+                            "compact": float(s.get("compact", 1.0)),
+                            "npix": int(s.get("npix", 0)),
+                            "skew": float(s.get("skew", 0.0)),
+                            "med_y": int(s.get("med", [0, 0])[0]),
+                            "med_x": int(s.get("med", [0, 0])[1]),
+                            "ypix": s.get("ypix", np.array([], dtype=int)),
+                            "xpix": s.get("xpix", np.array([], dtype=int)),
+                        }
+                    )
                 else:
                     shape_features.append(None)
 
@@ -1618,16 +1668,18 @@ def _fetch_all_syllable_data() -> dict:
         animal_info = animal_map.get(animal_id, {})
         unique_syls = np.unique(syl_ids)
 
-        sessions.append({
-            "sub": ss["sub"],
-            "ses": ss["ses"],
-            "key": ss["key"],
-            "animal_id": animal_id,
-            "celltype": animal_info.get("celltype", "unknown"),
-            "syllable_id": syl_ids,
-            "n_frames": len(syl_ids),
-            "n_syllables": len(unique_syls),
-        })
+        sessions.append(
+            {
+                "sub": ss["sub"],
+                "ses": ss["ses"],
+                "key": ss["key"],
+                "animal_id": animal_id,
+                "celltype": animal_info.get("celltype", "unknown"),
+                "syllable_id": syl_ids,
+                "n_frames": len(syl_ids),
+                "n_syllables": len(unique_syls),
+            }
+        )
 
     return {
         "sessions": sessions,
@@ -1649,4 +1701,91 @@ def load_exemplar_summary() -> dict | None:
         return json.loads(data.decode())
     except Exception:
         log.exception("Error parsing exemplar_summary.json")
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Sync diagnostics helpers (Stage 5 / Stage 5b)
+# ---------------------------------------------------------------------------
+
+
+def is_sync_clean(sync_attrs: dict) -> tuple[bool, str]:
+    """Decide whether analysis pages should consume a session's data.
+
+    Per ``docs/sync-pipeline-design.md`` §5.1, a session is unclean when
+    its ``sync_status`` starts with ``FAILED_``. ``OK`` and
+    ``OK_WITH_WARNINGS`` are both considered clean for consumption
+    (warnings are reported separately via ``sync_warnings``; pages that
+    care about warnings must read them via ``read_attrs(sync.h5)``).
+
+    Parameters
+    ----------
+    sync_attrs:
+        The dict returned by ``hm2p.io.hdf5.read_attrs`` on a sync.h5,
+        or any dict with a ``sync_status`` key. Bytes-typed status from
+        h5py are decoded automatically.
+
+    Returns
+    -------
+    clean, reason:
+        ``clean`` is True when downstream analysis should proceed.
+        ``reason`` is the empty string for clean sessions and a short
+        human-readable description otherwise.
+    """
+    raw = sync_attrs.get("sync_status")
+    if raw is None:
+        return False, "sync.h5 lacks sync_status — re-run Stage 5"
+    status = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+    if status.startswith("FAILED_"):
+        failures_raw = sync_attrs.get("sync_failures", "[]")
+        if isinstance(failures_raw, bytes):
+            failures_raw = failures_raw.decode("utf-8")
+        try:
+            failures = json.loads(failures_raw)
+        except Exception:
+            failures = []
+        first = failures[0] if failures else status
+        return False, f"{status}: {first}"
+    return True, ""
+
+
+def render_sync_failure_warning(reason: str) -> None:
+    """Display a prominent error banner that the current session failed sync.
+
+    Analysis pages call this immediately after :func:`is_sync_clean`
+    returns ``False`` and follow up with ``st.stop()`` — there is no
+    useful analysis to render when sync verification failed. The sync
+    report page itself remains fully functional; that is where the user
+    triages.
+    """
+    st.error(
+        "This session failed sync verification: "
+        f"{reason}. Re-run Stage 5 or correct the underlying data. "
+        "Analysis pages refuse to render until the failure is resolved.",
+        icon="🛑",
+    )
+
+
+SYNC_REPORT_KEY: str = "sync_report/sync_report.parquet"
+
+
+@st.cache_data(ttl=300)
+def load_sync_report() -> pd.DataFrame | None:  # noqa: F821 (forward ref)
+    """Load the per-session sync diagnostics parquet from S3.
+
+    Returns ``None`` when the parquet is missing (Stage 5b has not been
+    run). The page renders a "Sync report not yet built" banner in that
+    case rather than falling back to synthetic data.
+    """
+    import io as _io
+
+    import pandas as pd
+
+    data = download_s3_bytes(DERIVATIVES_BUCKET, SYNC_REPORT_KEY)
+    if data is None:
+        return None
+    try:
+        return pd.read_parquet(_io.BytesIO(data))
+    except Exception:
+        log.exception("Error parsing sync_report.parquet")
         return None

@@ -19,11 +19,9 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.3",
     "pyyaml>=6.0",
-
     # Stage 0 — DAQ / ingest
     "nptdms>=1.9",
     "h5py>=3.11",
-
     # Stage 3 — Kinematics
     "movement>=0.5,<1.0",
     "shapely>=2.0,<3.0",
@@ -32,28 +30,27 @@ dependencies = [
     "pandas>=2.2,<3.0",
     "xarray>=2024.6",
     "bottleneck>=1.3,<2.0",  # required by xarray for ffill/bfill in interpolation
-
     # Stage 4 — Calcium processing
     # NOTE: cascade2p is NOT on PyPI; install separately — see [project.optional-dependencies]
     "roiextractors>=0.5.10,<1.0",
-
+    # scikit-learn powers the soma/dend/artefact classifier (LogisticRegression
+    # + StandardScaler pipeline). joblib persists the fitted pipeline.
+    "scikit-learn>=1.4,<2.0",
+    "joblib>=1.3,<2.0",
     # Stage 5 — Sync
     # (numpy + scipy + pandas already listed above)
-
     # IO & validation
     "pandera>=0.20,<1.0",
     "pynapple>=0.6,<1.0",
-
     # IO — AWS
     "boto3>=1.34,<2.0",
-
     # Logging
     "structlog>=24.1,<26.0",
-
     # Utilities
     "tqdm>=4.66,<5.0",
     "rich>=13.7,<14.0",
     "typer>=0.12,<1.0",
+    "cellpose>=4.0.9",
 ]
 
 [project.optional-dependencies]
@@ -179,6 +176,15 @@ ignore = [
 "tests/test_cli.py"       = ["N806"]
 "src/hm2p/io/hdf5.py"    = ["N806"]
 "tests/io/test_hdf5.py"  = ["N803", "N806"]
+# scripts/ — Suite2p variable names + script CLIs are exempt from
+# strict typing / naming enforcement; they're runnable entry points.
+"scripts/**"              = ["N803", "N806", "ANN"]
+"tests/scripts/**"        = ["N803", "N806"]
+# frontend/ pages have a sys.path.insert before imports (legacy convention)
+# and embed verbatim methodology markdown that exceeds the 99-char limit.
+"frontend/pages/**"       = ["E402", "E501"]
+"frontend/components/**"  = ["E402"]
+"tests/frontend/**"       = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -210,6 +216,9 @@ testpaths = ["tests"]
 # Coverage threshold enforced in CI once stages are implemented.
 # During skeleton phase, run without --cov-fail-under.
 addopts = "--cov=hm2p --cov-report=term-missing"
+markers = [
+    "golden: regression tests against three real sessions on S3 — not run in CI",
+]
 
 [tool.coverage.run]
 source = ["src/hm2p"]

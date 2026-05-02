@@ -245,3 +245,357 @@ def test_fps_stored_as_attrs(tmp_path: Path) -> None:
     loaded = read_h5(output)
     assert "fps_camera" not in loaded
     assert "fps_imaging" not in loaded
+
+
+# ---------------------------------------------------------------------------
+# tdms_diag / line_clock_times — sync-pipeline diagnostics rollout
+# ---------------------------------------------------------------------------
+
+
+def make_synthetic_timing_with_diag(
+    n_camera_frames: int = 600,
+    n_imaging_frames: int = 180,
+    y_pix: int = 162,
+    sci_lines_truncated_n: int = 0,
+    fps_camera: float = 100.0,
+    fps_imaging: float = 30.0,
+    tdms_sample_rate_hz: float = 10000.0,
+) -> dict[str, np.ndarray]:
+    """Synthetic timing arrays mirroring the new schema in design §2.1."""
+    arrays = make_synthetic_timing(
+        n_camera_frames=n_camera_frames,
+        n_imaging_frames=n_imaging_frames,
+        n_light_pulses=2,
+        fps_camera=fps_camera,
+        fps_imaging=fps_imaging,
+    )
+    n_lines = n_imaging_frames * y_pix + sci_lines_truncated_n
+    arrays["line_clock_times"] = np.linspace(
+        0, n_camera_frames / fps_camera, n_lines, dtype=np.float64
+    )
+    arrays["tdms_diag"] = {
+        "cam_min": 0.0,
+        "cam_max": 1.0,
+        "sci_min": 0.0,
+        "sci_max": 1.0,
+        "light_min": 0.0,
+        "light_max": 1.0,
+        "sci_lines_truncated_n": sci_lines_truncated_n,
+        "tdms_sample_rate_hz": tdms_sample_rate_hz,
+        "y_pix": y_pix,
+    }
+    return arrays
+
+
+def test_line_clock_dataset_written(tmp_path: Path) -> None:
+    """line_clock_times is written as a float64 1D dataset."""
+    arrays = make_synthetic_timing_with_diag()
+    output = tmp_path / "timestamps.h5"
+    write_timestamps_h5(arrays, session_id="test", output_path=output)
+    loaded = read_h5(output, keys=["line_clock_times"])
+    assert loaded["line_clock_times"].dtype == np.float64
+    assert loaded["line_clock_times"].ndim == 1
+
+
+def test_line_clock_length_matches_y_pix(tmp_path: Path) -> None:
+    """line_clock_times has y_pix * n_imaging_frames + sci_lines_truncated_n entries."""
+    arrays = make_synthetic_timing_with_diag(n_imaging_frames=10, y_pix=4, sci_lines_truncated_n=3)
+    output = tmp_path / "timestamps.h5"
+    write_timestamps_h5(arrays, session_id="test", output_path=output)
+    loaded = read_h5(output, keys=["line_clock_times"])
+    attrs = read_attrs(output)
+    expected_lines = 10 * 4 + 3
+    assert loaded["line_clock_times"].shape == (expected_lines,)
+    assert int(attrs["tdms_diag/sci_lines_truncated_n"]) == 3
+
+
+def test_tdms_diag_attrs_populated(tmp_path: Path) -> None:
+    """All tdms_diag/* attrs from design §2.1 are written."""
+    arrays = make_synthetic_timing_with_diag()
+    output = tmp_path / "timestamps.h5"
+    write_timestamps_h5(arrays, session_id="test", output_path=output)
+    attrs = read_attrs(output)
+    for k in (
+        "tdms_diag/cam_min",
+        "tdms_diag/cam_max",
+        "tdms_diag/sci_min",
+        "tdms_diag/sci_max",
+        "tdms_diag/light_min",
+        "tdms_diag/light_max",
+        "tdms_diag/sci_lines_truncated_n",
+        "tdms_diag/tdms_sample_rate_hz",
+        "tdms_diag/y_pix",
+    ):
+        assert k in attrs, f"missing {k}"
+        assert np.isfinite(float(attrs[k])), k
+
+
+def test_tdms_sample_rate_recorded(tmp_path: Path) -> None:
+    """tdms_sample_rate_hz round-trips correctly."""
+    arrays = make_synthetic_timing_with_diag(tdms_sample_rate_hz=12345.0)
+    output = tmp_path / "timestamps.h5"
+    write_timestamps_h5(arrays, session_id="test", output_path=output)
+    attrs = read_attrs(output)
+    assert float(attrs["tdms_diag/tdms_sample_rate_hz"]) == pytest.approx(12345.0)
+
+
+def test_truncated_lines_zero_when_divisible(tmp_path: Path) -> None:
+    """When line count is divisible by y_pix, sci_lines_truncated_n == 0."""
+    arrays = make_synthetic_timing_with_diag(sci_lines_truncated_n=0)
+    output = tmp_path / "timestamps.h5"
+    write_timestamps_h5(arrays, session_id="test", output_path=output)
+    attrs = read_attrs(output)
+    assert int(attrs["tdms_diag/sci_lines_truncated_n"]) == 0
+
+
+def test_validates_against_diagnostic_schema(tmp_path: Path) -> None:
+    """Output passes validate_timestamps_h5(require_diagnostics=True)."""
+    from hm2p.io.hdf5 import validate_timestamps_h5
+
+    arrays = make_synthetic_timing_with_diag()
+    output = tmp_path / "timestamps.h5"
+    write_timestamps_h5(arrays, session_id="test", output_path=output)
+    loaded = read_h5(output)
+    attrs = read_attrs(output)
+    validate_timestamps_h5(loaded, attrs=attrs, require_diagnostics=True)
+
+
+# ---------------------------------------------------------------------------
+# parse_tdms fail-closed behaviour — using stubbed nptdms
+# ---------------------------------------------------------------------------
+
+
+class _FakeChan:
+    def __init__(self, data: np.ndarray, dt: float = 1e-4):
+        self.data = data
+        self._dt = dt
+        self.properties = {"wf_increment": dt}
+
+    def time_track(self) -> np.ndarray:
+        return np.arange(self.data.size, dtype=np.float64) * self._dt
+
+
+class _FakeTdms:
+    """Minimal nptdms.TdmsFile stand-in for parse_tdms()."""
+
+    def __init__(self, group_name: str, channels: dict[str, _FakeChan]) -> None:
+        self._group_name = group_name
+        self._channels = channels
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._channels
+
+    def __getitem__(self, key: str) -> _FakeTdms._Group:
+        return _FakeTdms._Group(self._channels[key])
+
+    def groups(self) -> list:
+        return [_FakeTdms._GroupName(name) for name in self._channels]
+
+    @classmethod
+    def read(cls, path: Path) -> _FakeTdms:  # noqa: D401
+        return cls.read_static  # type: ignore[attr-defined]
+
+    def __enter__(self) -> _FakeTdms:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        return None
+
+    class _GroupName:
+        def __init__(self, name: str):
+            self.name = name
+
+    class _Group:
+        def __init__(self, chan: _FakeChan):
+            self._chan = chan
+
+        def channels(self) -> list:
+            return [self._chan]
+
+
+def _build_fake_tdms(
+    *,
+    cam_data: np.ndarray,
+    sci_data: np.ndarray,
+    light_data: np.ndarray,
+    group_name: str = "maze-rose",
+    cam_chan_name: str = "cam_trigger",
+    sci_chan_name: str = "sci_sync",
+    lights_chan_name: str = "lights",
+    dt: float = 1e-4,
+) -> _FakeTdms:
+    chans = {
+        f"{group_name} - {cam_chan_name}": _FakeChan(cam_data, dt=dt),
+        f"{group_name} - {sci_chan_name}": _FakeChan(sci_data, dt=dt),
+        f"{group_name} - {lights_chan_name}": _FakeChan(light_data, dt=dt),
+    }
+    return _FakeTdms(group_name, chans)
+
+
+def _make_pulses(n_samples: int, edge_idxs: list[int], width: int = 3) -> np.ndarray:
+    sig = np.zeros(n_samples, dtype=float)
+    for s in edge_idxs:
+        sig[s : s + width] = 1.0
+    return sig
+
+
+def _write_meta_files(session_dir: Path, group_name: str = "maze-rose", y_pix: int = 4) -> None:
+    """Write meta.txt and *_XYT.ini files alongside a TDMS path."""
+    meta = session_dir / "test_maze-rose.meta.txt"
+    meta.write_text(
+        f"[DAQ]\ngroupname = {group_name}\n"
+        f"cameratriggerchanname = cam_trigger\n"
+        f"sciscanchanname = sci_sync\n"
+        f"lightschanname = lights\n"
+        "[Video]\nfps = 100.0\n"
+        "[SciScan]\ninifile = test_XYT.ini\n"
+    )
+    ini = session_dir / "test_XYT.ini"
+    ini.write_text(f"[_]\ny.pixels = {y_pix}\nframes.p.sec = 9.645\n")
+
+
+def test_parse_tdms_emits_diag(monkeypatch, tmp_path: Path) -> None:
+    """parse_tdms() returns line_clock_times + tdms_diag dict."""
+    session_dir = tmp_path
+    tdms_path = session_dir / "test_maze-rose-di.tdms"
+    tdms_path.write_bytes(b"")  # existence is the only requirement
+    _write_meta_files(session_dir, y_pix=4)
+
+    cam_data = _make_pulses(1000, [10, 20, 30, 40, 50, 60, 70, 80])
+    sci_data = _make_pulses(1000, list(range(100, 196, 4)))  # 24 lines = 6 frames
+    light_data = _make_pulses(1000, [200, 600])
+
+    fake = _build_fake_tdms(cam_data=cam_data, sci_data=sci_data, light_data=light_data)
+    fake_module = type("nptdms", (), {})()
+    fake_module.TdmsFile = type("F", (), {"read": staticmethod(lambda p: fake)})
+
+    monkeypatch.setitem(__import__("sys").modules, "nptdms", fake_module)
+
+    from hm2p.ingest.daq import parse_tdms
+
+    out = parse_tdms(tdms_path)
+    assert "line_clock_times" in out
+    assert out["line_clock_times"].dtype == np.float64
+    assert out["tdms_diag"]["sci_lines_truncated_n"] == 0
+    assert out["tdms_diag"]["y_pix"] == 4
+    assert out["tdms_diag"]["tdms_sample_rate_hz"] == pytest.approx(1.0 / 1e-4)
+
+
+def test_parse_tdms_empty_line_clock_raises(monkeypatch, tmp_path: Path) -> None:
+    """Zero SciScan line-clock pulses is now a hard failure."""
+    session_dir = tmp_path
+    tdms_path = session_dir / "test_maze-rose-di.tdms"
+    tdms_path.write_bytes(b"")
+    _write_meta_files(session_dir, y_pix=4)
+
+    cam_data = _make_pulses(1000, [10, 20, 30])
+    sci_data = np.zeros(1000)  # NO pulses
+    light_data = np.zeros(1000)
+
+    fake = _build_fake_tdms(cam_data=cam_data, sci_data=sci_data, light_data=light_data)
+    fake_module = type("nptdms", (), {})()
+    fake_module.TdmsFile = type("F", (), {"read": staticmethod(lambda p: fake)})
+    monkeypatch.setitem(__import__("sys").modules, "nptdms", fake_module)
+
+    from hm2p.ingest.daq import parse_tdms
+
+    with pytest.raises(ValueError, match="line-clock"):
+        parse_tdms(tdms_path)
+
+
+def test_parse_tdms_empty_cam_raises(monkeypatch, tmp_path: Path) -> None:
+    """Zero camera trigger pulses still raises (legacy behaviour preserved)."""
+    session_dir = tmp_path
+    tdms_path = session_dir / "test_maze-rose-di.tdms"
+    tdms_path.write_bytes(b"")
+    _write_meta_files(session_dir, y_pix=4)
+
+    cam_data = np.zeros(1000)
+    sci_data = _make_pulses(1000, list(range(100, 196, 4)))
+    light_data = np.zeros(1000)
+
+    fake = _build_fake_tdms(cam_data=cam_data, sci_data=sci_data, light_data=light_data)
+    fake_module = type("nptdms", (), {})()
+    fake_module.TdmsFile = type("F", (), {"read": staticmethod(lambda p: fake)})
+    monkeypatch.setitem(__import__("sys").modules, "nptdms", fake_module)
+
+    from hm2p.ingest.daq import parse_tdms
+
+    with pytest.raises(ValueError, match="camera"):
+        parse_tdms(tdms_path)
+
+
+def test_parse_tdms_truncated_lines_recorded(monkeypatch, tmp_path: Path) -> None:
+    """When line count % y_pix != 0, the residual is recorded."""
+    session_dir = tmp_path
+    tdms_path = session_dir / "test_maze-rose-di.tdms"
+    tdms_path.write_bytes(b"")
+    _write_meta_files(session_dir, y_pix=4)
+
+    cam_data = _make_pulses(1000, [10, 20, 30])
+    # 26 line pulses with y_pix=4 → 6 full frames (24 lines), 2 truncated
+    sci_data = _make_pulses(1000, list(range(100, 100 + 26 * 4, 4)))
+    light_data = np.zeros(1000)
+
+    fake = _build_fake_tdms(cam_data=cam_data, sci_data=sci_data, light_data=light_data)
+    fake_module = type("nptdms", (), {})()
+    fake_module.TdmsFile = type("F", (), {"read": staticmethod(lambda p: fake)})
+    monkeypatch.setitem(__import__("sys").modules, "nptdms", fake_module)
+
+    from hm2p.ingest.daq import parse_tdms
+
+    out = parse_tdms(tdms_path)
+    assert out["tdms_diag"]["sci_lines_truncated_n"] == 2
+    assert out["frame_times_imaging"].size == 6
+    assert out["line_clock_times"].size == 26
+
+
+def test_parse_tdms_light_count_mismatch_tolerated(monkeypatch, tmp_path: Path) -> None:
+    """light_on != light_off counts no longer raises in ingest."""
+    session_dir = tmp_path
+    tdms_path = session_dir / "test_maze-rose-di.tdms"
+    tdms_path.write_bytes(b"")
+    _write_meta_files(session_dir, y_pix=4)
+
+    cam_data = _make_pulses(1000, [10, 20, 30])
+    sci_data = _make_pulses(1000, list(range(100, 196, 4)))
+    # Two on edges, one off edge → mismatched
+    light_data = _make_pulses(1000, [100, 700])
+
+    fake = _build_fake_tdms(cam_data=cam_data, sci_data=sci_data, light_data=light_data)
+    fake_module = type("nptdms", (), {})()
+    fake_module.TdmsFile = type("F", (), {"read": staticmethod(lambda p: fake)})
+    monkeypatch.setitem(__import__("sys").modules, "nptdms", fake_module)
+
+    from hm2p.ingest.daq import parse_tdms
+
+    out = parse_tdms(tdms_path)  # should not raise
+    assert "light_on_times" in out
+    assert "light_off_times" in out
+
+
+def test_parse_tdms_records_channel_min_max(monkeypatch, tmp_path: Path) -> None:
+    """tdms_diag records the raw channel min/max values."""
+    session_dir = tmp_path
+    tdms_path = session_dir / "test_maze-rose-di.tdms"
+    tdms_path.write_bytes(b"")
+    _write_meta_files(session_dir, y_pix=4)
+
+    # cam pulses must cross 0.9 to be detected, but the digital level can
+    # still be sub-1.0 to test min/max recording.
+    cam_data = _make_pulses(1000, [10, 20, 30])
+    cam_data[cam_data > 0] = 0.95
+    sci_data = _make_pulses(1000, list(range(100, 196, 4)))
+    light_data = np.zeros(1000)
+
+    fake = _build_fake_tdms(cam_data=cam_data, sci_data=sci_data, light_data=light_data)
+    fake_module = type("nptdms", (), {})()
+    fake_module.TdmsFile = type("F", (), {"read": staticmethod(lambda p: fake)})
+    monkeypatch.setitem(__import__("sys").modules, "nptdms", fake_module)
+
+    from hm2p.ingest.daq import parse_tdms
+
+    out = parse_tdms(tdms_path)
+    diag = out["tdms_diag"]
+    assert diag["cam_max"] == pytest.approx(0.95, abs=1e-6)
+    assert diag["cam_min"] == 0.0

@@ -504,6 +504,66 @@ trail of every promoted model. This is append-only — nothing is deleted from t
 history prefix. It is separate from `promoted.json` (per-session) and from the git
 history of the trained DLC config in `sourcedata/trackers/dlc/`.
 
+### 4.5 SuperAnimal Fine-Tune Promotion Gate (operator-driven, optional)
+
+When the new champion comes from
+`scripts/run_dlc_retrain.py --sa-finetune` (Ye et al. 2024,
+doi:[10.1038/s41467-024-48792-2](https://doi.org/10.1038/s41467-024-48792-2)),
+the EC2 run still auto-declares the SA shuffle as the project-wide
+champion at the moment training+inference completes — same flow as the
+ImageNet path. This is intentional and unchanged: champion declaration
+is the responsibility of `declare_dlc_champion.py`, not of the gate.
+
+The **promotion gate** is the operator's tool for deciding whether to
+*keep* the new champion or to roll back. It is run locally after the
+EC2 run self-terminates:
+
+```bash
+uv run python scripts/compare_models.py \
+    --baseline-id <prior champion id> \
+    --candidate-id <new champion id; from dlc-champion.json> \
+    --labels-dir sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20/labeled-data/ \
+    --output verdict.json --upload-s3
+```
+
+`compare_models.py` writes a `verdict.json` (schema 1.0) with the
+non-parametric paired test results per keypoint plus the v2 plan §4.6
+gate outcome. Exit codes: `0` = pass, `2` = fail, `3` = no overlapping
+data. The verdict is uploaded to
+`s3://hm2p-derivatives/dlc-retrain/models/_compare_verdict.json` when
+`--upload-s3` is set; the frontend tracking-quality page reads it and
+renders a per-keypoint table plus a green/red banner.
+
+If the gate fails (`exit 2`), roll back via `declare_dlc_champion.py`
+with the prior champion's identifiers (the prior manifest is archived
+under `dlc-champion-history/`):
+
+```bash
+uv run python scripts/declare_dlc_champion.py \
+    --model-name <prior model_name> \
+    --architecture HrnetW32 \
+    --snapshot <prior snapshot> \
+    --training-run-id <prior run_id> \
+    --note "Rolled back; SA-finetune failed promotion gate; verdict at <s3 url>"
+```
+
+Rolling back has a cost: any downstream derivatives rebuilt under the
+SA champion become stale and must be rebuilt again. The gate is
+intentionally not automatic, because the sample size for promotion
+decisions is one (per training run) and adding automatic rollback
+would encourage non-deterministic post-hoc gate tweaking.
+
+The architecture token in the champion manifest is unchanged by SA
+fine-tuning: SA-init shuffles still produce `HrnetW32` output filenames
+(only the shuffle index and snapshot number differ). The init source
+(`init: superanimal_topviewmouse_hrnet_w32 (memory replay)`) is recorded
+in the manifest's `notes` field. The frontend's staleness check
+(`is_session_current`) therefore continues to work without any schema
+change.
+
+Full design: [`docs/superanimal-fine-tune-design.md`](superanimal-fine-tune-design.md).
+Scientific motivation: [`docs/superanimal-fine-tune-plan-v2.md`](superanimal-fine-tune-plan-v2.md).
+
 ---
 
 ## 5. Codebase Touch Points

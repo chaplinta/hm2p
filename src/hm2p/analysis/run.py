@@ -121,7 +121,9 @@ def _compute_hd_for_condition(
     )
 
     tc, centers = compute_hd_tuning_curve(
-        signal, hd_deg, condition_mask,
+        signal,
+        hd_deg,
+        condition_mask,
         n_bins=params.hd_n_bins,
         smoothing_sigma_deg=params.hd_smoothing_sigma_deg,
     )
@@ -130,7 +132,9 @@ def _compute_hd_for_condition(
     width = tuning_width_fwhm(tc, centers)
 
     sig = hd_tuning_significance(
-        signal, hd_deg, condition_mask,
+        signal,
+        hd_deg,
+        condition_mask,
         n_shuffles=params.n_shuffles,
         n_bins=params.hd_n_bins,
         smoothing_sigma_deg=params.hd_smoothing_sigma_deg,
@@ -167,7 +171,10 @@ def _compute_place_for_condition(
     )
 
     rate_map, occ_map, bx, by = compute_place_rate_map(
-        signal, x, y, condition_mask,
+        signal,
+        x,
+        y,
+        condition_mask,
         bin_size=params.place_bin_size,
         smoothing_sigma=params.place_smoothing_sigma,
         min_occupancy_s=params.place_min_occupancy_s,
@@ -178,7 +185,10 @@ def _compute_place_for_condition(
     sparsity = spatial_sparsity(rate_map, occ_map)
 
     sig = place_tuning_significance(
-        signal, x, y, condition_mask,
+        signal,
+        x,
+        y,
+        condition_mask,
         n_shuffles=params.n_shuffles,
         bin_size=params.place_bin_size,
         smoothing_sigma=params.place_smoothing_sigma,
@@ -246,15 +256,21 @@ def analyze_cell(
         params = AnalysisParams()
     rng = np.random.default_rng(seed + roi_idx)
 
-    signal = _get_signal(dff, deconv, event_masks, roi_idx, params.signal_type,
-                         extra_signals=extra_signals)
+    signal = _get_signal(
+        dff, deconv, event_masks, roi_idx, params.signal_type, extra_signals=extra_signals
+    )
     evt = event_masks[roi_idx] if event_masks is not None else np.zeros_like(signal, dtype=bool)
 
     result = CellResult(roi_idx=roi_idx)
 
     # --- Activity by condition ---
     result.activity = compute_cell_activity(
-        signal, evt, speed, light_on, active_mask, fps,
+        signal,
+        evt,
+        speed,
+        light_on,
+        active_mask,
+        fps,
         speed_threshold=params.speed_threshold,
     )
 
@@ -285,15 +301,33 @@ def analyze_cell(
     # --- Place tuning ---
     if moving.sum() > 100:
         result.place_all = _compute_place_for_condition(
-            signal, x_cm, y_cm, moving, fps, params, rng,
+            signal,
+            x_cm,
+            y_cm,
+            moving,
+            fps,
+            params,
+            rng,
         )
     if moving_light.sum() > 100:
         result.place_light = _compute_place_for_condition(
-            signal, x_cm, y_cm, moving_light, fps, params, rng,
+            signal,
+            x_cm,
+            y_cm,
+            moving_light,
+            fps,
+            params,
+            rng,
         )
     if moving_dark.sum() > 100:
         result.place_dark = _compute_place_for_condition(
-            signal, x_cm, y_cm, moving_dark, fps, params, rng,
+            signal,
+            x_cm,
+            y_cm,
+            moving_dark,
+            fps,
+            params,
+            rng,
         )
 
     # --- Place comparison (light vs dark) ---
@@ -306,6 +340,93 @@ def analyze_cell(
         }
 
     return result
+
+
+def check_sync_status(
+    sync_h5_path: Path,
+    *,
+    include_failed_sync: bool = False,
+) -> tuple[bool, str, str]:
+    """Inspect ``sync.h5`` and decide whether Stage 6 should consume it.
+
+    Per ``docs/sync-pipeline-design.md`` §5, sessions whose ``sync_status``
+    starts with ``FAILED_`` are skipped by default. The
+    ``include_failed_sync`` override forces analysis to proceed regardless.
+
+    Parameters
+    ----------
+    sync_h5_path:
+        Path to the sync.h5 file produced by Stage 5.
+    include_failed_sync:
+        When True, return ``(True, status, reason)`` even for FAILED_*.
+
+    Returns
+    -------
+    proceed, status, reason:
+        ``proceed`` is True when analysis should run. ``status`` is the
+        ``sync_status`` attr (or ``"NO_SYNC_FILE"``). ``reason`` is a
+        human-readable explanation, used by the caller to populate
+        ``skipped_reason`` in the sentinel ``analysis.h5``.
+    """
+    from hm2p.io.hdf5 import read_attrs
+    from hm2p.sync.diagnostics import decode_codes_json
+
+    if not Path(sync_h5_path).exists():
+        return False, "NO_SYNC_FILE", "sync.h5 not found — Stage 5 has not been run"
+    try:
+        attrs = read_attrs(sync_h5_path)
+    except Exception as exc:  # pragma: no cover — defensive
+        return False, "READ_ERROR", f"failed to read sync.h5 attrs: {exc}"
+    raw_status = attrs.get("sync_status")
+    if raw_status is None:
+        return (
+            False,
+            "NO_STATUS",
+            (
+                "sync.h5 lacks sync_status attr — file predates the diagnostics "
+                "rollout, re-run Stage 5"
+            ),
+        )
+    status = raw_status.decode("utf-8") if isinstance(raw_status, bytes) else str(raw_status)
+    if not status.startswith("FAILED_"):
+        return True, status, ""
+    if include_failed_sync:
+        return True, status, "override active — include_failed_sync=True"
+    failures_raw = attrs.get("sync_failures", "[]")
+    if isinstance(failures_raw, bytes):
+        failures_raw = failures_raw.decode("utf-8")
+    try:
+        failures = decode_codes_json(failures_raw)
+        first = failures[0] if failures else status
+    except Exception:
+        first = status
+    return False, status, f"{status}: {first}"
+
+
+def write_skipped_analysis_h5(
+    output_path: Path,
+    session_id: str,
+    skipped_reason: str,
+    sync_status: str,
+) -> None:
+    """Write a sentinel analysis.h5 for a skipped session.
+
+    The sentinel contains only the metadata needed for downstream
+    aggregations to recognise the skip and avoid re-running. Pages that
+    consume analysis.h5 must check the ``skipped_reason`` attr and
+    suppress per-cell rendering when present.
+    """
+    from hm2p.io.hdf5 import write_h5
+
+    write_h5(
+        output_path,
+        arrays={},
+        attrs={
+            "session_id": session_id,
+            "skipped_reason": skipped_reason,
+            "sync_status": sync_status,
+        },
+    )
 
 
 def analyze_session(
@@ -354,12 +475,22 @@ def analyze_session(
     x_mm = resample_to_imaging_rate(kin["x_mm"], cam_times, img_times)
     y_mm = resample_to_imaging_rate(kin["y_mm"], cam_times, img_times)
     speed = resample_to_imaging_rate(kin["speed_cm_s"], cam_times, img_times)
-    light_on = resample_to_imaging_rate(
-        kin["light_on"].astype(np.float64), cam_times, img_times,
-    ) > 0.5
-    bad_behav = resample_to_imaging_rate(
-        kin["bad_behav"].astype(np.float64), cam_times, img_times,
-    ) > 0.5
+    light_on = (
+        resample_to_imaging_rate(
+            kin["light_on"].astype(np.float64),
+            cam_times,
+            img_times,
+        )
+        > 0.5
+    )
+    bad_behav = (
+        resample_to_imaging_rate(
+            kin["bad_behav"].astype(np.float64),
+            cam_times,
+            img_times,
+        )
+        > 0.5
+    )
     active_mask = ~bad_behav
 
     # Convert mm to cm for place analysis

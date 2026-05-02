@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from unittest.mock import MagicMock
 
+import pytest
+
 from hm2p.pose.select import (
     CHAMPION_MANIFEST_KEY,
     _snapshot_number,
@@ -279,6 +281,41 @@ def test_extract_architecture_returns_none_for_baseline():
 
 
 # ---------------------------------------------------------------------------
+# extract_architecture: init source agnostic (SA-finetune design §1.5)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "filename, expected_arch",
+    [
+        # Existing ImageNet-init shuffle 1, snap 110.
+        (
+            "video_DLC_HrnetW32_hm2p-retrain_2026-03-20_shuffle1_snapshot-best-110.h5",
+            "HrnetW32",
+        ),
+        # SA-init shuffle 2, snap 60 — same architecture token.
+        (
+            "video_DLC_HrnetW32_hm2p-retrain_2026-03-20_shuffle2_snapshot-best-60.h5",
+            "HrnetW32",
+        ),
+        # Legacy ResNet50 (TF) shuffle.
+        (
+            "video_DLC_Resnet50_hm2p-retrain_shuffle1_snapshot-50000.h5",
+            "Resnet50",
+        ),
+    ],
+)
+def test_extract_architecture_init_source_agnostic(filename, expected_arch):
+    """Architecture token is unchanged by init source (ImageNet vs SA).
+
+    Locks the design decision (SA fine-tune §1.5): SA fine-tune is captured
+    in the champion manifest's ``notes`` field, not in the architecture
+    token. The frontend's staleness check therefore continues to work
+    against the existing architecture extraction.
+    """
+    assert extract_architecture(filename) == expected_arch
+
+
+# ---------------------------------------------------------------------------
 # compute_champion_id
 # ---------------------------------------------------------------------------
 
@@ -311,7 +348,7 @@ def test_compute_champion_id_deterministic():
 def test_compute_champion_id_uses_today_if_no_date():
     """When training_date is None, today's UTC date is used. Just verify form."""
     import datetime
-    today = datetime.datetime.now(datetime.timezone.utc).date().isoformat().replace("-", "")
+    today = datetime.datetime.now(datetime.UTC).date().isoformat().replace("-", "")
     cid = compute_champion_id("x", "HrnetW32", "10")
     assert cid == f"dlc-{today}-hrnetw32-snap10"
 

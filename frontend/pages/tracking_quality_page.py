@@ -54,6 +54,7 @@ if not experiments:
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 @st.cache_data(ttl=300)
 def _load_dlc_data(sub: str, ses: str) -> tuple:
     """Load DLC h5 + meta from S3. Returns (df, meta_dict, bodyparts, scorer)."""
@@ -70,6 +71,7 @@ def _load_dlc_data(sub: str, ses: str) -> tuple:
         return None, None, None, None
 
     import tempfile
+
     with tempfile.NamedTemporaryFile(suffix=".h5", delete=True) as tmp:
         tmp.write(h5_data)
         tmp.flush()
@@ -109,7 +111,9 @@ def _load_dlc_data(sub: str, ses: str) -> tuple:
                 vals = np.empty(len(df))
                 for frame_idx in range(len(df)):
                     try:
-                        vals[frame_idx] = df.iloc[frame_idx][(scorer, individuals[best_idx[frame_idx]], bp, coord)]
+                        vals[frame_idx] = df.iloc[frame_idx][
+                            (scorer, individuals[best_idx[frame_idx]], bp, coord)
+                        ]
                     except (KeyError, IndexError):
                         vals[frame_idx] = np.nan
                 new_data[(scorer, bp, coord)] = vals
@@ -141,15 +145,105 @@ def _extract_keypoint_data(df, scorer, bodyparts):
 
 
 # ---------------------------------------------------------------------------
+# SA fine-tune comparison verdict (read-only display)
+# ---------------------------------------------------------------------------
+
+
+def _render_verdict_section() -> None:
+    """Display the SA fine-tune promotion-gate verdict if present on S3.
+
+    Shows a green/red banner + per-keypoint table. The verdict itself is
+    produced by ``scripts/compare_models.py`` after a SA fine-tune EC2
+    run; see ``docs/dlc-champion-model.md`` §4.5.
+    """
+    from frontend.data import load_verdict
+
+    verdict = load_verdict()
+    st.header("DLC model comparison (SA fine-tune)")
+    if verdict is None:
+        st.info(
+            "Verdict not yet computed. Run "
+            "`scripts/compare_models.py --upload-s3` after a SA fine-tune "
+            "to populate this section."
+        )
+        return
+
+    schema = verdict.get("schema_version")
+    if schema != "1.0":
+        st.warning(
+            f"Unsupported verdict schema version: {schema!r}. "
+            "Update the frontend or downgrade the verdict."
+        )
+        return
+
+    overall = bool(verdict.get("overall_pass", False))
+    base_id = verdict.get("baseline_id", "?")
+    cand_id = verdict.get("candidate_id", "?")
+    n_frames = int(verdict.get("n_frames_compared", 0))
+    if overall:
+        st.success(
+            f"Promotion gate: PASS — candidate `{cand_id}` beats baseline "
+            f"`{base_id}` ({n_frames} frames compared)."
+        )
+    else:
+        reasons = verdict.get("fail_reasons", [])
+        st.error(
+            f"Promotion gate: FAIL — candidate `{cand_id}` did not beat "
+            f"baseline `{base_id}` ({n_frames} frames compared)."
+        )
+        if reasons:
+            st.markdown("Failure reasons:")
+            for r in reasons:
+                st.markdown(f"- `{r}`")
+
+    # Per-keypoint table
+    rows = []
+    pass_per_kp = verdict.get("gate_pass_per_keypoint", {})
+    for kp in verdict.get("keypoints", []):
+        passed = bool(pass_per_kp.get(kp["keypoint"], {}).get("pass", False))
+        rows.append(
+            {
+                "keypoint": kp["keypoint"],
+                "pass": "PASS" if passed else "FAIL",
+                "n_pairs": kp["n_pairs"],
+                "median_baseline_px": kp["median_baseline_px"],
+                "median_candidate_px": kp["median_candidate_px"],
+                "pct_change_median": kp["pct_change_median"],
+                "p_value": kp["p_value_wilcoxon"],
+                "rank_biserial_r": kp["rank_biserial_r"],
+            }
+        )
+    if rows:
+        st.dataframe(pd.DataFrame(rows), use_container_width=True)
+
+    # HD descriptive panel.
+    hd = verdict.get("hd", {})
+    if hd.get("median_abs_error_baseline_rad") is not None:
+        st.markdown(
+            "**Head-direction (descriptive only — not gated):**  "
+            f"baseline median |Δθ| = {hd['median_abs_error_baseline_rad']:.3f} rad, "
+            f"candidate = {hd['median_abs_error_candidate_rad']:.3f} rad, "
+            f"paired Wilcoxon p = {hd.get('p_value_wilcoxon', float('nan')):.2e}, "
+            f"rank-biserial r = {hd.get('rank_biserial_r', 0.0):+.2f} "
+            f"(n={hd.get('n_frames', 0)})."
+        )
+
+
+_render_verdict_section()
+
+
+# ---------------------------------------------------------------------------
 # Session-level quality overview
 # ---------------------------------------------------------------------------
 
 st.header("Session Quality Overview")
 
+
 # Build session list with pose data
 @st.cache_data(ttl=120)
 def _list_pose_sessions():
     from frontend.data import get_s3_client
+
     s3 = get_s3_client()
     sessions = []
     for exp in experiments:
@@ -191,13 +285,15 @@ with st.expander("Scan all sessions for quality issues", expanded=False):
             kp_data = _extract_keypoint_data(df, scorer, bodyparts)
             fps = meta.get("tracking_fps", 30)
             report = session_quality_report(kp_data, fps=fps)
-            results.append({
-                "session": sess_key,
-                "score": report["overall_score"],
-                "pct_good": report["pct_good"],
-                "n_frames": report["n_frames"],
-                "issues": report["issues"],
-            })
+            results.append(
+                {
+                    "session": sess_key,
+                    "score": report["overall_score"],
+                    "pct_good": report["pct_good"],
+                    "n_frames": report["n_frames"],
+                    "issues": report["issues"],
+                }
+            )
 
         progress.empty()
 
@@ -222,7 +318,7 @@ with st.expander("Scan all sessions for quality issues", expanded=False):
 
             st.markdown(
                 f"**{r['session']}** — :{color}[{label} ({score:.0f}/100)] "
-                f"| {r['pct_good']*100:.1f}% clean frames | {r['n_frames']} frames"
+                f"| {r['pct_good'] * 100:.1f}% clean frames | {r['n_frames']} frames"
             )
             if r["issues"]:
                 for issue in r["issues"]:
@@ -250,6 +346,7 @@ if df is None:
     st.warning("Could not load pose data for this session.")
     st.stop()
 
+
 # Champion staleness check — pose data is derived from DLC; staleness is
 # assessed via the dlc_champion_id attribute stored in sync.h5 by Stage 5.
 # If sync.h5 is absent (Stage 5 not yet run), the check is skipped.
@@ -267,6 +364,7 @@ def _read_sync_champion_id(sub: str, ses: str) -> str:
             return val.decode("utf-8", errors="replace") if isinstance(val, bytes) else str(val)
     except Exception:
         return "unknown"
+
 
 _champion = get_dlc_champion()
 _session_cid = _read_sync_champion_id(sub, ses)
@@ -298,7 +396,7 @@ report = session_quality_report(kp_data, fps=fps)
 
 col1, col2, col3 = st.columns(3)
 col1.metric("Quality Score", f"{report['overall_score']:.0f}/100")
-col2.metric("Clean Frames", f"{report['pct_good']*100:.1f}%")
+col2.metric("Clean Frames", f"{report['pct_good'] * 100:.1f}%")
 col3.metric("Issues", len(report["issues"]))
 
 if report["issues"]:
@@ -312,7 +410,11 @@ st.subheader("Jump Detection")
 if mm_per_pix is not None:
     # Slider in mm/frame; convert to px/frame for the detection function
     jump_thr_mm = st.slider(
-        "Jump threshold (mm/frame)", 1.0, 150.0, round(50.0 * mm_per_pix, 1), 0.5,
+        "Jump threshold (mm/frame)",
+        1.0,
+        150.0,
+        round(50.0 * mm_per_pix, 1),
+        0.5,
         key="jump_thresh",
     )
     jump_threshold = jump_thr_mm / mm_per_pix
@@ -322,8 +424,10 @@ else:
     )
 
 bp_select = st.selectbox(
-    "Body part for diagnostics", bodyparts,
-    format_func=_display_bp, key="diag_bp",
+    "Body part for diagnostics",
+    bodyparts,
+    format_func=_display_bp,
+    key="diag_bp",
 )
 
 if bp_select in kp_data:
@@ -334,7 +438,7 @@ if bp_select in kp_data:
     jumps = detect_jumps(x, y, threshold_px=jump_threshold)
     n_jumps = int(jumps.sum())
 
-    st.metric(f"Jump frames ({bp_select})", f"{n_jumps} ({n_jumps/len(x)*100:.2f}%)")
+    st.metric(f"Jump frames ({bp_select})", f"{n_jumps} ({n_jumps / len(x) * 100:.2f}%)")
 
     if n_jumps > 0:
         import plotly.graph_objects as go
@@ -357,15 +461,19 @@ if bp_select in kp_data:
 
         ds = max(1, len(disp_display) // 3000)
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            y=disp_display[::ds], mode="lines",
-            line=dict(width=0.5, color="steelblue"), name="Displacement",
-        ))
-        fig.add_hline(y=thr_display, line_dash="dash", line_color="red",
-                       annotation_text=thr_text)
+        fig.add_trace(
+            go.Scatter(
+                y=disp_display[::ds],
+                mode="lines",
+                line=dict(width=0.5, color="steelblue"),
+                name="Displacement",
+            )
+        )
+        fig.add_hline(y=thr_display, line_dash="dash", line_color="red", annotation_text=thr_text)
         fig.update_layout(
             title=f"Frame-to-frame displacement — {bp_select}",
-            xaxis_title="Frame", yaxis_title=y_label,
+            xaxis_title="Frame",
+            yaxis_title=y_label,
             height=300,
         )
         st.plotly_chart(fig, use_container_width=True, key="jump_plot")
@@ -376,11 +484,16 @@ st.subheader("Confidence by Body Part")
 import plotly.graph_objects as go
 
 _bp_colors = {
-    "nose_tip": "#FF0000", "nose": "#FF0000",
-    "left_ear": "#0000FF", "right_ear": "#00FFFF",
-    "head_midpoint": "#FFA500", "implant_base_rear": "#FFA500",
-    "neck": "#800080", "mid_back": "#00CC00",
-    "mouse_center": "#FFD700", "tail_base": "#FF00FF",
+    "nose_tip": "#FF0000",
+    "nose": "#FF0000",
+    "left_ear": "#0000FF",
+    "right_ear": "#00FFFF",
+    "head_midpoint": "#FFA500",
+    "implant_base_rear": "#FFA500",
+    "neck": "#800080",
+    "mid_back": "#00CC00",
+    "mouse_center": "#FFD700",
+    "tail_base": "#FF00FF",
 }
 
 # Mean confidence per bodypart
@@ -392,13 +505,15 @@ for bp in bodyparts:
 if _bp_mean_lik:
     _sorted_bps = sorted(_bp_mean_lik, key=_bp_mean_lik.get)
     fig_conf = go.Figure()
-    fig_conf.add_trace(go.Bar(
-        x=[_display_bp(bp) for bp in _sorted_bps],
-        y=[_bp_mean_lik[bp] for bp in _sorted_bps],
-        marker_color=[_bp_colors.get(bp, "#888888") for bp in _sorted_bps],
-        text=[f"{_bp_mean_lik[bp]:.3f}" for bp in _sorted_bps],
-        textposition="outside",
-    ))
+    fig_conf.add_trace(
+        go.Bar(
+            x=[_display_bp(bp) for bp in _sorted_bps],
+            y=[_bp_mean_lik[bp] for bp in _sorted_bps],
+            marker_color=[_bp_colors.get(bp, "#888888") for bp in _sorted_bps],
+            text=[f"{_bp_mean_lik[bp]:.3f}" for bp in _sorted_bps],
+            textposition="outside",
+        )
+    )
     fig_conf.update_layout(
         yaxis_title="Mean likelihood",
         yaxis_range=[0, max(_bp_mean_lik.values()) * 1.15],
@@ -417,14 +532,18 @@ if bp_select in kp_data:
     _lik = kp_data[bp_select]["likelihood"]
     _ds = max(1, len(_lik) // 3000)
     fig_lik_ts = go.Figure()
-    fig_lik_ts.add_trace(go.Scatter(
-        y=_lik[::_ds], mode="lines",
-        line=dict(width=0.5, color=_bp_colors.get(bp_select, "steelblue")),
-        name=bp_select,
-    ))
+    fig_lik_ts.add_trace(
+        go.Scatter(
+            y=_lik[::_ds],
+            mode="lines",
+            line=dict(width=0.5, color=_bp_colors.get(bp_select, "steelblue")),
+            name=bp_select,
+        )
+    )
     fig_lik_ts.update_layout(
         title=f"Confidence over time — {bp_select}",
-        xaxis_title="Frame", yaxis_title="Likelihood",
+        xaxis_title="Frame",
+        yaxis_title="Likelihood",
         yaxis_range=[0, 1.05],
         height=250,
         margin=dict(l=40, r=20, t=40, b=40),
@@ -434,13 +553,17 @@ if bp_select in kp_data:
 # --- Anatomical constraints ---
 st.subheader("Anatomical Constraints")
 
-tab_ears, tab_swap, tab_body, tab_frozen = st.tabs(["Ear Distance", "Ear Swap", "Body Length", "Frozen Keypoints"])
+tab_ears, tab_swap, tab_body, tab_frozen = st.tabs(
+    ["Ear Distance", "Ear Swap", "Body Length", "Frozen Keypoints"]
+)
 
 with tab_ears:
     if "left_ear" in kp_data and "right_ear" in kp_data:
         ear_result = detect_ear_distance_outliers(
-            kp_data["left_ear"]["x"], kp_data["left_ear"]["y"],
-            kp_data["right_ear"]["x"], kp_data["right_ear"]["y"],
+            kp_data["left_ear"]["x"],
+            kp_data["left_ear"]["y"],
+            kp_data["right_ear"]["x"],
+            kp_data["right_ear"]["y"],
         )
         c1, c2, c3 = st.columns(3)
         if mm_per_pix is not None:
@@ -465,15 +588,21 @@ with tab_ears:
                 ear_y_label = "Distance (px)"
             ds = max(1, len(dist_display) // 3000)
             fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                y=dist_display[::ds], mode="lines",
-                line=dict(width=0.5), name="Ear distance",
-            ))
-            fig.add_hline(y=median_display, line_dash="dash", line_color="green",
-                           annotation_text="Median")
+            fig.add_trace(
+                go.Scatter(
+                    y=dist_display[::ds],
+                    mode="lines",
+                    line=dict(width=0.5),
+                    name="Ear distance",
+                )
+            )
+            fig.add_hline(
+                y=median_display, line_dash="dash", line_color="green", annotation_text="Median"
+            )
             fig.update_layout(
                 title="Inter-ear distance over time",
-                xaxis_title="Frame", yaxis_title=ear_y_label,
+                xaxis_title="Frame",
+                yaxis_title=ear_y_label,
                 height=300,
             )
             st.plotly_chart(fig, use_container_width=True, key="ear_dist_plot")
@@ -488,7 +617,7 @@ with tab_swap:
         ("nose_tip", "head_midpoint"),
         ("nose", "head_midpoint"),
         ("nose_tip", "implant_base_rear"),  # legacy alias
-        ("nose", "implant_base_rear"),       # legacy alias
+        ("nose", "implant_base_rear"),  # legacy alias
         ("nose_tip", "neck"),
         ("nose", "neck"),
         ("nose_tip", "mid_back"),
@@ -496,7 +625,7 @@ with tab_swap:
         ("head_midpoint", "mid_back"),
         ("head_midpoint", "mouse_center"),
         ("head_midpoint", "tail_base"),
-        ("implant_base_rear", "mid_back"),   # legacy alias
+        ("implant_base_rear", "mid_back"),  # legacy alias
         ("implant_base_rear", "mouse_center"),  # legacy alias
         ("implant_base_rear", "tail_base"),  # legacy alias
         ("neck", "mid_back"),
@@ -513,14 +642,18 @@ with tab_swap:
 
     if has_ears and axis_bp1 is not None:
         swap_result = detect_ear_swaps(
-            kp_data["left_ear"]["x"], kp_data["left_ear"]["y"],
-            kp_data["right_ear"]["x"], kp_data["right_ear"]["y"],
-            kp_data[axis_bp1]["x"], kp_data[axis_bp1]["y"],
-            kp_data[axis_bp2]["x"], kp_data[axis_bp2]["y"],
+            kp_data["left_ear"]["x"],
+            kp_data["left_ear"]["y"],
+            kp_data["right_ear"]["x"],
+            kp_data["right_ear"]["y"],
+            kp_data[axis_bp1]["x"],
+            kp_data[axis_bp1]["y"],
+            kp_data[axis_bp2]["x"],
+            kp_data[axis_bp2]["y"],
         )
         c1, c2, c3 = st.columns(3)
         c1.metric("Swapped frames", f"{swap_result['n_swapped']:,}")
-        c2.metric("% swapped", f"{swap_result['pct_swapped']*100:.1f}%")
+        c2.metric("% swapped", f"{swap_result['pct_swapped'] * 100:.1f}%")
         c3.metric("Body axis", f"{axis_bp1} → {axis_bp2}")
 
         if swap_result["n_swapped"] > 0:
@@ -531,25 +664,33 @@ with tab_swap:
             )
 
             import plotly.graph_objects as go
+
             left_s = swap_result["left_sign"]
             ds = max(1, len(left_s) // 3000)
             fig = go.Figure()
-            fig.add_trace(go.Scatter(
-                y=left_s[::ds], mode="lines",
-                line=dict(width=0.5, color="steelblue"),
-                name="Left ear side (+ = left of axis)",
-            ))
+            fig.add_trace(
+                go.Scatter(
+                    y=left_s[::ds],
+                    mode="lines",
+                    line=dict(width=0.5, color="steelblue"),
+                    name="Left ear side (+ = left of axis)",
+                )
+            )
             fig.add_hline(y=0, line_dash="dash", line_color="red")
             # Highlight swapped regions
             swapped_idx = np.where(swap_result["is_swapped"])[0]
             if len(swapped_idx) > 0:
-                fig.add_trace(go.Scatter(
-                    x=swapped_idx[::ds] if len(swapped_idx) > 3000 else swapped_idx,
-                    y=left_s[swapped_idx][::ds] if len(swapped_idx) > 3000 else left_s[swapped_idx],
-                    mode="markers",
-                    marker=dict(size=3, color="red"),
-                    name="Swapped",
-                ))
+                fig.add_trace(
+                    go.Scatter(
+                        x=swapped_idx[::ds] if len(swapped_idx) > 3000 else swapped_idx,
+                        y=left_s[swapped_idx][::ds]
+                        if len(swapped_idx) > 3000
+                        else left_s[swapped_idx],
+                        mode="markers",
+                        marker=dict(size=3, color="red"),
+                        name="Swapped",
+                    )
+                )
             fig.update_layout(
                 title="Left ear signed side relative to body axis",
                 xaxis_title="Frame",
@@ -568,15 +709,19 @@ with tab_swap:
         st.info(f"Need {', '.join(missing)} for ear swap detection.")
 
 with tab_body:
-    head_bp = "mouse_center" if "mouse_center" in kp_data else (
-        "mid_back" if "mid_back" in kp_data else None
+    head_bp = (
+        "mouse_center"
+        if "mouse_center" in kp_data
+        else ("mid_back" if "mid_back" in kp_data else None)
     )
     tail_bp = "tail_base" if "tail_base" in kp_data else None
 
     if head_bp and tail_bp:
         body_result = body_length_consistency(
-            kp_data[head_bp]["x"], kp_data[head_bp]["y"],
-            kp_data[tail_bp]["x"], kp_data[tail_bp]["y"],
+            kp_data[head_bp]["x"],
+            kp_data[head_bp]["y"],
+            kp_data[tail_bp]["x"],
+            kp_data[tail_bp]["y"],
         )
         c1, c2, c3 = st.columns(3)
         if mm_per_pix is not None:
@@ -592,12 +737,13 @@ with tab_body:
 with tab_frozen:
     if bp_select in kp_data:
         frozen = detect_frozen_keypoint(
-            kp_data[bp_select]["x"], kp_data[bp_select]["y"],
+            kp_data[bp_select]["x"],
+            kp_data[bp_select]["y"],
         )
         n_frozen = int(frozen.sum())
         st.metric(
             f"Frozen frames ({bp_select})",
-            f"{n_frozen} ({n_frozen/max(len(frozen), 1)*100:.2f}%)",
+            f"{n_frozen} ({n_frozen / max(len(frozen), 1) * 100:.2f}%)",
         )
         if n_frozen > 0:
             st.caption(
@@ -648,7 +794,9 @@ if st.button("Select frames", key="select_frames_btn"):
 
     if method.startswith("Stratified"):
         result = stratified_frame_selection(
-            lik_matrix, n_per_bin=max(1, n_frames // 4), min_spacing=min_spacing,
+            lik_matrix,
+            n_per_bin=max(1, n_frames // 4),
+            min_spacing=min_spacing,
             positions=pos_matrix,
         )
         selected_indices = result["indices"]
@@ -658,7 +806,9 @@ if st.button("Select frames", key="select_frames_btn"):
         for label, bin_idx in result["bins"]:
             st.caption(f"**{label.title()}** ({len(bin_idx)} frames): {bin_idx.tolist()}")
     else:
-        selected_indices = worst_frames(lik_matrix, n_frames=n_frames, min_spacing=min_spacing, positions=pos_matrix)
+        selected_indices = worst_frames(
+            lik_matrix, n_frames=n_frames, min_spacing=min_spacing, positions=pos_matrix
+        )
         st.success(f"Selected {len(selected_indices)} worst frames")
 
     # Show selected frame details
@@ -668,9 +818,7 @@ if st.button("Select frames", key="select_frames_btn"):
     for idx in selected_indices[:20]:  # Show first 20
         frame_lik = mean_lik[idx]
         color = "red" if frame_lik < 0.5 else ("orange" if frame_lik < 0.9 else "green")
-        st.markdown(
-            f"Frame **{idx}** — :{color}[likelihood: {frame_lik:.3f}]"
-        )
+        st.markdown(f"Frame **{idx}** — :{color}[likelihood: {frame_lik:.3f}]")
 
     if len(selected_indices) > 20:
         st.caption(f"... and {len(selected_indices) - 20} more frames")
@@ -696,7 +844,9 @@ if "retrain_frames" in st.session_state:
 
     st.markdown(f"**Session:** `{_rt_sub}/{_rt_ses}` | **Frames:** {len(_rt_frames)}")
 
-    st.markdown("**Run this on your Mac** (downloads video, extracts frames, sets up DLC project):")
+    st.markdown(
+        "**Run this on your Mac** (downloads video, extracts frames, sets up DLC project):"
+    )
     st.code(
         f"# Install DLC GUI (only needed once)\n"
         f"uv pip install --pre 'deeplabcut[gui]' --python ~/.venv-hm2p/bin/python\n\n"
@@ -885,4 +1035,54 @@ st.code(
 )
 
 st.markdown("---")
+
+with st.expander("Methods & References"):
+    st.markdown(
+        """
+The DLC pose model used for this project is fine-tuned from the
+SuperAnimal-TopViewMouse HRNet-W32 release, with optional memory-replay
+warm-start (`scripts/run_dlc_retrain.py --sa-finetune`).
+
+When a candidate model is compared against the current champion, the
+comparison uses paired non-parametric tests on per-frame Euclidean
+errors:
+
+- **Per-keypoint:** Wilcoxon signed-rank
+  (`scipy.stats.wilcoxon(..., zero_method="wilcox")`) with Bonferroni
+  correction across the 8 keypoints (α = 6.25 × 10⁻³).
+- **Effect size:** matched-pair rank-biserial *r* (Kerby 2014).
+- **Confidence intervals:** percentile bootstrap on the median
+  (10 000 resamples).
+
+The promotion gate (v2 plan §4.6) is a conjunction of six predicates:
+≥ 30 % median reduction on `nose_tip` (Bonferroni-significant, *r* ≥
+0.30); ≥ 40 % on `tail_base` (same significance); ≥ 20 % p90 reduction
+on `head_midpoint`; no significant > 10 % regression on the remaining
+five keypoints. Head-direction circular error is reported descriptively
+but does not gate the verdict.
+
+The HD-error Wilcoxon p-value is one-sided
+(`alternative="greater"`, H₁: baseline error > candidate error) to
+match the per-keypoint tests. The HD panel is reported only for
+descriptive comparison — the gate's verdict is independent of HD —
+so the one-sided choice does not affect promotion decisions; it
+simply keeps the directionality of the reported p-value consistent
+with the keypoint panels.
+
+### References
+
+> Ye S, Filippova A, Lauer J, Schneider S, Vidal M, Qiu T, Mathis A,
+> Mathis MW. 2024. "SuperAnimal pretrained pose estimation models for
+> behavioral analysis." *Nature Communications* 15:5165.
+> doi:[10.1038/s41467-024-48792-2](https://doi.org/10.1038/s41467-024-48792-2).
+> Code: [DeepLabCut on GitHub](https://github.com/DeepLabCut/DeepLabCut).
+> Pre-trained weights:
+> [SuperAnimal-TopViewMouse on HuggingFace](https://huggingface.co/mwmathis/DeepLabCutModelZoo-SuperAnimal-TopViewMouse).
+
+> Kerby DS. 2014. "The simple difference formula: an approach to
+> teaching nonparametric correlation." *Comprehensive Psychology* 3:1.
+> doi:[10.2466/11.IT.3.1](https://doi.org/10.2466/11.IT.3.1).
+        """
+    )
+
 st.caption("Tracking Quality & Retraining | hm2p v2")

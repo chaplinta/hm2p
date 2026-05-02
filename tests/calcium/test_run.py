@@ -201,8 +201,22 @@ class TestCalciumRun:
 
         out_a = tmp_path / "ca_a.h5"
         out_b = tmp_path / "ca_b.h5"
-        run(suite2p_dir, ts_h5, session_id="test", output_path=out_a, neuropil_coefficient=0.3)
-        run(suite2p_dir, ts_h5, session_id="test", output_path=out_b, neuropil_coefficient=0.9)
+        run(
+            suite2p_dir,
+            ts_h5,
+            session_id="test",
+            output_path=out_a,
+            neuropil_method="fixed",
+            neuropil_coefficient=0.3,
+        )
+        run(
+            suite2p_dir,
+            ts_h5,
+            session_id="test",
+            output_path=out_b,
+            neuropil_method="fixed",
+            neuropil_coefficient=0.9,
+        )
 
         dff_a = read_h5(out_a)["dff"]
         dff_b = read_h5(out_b)["dff"]
@@ -220,3 +234,616 @@ class TestCalciumRun:
         run(suite2p_dir, ts_h5, session_id="test", output_path=out)
 
         validate_ca_h5(read_h5(out))  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# bad_imaging_frames — Suite2p badframes → ca.h5
+# ---------------------------------------------------------------------------
+
+
+def _write_suite2p_with_ops(
+    suite2p_dir: Path,
+    n_rois: int = 10,
+    n_frames: int = 200,
+    bad_frame_indices: list[int] | None = None,
+) -> None:
+    """Write synthetic Suite2p plane0 including ops.npy with badframes."""
+    rng = np.random.default_rng(42)
+    plane = suite2p_dir / "plane0"
+    plane.mkdir(parents=True)
+
+    F = rng.uniform(100, 500, (n_rois, n_frames)).astype(np.float32)
+    Fneu = rng.uniform(50, 200, (n_rois, n_frames)).astype(np.float32)
+    iscell = np.ones((n_rois, 2), dtype=np.float32)
+
+    np.save(plane / "F.npy", F)
+    np.save(plane / "Fneu.npy", Fneu)
+    np.save(plane / "iscell.npy", iscell)
+
+    ops = {"fs": 9.6, "Ly": 64, "Lx": 64, "nframes": n_frames}
+    if bad_frame_indices:
+        ops["badframes"] = np.array(bad_frame_indices, dtype=np.int64)
+    else:
+        ops["badframes"] = np.array([], dtype=np.int64)
+    np.save(plane / "ops.npy", ops)
+
+
+class TestBadImagingFrames:
+    def test_bad_imaging_frames_present_when_ops_has_badframes(self, tmp_path: Path) -> None:
+        """bad_imaging_frames written to ca.h5 when ops.npy has badframes."""
+        from hm2p.io.hdf5 import read_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_ops(suite2p_dir, n_rois=8, n_frames=200, bad_frame_indices=[5, 10, 99])
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert "bad_imaging_frames" in ca
+
+    def test_bad_imaging_frames_is_bool(self, tmp_path: Path) -> None:
+        """bad_imaging_frames dtype is bool."""
+        from hm2p.io.hdf5 import read_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_ops(suite2p_dir, n_rois=6, n_frames=150, bad_frame_indices=[3])
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=150, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert ca["bad_imaging_frames"].dtype == bool
+
+    def test_bad_imaging_frames_marks_correct_indices(self, tmp_path: Path) -> None:
+        """Indices from ops['badframes'] are True in bad_imaging_frames."""
+        from hm2p.io.hdf5 import read_h5
+
+        n = 200
+        bad_idx = [5, 10, 99]
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_ops(suite2p_dir, n_rois=6, n_frames=n, bad_frame_indices=bad_idx)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        for i in bad_idx:
+            assert ca["bad_imaging_frames"][i], f"Expected frame {i} to be marked bad"
+        # A clean frame (not in bad_idx) should be False
+        assert not ca["bad_imaging_frames"][0]
+
+    def test_bad_imaging_frames_all_false_when_no_badframes(self, tmp_path: Path) -> None:
+        """bad_imaging_frames is all False when ops['badframes'] is empty."""
+        from hm2p.io.hdf5 import read_h5
+
+        n = 150
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_ops(suite2p_dir, n_rois=5, n_frames=n, bad_frame_indices=[])
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert "bad_imaging_frames" in ca
+        assert not np.any(ca["bad_imaging_frames"])
+
+    def test_bad_imaging_frames_out_of_range_indices_warn(self, tmp_path: Path, caplog) -> None:
+        """QA 1.10 — badframes indices >= n_total_frames log a warning.
+
+        Previously the implementation silently dropped any badframes
+        index beyond the F.npy length via ``valid_idx``, hiding a real
+        Suite2p frame-count inconsistency. The fix logs a warning when
+        this happens so the discrepancy is auditable.
+        """
+        import logging
+
+        from hm2p.io.hdf5 import read_h5
+
+        n = 100
+        suite2p_dir = tmp_path / "suite2p"
+        # ops['badframes'] points at frames 5, 50, 150, 200 — the latter
+        # two are beyond F.npy length (100). Without the fix they would
+        # be silently discarded.
+        _write_suite2p_with_ops(
+            suite2p_dir,
+            n_rois=4,
+            n_frames=n,
+            bad_frame_indices=[5, 50, 150, 200],
+        )
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n, fps=9.6)
+        out = tmp_path / "ca.h5"
+
+        with caplog.at_level(logging.WARNING, logger="hm2p.calcium.run"):
+            run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        # Two indices were beyond range — expect one warning record.
+        assert any(
+            "beyond F.npy length" in rec.message
+            and rec.levelno == logging.WARNING
+            and rec.name == "hm2p.calcium.run"
+            for rec in caplog.records
+        ), "Out-of-range badframes indices must log a warning."
+        # Output is still aligned to dff length, with valid indices marked
+        ca = read_h5(out)
+        assert ca["bad_imaging_frames"][5]
+        assert ca["bad_imaging_frames"][50]
+        assert len(ca["bad_imaging_frames"]) == ca["dff"].shape[1]
+
+    def test_bad_imaging_frames_length_matches_dff(self, tmp_path: Path) -> None:
+        """bad_imaging_frames length equals dff frame count."""
+        from hm2p.io.hdf5 import read_h5
+
+        n = 300
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_ops(suite2p_dir, n_rois=8, n_frames=n, bad_frame_indices=[1, 2, 3])
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert len(ca["bad_imaging_frames"]) == ca["dff"].shape[1]
+
+
+# ---------------------------------------------------------------------------
+# Soma-classifier probabilities — written when stat.npy is present
+# ---------------------------------------------------------------------------
+
+
+def _write_suite2p_with_stat(
+    suite2p_dir: Path,
+    n_rois: int = 8,
+    n_frames: int = 200,
+) -> None:
+    """Write synthetic Suite2p plane0 including stat.npy and ops.npy."""
+    rng = np.random.default_rng(123)
+    plane = suite2p_dir / "plane0"
+    plane.mkdir(parents=True)
+
+    F = rng.uniform(100, 500, (n_rois, n_frames)).astype(np.float32)
+    Fneu = rng.uniform(50, 200, (n_rois, n_frames)).astype(np.float32)
+    iscell = np.ones((n_rois, 2), dtype=np.float32)
+
+    np.save(plane / "F.npy", F)
+    np.save(plane / "Fneu.npy", Fneu)
+    np.save(plane / "iscell.npy", iscell)
+
+    stat = []
+    for i in range(n_rois):
+        stat.append(
+            {
+                "radius": 6.0 if i % 2 == 0 else 1.0,  # mix of soma and artefact shapes
+                "compact": 0.7,
+                "aspect_ratio": 1.5,
+                "npix": 200,
+                "npix_norm": 1.5,
+                "skew": 1.0,
+                "std": 1.0,
+                "ypix": np.array([0, 1, 2], dtype=int),
+                "xpix": np.array([0, 1, 2], dtype=int),
+            }
+        )
+    np.save(plane / "stat.npy", np.array(stat, dtype=object), allow_pickle=True)
+    ops = {
+        "fs": 9.6,
+        "Ly": 64,
+        "Lx": 64,
+        "nframes": n_frames,
+        "badframes": np.array([], dtype=np.int64),
+    }
+    np.save(plane / "ops.npy", ops)
+
+
+class TestSomaClassifierProbabilities:
+    def test_p_soma_p_dend_p_artefact_written(self, tmp_path: Path) -> None:
+        """When stat.npy is present, ca.h5 contains roi_qc/p_soma etc."""
+        from hm2p.io.hdf5 import read_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_stat(suite2p_dir, n_rois=8, n_frames=300)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=300, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert "roi_qc/p_soma" in ca
+        assert "roi_qc/p_dend" in ca
+        assert "roi_qc/p_artefact" in ca
+
+    def test_probabilities_sum_to_one(self, tmp_path: Path) -> None:
+        from hm2p.io.hdf5 import read_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_stat(suite2p_dir, n_rois=6, n_frames=300)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=300, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        sums = ca["roi_qc/p_soma"] + ca["roi_qc/p_dend"] + ca["roi_qc/p_artefact"]
+        assert np.allclose(sums, 1.0, atol=1e-5)
+
+    def test_probabilities_length_matches_n_rois(self, tmp_path: Path) -> None:
+        from hm2p.io.hdf5 import read_h5
+
+        n_rois = 8
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_stat(suite2p_dir, n_rois=n_rois, n_frames=300)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=300, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert ca["roi_qc/p_soma"].shape == (n_rois,)
+        assert ca["roi_qc/p_dend"].shape == (n_rois,)
+        assert ca["roi_qc/p_artefact"].shape == (n_rois,)
+
+    def test_no_p_soma_when_stat_missing(self, tmp_path: Path) -> None:
+        """When stat.npy is absent, p_soma is not written (graceful fallback)."""
+        from hm2p.io.hdf5 import read_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        # Use the without-stat helper:
+        _write_suite2p_plane0(suite2p_dir, n_rois=6, n_cells=4, n_frames=200)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert "roi_qc/p_soma" not in ca
+
+
+# ---------------------------------------------------------------------------
+# ROI-axis alignment — every ROI-axis array in ca.h5 must have shape[0] == n_rois
+# ---------------------------------------------------------------------------
+
+
+def _write_suite2p_with_spks(
+    suite2p_dir: Path,
+    n_rois: int = 12,
+    n_cells: int = 7,
+    n_frames: int = 200,
+) -> None:
+    """Write synthetic Suite2p plane0 including spks.npy, ops.npy."""
+    rng = np.random.default_rng(2024)
+    plane = suite2p_dir / "plane0"
+    plane.mkdir(parents=True)
+
+    F = rng.uniform(100, 500, (n_rois, n_frames)).astype(np.float32)
+    Fneu = rng.uniform(50, 200, (n_rois, n_frames)).astype(np.float32)
+    iscell = np.zeros((n_rois, 2), dtype=np.float32)
+    iscell[:n_cells, 0] = 1.0  # mixed cell / non-cell so the bug is visible
+
+    spks = rng.exponential(1.0, (n_rois, n_frames)).astype(np.float32)
+
+    np.save(plane / "F.npy", F)
+    np.save(plane / "Fneu.npy", Fneu)
+    np.save(plane / "iscell.npy", iscell)
+    np.save(plane / "spks.npy", spks)
+    np.save(
+        plane / "ops.npy",
+        {
+            "fs": 9.6,
+            "Ly": 64,
+            "Lx": 64,
+            "nframes": n_frames,
+            "badframes": np.array([], dtype=np.int64),
+        },
+    )
+
+
+class TestNTiffFramesAttr:
+    """QA issue 1.9 — Stage 4 stamps n_tiff_frames onto ca.h5 root attrs.
+
+    Stage 5 reads this attr (preferring it over the post-extraction
+    ``dff.shape[1]``) to compare imaging-pulse count against the
+    pre-trim TIFF count. ``dff.shape[1]`` always equals Suite2p's
+    post-extraction ``nframes`` and therefore cannot detect frames
+    Suite2p silently dropped during registration.
+    """
+
+    def test_n_tiff_frames_taken_from_ops_nframes_init(self, tmp_path: Path) -> None:
+        """Pre-trim count from ops['nframes_init'] is preferred."""
+        from hm2p.io.hdf5 import read_attrs
+
+        rng = np.random.default_rng(0)
+        n_rois, n_frames = 6, 200
+        suite2p_dir = tmp_path / "suite2p"
+        plane = suite2p_dir / "plane0"
+        plane.mkdir(parents=True)
+        F = rng.uniform(100, 500, (n_rois, n_frames)).astype(np.float32)
+        Fneu = rng.uniform(50, 200, (n_rois, n_frames)).astype(np.float32)
+        np.save(plane / "F.npy", F)
+        np.save(plane / "Fneu.npy", Fneu)
+        np.save(plane / "iscell.npy", np.ones((n_rois, 2), dtype=np.float32))
+        # ops with both nframes_init (pre-trim, 205) and nframes (post-trim, 200)
+        np.save(
+            plane / "ops.npy",
+            {
+                "fs": 9.6,
+                "Ly": 64,
+                "Lx": 64,
+                "nframes": n_frames,
+                "nframes_init": 205,
+                "badframes": np.array([], dtype=np.int64),
+            },
+        )
+
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n_frames, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        attrs = read_attrs(out)
+        assert int(attrs["n_tiff_frames"]) == 205, (
+            "n_tiff_frames must come from ops['nframes_init'] (pre-trim "
+            "count), not from dff.shape[1] (post-extraction count)."
+        )
+
+    def test_n_tiff_frames_falls_back_to_nframes(self, tmp_path: Path) -> None:
+        """When ops lacks nframes_init, fall back to ops['nframes']."""
+        from hm2p.io.hdf5 import read_attrs
+
+        rng = np.random.default_rng(1)
+        n_rois, n_frames = 5, 150
+        suite2p_dir = tmp_path / "suite2p"
+        plane = suite2p_dir / "plane0"
+        plane.mkdir(parents=True)
+        np.save(plane / "F.npy", rng.uniform(100, 500, (n_rois, n_frames)).astype(np.float32))
+        np.save(plane / "Fneu.npy", rng.uniform(50, 200, (n_rois, n_frames)).astype(np.float32))
+        np.save(plane / "iscell.npy", np.ones((n_rois, 2), dtype=np.float32))
+        np.save(
+            plane / "ops.npy",
+            {
+                "fs": 9.6,
+                "Ly": 64,
+                "Lx": 64,
+                "nframes": n_frames,
+                "badframes": np.array([], dtype=np.int64),
+                # No nframes_init — fall back to nframes.
+            },
+        )
+
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n_frames, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        attrs = read_attrs(out)
+        assert int(attrs["n_tiff_frames"]) == n_frames
+
+
+class TestRoiTypeEncoding:
+    """Regression tests for QA issue 1.2 — roi_types and iscell are separate.
+
+    Per docs/sync-pipeline-design.md and CLAUDE.md, ``roi_types`` is the
+    soma/dend/artefact label from the classifier (encoded 0/1/2 per spec),
+    and ``iscell`` is Suite2p's accept/reject flag. Conflating them loses
+    the artefact distinction.
+    """
+
+    def test_roi_types_are_classifier_labels_not_iscell_merge(self, tmp_path: Path) -> None:
+        """roi_types reflects classifier output; iscell is a separate flag.
+
+        Build a Suite2p plane0 where every ROI has soma-shape stats but
+        only n_cells of them are accepted by Suite2p (iscell=True). The
+        classifier should label all of them as soma (code 0), and ``iscell``
+        should hold the Suite2p flag separately.
+        """
+        from hm2p.io.hdf5 import read_h5
+
+        n_rois = 8
+        n_cells = 3
+        suite2p_dir = tmp_path / "suite2p"
+        # Use the with-stat helper but with mixed iscell.
+        rng = np.random.default_rng(7)
+        plane = suite2p_dir / "plane0"
+        plane.mkdir(parents=True)
+        F = rng.uniform(100, 500, (n_rois, 200)).astype(np.float32)
+        Fneu = rng.uniform(50, 200, (n_rois, 200)).astype(np.float32)
+        iscell_in = np.zeros((n_rois, 2), dtype=np.float32)
+        iscell_in[:n_cells, 0] = 1.0
+        np.save(plane / "F.npy", F)
+        np.save(plane / "Fneu.npy", Fneu)
+        np.save(plane / "iscell.npy", iscell_in)
+        stat = [
+            {
+                "radius": 6.0,
+                "compact": 0.7,
+                "aspect_ratio": 1.5,
+                "npix": 200,
+                "npix_norm": 1.5,
+                "skew": 1.0,
+                "std": 1.0,
+                "ypix": np.array([0, 1, 2], dtype=int),
+                "xpix": np.array([0, 1, 2], dtype=int),
+            }
+            for _ in range(n_rois)
+        ]
+        np.save(plane / "stat.npy", np.array(stat, dtype=object), allow_pickle=True)
+        np.save(
+            plane / "ops.npy",
+            {
+                "fs": 9.6,
+                "Ly": 64,
+                "Lx": 64,
+                "nframes": 200,
+                "badframes": np.array([], dtype=np.int64),
+            },
+        )
+
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        # iscell preserves Suite2p's flag — mixed True/False
+        assert "iscell" in ca
+        assert ca["iscell"].dtype == bool
+        assert ca["iscell"].shape == (n_rois,)
+        assert ca["iscell"].sum() == n_cells
+        # roi_types reflects soma-shape classifier output, NOT merged with iscell.
+        # No "non-cell" code 2 appears just because iscell is False.
+        assert ca["roi_types"].dtype == np.uint8
+        assert ca["roi_types"].shape == (n_rois,)
+        # All ROIs have soma-like shape — none should land at code 2 (artefact)
+        # solely because iscell=False; that conflation is the QA-flagged bug.
+        assert not np.any(ca["roi_types"][n_cells:] == 2), (
+            "iscell=False ROIs were incorrectly mapped to artefact (code 2). "
+            "iscell and roi_types must be persisted independently."
+        )
+
+    def test_roi_types_artefact_code_distinct_from_iscell_rejected(self, tmp_path: Path) -> None:
+        """Artefact-shape ROIs land at code 2 even when iscell=True.
+
+        Distinguishes a physical artefact (small radius) from a
+        Suite2p-rejected dendrite. The two cases must produce different
+        roi_types codes.
+        """
+        from hm2p.io.hdf5 import read_h5
+
+        rng = np.random.default_rng(11)
+        suite2p_dir = tmp_path / "suite2p"
+        plane = suite2p_dir / "plane0"
+        plane.mkdir(parents=True)
+        # Two ROIs: 0=artefact-shape (radius=1) iscell=True;
+        #           1=soma-shape (radius=6)     iscell=False
+        F = rng.uniform(100, 500, (2, 200)).astype(np.float32)
+        Fneu = rng.uniform(50, 200, (2, 200)).astype(np.float32)
+        iscell_in = np.array([[1.0, 1.0], [0.0, 0.0]], dtype=np.float32)
+        np.save(plane / "F.npy", F)
+        np.save(plane / "Fneu.npy", Fneu)
+        np.save(plane / "iscell.npy", iscell_in)
+        stat = [
+            {  # Artefact: radius < 2
+                "radius": 1.0,
+                "compact": 0.7,
+                "aspect_ratio": 1.5,
+                "npix": 5,
+                "npix_norm": 0.1,
+                "skew": 0.0,
+                "std": 1.0,
+                "ypix": np.array([0], dtype=int),
+                "xpix": np.array([0], dtype=int),
+            },
+            {  # Soma shape, but Suite2p rejected
+                "radius": 6.0,
+                "compact": 0.7,
+                "aspect_ratio": 1.5,
+                "npix": 200,
+                "npix_norm": 1.5,
+                "skew": 1.0,
+                "std": 1.0,
+                "ypix": np.array([0, 1, 2], dtype=int),
+                "xpix": np.array([0, 1, 2], dtype=int),
+            },
+        ]
+        np.save(plane / "stat.npy", np.array(stat, dtype=object), allow_pickle=True)
+        np.save(
+            plane / "ops.npy",
+            {
+                "fs": 9.6,
+                "Ly": 64,
+                "Lx": 64,
+                "nframes": 200,
+                "badframes": np.array([], dtype=np.int64),
+            },
+        )
+
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        # Artefact-shape ROI: roi_types == 2 (artefact), iscell == True
+        assert ca["roi_types"][0] == 2
+        assert ca["iscell"][0]
+        # Soma-shape but iscell=False: roi_types == 0 (soma), iscell == False
+        assert ca["roi_types"][1] == 0
+        assert not ca["iscell"][1]
+
+    def test_ca_h5_validates_roi_types_and_iscell(self, tmp_path: Path) -> None:
+        """ca.h5 with roi_types + iscell passes the schema validator."""
+        from hm2p.io.hdf5 import read_h5, validate_ca_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_stat(suite2p_dir, n_rois=6, n_frames=200)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        validate_ca_h5(read_h5(out))
+
+
+class TestRoiAxisAlignment:
+    """Regression tests for QA issue 1.1 — deconv ROI axis must match dff."""
+
+    def test_deconv_roi_axis_matches_dff(self, tmp_path: Path) -> None:
+        """deconv shape[0] must equal dff shape[0] (full ROI population)."""
+        from hm2p.io.hdf5 import read_h5
+
+        n_rois = 12
+        n_cells = 7  # iscell != n_rois — the misalignment bug surfaces
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_spks(suite2p_dir, n_rois=n_rois, n_cells=n_cells, n_frames=200)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert "deconv" in ca
+        assert ca["deconv"].shape[0] == ca["dff"].shape[0] == n_rois, (
+            f"deconv ROI axis ({ca['deconv'].shape[0]}) must match dff "
+            f"({ca['dff'].shape[0]}) — full ROI population, not iscell-filtered."
+        )
+        assert ca["deconv_norm"].shape[0] == n_rois
+
+    def test_all_roi_axis_arrays_have_consistent_n_rois(self, tmp_path: Path) -> None:
+        """F, Fneu, F_corr, F0_*, dff, deconv, roi_types must share ROI axis."""
+        from hm2p.io.hdf5 import read_h5
+
+        n_rois = 10
+        n_cells = 4
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_spks(suite2p_dir, n_rois=n_rois, n_cells=n_cells, n_frames=200)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        roi_axis_keys = (
+            "F_raw",
+            "Fneu_raw",
+            "F_corr",
+            "F0_rolling",
+            "F0_percentile",
+            "dff",
+            "dff_percentile",
+            "event_masks",
+            "event_masks_sd",
+            "noise_probs",
+            "roi_types",
+            "deconv",
+            "deconv_norm",
+        )
+        for key in roi_axis_keys:
+            assert key in ca, f"missing array {key!r}"
+            assert ca[key].shape[0] == n_rois, (
+                f"{key!r} has shape[0]={ca[key].shape[0]} != n_rois={n_rois} — "
+                "ROI axis must be the full Suite2p population."
+            )

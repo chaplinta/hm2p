@@ -57,8 +57,27 @@ def build_user_data(
     epochs: int = 400,
     infer_only: bool = False,
     train_only: bool = False,
+    sa_finetune: bool = False,
 ) -> str:
-    """Build the EC2 user-data script."""
+    """Build the EC2 user-data script.
+
+    Parameters
+    ----------
+    maxiters
+        Legacy TF iterations parameter; ignored under DLC 3.0 PyTorch and
+        ignored under ``sa_finetune=True``.
+    epochs
+        Training epochs to pass to ``run_dlc_retrain.py``. The CLI default
+        depends on the path (400 ImageNet / 120 SA).
+    infer_only, train_only
+        Mutually exclusive subset of pipeline stages to run.
+    sa_finetune
+        When True, append ``--sa-finetune`` to the run_dlc_retrain.py
+        invocation and tag the cost record's ``mode`` with ``+sa``. Per
+        Ye et al. 2024 (doi:10.1038/s41467-024-48792-2). Compatible with
+        ``--infer-only`` (re-running inference of an SA-finetuned model
+        is a valid combination).
+    """
     key_id, secret, region = get_s3_credentials()
     creds = build_creds_block(key_id, secret, region)
     gpu_guard = format_gpu_guard(DERIVATIVES_BUCKET, "dlc-retrain")
@@ -79,6 +98,12 @@ def build_user_data(
         mode_flag = f"--epochs {epochs}"
         mode_label = f"train + inference ({epochs} epochs)"
         mode = "train+infer"
+
+    if sa_finetune:
+        # Append the flag — order does not matter to argparse.
+        mode_flag = f"{mode_flag} --sa-finetune"
+        mode_label = f"{mode_label} [SA fine-tune]"
+        mode = f"{mode}+sa"
 
     cost_launch = format_cost_record_launch(
         DERIVATIVES_BUCKET,
@@ -187,8 +212,25 @@ shutdown -h now
 """
 
 
-def launch(maxiters: int, epochs: int = 400, infer_only: bool = False, train_only: bool = False, dry_run: bool = False) -> None:
-    """Launch the retraining instance."""
+def launch(
+    maxiters: int,
+    epochs: int = 400,
+    infer_only: bool = False,
+    train_only: bool = False,
+    dry_run: bool = False,
+    sa_finetune: bool = False,
+) -> None:
+    """Launch the retraining instance.
+
+    Parameters
+    ----------
+    sa_finetune
+        Pass-through to ``run_dlc_retrain.py --sa-finetune``. Bumps the
+        EBS root volume from 100 to 120 GB to absorb the SA snapshot
+        download (~600 MB) plus the memory-replay pseudo-label cache.
+        Instance type stays ``g4dn.xlarge`` (architect open-question #1
+        defers any change until first-run feedback).
+    """
     ec2 = boto3.client("ec2", region_name=REGION)
     s3 = boto3.client("s3", region_name=REGION)
 
@@ -204,13 +246,11 @@ def launch(maxiters: int, epochs: int = 400, infer_only: bool = False, train_onl
     # exits with sys.exit(1) inside user-data — the instance self-terminates
     # with no visible error from the local machine.
     if infer_only:
-        resp = s3.list_objects_v2(
-            Bucket=DERIVATIVES_BUCKET, Prefix="dlc-retrain/models/"
-        )
+        resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix="dlc-retrain/models/")
         model_files = [
-            obj for obj in resp.get("Contents", [])
-            if not obj["Key"].endswith("_retrain_progress.json")
-            and not obj["Key"].endswith("/")
+            obj
+            for obj in resp.get("Contents", [])
+            if not obj["Key"].endswith("_retrain_progress.json") and not obj["Key"].endswith("/")
         ]
         if not model_files:
             print(
@@ -222,31 +262,47 @@ def launch(maxiters: int, epochs: int = 400, infer_only: bool = False, train_onl
             sys.exit(1)
         print(f"Pre-flight: found {len(model_files)} model file(s) at dlc-retrain/models/")
 
-    user_data = build_user_data(maxiters, epochs=epochs, infer_only=infer_only, train_only=train_only)
+    user_data = build_user_data(
+        maxiters,
+        epochs=epochs,
+        infer_only=infer_only,
+        train_only=train_only,
+        sa_finetune=sa_finetune,
+    )
 
     if dry_run:
         print(user_data)
         return
 
+    # SA fine-tune downloads the SA-TVM HRNet checkpoint (~600 MB) and
+    # caches memory-replay pseudo-labels — bump the root EBS volume to
+    # 120 GB to leave headroom (per architect §6 pitfall #5).
+    volume_size = 120 if sa_finetune else 100
+
     resp = ec2.run_instances(
         ImageId=AMI,
         InstanceType=INSTANCE_TYPE,
-        MinCount=1, MaxCount=1,
+        MinCount=1,
+        MaxCount=1,
         KeyName=KEY_NAME,
         SecurityGroupIds=[SG_ID],
         IamInstanceProfile={"Name": IAM_PROFILE},
         UserData=user_data,
-        BlockDeviceMappings=[{
-            "DeviceName": "/dev/sda1",
-            "Ebs": {"VolumeSize": 100, "VolumeType": "gp3"},
-        }],
-        TagSpecifications=[{
-            "ResourceType": "instance",
-            "Tags": [
-                {"Key": "Name", "Value": TAG_NAME},
-                {"Key": "Project", "Value": "hm2p"},
-            ],
-        }],
+        BlockDeviceMappings=[
+            {
+                "DeviceName": "/dev/sda1",
+                "Ebs": {"VolumeSize": volume_size, "VolumeType": "gp3"},
+            }
+        ],
+        TagSpecifications=[
+            {
+                "ResourceType": "instance",
+                "Tags": [
+                    {"Key": "Name", "Value": TAG_NAME},
+                    {"Key": "Project", "Value": "hm2p"},
+                ],
+            }
+        ],
         InstanceInitiatedShutdownBehavior="terminate",
     )
 
@@ -265,13 +321,17 @@ def launch(maxiters: int, epochs: int = 400, infer_only: bool = False, train_onl
 def status() -> None:
     """Check instance status."""
     ec2 = boto3.client("ec2", region_name=REGION)
-    r = ec2.describe_instances(Filters=[
-        {"Name": "tag:Name", "Values": [TAG_NAME]},
-        {"Name": "instance-state-name", "Values": ["running", "pending"]},
-    ])
+    r = ec2.describe_instances(
+        Filters=[
+            {"Name": "tag:Name", "Values": [TAG_NAME]},
+            {"Name": "instance-state-name", "Values": ["running", "pending"]},
+        ]
+    )
     for res in r["Reservations"]:
         for inst in res["Instances"]:
-            print(f"{inst['InstanceId']}  {inst['State']['Name']}  {inst.get('PublicIpAddress', 'N/A')}")
+            print(
+                f"{inst['InstanceId']}  {inst['State']['Name']}  {inst.get('PublicIpAddress', 'N/A')}"
+            )
     if not r["Reservations"]:
         print("No running retrain instances.")
 
@@ -292,16 +352,20 @@ def progress() -> None:
         lines = obj["Body"].read().decode().strip().split("\n")
         if len(lines) > 1:
             import csv as _csv
+
             reader = _csv.reader(lines[1:])
             gpu_pcts = []
             import contextlib
+
             for row in reader:
                 if len(row) >= 2:
                     with contextlib.suppress(ValueError):
                         gpu_pcts.append(int(row[1].strip().replace(" %", "")))
             if gpu_pcts:
-                print(f"\nGPU utilization: mean={sum(gpu_pcts)/len(gpu_pcts):.0f}%, "
-                      f"max={max(gpu_pcts)}%, readings={len(gpu_pcts)}")
+                print(
+                    f"\nGPU utilization: mean={sum(gpu_pcts) / len(gpu_pcts):.0f}%, "
+                    f"max={max(gpu_pcts)}%, readings={len(gpu_pcts)}"
+                )
     except Exception:
         pass
 
@@ -309,29 +373,75 @@ def progress() -> None:
 def terminate() -> None:
     """Terminate retrain instances."""
     ec2 = boto3.client("ec2", region_name=REGION)
-    r = ec2.describe_instances(Filters=[
-        {"Name": "tag:Name", "Values": [TAG_NAME]},
-        {"Name": "instance-state-name", "Values": ["running", "pending"]},
-    ])
+    r = ec2.describe_instances(
+        Filters=[
+            {"Name": "tag:Name", "Values": [TAG_NAME]},
+            {"Name": "instance-state-name", "Values": ["running", "pending"]},
+        ]
+    )
     for res in r["Reservations"]:
         for inst in res["Instances"]:
             ec2.terminate_instances(InstanceIds=[inst["InstanceId"]])
             print(f"Terminated {inst['InstanceId']}")
 
 
-def main() -> None:
+def _build_arg_parser() -> argparse.ArgumentParser:
+    """Argparse for the launcher — split out for unit-testing."""
     parser = argparse.ArgumentParser(description="Launch DLC training or inference on EC2")
     parser.add_argument("--status", action="store_true", help="Check running instances")
     parser.add_argument("--progress", action="store_true", help="Check S3 progress")
     parser.add_argument("--terminate", action="store_true", help="Terminate running instances")
-    parser.add_argument("--dry-run", action="store_true", help="Print user-data without launching")
-    parser.add_argument("--infer-only", action="store_true",
-                        help="Run inference only (skip training). Uses existing model on S3.")
-    parser.add_argument("--train-only", action="store_true",
-                        help="Run training only (skip inference).")
-    parser.add_argument("--maxiters", type=int, default=50000, help="Legacy TF iterations (ignored)")
-    parser.add_argument("--epochs", type=int, default=400, help="Training epochs (default 400)")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print user-data without launching",
+    )
+    parser.add_argument(
+        "--infer-only",
+        action="store_true",
+        help="Run inference only (skip training). Uses existing model on S3.",
+    )
+    parser.add_argument(
+        "--train-only",
+        action="store_true",
+        help="Run training only (skip inference).",
+    )
+    parser.add_argument(
+        "--maxiters",
+        type=int,
+        default=50000,
+        help="Legacy TF iterations (ignored under DLC 3.0 PyTorch and "
+        "ignored under --sa-finetune)",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=None,
+        help="Training epochs. Default depends on the path: 400 for "
+        "ImageNet HRNet, 120 for --sa-finetune.",
+    )
+    parser.add_argument(
+        "--sa-finetune",
+        action="store_true",
+        help="Use SuperAnimal-TopViewMouse memory-replay fine-tune instead "
+        "of the legacy ImageNet HRNet path. Bumps EBS root from 100 to "
+        "120 GB. Compatible with --infer-only. "
+        "Cite: Ye et al. 2024, doi:10.1038/s41467-024-48792-2.",
+    )
+    return parser
+
+
+def _resolve_epochs(epochs: int | None, *, sa_finetune: bool) -> int:
+    """Resolve the default ``--epochs`` to 120 (SA) or 400 (ImageNet)."""
+    if epochs is not None:
+        return epochs
+    return 120 if sa_finetune else 400
+
+
+def main() -> None:
+    parser = _build_arg_parser()
     args = parser.parse_args()
+    epochs = _resolve_epochs(args.epochs, sa_finetune=args.sa_finetune)
 
     if args.status:
         status()
@@ -345,10 +455,11 @@ def main() -> None:
             sys.exit(1)
         launch(
             args.maxiters,
-            epochs=args.epochs,
+            epochs=epochs,
             infer_only=args.infer_only,
             train_only=args.train_only,
             dry_run=args.dry_run,
+            sa_finetune=args.sa_finetune,
         )
 
 

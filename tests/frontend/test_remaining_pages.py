@@ -41,6 +41,7 @@ _UNTESTED_PAGES = [
     "place_tuning_page",
     "population_page",
     "qc_report_page",
+    "roi_curation_page",
     "roi_viewer_page",
     "sessions_page",
     "speed_page",

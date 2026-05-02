@@ -20,7 +20,11 @@ run_cascade: false
 
 # ── Stage 0 — Ingest ───────────────────────────────────────────────────────
 raw_fps_camera: 100.0
-raw_fps_imaging: 29.97
+# raw_fps_imaging is read per-session from timestamps.h5
+# (mean of 1.0 / diff(frame_times_imaging)). Set to null to require that
+# per-session value. If timestamps.h5 is missing the fallback is 29.97 Hz,
+# which is logged as a warning.
+raw_fps_imaging: null
 
 # ── Stage 3 — Kinematics ───────────────────────────────────────────────────
 pose_confidence_threshold: "quantile:0.25"   # per-keypoint quantile cutoff;
@@ -29,14 +33,47 @@ pose_confidence_threshold: "quantile:0.25"   # per-keypoint quantile cutoff;
 pose_gap_fill_frames: 5          # max consecutive NaN frames to interpolate
 speed_active_threshold_cm_s: 2.0 # cm/s above → active state
 
-# ── Stage 4 — Calcium ──────────────────────────────────────────────────────
-neuropil_method: fixed           # fixed | fissa
-neuropil_coefficient: 0.7        # F_corr = F - coeff * Fneu (fixed method only)
-dff_baseline_window_s: 60.0      # sliding minimum window for F0
+# ── Stage 1 — 2P Extraction ───────────────────────────────────────────────
+# Cellpose 3 anatomical prior for Suite2p ROI detection.
+# Controls Suite2p's anatomical_only setting:
+#   0 — activity-only detection (legacy behaviour; Cellpose not required)
+#   1 — Cellpose segmentation only, no activity refinement
+#   2 — Cellpose seeds refined by activity statistics (recommended default)
+#   3 — stricter Cellpose-then-activity with higher activity weighting
+# Requires cellpose>=3.0 when set to 1, 2, or 3. See docs/manual-installs.md
+# if Cellpose conflicts with another dependency pin.
+# Reference: Stringer & Pachitariu 2025. doi:10.1038/s41592-025-02595-5
+suite2p_anatomical_only: 2
 
-# CASCADE model — select based on indicator + imaging rate
-# GCaMP7f / GCaMP8f at ~30 Hz → closest available model:
-cascade_model: Global_EXC_7.5Hz_smoothing200ms
+# ── Stage 4 — Calcium ──────────────────────────────────────────────────────
+# Neuropil subtraction method.
+# fissa      — Spatial ICA on raw TIFFs + ROI masks (Keemink et al. 2018,
+#              doi:10.1038/s41598-018-21640-2). Most accurate; ~10 min/session.
+#              Requires fissa>=1.0 installed separately (pins scikit-learn<1.2;
+#              see docs/manual-installs.md). Falls back to "estimated" if fissa
+#              import fails or TIFFs are unavailable.
+# estimated  — Per-ROI coefficient from lower-envelope regression on sparse
+#              frames (Dipoppa et al. 2018, doi:10.1016/j.neuron.2018.03.037).
+# fixed      — F_corr = F - neuropil_coefficient * Fneu. Simple; backward-compat.
+neuropil_method: fissa           # fissa | estimated | fixed
+neuropil_coefficient: 0.7        # F_corr = F - coeff * Fneu (fixed method only)
+
+# Baseline F0 method for primary dF/F computation.
+# Both methods are always computed and stored in ca.h5 for sensitivity comparison.
+# rolling    — Gaussian-smooth → rolling-min → rolling-max (Suite2p method).
+#              Tracks the very bottom of the trace; may bias dF/F upward for
+#              highly active cells.
+# percentile — Sliding-window 8th percentile (Jia et al. 2011,
+#              doi:10.1038/nprot.2010.169). More robust for active cells.
+f0_method: rolling               # rolling | percentile
+dff_baseline_window_s: 60.0      # sliding window for F0 (both methods)
+
+# CASCADE model — select based on indicator + imaging rate.
+# Rupprecht et al. 2021 (doi:10.1038/s41593-021-00895-5).
+# hm2p records at ~9.6 Hz → Global_EXC_10Hz_smoothing200ms is the
+# closest available pre-trained model. See:
+# https://github.com/HelmchenLabSoftware/Cascade/blob/master/Pretrained_models/available_models.yaml
+cascade_model: Global_EXC_10Hz_smoothing200ms
 
 # ── Stage 5 — Sync ─────────────────────────────────────────────────────────
 sync_interp_method: linear       # linear | nearest

@@ -1,12 +1,11 @@
-"""Sync validation — checks for known DAQ/timing failure modes.
+"""Sync validation — legacy shim around hm2p.sync.diagnostics.
 
-Validates timestamps.h5 data against known issues from the legacy pipeline:
-  1. Missing camera trigger pulses (frame count vs expected from FPS * duration)
-  2. SciScan frame count mismatch (imaging pulses vs TIFF frame count)
-  3. Camera frame interval jitter (>2ms from nominal)
-  4. Imaging frame interval jitter (>1ms from nominal)
-  5. Temporal overlap between camera and imaging recordings
-  6. Light cycle period validation
+This module is the pre-diagnostics validator API, retained so external
+callers (the frontend, scripts) keep working while we migrate to
+:mod:`hm2p.sync.diagnostics`. New code should call ``classify``
+directly. The functions here remain unchanged from the legacy pipeline
+behaviour and are NOT updated when thresholds in ``config/sync.yaml``
+change.
 
 Each check returns a ValidationResult with status, message, and optional details.
 """
@@ -61,20 +60,23 @@ def check_camera_interval_jitter(
 
     if n_bad == 0:
         return ValidationResult(
-            "camera_jitter", Status.OK,
+            "camera_jitter",
+            Status.OK,
             f"All {len(intervals_ms)} camera intervals within {tolerance_ms}ms of nominal",
             details,
         )
     elif n_bad < len(intervals_ms) * 0.01:  # <1%
         return ValidationResult(
-            "camera_jitter", Status.WARN,
+            "camera_jitter",
+            Status.WARN,
             f"{n_bad} camera intervals ({details['pct_bad']:.2f}%) deviate >{tolerance_ms}ms "
             f"(max {max_dev:.1f}ms)",
             details,
         )
     else:
         return ValidationResult(
-            "camera_jitter", Status.ERROR,
+            "camera_jitter",
+            Status.ERROR,
             f"{n_bad} camera intervals ({details['pct_bad']:.1f}%) deviate >{tolerance_ms}ms",
             details,
         )
@@ -106,13 +108,15 @@ def check_imaging_interval_jitter(
 
     if n_bad == 0:
         return ValidationResult(
-            "imaging_jitter", Status.OK,
+            "imaging_jitter",
+            Status.OK,
             f"All {len(intervals_ms)} imaging intervals within {tolerance_ms}ms",
             details,
         )
     else:
         return ValidationResult(
-            "imaging_jitter", Status.WARN,
+            "imaging_jitter",
+            Status.WARN,
             f"{n_bad} imaging intervals deviate >{tolerance_ms}ms (max {max_dev:.1f}ms)",
             details,
         )
@@ -144,12 +148,17 @@ def check_temporal_overlap(
 
     if dur_diff > max_diff_s:
         return ValidationResult(
-            "temporal_overlap", Status.WARN,
-            f"Camera ({cam_dur:.1f}s) and imaging ({img_dur:.1f}s) durations differ by {dur_diff:.1f}s",
+            "temporal_overlap",
+            Status.WARN,
+            (
+                f"Camera ({cam_dur:.1f}s) and imaging ({img_dur:.1f}s) "
+                f"durations differ by {dur_diff:.1f}s"
+            ),
             details,
         )
     return ValidationResult(
-        "temporal_overlap", Status.OK,
+        "temporal_overlap",
+        Status.OK,
         f"Recordings overlap {overlap_dur:.1f}s, duration diff {dur_diff:.1f}s",
         details,
     )
@@ -162,7 +171,8 @@ def check_frame_count_match(
     """Check if DAQ imaging pulse count matches TIFF frame count."""
     if n_tiff_frames is None:
         return ValidationResult(
-            "frame_count", Status.SKIP,
+            "frame_count",
+            Status.SKIP,
             "No TIFF frame count available",
         )
 
@@ -175,20 +185,26 @@ def check_frame_count_match(
 
     if diff == 0:
         return ValidationResult(
-            "frame_count", Status.OK,
+            "frame_count",
+            Status.OK,
             f"Frame count matches exactly ({n_imaging_pulses})",
             details,
         )
     elif diff <= 1:
         return ValidationResult(
-            "frame_count", Status.OK,
+            "frame_count",
+            Status.OK,
             f"Off by {diff} frame — acceptable SciScan edge case",
             details,
         )
     else:
         return ValidationResult(
-            "frame_count", Status.ERROR,
-            f"Frame count mismatch: {n_imaging_pulses} DAQ pulses vs {n_tiff_frames} TIFF frames (diff={diff})",
+            "frame_count",
+            Status.ERROR,
+            (
+                f"Frame count mismatch: {n_imaging_pulses} DAQ pulses vs "
+                f"{n_tiff_frames} TIFF frames (diff={diff})"
+            ),
             details,
         )
 
@@ -202,7 +218,8 @@ def check_light_cycle(
     """Check light on/off cycle period and consistency."""
     if len(light_on_times) < 2:
         return ValidationResult(
-            "light_cycle", Status.SKIP,
+            "light_cycle",
+            Status.SKIP,
             f"Only {len(light_on_times)} light-on event(s) — not enough to check cycle",
         )
 
@@ -220,13 +237,21 @@ def check_light_cycle(
 
     if abs(mean_period - expected_period_s) > tolerance_s:
         return ValidationResult(
-            "light_cycle", Status.WARN,
-            f"Mean light cycle period {mean_period:.1f}s differs from expected {expected_period_s}s",
+            "light_cycle",
+            Status.WARN,
+            (
+                f"Mean light cycle period {mean_period:.1f}s differs from "
+                f"expected {expected_period_s}s"
+            ),
             details,
         )
     return ValidationResult(
-        "light_cycle", Status.OK,
-        f"Light cycle period {mean_period:.1f}s (expected ~{expected_period_s}s), std={std_period:.1f}s",
+        "light_cycle",
+        Status.OK,
+        (
+            f"Light cycle period {mean_period:.1f}s "
+            f"(expected ~{expected_period_s}s), std={std_period:.1f}s"
+        ),
         details,
     )
 
