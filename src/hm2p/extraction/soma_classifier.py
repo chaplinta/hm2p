@@ -2,16 +2,19 @@
 
 This module provides a small classifier framework with two implementations:
 
-* :class:`RuleBasedClassifier` — an interim, provisional classifier that
-  reproduces the legacy hand-tuned thresholds (``radius < 2`` or
-  ``compact < 0.1`` → artefact; ``aspect_ratio > 2.5`` → dendrite; otherwise
-  soma) but maps each decision boundary onto a soft logistic function so
-  that calibrated probabilities are produced.  The rule-based scorer also
-  consumes the activity features (``peak_to_noise_dff``,
-  ``autocorr_halfwidth_s``, ``fneu_corr``) when they are available, but is
-  designed so that on synthetic stats the *argmax* of its probabilities
-  matches the legacy thresholds — switching to this classifier therefore
-  cannot change the soma/dend/artefact label of any existing ROI.
+* :class:`RuleBasedClassifier` — an interim classifier that reproduces the
+  legacy hand-tuned shape thresholds (``radius < 2`` or ``compact < 0.1``
+  → artefact; ``aspect_ratio > 2.5`` → dendrite; otherwise soma) by
+  mapping each decision boundary onto a soft logistic function, then
+  augments the score with activity-feature evidence (``autocorr_halfwidth_s``,
+  ``fneu_corr``).  On *shape-only* input the argmax matches the legacy
+  thresholds exactly; with activity features present, the classifier can
+  re-label borderline shape-soma ROIs as dendrite when their kinetics or
+  neuropil correlation are dendrite-like.  This is intentional — the whole
+  point of the redesign is to bring activity context into the boundary
+  cases.  See :class:`RuleBasedClassifier` docstring for the precise
+  contract and :func:`hm2p.extraction.soma_features.extract_soma_features`
+  for the activity feature definitions.
 
 * :class:`LogisticRegressionClassifier` — a thin wrapper around an sklearn
   pipeline that has been fitted offline against curated labels.  This is
@@ -23,14 +26,26 @@ implementations is appropriate for the current environment.
 
 Provisional status
 ------------------
-The rule-based scorer is *provisional*.  It does not improve discrimination
-over the legacy thresholds — by construction it cannot — but it surfaces
-calibrated per-ROI probabilities so that ambiguous ROIs can be flagged for
-manual curation in the frontend.  Once ~200 ROIs across 2–3 sessions have
-been labelled in Suite2p's GUI, train a real :class:`LogisticRegressionClassifier`
-via ``scripts/train_soma_classifier.py`` and place the resulting pickle at
-``sourcedata/trackers/suite2p/soma_classifier.pkl``.  The runtime path will
-pick it up automatically.
+The rule-based scorer is *provisional*.  Once ~200 ROIs across 2–3 sessions
+have been labelled in Suite2p's GUI, train a real
+:class:`LogisticRegressionClassifier` via
+``scripts/train_soma_classifier.py`` and place the resulting pickle at
+``sourcedata/trackers/suite2p/soma_classifier.pkl``.  The runtime path
+will pick it up automatically.
+
+Relabelling guarantee
+---------------------
+On the **shape-only path** (activity features NaN), ``argmax(probs)``
+matches the legacy thresholds exactly.  With **activity features
+present**, an ROI whose shape is borderline soma but whose kinetics
+(``autocorr_halfwidth_s`` ≫ 1 s) or neuropil correlation
+(``fneu_corr`` ≫ 0.5) look dendritic will be relabelled to ``dend``.
+This is the documented behaviour, not a regression — switching from the
+shape-only legacy classifier therefore *can* change labels on real
+sessions, and that is by design.  See
+``tests/extraction/test_soma_classifier.py::TestArgmaxMatchesLegacy`` for
+the precise shape-only equivalence guarantee and
+``TestActivityFeaturesCanRelabel`` for the relabel-with-activity contract.
 
 References
 ----------
@@ -148,9 +163,23 @@ class RuleBasedClassifier:
     well below or above it.  Activity features are folded in as additional
     "evidence" terms for ``p_dend``: a slow autocorrelation half-width and
     a high Fneu correlation both push probability mass towards dendrite.
-    These activity terms are optional — ROIs with NaN activity features
-    simply fall back to the shape-only score, in which case the argmax
-    matches the legacy thresholds exactly.
+
+    Relabelling contract
+    --------------------
+    - **Shape-only** (activity features NaN or absent): ``argmax(probs)``
+      reproduces the legacy hard thresholds exactly.  Switching from the
+      legacy classifier on shape-only inputs therefore cannot change any
+      label.
+    - **Shape + activity**: the activity terms can flip a borderline
+      shape-soma ROI to ``dend`` when its kinetics or neuropil correlation
+      look dendritic.  This is intentional — bringing activity context
+      into the boundary cases is the entire point of the redesign.  The
+      production path in :mod:`hm2p.calcium.run` always provides activity
+      features (via :func:`hm2p.extraction.soma_features.extract_soma_features`),
+      so production runs *will* relabel a small number of borderline ROIs
+      relative to the legacy shape-only output.  The frontend ROI viewer
+      surfaces ``p_soma`` / ``p_dend`` / ``p_artefact`` so the user can
+      inspect any flips.
 
     Notes
     -----

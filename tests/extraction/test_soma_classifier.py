@@ -119,11 +119,18 @@ class TestRuleBasedClassifier:
 
 
 class TestArgmaxMatchesLegacy:
-    """The rule-based classifier must reproduce the legacy hard labels.
+    """Shape-only argmax matches legacy thresholds (relabelling guarantee).
 
-    These tests use only shape features (activity features set to NaN).
-    The rule-based scorer's argmax should equal :func:`classify_roi_types`
-    for every ROI on a deterministic grid covering the boundary regions.
+    The contract documented in :class:`RuleBasedClassifier` says that on
+    *shape-only* input (activity features NaN or absent), the argmax of
+    the rule-based scorer's probabilities equals :func:`classify_roi_types`.
+    These tests pin that guarantee by passing constant traces (so the
+    activity features are NaN and contribute zero evidence) and sweeping
+    a deterministic grid of (radius, compact, aspect_ratio).
+
+    With activity features present the classifier *can* relabel borderline
+    shape-soma ROIs to dendrite — that is by design (see
+    :class:`TestActivityFeaturesCanRelabel`).
     """
 
     def test_clear_soma(self) -> None:
@@ -215,6 +222,78 @@ class TestArgmaxMatchesLegacy:
         probs = RuleBasedClassifier().predict_proba(df)
         new_label = CLASS_NAMES[int(np.argmax(probs, axis=1)[0])]
         assert new_label == legacy
+
+
+class TestActivityFeaturesCanRelabel:
+    """Pinned contract: activity features can flip a borderline soma to dend.
+
+    QA issue 1.3: the original docstring claimed "switching to this
+    classifier cannot change the label of any existing ROI". That is true
+    only on the shape-only path. With activity features supplied (the
+    production path always supplies them), a borderline shape-soma ROI
+    whose kinetics or neuropil correlation are dendrite-like *will* be
+    relabelled to ``dend``. These tests pin that intentional behaviour.
+    """
+
+    def test_slow_autocorr_relabels_borderline_soma_to_dend(self) -> None:
+        """A clear shape-soma ROI with slow kinetics should land on dend."""
+        df = pd.DataFrame(
+            {col: [0.0] for col in FEATURE_COLUMNS},
+        )
+        # Clean soma shape (legacy → soma).
+        df.loc[0, "radius"] = 5.0
+        df.loc[0, "compact"] = 0.5
+        df.loc[0, "aspect_ratio"] = 1.0
+        df.loc[0, "npix"] = 100.0
+        df.loc[0, "npix_norm"] = 1.0
+        df.loc[0, "skew"] = 1.0
+        df.loc[0, "std"] = 1.0
+        # Slow autocorr and high Fneu correlation — dendrite-like activity.
+        df.loc[0, "peak_to_noise_dff"] = 5.0
+        df.loc[0, "autocorr_halfwidth_s"] = 2.0  # well past 1 s centre
+        df.loc[0, "fneu_corr"] = 0.9  # well past 0.5 centre
+
+        probs = RuleBasedClassifier().predict_proba(df)
+        # Activity evidence pushes argmax to dend (1).
+        assert int(np.argmax(probs, axis=1)[0]) == 1, (
+            f"Expected dend (1) for slow-kinetics + high-Fneu shape-soma; "
+            f"got argmax={int(np.argmax(probs, axis=1)[0])} probs={probs[0]}"
+        )
+
+    def test_fast_autocorr_keeps_borderline_soma(self) -> None:
+        """Same shape-soma but with fast kinetics stays as soma."""
+        df = pd.DataFrame(
+            {col: [0.0] for col in FEATURE_COLUMNS},
+        )
+        df.loc[0, "radius"] = 5.0
+        df.loc[0, "compact"] = 0.5
+        df.loc[0, "aspect_ratio"] = 1.0
+        df.loc[0, "npix"] = 100.0
+        df.loc[0, "npix_norm"] = 1.0
+        df.loc[0, "skew"] = 1.0
+        df.loc[0, "std"] = 1.0
+        # Fast autocorr and low Fneu correlation — soma-like activity.
+        df.loc[0, "peak_to_noise_dff"] = 8.0
+        df.loc[0, "autocorr_halfwidth_s"] = 0.2  # well below 1 s centre
+        df.loc[0, "fneu_corr"] = 0.1  # well below 0.5 centre
+        probs = RuleBasedClassifier().predict_proba(df)
+        assert int(np.argmax(probs, axis=1)[0]) == 0  # soma
+
+    def test_nan_activity_path_preserves_legacy(self) -> None:
+        """If activity features are NaN, the shape-only contract holds."""
+        df = pd.DataFrame(
+            {col: [np.nan] for col in FEATURE_COLUMNS},
+        )
+        df.loc[0, "radius"] = 5.0
+        df.loc[0, "compact"] = 0.5
+        df.loc[0, "aspect_ratio"] = 1.0
+        df.loc[0, "npix"] = 100.0
+        df.loc[0, "npix_norm"] = 1.0
+        df.loc[0, "skew"] = 1.0
+        df.loc[0, "std"] = 1.0
+        probs = RuleBasedClassifier().predict_proba(df)
+        # NaN activity features contribute 0 evidence — argmax stays at soma.
+        assert int(np.argmax(probs, axis=1)[0]) == 0
 
 
 # ---------------------------------------------------------------------------
