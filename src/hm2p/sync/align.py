@@ -170,6 +170,59 @@ def _write_stub(
     write_h5(output_path, arrays={}, attrs=attrs)
 
 
+def _align_mask_to_length(mask: np.ndarray, n_frames: int, label: str) -> np.ndarray:
+    """Align a boolean mask to ``n_frames``, padding with False / truncating.
+
+    QA issue 2.3 — the previous ``mask[:n_frames]`` form silently
+    accepted shorter-than-expected masks (broadcasting in the
+    subsequent OR could mask the bug). This helper:
+
+    - Truncates to ``n_frames`` when the mask is longer.
+    - Pads with False when the mask is shorter, **and** logs a warning
+      so the upstream length mismatch is auditable.
+    - Returns a contiguous bool array of exact length ``n_frames``.
+
+    Parameters
+    ----------
+    mask:
+        1-D mask (any dtype castable to bool).
+    n_frames:
+        Desired output length.
+    label:
+        Human-readable name used in log messages.
+    """
+    arr = np.asarray(mask)
+    if arr.ndim != 1:
+        log.warning(
+            "Stage 5: %r expected 1-D mask, got %dD shape %s — flattening before alignment.",
+            label,
+            arr.ndim,
+            arr.shape,
+        )
+        arr = arr.ravel()
+    n = arr.shape[0]
+    if n == n_frames:
+        return arr.astype(bool, copy=False)
+    if n > n_frames:
+        log.info(
+            "Stage 5: truncating %r from %d to %d frames (length mismatch).",
+            label,
+            n,
+            n_frames,
+        )
+        return arr[:n_frames].astype(bool, copy=False)
+    # n < n_frames: pad with False and warn.
+    log.warning(
+        "Stage 5: %r is shorter than n_frames (%d < %d) — padding with "
+        "False. This indicates a Stage 4 / kinematics inconsistency.",
+        label,
+        n,
+        n_frames,
+    )
+    pad = np.zeros(n_frames - n, dtype=bool)
+    return np.concatenate([arr.astype(bool, copy=False), pad])
+
+
 def _read_kin_provenance(kinematics_h5: Path) -> dict:
     """Read kinematics.h5 provenance attrs (or empty dict if file is missing).
 
@@ -464,17 +517,28 @@ def run(
             datasets[key] = arr
 
     # Build combined bad-frame mask: bad_frames = bad_imaging_frames | bad_behav.
+    # QA issue 2.3: defensive ``[:n_frames]`` slicing previously masked
+    # length mismatches (bad_imaging shorter than n_frames would silently
+    # broadcast or shape-error during the OR). We now align both masks
+    # explicitly to ``n_frames`` (truncate when long, pad with False when
+    # short) and log a warning so the upstream mismatch is auditable.
     n_frames = len(dst_times)
     bad_imaging = datasets.get("bad_imaging_frames")
     bad_behav = datasets.get("bad_behav")
-    if bad_imaging is not None and bad_behav is not None:
-        bad_imaging_t = np.asarray(bad_imaging[:n_frames], dtype=bool)
-        bad_behav_t = np.asarray(bad_behav[:n_frames], dtype=bool)
+    bad_imaging_t = (
+        _align_mask_to_length(bad_imaging, n_frames, "bad_imaging_frames")
+        if bad_imaging is not None
+        else None
+    )
+    bad_behav_t = (
+        _align_mask_to_length(bad_behav, n_frames, "bad_behav") if bad_behav is not None else None
+    )
+    if bad_imaging_t is not None and bad_behav_t is not None:
         datasets["bad_frames"] = bad_imaging_t | bad_behav_t
-    elif bad_imaging is not None:
-        datasets["bad_frames"] = np.asarray(bad_imaging[:n_frames], dtype=bool)
-    elif bad_behav is not None:
-        datasets["bad_frames"] = np.asarray(bad_behav[:n_frames], dtype=bool)
+    elif bad_imaging_t is not None:
+        datasets["bad_frames"] = bad_imaging_t
+    elif bad_behav_t is not None:
+        datasets["bad_frames"] = bad_behav_t
 
     # Build root attrs: start from ca.h5, overlay kinematics provenance
     # (read once at the top of run() so the same dict is used for full and

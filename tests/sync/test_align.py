@@ -9,6 +9,7 @@ import pytest
 
 from hm2p.sync.align import (
     _BOOL_KEYS,
+    _align_mask_to_length,
     resample_bool_to_imaging_rate,
     resample_to_imaging_rate,
 )
@@ -641,6 +642,62 @@ class TestRunPipeline:
         assert attrs["session_id"] == "test"
         assert "dlc_model_name" not in attrs
         assert "dlc_snapshot" not in attrs
+
+
+# ---------------------------------------------------------------------------
+# _align_mask_to_length — defensive length alignment (QA 2.3)
+# ---------------------------------------------------------------------------
+
+
+class TestAlignMaskToLength:
+    """QA 2.3 — length mismatches must be visible (warning), not silent."""
+
+    def test_exact_length_no_op(self):
+        mask = np.array([True, False, True, False, True])
+        out = _align_mask_to_length(mask, 5, "x")
+        assert out.dtype == bool
+        np.testing.assert_array_equal(out, mask)
+
+    def test_too_long_truncates(self, caplog):
+        import logging
+
+        mask = np.ones(10, dtype=bool)
+        with caplog.at_level(logging.INFO, logger="hm2p.sync.align"):
+            out = _align_mask_to_length(mask, 6, "bad_imaging_frames")
+        assert out.shape == (6,)
+        assert out.all()
+        assert any("truncating" in rec.message for rec in caplog.records)
+
+    def test_too_short_pads_and_warns(self, caplog):
+        import logging
+
+        mask = np.array([True, True, True], dtype=bool)
+        with caplog.at_level(logging.WARNING, logger="hm2p.sync.align"):
+            out = _align_mask_to_length(mask, 6, "bad_behav")
+        assert out.shape == (6,)
+        # First three are the original True, last three are False (pad).
+        np.testing.assert_array_equal(out, [True, True, True, False, False, False])
+        assert any(
+            rec.levelno == logging.WARNING
+            and "shorter than n_frames" in rec.message
+            and "bad_behav" in rec.message
+            for rec in caplog.records
+        ), "Short mask must produce a WARNING-level log naming the field."
+
+    def test_dtype_coerced_to_bool(self):
+        mask = np.array([1, 0, 1, 0], dtype=np.int8)
+        out = _align_mask_to_length(mask, 4, "x")
+        assert out.dtype == bool
+        np.testing.assert_array_equal(out, [True, False, True, False])
+
+    def test_2d_input_flattened(self, caplog):
+        import logging
+
+        mask = np.array([[True, False], [False, True]])
+        with caplog.at_level(logging.WARNING, logger="hm2p.sync.align"):
+            out = _align_mask_to_length(mask, 4, "x")
+        assert out.shape == (4,)
+        assert any("flattening" in rec.message for rec in caplog.records)
 
 
 # ---------------------------------------------------------------------------
