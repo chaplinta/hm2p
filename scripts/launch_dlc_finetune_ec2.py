@@ -195,25 +195,28 @@ else:
     print('transforms.py already patched')
 " || echo "WARNING: DLC brightness patch failed (non-fatal)"
 
-# Patch DLC memory_replay.py to handle missing 'bboxes' key.
-# DLC 3.0rc13's get_pose_predictions assumes detector always returns
-# 'bboxes', but when no animal is detected the key is absent → KeyError.
+# Patch DLC memory_replay.py to handle missing 'bboxes'/'bodyparts' keys.
+# DLC 3.0rc13 assumes detector always returns these, but when no animal
+# is detected the keys are absent → KeyError at lines 120 and 217.
+# Fix: after inference, ensure every prediction dict has defaults.
 python3 << 'MRPATCH'
-import deeplabcut, pathlib, inspect
+import deeplabcut, pathlib, inspect, re
 mr_path = pathlib.Path(inspect.getfile(deeplabcut)).parent / 'pose_estimation_pytorch' / 'modelzoo' / 'memory_replay.py'
 code = mr_path.read_text()
-old = '"bboxes": predictions["bboxes"].tolist(),'
-new = '"bboxes": predictions["bboxes"].tolist() if "bboxes" in predictions else [],'
-if old in code:
-    code = code.replace(old, new)
-    code = code.replace(
-        '"bodyparts": predictions["bodyparts"].tolist(),',
-        '"bodyparts": predictions["bodyparts"].tolist() if "bodyparts" in predictions else [],',
-    )
+# Insert a defaulting block right after "sa_predictions[image] = prediction"
+# This ensures every prediction dict has bboxes/bodyparts keys.
+marker = '    for image, prediction in zip(images_to_process, predictions):\n        sa_predictions[image] = prediction'
+patch = '''    for image, prediction in zip(images_to_process, predictions):
+        # hm2p patch: ensure bboxes/bodyparts keys exist (DLC 3.0rc13 bug)
+        prediction.setdefault("bboxes", [])
+        prediction.setdefault("bodyparts", [])
+        sa_predictions[image] = prediction'''
+if marker in code and 'hm2p patch' not in code:
+    code = code.replace(marker, patch)
     mr_path.write_text(code)
-    print("Patched memory_replay.py to handle missing bboxes/bodyparts")
+    print("Patched memory_replay.py: setdefault for bboxes/bodyparts")
 else:
-    print("memory_replay.py: patch target not found (already patched or different DLC version)")
+    print("memory_replay.py: already patched or marker not found")
 MRPATCH
 
 # Clone repo and run — disable set -e so Python errors don't kill
