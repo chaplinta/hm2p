@@ -407,4 +407,19 @@ def run(
     if neuropil_coeff_used is not None:
         attrs["neuropil_coefficient"] = neuropil_coeff_used
 
+    # Persist the original TIFF frame count (pre-extraction) so Stage 5
+    # can compare imaging-pulse count against the unmodified TIFF count
+    # rather than the post-extraction dff column count. ``nframes_init``
+    # is Suite2p's pre-trim count; ``nframes`` is the post-extraction
+    # count. Either is preferred over ``dff.shape[1]`` because that
+    # equals ``nframes`` and therefore cannot detect Suite2p's silent
+    # frame trims.
+    if ops_path.exists():
+        ops_for_attrs = np.load(ops_path, allow_pickle=True).item()
+        n_tiff_init = ops_for_attrs.get("nframes_init")
+        if n_tiff_init is None:
+            n_tiff_init = ops_for_attrs.get("nframes")
+        if n_tiff_init is not None:
+            attrs["n_tiff_frames"] = int(n_tiff_init)
+
     write_h5(output_path, datasets, attrs=attrs)

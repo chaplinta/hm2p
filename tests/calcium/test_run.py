@@ -499,6 +499,87 @@ def _write_suite2p_with_spks(
     )
 
 
+class TestNTiffFramesAttr:
+    """QA issue 1.9 — Stage 4 stamps n_tiff_frames onto ca.h5 root attrs.
+
+    Stage 5 reads this attr (preferring it over the post-extraction
+    ``dff.shape[1]``) to compare imaging-pulse count against the
+    pre-trim TIFF count. ``dff.shape[1]`` always equals Suite2p's
+    post-extraction ``nframes`` and therefore cannot detect frames
+    Suite2p silently dropped during registration.
+    """
+
+    def test_n_tiff_frames_taken_from_ops_nframes_init(self, tmp_path: Path) -> None:
+        """Pre-trim count from ops['nframes_init'] is preferred."""
+        from hm2p.io.hdf5 import read_attrs
+
+        rng = np.random.default_rng(0)
+        n_rois, n_frames = 6, 200
+        suite2p_dir = tmp_path / "suite2p"
+        plane = suite2p_dir / "plane0"
+        plane.mkdir(parents=True)
+        F = rng.uniform(100, 500, (n_rois, n_frames)).astype(np.float32)
+        Fneu = rng.uniform(50, 200, (n_rois, n_frames)).astype(np.float32)
+        np.save(plane / "F.npy", F)
+        np.save(plane / "Fneu.npy", Fneu)
+        np.save(plane / "iscell.npy", np.ones((n_rois, 2), dtype=np.float32))
+        # ops with both nframes_init (pre-trim, 205) and nframes (post-trim, 200)
+        np.save(
+            plane / "ops.npy",
+            {
+                "fs": 9.6,
+                "Ly": 64,
+                "Lx": 64,
+                "nframes": n_frames,
+                "nframes_init": 205,
+                "badframes": np.array([], dtype=np.int64),
+            },
+        )
+
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n_frames, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        attrs = read_attrs(out)
+        assert int(attrs["n_tiff_frames"]) == 205, (
+            "n_tiff_frames must come from ops['nframes_init'] (pre-trim "
+            "count), not from dff.shape[1] (post-extraction count)."
+        )
+
+    def test_n_tiff_frames_falls_back_to_nframes(self, tmp_path: Path) -> None:
+        """When ops lacks nframes_init, fall back to ops['nframes']."""
+        from hm2p.io.hdf5 import read_attrs
+
+        rng = np.random.default_rng(1)
+        n_rois, n_frames = 5, 150
+        suite2p_dir = tmp_path / "suite2p"
+        plane = suite2p_dir / "plane0"
+        plane.mkdir(parents=True)
+        np.save(plane / "F.npy", rng.uniform(100, 500, (n_rois, n_frames)).astype(np.float32))
+        np.save(plane / "Fneu.npy", rng.uniform(50, 200, (n_rois, n_frames)).astype(np.float32))
+        np.save(plane / "iscell.npy", np.ones((n_rois, 2), dtype=np.float32))
+        np.save(
+            plane / "ops.npy",
+            {
+                "fs": 9.6,
+                "Ly": 64,
+                "Lx": 64,
+                "nframes": n_frames,
+                "badframes": np.array([], dtype=np.int64),
+                # No nframes_init — fall back to nframes.
+            },
+        )
+
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=n_frames, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        attrs = read_attrs(out)
+        assert int(attrs["n_tiff_frames"]) == n_frames
+
+
 class TestRoiTypeEncoding:
     """Regression tests for QA issue 1.2 — roi_types and iscell are separate.
 

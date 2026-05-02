@@ -1059,6 +1059,66 @@ class TestStage5FailureClosedSemantics:
         attrs = _read_sync_attrs(out_h5)
         assert attrs["sync_status_version"] == "1.0"
 
+    def test_n_tiff_frames_sourced_from_ca_attrs_not_dff_shape(self, tmp_path, ts_h5):
+        """QA 2.2 — Stage 5 prefers ca.h5 ``n_tiff_frames`` attr.
+
+        When ca.h5 stamps a pre-trim TIFF count that differs from
+        ``dff.shape[1]``, ``sync_diag/n_tiff_frames`` and
+        ``pulse_count_diff`` must come from the attr, not the dff shape.
+        Otherwise the frame-count cross-check is silently checking
+        post-extraction frames against pulses (it can't detect Suite2p
+        frame trims).
+        """
+        from hm2p.io.hdf5 import write_h5
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+        _write_synthetic_kinematics(kin_h5)
+
+        # ca.h5 with dff width 180 (matches imaging pulses) but
+        # n_tiff_frames=185 (Suite2p trimmed 5 frames silently).
+        n_rois, n_frames = 6, 180
+        rng = np.random.default_rng(0)
+        frame_times = np.linspace(0, 6.0, n_frames, dtype=np.float64)
+        write_h5(
+            ca_h5,
+            arrays={
+                "frame_times": frame_times,
+                "dff": rng.standard_normal((n_rois, n_frames)).astype(np.float32),
+            },
+            attrs={
+                "session_id": "test",
+                "fps_imaging": 30.0,
+                "extractor": "suite2p",
+                "n_tiff_frames": 185,  # pre-trim TIFF count
+            },
+        )
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5, timestamps_h5=ts_h5)
+        attrs = _read_sync_attrs(out_h5)
+        assert int(attrs["sync_diag/n_tiff_frames"]) == 185, (
+            "Stage 5 must source n_tiff_frames from ca.h5 root attr, not from dff.shape[1]."
+        )
+        # 180 imaging pulses vs 185 TIFF frames → diff = -5 (after off-by-one)
+        # The off-by-one heuristic only fires for diff == +1, so diff
+        # stays at -5 here.
+        assert int(attrs["sync_diag/pulse_count_diff"]) == 180 - 185
+
+    def test_n_tiff_frames_falls_back_to_dff_shape_when_attr_missing(self, tmp_path, ts_h5):
+        """Legacy ca.h5 (no n_tiff_frames attr) still works via dff fallback."""
+        from hm2p.sync.align import run
+
+        kin_h5 = tmp_path / "kinematics.h5"
+        ca_h5 = tmp_path / "ca.h5"
+        out_h5 = tmp_path / "sync.h5"
+        _write_synthetic_kinematics(kin_h5)
+        _write_synthetic_ca(ca_h5)  # no n_tiff_frames attr
+        run(kin_h5, ca_h5, session_id="test", output_path=out_h5, timestamps_h5=ts_h5)
+        attrs = _read_sync_attrs(out_h5)
+        # Falls back to dff column count = 180
+        assert int(attrs["sync_diag/n_tiff_frames"]) == 180
+
     def test_failed_stub_carries_dlc_champion_id(self, tmp_path):
         """FAILED_* sync.h5 stubs must carry dlc_champion_id (QA 2.1).
 

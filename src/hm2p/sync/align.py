@@ -198,6 +198,7 @@ def _build_diagnostics(
     timestamps_attrs: dict | None,
     kin: dict | None,
     ca: dict | None,
+    ca_attrs: dict | None,
     cfg: dict,
     s2p_off_by_one_fix_applied: int,
 ) -> tuple[object, str, list[str], list[str], dict]:
@@ -233,10 +234,28 @@ def _build_diagnostics(
                 except (TypeError, ValueError):
                     continue
 
-    # n_tiff_frames from ca.h5 (Suite2p ops would be ideal but ca.h5 is what
-    # we have at this stage; use dff column count which equals nframes).
+    # n_tiff_frames: prefer the original TIFF count Stage 4 stamps onto
+    # ca.h5 (``n_tiff_frames`` attr, sourced from Suite2p ops['nframes_init']
+    # or ops['nframes']). Falling back to ``ca["dff"].shape[1]`` is a
+    # legacy path: ``dff`` width equals Suite2p's post-extraction
+    # ``nframes`` and therefore cannot detect frames Suite2p silently
+    # dropped during registration. Returning -1 (sentinel) when no
+    # source is available preserves the "missing TIFF" warning path.
     n_tiff_frames = -1
-    if ca is not None and "dff" in ca:
+    if ca_attrs is not None and "n_tiff_frames" in ca_attrs:
+        try:
+            n_tiff_frames = int(ca_attrs["n_tiff_frames"])
+        except (TypeError, ValueError):
+            n_tiff_frames = -1
+    if n_tiff_frames < 0 and ca is not None and "dff" in ca:
+        # Last-resort fallback for ca.h5 files written before this attr
+        # was added. Logged as a warning so we know the stage 4 output
+        # needs re-running for full diagnostic fidelity.
+        log.warning(
+            "ca.h5 missing 'n_tiff_frames' root attr — falling back to "
+            "dff.shape[1]; this cannot detect Suite2p frame trims. "
+            "Re-run Stage 4 to populate the attr."
+        )
         n_tiff_frames = int(ca["dff"].shape[1])
 
     # Pose decimation diagnostics from kinematics.h5 attrs (if present).
@@ -344,8 +363,14 @@ def run(
 
     if Path(kinematics_h5).exists():
         kin = read_h5(kinematics_h5)
+    ca_attrs: dict | None = None
     if Path(ca_h5).exists():
         ca = read_h5(ca_h5)
+        try:
+            ca_attrs = dict(read_attrs(ca_h5))
+        except Exception as exc:  # pragma: no cover — defensive
+            log.warning("Failed to read ca.h5 attrs at %s: %s", ca_h5, exc)
+            ca_attrs = None
 
     # --- Apply Suite2p off-by-one trim (with explicit logging) ---
     s2p_off_by_one_fix_applied = 0
@@ -373,6 +398,7 @@ def run(
         timestamps_attrs=timestamps_attrs,
         kin=kin,
         ca=ca,
+        ca_attrs=ca_attrs,
         cfg=cfg,
         s2p_off_by_one_fix_applied=s2p_off_by_one_fix_applied,
     )
