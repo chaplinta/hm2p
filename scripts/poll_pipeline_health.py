@@ -414,7 +414,7 @@ def _check_gpu_log_for_abort(s3: Any) -> list[Alert]:
 
     alerts: list[Alert] = []
 
-    if "FATAL: GPU utilization 0% for 10+ minutes" in log_text:
+    if "FATAL: GPU utilization 0%" in log_text and "minutes during processing" in log_text:
         alerts.append(
             Alert(
                 level="critical",

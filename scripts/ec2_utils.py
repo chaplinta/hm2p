@@ -30,15 +30,17 @@ GPU_CSV_PID=$!
 done) &
 UPLOAD_PID=$!
 
-# GPU watchdog: abort if 0% utilization for 10 min during processing.
-# Threshold is 20 readings (at 30s intervals = 10 min) to allow for
-# inter-session gaps (video download ~2-3 min between inference runs).
+# GPU watchdog: abort if 0% utilization for 30 min during processing.
+# Threshold is 60 readings (at 30s intervals = 30 min) to tolerate the
+# SA-finetune setup phase (HuggingFace SA-TVM weight download +
+# memory-replay teacher build can take 10+ min CPU-only) and inter-session
+# video downloads in the inference path.
 (while true; do
     sleep 300
     [ ! -f /tmp/gpu_processing_active ] && continue
-    ZERO_COUNT=$(tail -20 /var/log/gpu_monitor.csv 2>/dev/null | grep -c ', 0 %' || echo 0)
-    if [ "$ZERO_COUNT" -ge 20 ]; then
-        echo "FATAL: GPU utilization 0% for 10+ minutes during processing. DLC likely running on CPU."
+    ZERO_COUNT=$(tail -60 /var/log/gpu_monitor.csv 2>/dev/null | grep -c ', 0 %' || echo 0)
+    if [ "$ZERO_COUNT" -ge 60 ]; then
+        echo "FATAL: GPU utilization 0% for 30+ minutes during processing. DLC likely running on CPU."
         echo "Aborting to save money."
         aws s3 cp /var/log/gpu_monitor.csv s3://{bucket}/{log_prefix}/_gpu_monitor.csv 2>/dev/null || true
         shutdown -h now
