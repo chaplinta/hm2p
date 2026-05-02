@@ -198,20 +198,14 @@ else:
 # Patch DLC memory_replay.py to handle missing 'bboxes'/'bodyparts' keys.
 # DLC 3.0rc13 assumes detector always returns these, but when no animal
 # is detected the keys are absent → KeyError at lines 120 and 217.
-# Fix: after inference, ensure every prediction dict has defaults.
-python3 -c '
-import deeplabcut, pathlib, inspect
-mr_path = pathlib.Path(inspect.getfile(deeplabcut)).parent / "pose_estimation_pytorch" / "modelzoo" / "memory_replay.py"
-code = mr_path.read_text()
-marker = "sa_predictions[image] = prediction"
-patch_line = "        prediction.setdefault(\"bboxes\", []); prediction.setdefault(\"bodyparts\", [])  # hm2p patch"
-if marker in code and "hm2p patch" not in code:
-    code = code.replace(marker, patch_line + "\n        " + marker)
-    mr_path.write_text(code)
-    print("Patched memory_replay.py: setdefault for bboxes/bodyparts")
-else:
-    print("memory_replay.py: already patched or marker not found")
-'
+# Fix: sed-insert a setdefault line before the assignment.
+MR_FILE=$(python3 -c "import deeplabcut,inspect,pathlib; print(pathlib.Path(inspect.getfile(deeplabcut)).parent / 'pose_estimation_pytorch' / 'modelzoo' / 'memory_replay.py')")
+if grep -q 'sa_predictions\[image\] = prediction' "$MR_FILE" && ! grep -q 'hm2p patch' "$MR_FILE"; then
+    sed -i '/sa_predictions\[image\] = prediction/i\\        prediction.setdefault("bboxes", []); prediction.setdefault("bodyparts", [])  # hm2p patch' "$MR_FILE"
+    echo "Patched memory_replay.py: setdefault for bboxes/bodyparts"
+else
+    echo "memory_replay.py: already patched or marker not found"
+fi
 
 # Clone repo and run — disable set -e so Python errors don't kill
 # the script before the EXIT trap can upload logs.
