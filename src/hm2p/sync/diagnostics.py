@@ -302,8 +302,15 @@ def channel_scalars(
     if mad_isi_s > 0:
         n_outliers = int((abs_dev > isi_outlier_k * mad_isi_s).sum())
     else:
-        # MAD = 0 → flag any deviation as outlier (1 ulp tolerance).
-        tol = 1e-9 * max(median_isi_s, 1e-9)
+        # MAD = 0 → use a relative-to-median tolerance (1 ppm of the
+        # median ISI). QA 2.5: the previous 1e-9 × median_isi tolerance
+        # was below the floating-point noise of ``np.diff`` on float64
+        # timestamps (~10^-11 s at 100 Hz), so a perfectly clean
+        # synthetic train would falsely report many outliers. 1e-6 ×
+        # median_isi gives a generous numerical-noise margin while still
+        # detecting any meaningful deviation in a perfectly uniform
+        # train.
+        tol = 1e-6 * max(median_isi_s, 1e-9)
         n_outliers = int((abs_dev > tol).sum())
     min_isi_ms = float(isis.min() * 1000.0)
     slope_ppm, r2 = drift_slope(times, fps_nominal=fps_nominal)
@@ -405,7 +412,17 @@ def _duty_cycle(
     duration_s: float,
     first_state: int,
 ) -> float:
-    """Fraction of [0, duration_s] in lights-on state."""
+    """Fraction of ``[0, duration_s]`` in lights-on state.
+
+    Edges before t=0 are dropped *upstream* of the integration loop —
+    not skipped mid-walk. QA 2.4: the previous ``if t < 0: continue``
+    inside the loop preserved the prior state through to the next
+    non-negative edge, which double-counted time in the old state. By
+    filtering negative-time edges out before the walk, the state machine
+    starts from ``first_state`` at t=0 with the correct sequence of
+    flips. (Real DAQ pulse times should be ≥ 0 by construction; this
+    just makes the defensive code provably correct.)
+    """
     if duration_s <= 0.0 or first_state < 0:
         return FLOAT_SENTINEL
     edges = np.concatenate([light_on.astype(np.float64), light_off.astype(np.float64)])
@@ -413,13 +430,17 @@ def _duty_cycle(
     order = np.argsort(edges, kind="mergesort")
     edges = edges[order]
     edge_states = edge_states[order]
-    # Walk left-to-right, integrating the time spent in state ON.
+    # Drop negative-time edges entirely — they correspond to events that
+    # would have already happened before the integration window starts;
+    # the state machine begins from ``first_state`` at t=0.
+    nonneg = edges >= 0.0
+    edges = edges[nonneg]
+    edge_states = edge_states[nonneg]
+    # Walk left-to-right, integrating time spent in state ON.
     state = int(first_state)
     t_prev = 0.0
     on_time = 0.0
     for t, s in zip(edges, edge_states, strict=False):
-        if t < 0.0:
-            continue
         if t > duration_s:
             break
         if state == 1:

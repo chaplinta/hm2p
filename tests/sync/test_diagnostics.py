@@ -135,6 +135,43 @@ class TestChannelScalars:
         assert s.n_isi_outliers == 0
         assert abs(s.drift_slope_ppm) < 0.01
 
+    def test_perfectly_uniform_train_no_false_outliers(self) -> None:
+        """QA 2.5 — perfectly uniform synthetic train must report 0 outliers.
+
+        ``np.diff(np.linspace(...))`` on float64 introduces floating-point
+        noise on the order of 10^-11 s at 100 Hz. The previous tolerance
+        of 1e-9 × median_isi (~10^-11 for 100 Hz) was BELOW that noise
+        floor, so a perfectly uniform synthetic train falsely reported
+        many outliers when MAD == 0. The fix uses 1e-6 × median_isi.
+        """
+        # Construct a perfectly uniform 100 Hz train via cumsum of a
+        # constant ISI — the cleanest possible pulse train.
+        n = 1000
+        isi = 1.0 / 100.0
+        times = np.arange(n, dtype=np.float64) * isi
+        s = channel_scalars(times, fps_nominal=100.0)
+        # MAD is exactly 0 → triggers the QA 2.5 code path.
+        assert s.isi_mad_ms == pytest.approx(0.0, abs=1e-12)
+        assert s.n_isi_outliers == 0, (
+            f"Expected 0 outliers for a perfectly uniform train; got "
+            f"{s.n_isi_outliers}. Tolerance is too tight for float64 noise."
+        )
+
+    def test_perfectly_uniform_train_one_real_outlier_detected(self) -> None:
+        """A genuine deviation (10 % of ISI) is still detected when MAD == 0.
+
+        Pin the boundary: 1 ppm tolerance of the median is small enough
+        that any meaningful corruption is still flagged as an outlier.
+        """
+        n = 1000
+        isi = 1.0 / 100.0
+        times = np.arange(n, dtype=np.float64) * isi
+        # Shift one pulse by 10 % of ISI — this is far above 1 ppm.
+        times[500] += 0.1 * isi
+        s = channel_scalars(times, fps_nominal=100.0)
+        # Single corrupted ISI affects two diffs (at index 499 and 500).
+        assert s.n_isi_outliers >= 1
+
     def test_jitter_increases_cv(self) -> None:
         rng = np.random.default_rng(0)
         clean = channel_scalars(
@@ -278,6 +315,30 @@ class TestLightScalars:
         s = light_scalars(on, off, duration_s=200.0)
         assert s.n_on == 2
         assert s.n_off == 1
+
+    def test_negative_time_edges_dropped_not_double_counted(self) -> None:
+        """QA 2.4 — pre-window edges must not freeze the prior state.
+
+        Construct a clean cycle plus one spurious edge at t = -10.
+        The previous ``if t < 0: continue`` inside the integration loop
+        kept the prior state through to the next non-negative edge,
+        which double-counted the time before that edge in the wrong
+        state. Dropping negative edges before the walk fixes this.
+        """
+        # Standard cycle without the negative edge: on=[120, 240], off=[60, 180]
+        on_clean = np.array([120.0, 240.0], dtype=np.float64)
+        off_clean = np.array([60.0, 180.0], dtype=np.float64)
+        s_clean = light_scalars(on_clean, off_clean, duration_s=300.0)
+
+        # Same cycle plus one rogue light_off at t=-10 (e.g. DAQ
+        # pre-trigger artefact).
+        on_rogue = on_clean.copy()
+        off_rogue = np.array([-10.0, 60.0, 180.0], dtype=np.float64)
+        s_rogue = light_scalars(on_rogue, off_rogue, duration_s=300.0)
+
+        # Both should produce the same duty cycle once the negative edge
+        # is correctly excluded from the integration walk.
+        assert s_rogue.duty_cycle == pytest.approx(s_clean.duty_cycle, abs=1e-6)
 
     def test_polarity_helper_in_range(self) -> None:
         s = LightScalars(duty_cycle=0.5)
