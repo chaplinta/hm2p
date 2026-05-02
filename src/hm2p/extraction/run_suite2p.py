@@ -120,7 +120,14 @@ def fps_from_timestamps(timestamps_h5: Path) -> float:
         frame_times = ts.get("frame_times_imaging")
         if frame_times is None or len(frame_times) < 2:
             raise ValueError("frame_times_imaging missing or has fewer than 2 entries")
-        fps = float(np.mean(1.0 / np.diff(frame_times)))
+        # Median ISI estimator: ``1 / median(diff(frame_times))``. Avoids the
+        # Jensen-inequality bias of ``mean(1 / diff)`` (which is biased high
+        # relative to ``1 / mean(diff)`` for any distribution with positive
+        # variance) and is robust to single-frame drops/duplicates that the
+        # mean is sensitive to. Matches the convention used in
+        # ``hm2p.calcium.run`` (single source of truth for fps across
+        # Stage 1 and Stage 4).
+        fps = float(1.0 / np.median(np.diff(frame_times)))
         log.info(
             "Measured imaging fps=%.4f Hz from %s (%d frames)",
             fps,

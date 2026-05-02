@@ -487,6 +487,49 @@ class TestFpsFromTimestamps:
         fps = fps_from_timestamps(ts_path)
         np.testing.assert_allclose(fps, 9.6, rtol=0.01)
 
+    def test_robust_to_single_dropped_frame(self, tmp_path):
+        """QA 1.8: median ISI estimator is unbiased by a single dropped frame.
+
+        Construct a 9.6 Hz train with one dropped frame in the middle (so
+        one ISI is doubled). The previous mean-of-reciprocals estimator
+        was biased high by Jensen's inequality plus the heavy-tailed ISI
+        distribution that dropped frames produce. Median ISI is robust
+        to that outlier.
+        """
+        nominal_dt = 1.0 / 9.6
+        n = 200
+        dt = np.full(n - 1, nominal_dt)
+        # Drop one frame: double the ISI at index 100.
+        dt[100] = 2.0 * nominal_dt
+        frame_times = np.concatenate([[0.0], np.cumsum(dt)])
+        ts_path = tmp_path / "timestamps.h5"
+        _write_timestamps_h5(ts_path, frame_times)
+        fps = fps_from_timestamps(ts_path)
+        # Median ISI keeps 9.6 Hz exactly; the dropped frame is a single
+        # outlier in 199 ISIs.
+        np.testing.assert_allclose(fps, 9.6, rtol=1e-6)
+
+    def test_estimator_matches_calcium_run_convention(self, tmp_path):
+        """fps_from_timestamps must use the same estimator as calcium/run.py.
+
+        Both pipeline stages must agree on the per-session fps. ``calcium/run``
+        uses ``1 / median(diff(frame_times))``; this regression check pins
+        the same convention here.
+        """
+        rng = np.random.default_rng(1)
+        nominal_dt = 1.0 / 9.6
+        # 1 ms jitter — Jensen bias on mean-of-reciprocals is then
+        # noticeable at 4 dp, larger than the median estimator's noise.
+        dt = nominal_dt + rng.standard_normal(499) * 0.001
+        dt = np.clip(dt, 0.001, None)  # keep positive
+        frame_times = np.concatenate([[0.0], np.cumsum(dt)])
+        ts_path = tmp_path / "timestamps.h5"
+        _write_timestamps_h5(ts_path, frame_times)
+        fps = fps_from_timestamps(ts_path)
+        # Both stages share this convention.
+        expected = 1.0 / float(np.median(np.diff(frame_times)))
+        np.testing.assert_allclose(fps, expected, rtol=1e-9)
+
 
 # ---------------------------------------------------------------------------
 # run_suite2p — indicator + timestamps_h5 wiring
