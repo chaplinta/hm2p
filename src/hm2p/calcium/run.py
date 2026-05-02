@@ -261,10 +261,14 @@ def run(
     F_corr = F_corr.astype(np.float32)
 
     # --- Load Suite2p deconvolved spikes (spks.npy) ---
+    # Persist the full population (n_rois_all rows) so the ROI axis matches
+    # every other ROI-axis array in ca.h5 (F, Fneu, F_corr, dff, …). Filtering
+    # by iscell here would silently misalign the ROI axis: consumers indexing
+    # ``deconv[i]`` and ``dff[i]`` together would read different ROIs.
     spks_path = plane_dir / "spks.npy"
     if spks_path.exists():
         spks_all = np.load(spks_path).astype(np.float32)
-        deconv = spks_all[cell_mask]
+        deconv = spks_all
         # Normalize per ROI by max (matching legacy pipeline: deconv / max)
         deconv_max = deconv.max(axis=1, keepdims=True)
         deconv_max[deconv_max == 0] = 1.0  # avoid division by zero

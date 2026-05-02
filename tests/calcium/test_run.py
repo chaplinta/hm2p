@@ -458,3 +458,103 @@ class TestSomaClassifierProbabilities:
 
         ca = read_h5(out)
         assert "roi_qc/p_soma" not in ca
+
+
+# ---------------------------------------------------------------------------
+# ROI-axis alignment — every ROI-axis array in ca.h5 must have shape[0] == n_rois
+# ---------------------------------------------------------------------------
+
+
+def _write_suite2p_with_spks(
+    suite2p_dir: Path,
+    n_rois: int = 12,
+    n_cells: int = 7,
+    n_frames: int = 200,
+) -> None:
+    """Write synthetic Suite2p plane0 including spks.npy, ops.npy."""
+    rng = np.random.default_rng(2024)
+    plane = suite2p_dir / "plane0"
+    plane.mkdir(parents=True)
+
+    F = rng.uniform(100, 500, (n_rois, n_frames)).astype(np.float32)
+    Fneu = rng.uniform(50, 200, (n_rois, n_frames)).astype(np.float32)
+    iscell = np.zeros((n_rois, 2), dtype=np.float32)
+    iscell[:n_cells, 0] = 1.0  # mixed cell / non-cell so the bug is visible
+
+    spks = rng.exponential(1.0, (n_rois, n_frames)).astype(np.float32)
+
+    np.save(plane / "F.npy", F)
+    np.save(plane / "Fneu.npy", Fneu)
+    np.save(plane / "iscell.npy", iscell)
+    np.save(plane / "spks.npy", spks)
+    np.save(
+        plane / "ops.npy",
+        {
+            "fs": 9.6,
+            "Ly": 64,
+            "Lx": 64,
+            "nframes": n_frames,
+            "badframes": np.array([], dtype=np.int64),
+        },
+    )
+
+
+class TestRoiAxisAlignment:
+    """Regression tests for QA issue 1.1 — deconv ROI axis must match dff."""
+
+    def test_deconv_roi_axis_matches_dff(self, tmp_path: Path) -> None:
+        """deconv shape[0] must equal dff shape[0] (full ROI population)."""
+        from hm2p.io.hdf5 import read_h5
+
+        n_rois = 12
+        n_cells = 7  # iscell != n_rois — the misalignment bug surfaces
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_spks(suite2p_dir, n_rois=n_rois, n_cells=n_cells, n_frames=200)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        assert "deconv" in ca
+        assert ca["deconv"].shape[0] == ca["dff"].shape[0] == n_rois, (
+            f"deconv ROI axis ({ca['deconv'].shape[0]}) must match dff "
+            f"({ca['dff'].shape[0]}) — full ROI population, not iscell-filtered."
+        )
+        assert ca["deconv_norm"].shape[0] == n_rois
+
+    def test_all_roi_axis_arrays_have_consistent_n_rois(self, tmp_path: Path) -> None:
+        """F, Fneu, F_corr, F0_*, dff, deconv, roi_types must share ROI axis."""
+        from hm2p.io.hdf5 import read_h5
+
+        n_rois = 10
+        n_cells = 4
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_spks(suite2p_dir, n_rois=n_rois, n_cells=n_cells, n_frames=200)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        roi_axis_keys = (
+            "F_raw",
+            "Fneu_raw",
+            "F_corr",
+            "F0_rolling",
+            "F0_percentile",
+            "dff",
+            "dff_percentile",
+            "event_masks",
+            "event_masks_sd",
+            "noise_probs",
+            "roi_types",
+            "deconv",
+            "deconv_norm",
+        )
+        for key in roi_axis_keys:
+            assert key in ca, f"missing array {key!r}"
+            assert ca[key].shape[0] == n_rois, (
+                f"{key!r} has shape[0]={ca[key].shape[0]} != n_rois={n_rois} — "
+                "ROI axis must be the full Suite2p population."
+            )
