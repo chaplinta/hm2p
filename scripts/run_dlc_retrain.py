@@ -343,8 +343,15 @@ def _train_sa_finetune(
         num_shuffles=1,
         net_type="hrnet_w32",
     )
-    sa_shuffle = new_shuffles[-1] if isinstance(new_shuffles, list) else new_shuffles
-    print(f"  SA shuffle index: {sa_shuffle}")
+    # create_training_dataset returns a list of tuples:
+    # [(trainingset_fraction, shuffle_index, (train_indices, test_indices)), ...]
+    # We need just the integer shuffle index for train_network.
+    raw_shuffle = new_shuffles[-1] if isinstance(new_shuffles, list) else new_shuffles
+    if isinstance(raw_shuffle, (list, tuple)) and len(raw_shuffle) >= 2:
+        sa_shuffle = int(raw_shuffle[1])
+    else:
+        sa_shuffle = int(raw_shuffle)
+    print(f"  SA shuffle index: {sa_shuffle} (raw: {type(raw_shuffle).__name__})")
 
     # Locate the new shuffle's pytorch_config.yaml and apply the
     # augmentation patch. The 256x256 input-size check is a soft
