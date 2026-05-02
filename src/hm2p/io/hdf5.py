@@ -286,6 +286,9 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
 
     Optional keys validated when present:
       spikes              float32  2D  same shape as dff (CASCADE spike rates)
+      roi_types           uint8    1D  length n_rois (0=soma, 1=dend, 2=artefact)
+      iscell              bool     1D  length n_rois (Suite2p classifier
+                                       acceptance flag; orthogonal to roi_types)
       roi_qc/roi_index    int32    1D  length n_rois
       roi_qc/snr_event    float32  1D  length n_rois
       roi_qc/decay_tau_s  float32  1D  length n_rois
@@ -300,6 +303,11 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
     (SNR, tau, etc.) and ``hm2p.extraction.soma_classifier`` (the three
     ``p_*`` probabilities); both use slash-keyed names so that h5py
     creates a ``roi_qc`` group automatically.
+
+    ``roi_types`` is the soma/dend/artefact label produced by the soma
+    classifier (``hm2p.extraction.soma_classifier``). ``iscell`` is
+    Suite2p's accept/reject flag — kept separate so a Suite2p-rejected
+    dendrite is distinguishable from a physical artefact.
 
     References:
         Pnevmatikakis et al. 2016. "Simultaneous Denoising, Deconvolution, and
@@ -331,6 +339,27 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
         _check_ndim(spikes, 2, "spikes", ctx)
         if spikes.shape != dff.shape:
             _schema_error(f"{ctx}: 'spikes' shape {spikes.shape} != 'dff' shape {dff.shape}")
+
+    # roi_types: optional uint8 (0=soma, 1=dend, 2=artefact). Length must
+    # match n_rois. ``iscell`` is a separate boolean — both are 1D arrays
+    # that share the ROI axis with dff.
+    if "roi_types" in arrays:
+        rt = arrays["roi_types"]
+        _check_dtype(rt, np.dtype("uint8"), "roi_types", ctx)
+        _check_ndim(rt, 1, "roi_types", ctx)
+        if len(rt) != n_rois:
+            _schema_error(f"{ctx}: 'roi_types' length {len(rt)} != n_rois {n_rois}")
+        if rt.size and (rt > 2).any():
+            _schema_error(
+                f"{ctx}: 'roi_types' values must be 0 (soma), 1 (dend), or "
+                f"2 (artefact); found max {int(rt.max())}"
+            )
+    if "iscell" in arrays:
+        ic = arrays["iscell"]
+        _check_dtype(ic, np.dtype("bool"), "iscell", ctx)
+        _check_ndim(ic, 1, "iscell", ctx)
+        if len(ic) != n_rois:
+            _schema_error(f"{ctx}: 'iscell' length {len(ic)} != n_rois {n_rois}")
 
     # Optional roi_qc group: all arrays must be 1D with length n_rois.
     # ``p_soma`` / ``p_dend`` / ``p_artefact`` are calibrated probabilities

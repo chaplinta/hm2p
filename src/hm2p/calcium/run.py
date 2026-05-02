@@ -203,10 +203,11 @@ def run(
     else:
         roi_types = ["soma"] * F.shape[0]
 
-    # Merge iscell=False ROIs and shape-based artefacts into "non-cell"
-    for i in range(len(roi_types)):
-        if not cell_mask[i] or roi_types[i] == "artefact":
-            roi_types[i] = "non-cell"
+    # ``roi_types`` is the soma/dend/artefact label from the classifier — it
+    # is **not** combined with iscell. Suite2p's iscell flag is stored as a
+    # separate boolean (``iscell``) so that downstream code can distinguish
+    # a Suite2p-rejected dendrite (``roi_types == "dend"``, ``iscell ==
+    # False``) from a physical artefact (``roi_types == "artefact"``).
 
     # --- Load imaging frame times ---
     ts = read_h5(timestamps_h5)
@@ -324,9 +325,12 @@ def run(
         bad_frames=bad_imaging_frames,
     )
 
-    # Encode roi_types as uint8: 0=soma, 1=dendrite, 2=non-cell
-    type_map = {"soma": 0, "dend": 1, "non-cell": 2}
+    # Encode roi_types as uint8 per the documented spec:
+    # 0=soma, 1=dendrite, 2=artefact. ``iscell`` is persisted separately as
+    # a boolean so the Suite2p-rejected vs artefact distinction is preserved.
+    type_map = {"soma": 0, "dend": 1, "artefact": 2}
     roi_type_arr = np.array([type_map.get(t, 2) for t in roi_types], dtype=np.uint8)
+    iscell_arr = cell_mask.astype(bool)
 
     datasets: dict[str, np.ndarray] = {
         # Raw traces (pre-subtraction) — for re-derivation without re-extraction
@@ -346,6 +350,7 @@ def run(
         "event_masks_sd": event_masks_sd,
         "noise_probs": batch_result.noise_probs,
         "roi_types": roi_type_arr,
+        "iscell": iscell_arr,
     }
 
     # Persist Suite2p's bad-frame mask (frames that failed motion-correction

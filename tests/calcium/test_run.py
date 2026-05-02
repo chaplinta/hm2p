@@ -499,6 +499,171 @@ def _write_suite2p_with_spks(
     )
 
 
+class TestRoiTypeEncoding:
+    """Regression tests for QA issue 1.2 — roi_types and iscell are separate.
+
+    Per docs/sync-pipeline-design.md and CLAUDE.md, ``roi_types`` is the
+    soma/dend/artefact label from the classifier (encoded 0/1/2 per spec),
+    and ``iscell`` is Suite2p's accept/reject flag. Conflating them loses
+    the artefact distinction.
+    """
+
+    def test_roi_types_are_classifier_labels_not_iscell_merge(self, tmp_path: Path) -> None:
+        """roi_types reflects classifier output; iscell is a separate flag.
+
+        Build a Suite2p plane0 where every ROI has soma-shape stats but
+        only n_cells of them are accepted by Suite2p (iscell=True). The
+        classifier should label all of them as soma (code 0), and ``iscell``
+        should hold the Suite2p flag separately.
+        """
+        from hm2p.io.hdf5 import read_h5
+
+        n_rois = 8
+        n_cells = 3
+        suite2p_dir = tmp_path / "suite2p"
+        # Use the with-stat helper but with mixed iscell.
+        rng = np.random.default_rng(7)
+        plane = suite2p_dir / "plane0"
+        plane.mkdir(parents=True)
+        F = rng.uniform(100, 500, (n_rois, 200)).astype(np.float32)
+        Fneu = rng.uniform(50, 200, (n_rois, 200)).astype(np.float32)
+        iscell_in = np.zeros((n_rois, 2), dtype=np.float32)
+        iscell_in[:n_cells, 0] = 1.0
+        np.save(plane / "F.npy", F)
+        np.save(plane / "Fneu.npy", Fneu)
+        np.save(plane / "iscell.npy", iscell_in)
+        stat = [
+            {
+                "radius": 6.0,
+                "compact": 0.7,
+                "aspect_ratio": 1.5,
+                "npix": 200,
+                "npix_norm": 1.5,
+                "skew": 1.0,
+                "std": 1.0,
+                "ypix": np.array([0, 1, 2], dtype=int),
+                "xpix": np.array([0, 1, 2], dtype=int),
+            }
+            for _ in range(n_rois)
+        ]
+        np.save(plane / "stat.npy", np.array(stat, dtype=object), allow_pickle=True)
+        np.save(
+            plane / "ops.npy",
+            {
+                "fs": 9.6,
+                "Ly": 64,
+                "Lx": 64,
+                "nframes": 200,
+                "badframes": np.array([], dtype=np.int64),
+            },
+        )
+
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        # iscell preserves Suite2p's flag — mixed True/False
+        assert "iscell" in ca
+        assert ca["iscell"].dtype == bool
+        assert ca["iscell"].shape == (n_rois,)
+        assert ca["iscell"].sum() == n_cells
+        # roi_types reflects soma-shape classifier output, NOT merged with iscell.
+        # No "non-cell" code 2 appears just because iscell is False.
+        assert ca["roi_types"].dtype == np.uint8
+        assert ca["roi_types"].shape == (n_rois,)
+        # All ROIs have soma-like shape — none should land at code 2 (artefact)
+        # solely because iscell=False; that conflation is the QA-flagged bug.
+        assert not np.any(ca["roi_types"][n_cells:] == 2), (
+            "iscell=False ROIs were incorrectly mapped to artefact (code 2). "
+            "iscell and roi_types must be persisted independently."
+        )
+
+    def test_roi_types_artefact_code_distinct_from_iscell_rejected(self, tmp_path: Path) -> None:
+        """Artefact-shape ROIs land at code 2 even when iscell=True.
+
+        Distinguishes a physical artefact (small radius) from a
+        Suite2p-rejected dendrite. The two cases must produce different
+        roi_types codes.
+        """
+        from hm2p.io.hdf5 import read_h5
+
+        rng = np.random.default_rng(11)
+        suite2p_dir = tmp_path / "suite2p"
+        plane = suite2p_dir / "plane0"
+        plane.mkdir(parents=True)
+        # Two ROIs: 0=artefact-shape (radius=1) iscell=True;
+        #           1=soma-shape (radius=6)     iscell=False
+        F = rng.uniform(100, 500, (2, 200)).astype(np.float32)
+        Fneu = rng.uniform(50, 200, (2, 200)).astype(np.float32)
+        iscell_in = np.array([[1.0, 1.0], [0.0, 0.0]], dtype=np.float32)
+        np.save(plane / "F.npy", F)
+        np.save(plane / "Fneu.npy", Fneu)
+        np.save(plane / "iscell.npy", iscell_in)
+        stat = [
+            {  # Artefact: radius < 2
+                "radius": 1.0,
+                "compact": 0.7,
+                "aspect_ratio": 1.5,
+                "npix": 5,
+                "npix_norm": 0.1,
+                "skew": 0.0,
+                "std": 1.0,
+                "ypix": np.array([0], dtype=int),
+                "xpix": np.array([0], dtype=int),
+            },
+            {  # Soma shape, but Suite2p rejected
+                "radius": 6.0,
+                "compact": 0.7,
+                "aspect_ratio": 1.5,
+                "npix": 200,
+                "npix_norm": 1.5,
+                "skew": 1.0,
+                "std": 1.0,
+                "ypix": np.array([0, 1, 2], dtype=int),
+                "xpix": np.array([0, 1, 2], dtype=int),
+            },
+        ]
+        np.save(plane / "stat.npy", np.array(stat, dtype=object), allow_pickle=True)
+        np.save(
+            plane / "ops.npy",
+            {
+                "fs": 9.6,
+                "Ly": 64,
+                "Lx": 64,
+                "nframes": 200,
+                "badframes": np.array([], dtype=np.int64),
+            },
+        )
+
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        ca = read_h5(out)
+        # Artefact-shape ROI: roi_types == 2 (artefact), iscell == True
+        assert ca["roi_types"][0] == 2
+        assert ca["iscell"][0]
+        # Soma-shape but iscell=False: roi_types == 0 (soma), iscell == False
+        assert ca["roi_types"][1] == 0
+        assert not ca["iscell"][1]
+
+    def test_ca_h5_validates_roi_types_and_iscell(self, tmp_path: Path) -> None:
+        """ca.h5 with roi_types + iscell passes the schema validator."""
+        from hm2p.io.hdf5 import read_h5, validate_ca_h5
+
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_with_stat(suite2p_dir, n_rois=6, n_frames=200)
+        ts_h5 = tmp_path / "ts.h5"
+        _write_timestamps(ts_h5, n_frames=200, fps=9.6)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="test", output_path=out)
+
+        validate_ca_h5(read_h5(out))
+
+
 class TestRoiAxisAlignment:
     """Regression tests for QA issue 1.1 — deconv ROI axis must match dff."""
 
