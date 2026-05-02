@@ -290,6 +290,8 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
       iscell              bool     1D  length n_rois (Suite2p classifier
                                        acceptance flag; orthogonal to roi_types)
       roi_qc/roi_index    int32    1D  length n_rois
+      roi_qc/dff_n_clipped int32   1D  length n_rois (per-ROI count of dff
+                                       samples at saturation boundary)
       roi_qc/snr_event    float32  1D  length n_rois
       roi_qc/decay_tau_s  float32  1D  length n_rois
       roi_qc/fneu_dff_corr float32 1D  length n_rois
@@ -381,6 +383,12 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
         _check_ndim(idx, 1, "roi_qc/roi_index", ctx)
         if len(idx) != n_rois:
             _schema_error(f"{ctx}: 'roi_qc/roi_index' length {len(idx)} != n_rois {n_rois}")
+    if "roi_qc/dff_n_clipped" in arrays:
+        nclip = arrays["roi_qc/dff_n_clipped"]
+        _check_dtype(nclip, np.dtype("int32"), "roi_qc/dff_n_clipped", ctx)
+        _check_ndim(nclip, 1, "roi_qc/dff_n_clipped", ctx)
+        if len(nclip) != n_rois:
+            _schema_error(f"{ctx}: 'roi_qc/dff_n_clipped' length {len(nclip)} != n_rois {n_rois}")
     for key in roi_qc_float32:
         if key in arrays:
             arr = arrays[key]

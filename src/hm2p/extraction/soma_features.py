@@ -112,11 +112,17 @@ def _quick_dff(F: np.ndarray) -> np.ndarray:
     np.ndarray
         ``(n_rois, n_frames)`` float32 dF/F0.
     """
+    from hm2p.calcium.dff import DFF_F0_FLOOR
+
     F64 = F.astype(np.float64)
     f0 = np.percentile(F64, 8.0, axis=1, keepdims=True)
-    # Per-ROI floor matching ``compute_dff`` (avoids near-zero denominators).
-    f0_floor = np.maximum(f0, 1.0)
-    f0_safe = np.where(f0 > f0_floor, f0, f0_floor)
+    # Constant denominator floor matching ``compute_dff`` — keeps the
+    # quick feature dF/F numerically stable when F0 is small. The
+    # previous ``np.where(f0 > f0_floor, f0, f0_floor)`` form was
+    # dead-equivalent to ``np.maximum(f0, DFF_F0_FLOOR)`` because
+    # ``f0_floor >= f0`` whenever ``f0 < 1``; collapsing the form removes
+    # the implication that something subtler was intended.
+    f0_safe = np.maximum(f0, DFF_F0_FLOOR)
     dff = (F64 - f0_safe) / f0_safe
     return dff.astype(np.float32)
 

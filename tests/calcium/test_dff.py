@@ -7,7 +7,15 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from hm2p.calcium.dff import compute_baseline, compute_baseline_percentile, compute_dff
+from hm2p.calcium.dff import (
+    DFF_CLIP_HIGH,
+    DFF_CLIP_LOW,
+    DFF_F0_FLOOR,
+    compute_baseline,
+    compute_baseline_percentile,
+    compute_dff,
+    compute_dff_with_clip_counts,
+)
 
 # ---------------------------------------------------------------------------
 # compute_dff — pure numpy, fully testable
@@ -159,14 +167,22 @@ class TestComputeDffEdgeCases:
         assert np.all(np.isfinite(result))
 
     def test_f0_floor_prevents_near_zero_division(self) -> None:
-        """F0 floor based on median prevents near-zero denominators."""
+        """Constant DFF_F0_FLOOR keeps near-zero F0 frames bounded.
+
+        QA fix 1.5: the previous 10 %-of-median per-ROI floor biased
+        dF/F toward zero in F0-uncertain windows. The constant floor
+        :data:`DFF_F0_FLOOR` (1.0) is documented in the module-level
+        constant docstring. With it, near-zero F0 frames divide by 1.0
+        and clamp at the upper saturation bound rather than blowing up.
+        """
         # ROI with median F0 = 200, but a few frames drop to ~0
         F0 = np.full((1, 100), 200.0, dtype=np.float32)
         F0[0, 50:55] = 0.001  # near-zero frames
         F = np.full((1, 100), 300.0, dtype=np.float32)
         result = compute_dff(F, F0)
-        # The near-zero frames should use the floor (10% of median = 20)
-        # so dF/F0 at those frames = (300 - 0.001) / 20 ≈ 15, not ~300000
+        # Near-zero frames now divide by DFF_F0_FLOOR (1.0); raw value
+        # would be ~299.999 → clipped to 20.0. Output stays finite and
+        # bounded — that is the contract.
         assert np.all(result <= 20.0)
         assert np.all(np.isfinite(result))
 
@@ -182,6 +198,81 @@ class TestComputeDffEdgeCases:
         F_low = np.full((2, 50), -500.0, dtype=np.float32)
         result_low = compute_dff(F_low, F0)
         assert np.all(result_low >= -1.0)
+
+
+class TestComputeDffWithClipCounts:
+    """QA issue 1.4 — n_clipped is reported per ROI so saturation is auditable."""
+
+    def test_no_clipping_when_dff_within_range(self) -> None:
+        F0 = np.full((3, 50), 100.0, dtype=np.float32)
+        F = F0 * 1.5  # dff = 0.5 everywhere → no clip
+        dff, n_clipped = compute_dff_with_clip_counts(F, F0)
+        assert dff.shape == F.shape
+        assert n_clipped.shape == (3,)
+        assert n_clipped.dtype == np.int32
+        np.testing.assert_array_equal(n_clipped, 0)
+
+    def test_n_clipped_counts_upper_saturation(self) -> None:
+        F0 = np.full((2, 100), 1.0, dtype=np.float32)
+        F = np.full((2, 100), 1000.0, dtype=np.float32)  # dff_raw ~ 999 → clipped
+        dff, n_clipped = compute_dff_with_clip_counts(F, F0)
+        # Every sample in every ROI should clip
+        assert np.all(dff == DFF_CLIP_HIGH)
+        np.testing.assert_array_equal(n_clipped, 100)
+
+    def test_n_clipped_counts_lower_saturation(self) -> None:
+        F0 = np.full((1, 50), 100.0, dtype=np.float32)
+        F = np.full((1, 50), -10000.0, dtype=np.float32)  # very large negative
+        dff, n_clipped = compute_dff_with_clip_counts(F, F0)
+        assert np.all(dff == DFF_CLIP_LOW)
+        np.testing.assert_array_equal(n_clipped, 50)
+
+    def test_n_clipped_per_roi_independent(self) -> None:
+        F0 = np.full((2, 100), 100.0, dtype=np.float32)
+        F = F0.copy()
+        F[1, :30] = 100000.0  # ROI 1 saturates 30 frames; ROI 0 stays clean
+        _, n_clipped = compute_dff_with_clip_counts(F, F0)
+        assert n_clipped[0] == 0
+        assert n_clipped[1] == 30
+
+    def test_compute_dff_returns_ndarray(self) -> None:
+        """compute_dff still returns a single ndarray (back-compat)."""
+        F0 = np.full((2, 10), 100.0, dtype=np.float32)
+        F = F0.copy()
+        result = compute_dff(F, F0)
+        assert isinstance(result, np.ndarray)
+        assert result.shape == F.shape
+
+    def test_constant_floor_is_one(self) -> None:
+        """DFF_F0_FLOOR is 1.0 — used as the constant denominator floor."""
+        assert DFF_F0_FLOOR == 1.0
+        F0 = np.full((1, 5), 0.5, dtype=np.float32)  # below floor
+        F = np.full((1, 5), 0.5, dtype=np.float32)
+        # F == F0; dff_raw = 0 / max(F0, 1) = 0
+        result = compute_dff(F, F0)
+        np.testing.assert_allclose(result, 0.0, atol=1e-6)
+
+
+class TestComputeBaselinePercentileNan:
+    """QA issue 1.7 — np.nanpercentile must be used so NaN does not propagate."""
+
+    def test_nan_in_input_does_not_propagate(self) -> None:
+        """Non-NaN windows should produce finite F0 even when NaN exists elsewhere."""
+        F = np.full((1, 200), 100.0, dtype=np.float32)
+        F[0, 50:60] = np.nan  # 10 NaN samples
+        # window covers full session — every output position sees the NaN
+        # but nanpercentile keeps the rest, so F0 stays at ~100 everywhere.
+        F0 = compute_baseline_percentile(F, fps=10.0, window_s=20.0)
+        # Frames whose window has at least one finite sample → F0 finite
+        assert np.isfinite(F0).all()
+        # Median F0 across the trace is ~100 (constant non-NaN samples)
+        np.testing.assert_allclose(np.median(F0), 100.0, atol=1.0)
+
+    def test_all_nan_window_returns_nan(self) -> None:
+        """When every sample in the window is NaN, F0 is NaN at that frame."""
+        F = np.full((1, 50), np.nan, dtype=np.float32)
+        F0 = compute_baseline_percentile(F, fps=10.0, window_s=5.0)
+        assert np.all(np.isnan(F0))
 
 
 # ---------------------------------------------------------------------------

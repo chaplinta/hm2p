@@ -134,7 +134,11 @@ def run(
     cascade_model : str
         CASCADE pre-trained model name. Ignored if run_cascade=False.
     """
-    from hm2p.calcium.dff import compute_baseline, compute_baseline_percentile, compute_dff
+    from hm2p.calcium.dff import (
+        compute_baseline,
+        compute_baseline_percentile,
+        compute_dff_with_clip_counts,
+    )
     from hm2p.calcium.neuropil import (
         subtract_estimated_coefficient,
         subtract_fissa,
@@ -300,8 +304,8 @@ def run(
             log.warning("Unrecognised f0_method %r; using 'rolling'.", f0_method)
         F0_primary = F0_rolling
 
-    dff = compute_dff(F_corr, F0_primary)
-    dff_percentile = compute_dff(F_corr, F0_percentile)
+    dff, dff_n_clipped = compute_dff_with_clip_counts(F_corr, F0_primary)
+    dff_percentile, _ = compute_dff_with_clip_counts(F_corr, F0_percentile)
 
     # --- Event detection ---
     from hm2p.calcium.events import detect_events_batch, detect_events_sd
@@ -373,6 +377,11 @@ def run(
 
     # Per-ROI QC metrics (roi_qc/* keys)
     datasets.update(qc_datasets)
+
+    # Persist per-ROI dff saturation counts for QC. Non-zero entries
+    # signal F0 estimation issues for that ROI — the frontend ROI viewer
+    # surfaces them alongside the other roi_qc/* fields.
+    datasets["roi_qc/dff_n_clipped"] = dff_n_clipped.astype(np.int32)
 
     # Soma-classifier probabilities — surfaced in the ROI viewer to flag
     # ambiguous ROIs.  See docs/soma-classifier.md.
