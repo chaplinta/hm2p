@@ -199,7 +199,7 @@ else:
 # DLC 3.0rc13 assumes detector always returns these, but when no animal
 # is detected the keys are absent → KeyError at lines 120 and 217.
 # Fix: sed-insert a setdefault line before the assignment.
-MR_FILE=$(python3 -c "import deeplabcut,inspect,pathlib; print(pathlib.Path(inspect.getfile(deeplabcut)).parent / 'pose_estimation_pytorch' / 'modelzoo' / 'memory_replay.py')")
+MR_FILE=$(python3 -c "import deeplabcut,inspect,pathlib; print(pathlib.Path(inspect.getfile(deeplabcut)).parent / 'pose_estimation_pytorch' / 'modelzoo' / 'memory_replay.py')" 2>/dev/null | tail -1)
 if grep -q 'sa_predictions\[image\] = prediction' "$MR_FILE" && ! grep -q 'hm2p patch' "$MR_FILE"; then
     sed -i '/sa_predictions\[image\] = prediction/i\\        prediction.setdefault("bboxes", []); prediction.setdefault("bodyparts", [])  # hm2p patch' "$MR_FILE"
     echo "Patched memory_replay.py: setdefault for bboxes/bodyparts"
