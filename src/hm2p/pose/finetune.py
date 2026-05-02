@@ -43,7 +43,7 @@ from __future__ import annotations
 import datetime
 import json
 import math
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 import numpy as np
@@ -652,17 +652,25 @@ def _build_keypoint(d: dict[str, Any]) -> KeypointVerdict:
     )
 
 
-def verdict_from_json(s: str) -> Verdict:
+def verdict_from_json(s: str, *, require_canonical_gate: bool = True) -> Verdict:
     """Deserialise a JSON string into a :class:`Verdict`.
 
-    Validates ``schema_version`` against the supported value and raises
-    on missing required fields. Future schema versions are rejected (we
-    do not silently accept forward-compatible JSON).
+    Validates ``schema_version`` against the supported value, raises on
+    missing required fields, and (by default) refuses to load a verdict
+    whose gate config differs from the canonical :class:`GateConfig`
+    defaults — see QA issue 3.5. Pinning the gate at load time prevents
+    the situation where ``overall_pass`` and ``fail_reasons`` were
+    produced by a non-canonical gate yet downstream tooling silently
+    treats the verdict as canonical.
 
     Parameters
     ----------
     s
         JSON text produced by :func:`verdict_to_json`.
+    require_canonical_gate
+        When True (default) raise ``ValueError`` if any gate threshold
+        differs from :class:`GateConfig` defaults. Pass False only for
+        explicit migration / inspection of historical verdicts.
 
     Returns
     -------
@@ -671,7 +679,8 @@ def verdict_from_json(s: str) -> Verdict:
     Raises
     ------
     ValueError
-        On schema mismatch or missing required field.
+        On schema mismatch, missing required field, or (when
+        ``require_canonical_gate`` is True) a non-canonical gate.
     """
     d = json.loads(s)
     sv = d.get("schema_version")
@@ -707,6 +716,23 @@ def verdict_from_json(s: str) -> Verdict:
         ),
         other_keypoint_regression_p_max=float(gate_d.get("other_keypoint_regression_p_max", 0.05)),
     )
+    if require_canonical_gate and gate != GateConfig():
+        # Pin the gate so downstream tooling
+        # (``frontend/pages/tracking_quality_page.py``) cannot silently
+        # consume a verdict produced by a non-canonical gate. Pass
+        # ``require_canonical_gate=False`` for explicit migration or
+        # historical-inspection callers.
+        diff_fields = [
+            f.name
+            for f in fields(GateConfig)
+            if getattr(gate, f.name) != getattr(GateConfig(), f.name)
+        ]
+        raise ValueError(
+            f"verdict gate is not the canonical GateConfig() — fields "
+            f"differing from defaults: {diff_fields}. Pass "
+            f"require_canonical_gate=False to load anyway, but note that "
+            f"overall_pass / fail_reasons reflect a different gate."
+        )
     keypoints = tuple(_build_keypoint(k) for k in d["keypoints"])
     return Verdict(
         schema_version=str(d["schema_version"]),
@@ -967,7 +993,11 @@ def evaluate_promotion_gate(
         Optional per-frame HD predictions and GT (radians). When all three
         are provided the verdict's ``hd`` field is populated; otherwise it
         carries None placeholders. HD is descriptive only (does NOT
-        factor into ``overall_pass``).
+        factor into ``overall_pass``). The HD Wilcoxon p-value uses
+        ``alternative="greater"`` so the directionality of the reported
+        p-value matches the per-keypoint tests; this is a presentation
+        choice (HD does not gate the verdict) and is documented in the
+        tracking-quality page's Methods expander.
     baseline_id, candidate_id
         Champion-id strings for traceability.
     gate

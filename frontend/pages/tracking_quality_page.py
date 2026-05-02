@@ -201,16 +201,18 @@ def _render_verdict_section() -> None:
     pass_per_kp = verdict.get("gate_pass_per_keypoint", {})
     for kp in verdict.get("keypoints", []):
         passed = bool(pass_per_kp.get(kp["keypoint"], {}).get("pass", False))
-        rows.append({
-            "keypoint": kp["keypoint"],
-            "pass": "PASS" if passed else "FAIL",
-            "n_pairs": kp["n_pairs"],
-            "median_baseline_px": kp["median_baseline_px"],
-            "median_candidate_px": kp["median_candidate_px"],
-            "pct_change_median": kp["pct_change_median"],
-            "p_value": kp["p_value_wilcoxon"],
-            "rank_biserial_r": kp["rank_biserial_r"],
-        })
+        rows.append(
+            {
+                "keypoint": kp["keypoint"],
+                "pass": "PASS" if passed else "FAIL",
+                "n_pairs": kp["n_pairs"],
+                "median_baseline_px": kp["median_baseline_px"],
+                "median_candidate_px": kp["median_candidate_px"],
+                "pct_change_median": kp["pct_change_median"],
+                "p_value": kp["p_value_wilcoxon"],
+                "rank_biserial_r": kp["rank_biserial_r"],
+            }
+        )
     if rows:
         st.dataframe(pd.DataFrame(rows), use_container_width=True)
 
@@ -1058,6 +1060,14 @@ The promotion gate (v2 plan §4.6) is a conjunction of six predicates:
 on `head_midpoint`; no significant > 10 % regression on the remaining
 five keypoints. Head-direction circular error is reported descriptively
 but does not gate the verdict.
+
+The HD-error Wilcoxon p-value is one-sided
+(`alternative="greater"`, H₁: baseline error > candidate error) to
+match the per-keypoint tests. The HD panel is reported only for
+descriptive comparison — the gate's verdict is independent of HD —
+so the one-sided choice does not affect promotion decisions; it
+simply keeps the directionality of the reported p-value consistent
+with the keypoint panels.
 
 ### References
 

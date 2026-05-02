@@ -499,6 +499,32 @@ class TestVerdictRoundTrip:
         with pytest.raises(ValueError, match="schema_version"):
             verdict_from_json(json.dumps(d))
 
+    def test_non_canonical_gate_raises_by_default(self, verdict_pass_fixture):
+        """QA 3.5 — gate config drift is detected at load time.
+
+        A verdict whose gate has been tweaked (e.g. ``alpha = 0.10``)
+        cannot round-trip silently — downstream tooling assumes the
+        canonical thresholds, so we refuse to deserialise the file
+        unless the caller opts in.
+        """
+        d = json.loads(verdict_to_json(verdict_pass_fixture))
+        d["gate"]["alpha"] = 0.10  # loosened from canonical 6.25e-3
+        with pytest.raises(ValueError, match="canonical GateConfig"):
+            verdict_from_json(json.dumps(d))
+
+    def test_non_canonical_gate_loadable_with_opt_in(self, verdict_pass_fixture):
+        """``require_canonical_gate=False`` allows historical / migration loads."""
+        d = json.loads(verdict_to_json(verdict_pass_fixture))
+        d["gate"]["other_keypoint_max_regression_pct"] = 0.20  # loosened
+        v = verdict_from_json(json.dumps(d), require_canonical_gate=False)
+        assert v.gate.other_keypoint_max_regression_pct == 0.20
+
+    def test_canonical_gate_loads_without_opt_in(self, verdict_pass_fixture):
+        """A verdict with canonical gate values loads without the opt-in."""
+        s = verdict_to_json(verdict_pass_fixture)
+        v = verdict_from_json(s)
+        assert v == verdict_pass_fixture
+
     def test_meta_roundtrips(self, rng, synthetic_clear_winner_pair):
         e_b, e_c = synthetic_clear_winner_pair
         v = evaluate_promotion_gate(
