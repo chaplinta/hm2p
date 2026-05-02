@@ -198,24 +198,23 @@ else:
 # Patch DLC memory_replay.py to handle missing 'bboxes' key.
 # DLC 3.0rc13's get_pose_predictions assumes detector always returns
 # 'bboxes', but when no animal is detected the key is absent → KeyError.
-python3 -c "
+python3 << 'MRPATCH'
 import deeplabcut, pathlib, inspect
 mr_path = pathlib.Path(inspect.getfile(deeplabcut)).parent / 'pose_estimation_pytorch' / 'modelzoo' / 'memory_replay.py'
 code = mr_path.read_text()
-old = '''\"bboxes\": predictions[\"bboxes\"].tolist(),'''
-new = '''\"bboxes\": predictions[\"bboxes\"].tolist() if \"bboxes\" in predictions else [],'''
+old = '"bboxes": predictions["bboxes"].tolist(),'
+new = '"bboxes": predictions["bboxes"].tolist() if "bboxes" in predictions else [],'
 if old in code:
     code = code.replace(old, new)
-    # Also guard 'poses' key the same way
     code = code.replace(
-        '\"poses\": predictions[\"poses\"].tolist(),',
-        '\"poses\": predictions[\"poses\"].tolist() if \"poses\" in predictions else [],',
+        '"bodyparts": predictions["bodyparts"].tolist(),',
+        '"bodyparts": predictions["bodyparts"].tolist() if "bodyparts" in predictions else [],',
     )
     mr_path.write_text(code)
-    print('Patched memory_replay.py to handle missing bboxes/poses')
+    print("Patched memory_replay.py to handle missing bboxes/bodyparts")
 else:
-    print('memory_replay.py already patched or different DLC version')
-" || echo "WARNING: DLC memory_replay patch failed (non-fatal)"
+    print("memory_replay.py: patch target not found (already patched or different DLC version)")
+MRPATCH
 
 # Clone repo and run — disable set -e so Python errors don't kill
 # the script before the EXIT trap can upload logs.
