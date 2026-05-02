@@ -160,7 +160,7 @@ def _resolve_sa_detector(available_detectors: list[str]) -> str:
     Parameters
     ----------
     available_detectors
-        Output of ``dlclibrary.get_available_detectors()``.
+        Output of ``dlclibrary.get_available_detectors("superanimal_topviewmouse")``.
 
     Returns
     -------
@@ -179,25 +179,31 @@ def _resolve_sa_detector(available_detectors: list[str]) -> str:
             return name
     raise RuntimeError(
         f"None of {list(SA_DETECTOR_CANDIDATES)!r} are present in "
-        f"dlclibrary.get_available_detectors(). Available detectors: "
-        f"{available_detectors!r}"
+        f"dlclibrary.get_available_detectors('superanimal_topviewmouse'). "
+        f"Available detectors: {available_detectors!r}"
     )
 
 
 def _validate_sa_model_available(available_models: list[str]) -> None:
     """Assert the SA-TVM HRNet-W32 model is exposed by dlclibrary.
 
+    ``available_models`` is the output of
+    ``dlclibrary.get_available_models("superanimal_topviewmouse")``, which
+    returns short names like ``["hrnet_w32", "resnet_50"]`` (NOT
+    ``superanimal_topviewmouse_hrnet_w32`` — that prefixed form is only
+    used by HuggingFace download paths).
+
     Raises
     ------
     RuntimeError
         With a clear message when the model is absent.
     """
-    expected = "superanimal_topviewmouse_hrnet_w32"
+    expected = "hrnet_w32"
     if expected not in available_models:
         raise RuntimeError(
-            f"{expected!r} not in dlclibrary.get_available_models(). "
-            f"Got: {available_models!r}. Update dlclibrary or check the "
-            f"DLC release notes."
+            f"{expected!r} not in dlclibrary.get_available_models"
+            f"('superanimal_topviewmouse'). Got: {available_models!r}. "
+            f"Update dlclibrary or check the DLC release notes."
         )
 
 
@@ -311,8 +317,12 @@ def _train_sa_finetune(
 
     _ensure_default_net_type_hrnet(config_path)
     _validate_sa_conversion_table(config_path)
-    _validate_sa_model_available(dlclibrary.get_available_models())
-    detector = _resolve_sa_detector(dlclibrary.get_available_detectors())
+    _validate_sa_model_available(
+        dlclibrary.get_available_models("superanimal_topviewmouse")
+    )
+    detector = _resolve_sa_detector(
+        dlclibrary.get_available_detectors("superanimal_topviewmouse")
+    )
     print(f"  Resolved SA detector: {detector}")
 
     update_progress(s3, "Training (SA): build_weight_init")

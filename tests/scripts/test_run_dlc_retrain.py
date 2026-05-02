@@ -184,14 +184,14 @@ class TestResolveDetector:
 
 class TestValidateModelAvailable:
     def test_passes_when_available(self):
-        rdr._validate_sa_model_available([
-            "superanimal_topviewmouse_hrnet_w32",
-            "other_model",
-        ])
+        # dlclibrary.get_available_models("superanimal_topviewmouse")
+        # returns short names ["hrnet_w32", "resnet_50"], not the prefixed
+        # "superanimal_topviewmouse_hrnet_w32" form.
+        rdr._validate_sa_model_available(["hrnet_w32", "resnet_50"])
 
     def test_raises_when_missing(self):
-        with pytest.raises(RuntimeError, match="superanimal_topviewmouse_hrnet_w32"):
-            rdr._validate_sa_model_available(["other_model"])
+        with pytest.raises(RuntimeError, match="hrnet_w32"):
+            rdr._validate_sa_model_available(["resnet_50"])
 
 
 # ---------------------------------------------------------------------------
@@ -325,7 +325,7 @@ class TestTrainSaFinetune:
         build_weight_init = MagicMock(return_value="WI_OBJECT")
         create_dataset = MagicMock(return_value=2)
         train_network = MagicMock()
-        list_models = MagicMock(return_value=["superanimal_topviewmouse_hrnet_w32"])
+        list_models = MagicMock(return_value=["hrnet_w32", "resnet_50"])
         list_detectors = MagicMock(return_value=[
             "fasterrcnn_resnet50_fpn_v2", "fasterrcnn_resnet50_fpn",
         ])
@@ -397,7 +397,7 @@ class TestTrainSaFinetune:
         dlc_mock.train_network = MagicMock()
         dlclib_mock = MagicMock()
         dlclib_mock.get_available_models = MagicMock(
-            return_value=["superanimal_topviewmouse_hrnet_w32"]
+            return_value=["hrnet_w32", "resnet_50"]
         )
         dlclib_mock.get_available_detectors = MagicMock(
             return_value=["fasterrcnn_resnet50_fpn_v2"]
@@ -426,7 +426,7 @@ class TestTrainSaFinetune:
         dlc_mock.train_network = MagicMock()
         dlclib_mock = MagicMock()
         dlclib_mock.get_available_models = MagicMock(
-            return_value=["superanimal_topviewmouse_hrnet_w32"]
+            return_value=["hrnet_w32", "resnet_50"]
         )
         dlclib_mock.get_available_detectors = MagicMock(
             return_value=["fasterrcnn_resnet50_fpn_v2"]
@@ -478,7 +478,7 @@ class TestTrainSaFinetune:
             ("dlclibrary", dlclib_mock),
         ]:
             monkeypatch.setitem(sys.modules, name, mod)
-        with pytest.raises(RuntimeError, match="superanimal_topviewmouse_hrnet_w32"):
+        with pytest.raises(RuntimeError, match="hrnet_w32"):
             rdr._train_sa_finetune(MagicMock(), work, cfg, epochs=120, batch_size=8)
 
     def test_writes_notes_file(self, tmp_path: Path, monkeypatch):
@@ -489,7 +489,7 @@ class TestTrainSaFinetune:
         dlc_mock.train_network = MagicMock()
         dlclib_mock = MagicMock()
         dlclib_mock.get_available_models = MagicMock(
-            return_value=["superanimal_topviewmouse_hrnet_w32"]
+            return_value=["hrnet_w32", "resnet_50"]
         )
         dlclib_mock.get_available_detectors = MagicMock(
             return_value=["fasterrcnn_resnet50_fpn_v2"]
