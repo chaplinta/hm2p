@@ -67,7 +67,7 @@ apt-get install -y -qq iproute2 procps 2>/dev/null || true
                 echo "[ps]"
                 ps -o pid,stat,etime,pcpu,pmem,cmd -p $PID 2>/dev/null || true
                 echo "[py-spy dump]"
-                py-spy dump --pid $PID --threads 2>&1 | head -80 || true
+                py-spy dump --pid $PID 2>&1 | head -80 || true
             else
                 echo "[pid] (no run_dlc_retrain.py process found)"
             fi
