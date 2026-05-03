@@ -197,7 +197,7 @@ def pixel_dedup(
     video_path: str,
     candidate_indices: list[int],
     existing_indices: set[int],
-    threshold: float = 0.92,
+    threshold: float = 0.98,
 ) -> list[int]:
     """Remove candidates that are too similar to existing or selected frames.
 
@@ -219,7 +219,7 @@ def pixel_dedup(
     list[int]
         Deduplicated frame indices.
     """
-    THUMB_SIZE = 64
+    THUMB_SIZE = 32  # smaller thumbs = less false-positive similarity
 
     def _read_thumb(cap: cv2.VideoCapture, idx: int) -> np.ndarray | None:
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
