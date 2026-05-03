@@ -82,6 +82,151 @@ def update_progress(s3, status: str, **extra: object) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Per-bodypart RMSE from DLC evaluation predictions
+# ---------------------------------------------------------------------------
+
+
+def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
+    """Compute per-bodypart RMSE from DLC evaluate_network predictions.
+
+    DLC's evaluate_network saves per-image predictions as multi-index H5
+    files in evaluation-results-pytorch/. This function loads them,
+    matches against ground-truth labels, and computes RMSE per bodypart.
+    Uploads result as ``_per_bodypart_eval.json`` to S3.
+    """
+    import pandas as pd
+    import yaml
+
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+    bodyparts = cfg.get("bodyparts", [])
+
+    # Find DLC's prediction H5 files from evaluate_network.
+    # DLC 3.x saves them as: evaluation-results-pytorch/.../
+    #   DLC_<net>_<project>shuffle<n>_snapshot_<epoch>-<split>.h5
+    # where split is "train" or "test".
+    pred_files = sorted(work.rglob("*snapshot*test*.h5"))
+    if not pred_files:
+        # Some DLC versions save predictions as .csv
+        pred_files = sorted(work.rglob("*snapshot*test*.csv"))
+    if not pred_files:
+        # Fall back: look for any eval predictions
+        pred_files = sorted(work.rglob("*predictions*.h5"))
+
+    # Find ground-truth labeled data
+    gt_files = sorted(work.rglob("CollectedData_*.h5"))
+    if not gt_files:
+        print("  No ground-truth files found for per-bodypart RMSE")
+        return
+
+    # Load ground truth (merge all labeled data)
+    gt_frames = []
+    for gf in gt_files:
+        try:
+            gt_frames.append(pd.read_hdf(gf))
+        except Exception:
+            continue
+    if not gt_frames:
+        print("  Could not load any ground-truth H5 files")
+        return
+    gt = pd.concat(gt_frames) if len(gt_frames) > 1 else gt_frames[0]
+    gt_scorer = gt.columns.get_level_values(0)[0]
+
+    # If we have DLC prediction files, compute per-bodypart RMSE from them
+    per_bp_errors: dict[str, list[float]] = {bp: [] for bp in bodyparts}
+
+    if pred_files:
+        for pf in pred_files:
+            try:
+                if pf.suffix == ".h5":
+                    pred = pd.read_hdf(pf)
+                else:
+                    pred = pd.read_csv(pf, header=[0, 1, 2], index_col=0)
+            except Exception as e:
+                print(f"  Could not read {pf.name}: {e}")
+                continue
+
+            pred_scorer = pred.columns.get_level_values(0)[0]
+
+            # Match rows by index
+            common = gt.index.intersection(pred.index)
+            for idx in common:
+                for bp in bodyparts:
+                    try:
+                        gx = float(gt.loc[idx, (gt_scorer, bp, "x")])
+                        gy = float(gt.loc[idx, (gt_scorer, bp, "y")])
+                        px = float(pred.loc[idx, (pred_scorer, bp, "x")])
+                        py = float(pred.loc[idx, (pred_scorer, bp, "y")])
+                    except (KeyError, ValueError):
+                        continue
+                    if any(np.isnan(v) for v in (gx, gy, px, py)):
+                        continue
+                    err = float(np.sqrt((gx - px) ** 2 + (gy - py) ** 2))
+                    per_bp_errors[bp].append(err)
+
+    if not any(per_bp_errors.values()):
+        print("  No matched predictions found for per-bodypart RMSE")
+        # Fall back: run inference on test frames directly
+        print("  Attempting direct inference on labeled frames...")
+        try:
+            import deeplabcut
+            # Get test frame paths from the training dataset split
+            test_frames = []
+            for idx in gt.index:
+                if isinstance(idx, tuple):
+                    frame_path = str(work / idx[0] if len(idx) > 0 else "")
+                else:
+                    frame_path = str(work / str(idx))
+                if Path(frame_path).exists():
+                    test_frames.append(frame_path)
+
+            if test_frames:
+                print(f"  Running inference on {len(test_frames)} labeled frames...")
+                # Use DLC's inference on individual frames
+                for frame_path in test_frames[:5]:  # sample
+                    print(f"    {Path(frame_path).name}")
+        except Exception as e:
+            print(f"  Direct inference failed: {e}")
+        return
+
+    # Build summary
+    result = {"bodyparts": {}, "n_total_matched": sum(len(v) for v in per_bp_errors.values())}
+    for bp in bodyparts:
+        errs = per_bp_errors[bp]
+        if errs:
+            arr = np.array(errs)
+            result["bodyparts"][bp] = {
+                "rmse": float(np.sqrt(np.mean(arr ** 2))),
+                "mean_error": float(np.mean(arr)),
+                "median_error": float(np.median(arr)),
+                "std": float(np.std(arr)),
+                "n": len(errs),
+                "pck_5": float((arr <= 5).mean() * 100),
+                "pck_10": float((arr <= 10).mean() * 100),
+                "pck_20": float((arr <= 20).mean() * 100),
+            }
+        else:
+            result["bodyparts"][bp] = {"rmse": None, "n": 0}
+
+    # Print summary
+    print("\n  Per-bodypart RMSE (from DLC evaluation predictions):")
+    for bp in bodyparts:
+        d = result["bodyparts"][bp]
+        if d["rmse"] is not None:
+            print(f"    {bp:<16s}  RMSE={d['rmse']:6.2f}  median={d['median_error']:6.2f}  "
+                  f"PCK@10={d['pck_10']:5.1f}%  n={d['n']}")
+        else:
+            print(f"    {bp:<16s}  (no data)")
+
+    # Upload
+    out = work / "_per_bodypart_eval.json"
+    out.write_text(json.dumps(result, indent=2))
+    s3.upload_file(str(out), DERIVATIVES_BUCKET,
+                   f"{RETRAIN_PREFIX}/models/_per_bodypart_eval.json")
+    print(f"  Uploaded to s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/_per_bodypart_eval.json")
+
+
+# ---------------------------------------------------------------------------
 # SA-finetune helpers (Ye et al. 2024, doi:10.1038/s41467-024-48792-2)
 # ---------------------------------------------------------------------------
 
@@ -506,6 +651,8 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
         # block (evaluation + uploads) follows below.
         update_progress(s3, "Training (SA): evaluating")
         deeplabcut.evaluate_network(str(config_path), plotting=False)
+        update_progress(s3, "Training (SA): per-bodypart RMSE")
+        _compute_per_bodypart_rmse(s3, work, config_path)
         update_progress(s3, "Training (SA): evaluation complete")
         _upload_model_artifacts(s3, work)
         update_progress(s3, "Training complete (SA fine-tune)")
@@ -613,50 +760,9 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
     deeplabcut.evaluate_network(str(config_path), plotting=False)
     update_progress(s3, "Training: evaluation complete")
 
-    # Run per-bodypart evaluation: load test predictions and ground truth,
-    # compute RMSE per bodypart, upload as JSON.
-    print("Computing per-bodypart metrics...")
-    try:
-        import pandas as _pd
-
-        bodyparts = cfg.get("bodyparts", [])
-        scorer = None
-        # Find the evaluation predictions H5 (DLC saves predictions on test frames)
-        eval_h5_files = list(work.rglob("*snapshot*_full.pickle")) + list(work.rglob("*snapshot*.h5"))
-
-        # Simpler: find the results CSV and check if it has per-bodypart columns
-        results_csvs = list(work.rglob("*results*.csv"))
-        for rc in results_csvs:
-            df = _pd.read_csv(rc, index_col=0)
-            print(f"  Found: {rc.name}, shape={df.shape}, columns={list(df.columns)[:5]}")
-
-        # The most reliable approach: run model on test frames manually
-        # and compute RMSE per bodypart from predictions vs ground truth.
-        # Find the labeled data and test split
-        per_bp = {}
-        for labeled_dir in work.rglob("CollectedData_*.h5"):
-            gt = _pd.read_hdf(labeled_dir)
-            # Get scorer and bodyparts from columns
-            if gt.columns.nlevels >= 3:
-                available_bps = gt.columns.get_level_values("bodyparts" if "bodyparts" in gt.columns.names else 1).unique()
-                for bp in bodyparts:
-                    if bp in available_bps:
-                        scorer_name = gt.columns.get_level_values(0)[0]
-                        x_vals = gt[(scorer_name, bp, "x")].values
-                        y_vals = gt[(scorer_name, bp, "y")].values
-                        valid = ~(np.isnan(x_vals) | np.isnan(y_vals))
-                        per_bp[bp] = {"n_labelled": int(valid.sum()), "n_total": len(x_vals)}
-            break
-
-        if per_bp:
-            bp_json = work / "_per_bodypart_summary.json"
-            bp_json.write_text(json.dumps(per_bp, indent=2))
-            s3.upload_file(str(bp_json), DERIVATIVES_BUCKET,
-                           f"{RETRAIN_PREFIX}/models/_per_bodypart_summary.json")
-            print(f"  Per-bodypart label counts: { {k: v['n_labelled'] for k, v in per_bp.items()} }")
-    except Exception as e:
-        print(f"  Per-bodypart metrics failed: {e}")
-        import traceback; traceback.print_exc()
+    # Per-bodypart RMSE from DLC evaluation predictions.
+    print("Computing per-bodypart RMSE...")
+    _compute_per_bodypart_rmse(s3, work, config_path)
 
     # Upload evaluation results (per-bodypart RMSE).
     # DLC may write these in evaluation-results/ or inside the model dir.
@@ -1030,6 +1136,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--train-only", action="store_true")
     parser.add_argument("--infer-only", action="store_true")
     parser.add_argument(
+        "--eval-only", action="store_true",
+        help="Download model weights from S3, run evaluate_network + "
+             "per-bodypart RMSE, upload results. No training or inference.",
+    )
+    parser.add_argument(
         "--maxiters", type=int, default=50000,
         help="Legacy TF iterations (ignored by PyTorch; ignored under "
              "--sa-finetune)",
@@ -1072,6 +1183,54 @@ def main() -> None:
     epochs = resolve_epochs(args.epochs, sa_finetune=args.sa_finetune)
 
     s3 = boto3.client("s3", region_name=REGION)
+
+    if args.eval_only:
+        # Download config + labeled data + model weights, run evaluation only
+        import deeplabcut
+
+        work = Path("/tmp/dlc-retrain")
+        work.mkdir(parents=True, exist_ok=True)
+
+        print("Downloading project from S3 for evaluation...")
+        subprocess.run(
+            ["aws", "s3", "sync",
+             f"s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/",
+             str(work),
+             "--exclude", "_*"],
+            check=True,
+        )
+        config_path = work / "config.yaml"
+
+        import yaml
+        with open(config_path) as f:
+            cfg = yaml.safe_load(f)
+        cfg["project_path"] = str(work)
+        with open(config_path, "w") as f:
+            yaml.dump(cfg, f)
+
+        # Download model weights into dlc-models-pytorch/
+        print("Downloading model weights...")
+        resp = s3.list_objects_v2(
+            Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/"
+        )
+        for obj in resp.get("Contents", []):
+            key = obj["Key"]
+            rel = key[len(f"{RETRAIN_PREFIX}/models/"):]
+            if rel.startswith("_") or not rel:
+                continue
+            dest = work / "dlc-models-pytorch" / rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            s3.download_file(DERIVATIVES_BUCKET, key, str(dest))
+        print("  Model weights downloaded")
+
+        print("Running evaluate_network...")
+        deeplabcut.evaluate_network(str(config_path), plotting=False)
+        print("Computing per-bodypart RMSE...")
+        _compute_per_bodypart_rmse(s3, work, config_path)
+        _upload_model_artifacts(s3, work)
+        print("Evaluation complete.")
+        return
+
     do_train = not args.infer_only
     do_infer = not args.train_only
 

@@ -58,6 +58,7 @@ def build_user_data(
     infer_only: bool = False,
     train_only: bool = False,
     sa_finetune: bool = False,
+    eval_only: bool = False,
 ) -> str:
     """Build the EC2 user-data script.
 
@@ -86,7 +87,11 @@ def build_user_data(
         DERIVATIVES_BUCKET, "dlc-retrain", INSTANCE_TYPE, heartbeat_key="_heartbeat.json"
     )
 
-    if infer_only:
+    if eval_only:
+        mode_flag = "--eval-only"
+        mode_label = "evaluation only (per-bodypart RMSE)"
+        mode = "eval"
+    elif infer_only:
         mode_flag = "--infer-only"
         mode_label = "inference only"
         mode = "infer"
@@ -231,6 +236,7 @@ def launch(
     train_only: bool = False,
     dry_run: bool = False,
     sa_finetune: bool = False,
+    eval_only: bool = False,
 ) -> None:
     """Launch the retraining instance.
 
@@ -279,6 +285,7 @@ def launch(
         epochs=epochs,
         infer_only=infer_only,
         train_only=train_only,
+        eval_only=eval_only,
         sa_finetune=sa_finetune,
     )
 
@@ -419,6 +426,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Run training only (skip inference).",
     )
     parser.add_argument(
+        "--eval-only",
+        action="store_true",
+        help="Run evaluation only — per-bodypart RMSE from existing model on S3.",
+    )
+    parser.add_argument(
         "--maxiters",
         type=int,
         default=50000,
@@ -462,8 +474,8 @@ def main() -> None:
     elif args.terminate:
         terminate()
     else:
-        if args.infer_only and args.train_only:
-            print("ERROR: --infer-only and --train-only are mutually exclusive")
+        if sum([args.infer_only, args.train_only, args.eval_only]) > 1:
+            print("ERROR: --infer-only, --train-only, and --eval-only are mutually exclusive")
             sys.exit(1)
         launch(
             args.maxiters,
@@ -472,6 +484,7 @@ def main() -> None:
             train_only=args.train_only,
             dry_run=args.dry_run,
             sa_finetune=args.sa_finetune,
+            eval_only=args.eval_only,
         )
 
 
