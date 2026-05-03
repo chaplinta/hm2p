@@ -691,15 +691,52 @@ st.caption(
 )
 
 # ── Launch instructions ──────────────────────────────────────────────────────
+with st.expander("How to add more labeled frames"):
+    st.markdown(
+        """
+**1. Scan sessions to see labeling status and difficulty:**
+```bash
+uv run python scripts/select_hard_frames.py --scan
+```
+
+**2. Select hard-to-track frames (targets low-confidence, visually diverse):**
+```bash
+# Select 200 hard frames across all sessions:
+uv run python scripts/select_hard_frames.py --n 200
+
+# Or target specific bodyparts:
+uv run python scripts/select_hard_frames.py --n 200 --bodyparts nose_tip,tail_base
+
+# Or one session at a time:
+uv run python scripts/select_hard_frames.py --n 20 --session 20210823
+
+# Dry run first to see what would be selected:
+uv run python scripts/select_hard_frames.py --n 200 --dry-run
+```
+
+**3. Label frames in napari-deeplabcut:**
+```bash
+uv run python scripts/interactive_label.py
+```
+
+**4. Commit labels and upload to S3:**
+```bash
+git add sourcedata/trackers/dlc/*/labeled-data/*/CollectedData_*
+git commit -m "feat: add N labeled frames for DLC retraining"
+uv run python scripts/upload_dlc_labels.py
+```
+        """
+    )
+
 with st.expander("How to start training"):
     st.markdown(
         """
-**Prerequisites:**
-1. Label frames using `scripts/prepare_retrain_frames.py`
-2. Upload labels: `uv run python scripts/upload_dlc_labels.py`
-
 **Launch training (24h max, GPU enforced):**
 ```bash
+# SA fine-tune (recommended, 120 epochs):
+uv run python scripts/launch_dlc_finetune_ec2.py --sa-finetune
+
+# ImageNet HRNet (400 epochs):
 uv run python scripts/launch_dlc_finetune_ec2.py
 ```
 
@@ -711,7 +748,7 @@ uv run python scripts/launch_dlc_finetune_ec2.py --status
 
 **After training:**
 - Review tracking quality on the Tracking QC page
-- Promote fine-tuned results: `uv run python scripts/promote_finetuned_pose.py`
-- Re-run DLC Inference (Stage 2b) on all sessions
+- Run inference: `uv run python scripts/launch_dlc_finetune_ec2.py --infer-only`
+- Compare models: `uv run python scripts/compare_models.py`
         """
     )
