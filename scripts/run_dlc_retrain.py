@@ -226,6 +226,193 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
     print(f"  Uploaded to s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/_per_bodypart_eval.json")
 
 
+def _compute_per_bodypart_rmse_direct(s3, work: Path, config_path: Path) -> None:
+    """Compute per-bodypart RMSE by running DLC inference on labeled frames.
+
+    Unlike _compute_per_bodypart_rmse (which reads evaluate_network output),
+    this runs analyze_videos on labeled frame images directly. Does not need
+    training-datasets/ metadata or shuffle info.
+    """
+    import deeplabcut
+    import pandas as pd
+    import yaml
+
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+    bodyparts = cfg.get("bodyparts", [])
+
+    # Collect all labeled frames and their ground truth
+    gt_files = sorted(work.rglob("CollectedData_*.h5"))
+    if not gt_files:
+        print("  No ground-truth files found")
+        return
+
+    # Find PNG frames alongside the CollectedData files
+    frame_dirs = set()
+    for gf in gt_files:
+        frame_dirs.add(gf.parent)
+
+    # Gather all frame images
+    all_frames = []
+    for fd in frame_dirs:
+        pngs = sorted(fd.glob("*.png"))
+        if pngs:
+            all_frames.extend(pngs)
+
+    if not all_frames:
+        print("  No labeled frame PNGs found")
+        return
+
+    print(f"  Found {len(all_frames)} labeled frame images")
+
+    # Run DLC inference on labeled frames (treat them as a batch)
+    # Copy frames to a temporary directory as a "video" of images
+    infer_dir = work / "_eval_frames"
+    infer_dir.mkdir(exist_ok=True)
+    for f in all_frames:
+        dst = infer_dir / f.name
+        if not dst.exists():
+            shutil.copy2(f, dst)
+
+    out_dir = work / "_eval_output"
+    out_dir.mkdir(exist_ok=True)
+
+    # Use analyze_time_lapse_frames for image directories
+    print("  Running DLC inference on labeled frames...")
+    try:
+        deeplabcut.analyze_time_lapse_frames(
+            str(config_path),
+            str(infer_dir),
+            save_as_csv=True,
+        )
+    except AttributeError:
+        # DLC 3.x may not have analyze_time_lapse_frames;
+        # fall back to creating a video from images
+        print("  analyze_time_lapse_frames not available, using analyze_videos...")
+        import subprocess as _sp
+        vid_path = work / "_eval_frames.mp4"
+        _sp.run([
+            "ffmpeg", "-y", "-framerate", "1",
+            "-pattern_type", "glob", "-i", f"{infer_dir}/*.png",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            str(vid_path),
+        ], capture_output=True)
+        if vid_path.exists():
+            deeplabcut.analyze_videos(
+                str(config_path), [str(vid_path)],
+                destfolder=str(out_dir),
+            )
+
+    # Find prediction output
+    pred_files = sorted(infer_dir.rglob("*.h5")) + sorted(out_dir.rglob("*.h5"))
+    pred_csvs = sorted(infer_dir.rglob("*.csv")) + sorted(out_dir.rglob("*.csv"))
+    pred_files = [f for f in pred_files if "CollectedData" not in f.name]
+    pred_csvs = [f for f in pred_csvs if "CollectedData" not in f.name]
+
+    if not pred_files and not pred_csvs:
+        print("  No prediction output found after inference")
+        return
+
+    # Load predictions
+    pred = None
+    for pf in pred_files + pred_csvs:
+        try:
+            if pf.suffix == ".h5":
+                pred = pd.read_hdf(pf)
+            else:
+                pred = pd.read_csv(pf, header=[0, 1, 2], index_col=0)
+            print(f"  Loaded predictions: {pf.name} ({len(pred)} frames)")
+            break
+        except Exception as e:
+            print(f"  Could not read {pf.name}: {e}")
+
+    if pred is None:
+        print("  Could not load any prediction files")
+        return
+
+    pred_scorer = pred.columns.get_level_values(0)[0]
+
+    # Load all ground truth
+    gt_all = []
+    for gf in gt_files:
+        try:
+            gt_all.append(pd.read_hdf(gf))
+        except Exception:
+            continue
+    gt = pd.concat(gt_all) if len(gt_all) > 1 else gt_all[0]
+    gt_scorer = gt.columns.get_level_values(0)[0]
+
+    # Match by frame filename
+    per_bp_errors: dict[str, list[float]] = {bp: [] for bp in bodyparts}
+    matched = 0
+
+    for gt_idx in gt.index:
+        # Extract frame filename from index
+        if isinstance(gt_idx, tuple):
+            frame_name = gt_idx[-1] if len(gt_idx) > 0 else str(gt_idx)
+        else:
+            frame_name = str(gt_idx).split("/")[-1]
+
+        # Find matching prediction row
+        for pred_idx in pred.index:
+            pred_name = str(pred_idx).split("/")[-1] if not isinstance(pred_idx, tuple) else str(pred_idx[-1])
+            if Path(frame_name).stem == Path(pred_name).stem:
+                for bp in bodyparts:
+                    try:
+                        gx = float(gt.loc[gt_idx, (gt_scorer, bp, "x")])
+                        gy = float(gt.loc[gt_idx, (gt_scorer, bp, "y")])
+                        px = float(pred.loc[pred_idx, (pred_scorer, bp, "x")])
+                        py = float(pred.loc[pred_idx, (pred_scorer, bp, "y")])
+                    except (KeyError, ValueError):
+                        continue
+                    if any(np.isnan(v) for v in (gx, gy, px, py)):
+                        continue
+                    err = float(np.sqrt((gx - px) ** 2 + (gy - py) ** 2))
+                    per_bp_errors[bp].append(err)
+                matched += 1
+                break
+
+    print(f"  Matched {matched} frames")
+
+    if not any(per_bp_errors.values()):
+        print("  No matched predictions")
+        return
+
+    # Build and upload result
+    result = {"bodyparts": {}, "n_matched": matched, "method": "direct_inference"}
+    for bp in bodyparts:
+        errs = per_bp_errors[bp]
+        if errs:
+            arr = np.array(errs)
+            result["bodyparts"][bp] = {
+                "rmse": float(np.sqrt(np.mean(arr ** 2))),
+                "mean_error": float(np.mean(arr)),
+                "median_error": float(np.median(arr)),
+                "std": float(np.std(arr)),
+                "n": len(errs),
+                "pck_5": float((arr <= 5).mean() * 100),
+                "pck_10": float((arr <= 10).mean() * 100),
+                "pck_20": float((arr <= 20).mean() * 100),
+            }
+        else:
+            result["bodyparts"][bp] = {"rmse": None, "n": 0}
+
+    print("\n  Per-bodypart RMSE (direct inference on labeled frames):")
+    for bp in bodyparts:
+        d = result["bodyparts"][bp]
+        if d.get("rmse") is not None:
+            print(f"    {bp:<16s}  RMSE={d['rmse']:6.2f}  median={d['median_error']:6.2f}  "
+                  f"PCK@10={d['pck_10']:5.1f}%  n={d['n']}")
+        else:
+            print(f"    {bp:<16s}  (no data)")
+
+    out = work / "_per_bodypart_eval.json"
+    out.write_text(json.dumps(result, indent=2))
+    s3.upload_file(str(out), DERIVATIVES_BUCKET,
+                   f"{RETRAIN_PREFIX}/models/_per_bodypart_eval.json")
+    print(f"  Uploaded _per_bodypart_eval.json")
+
+
 # ---------------------------------------------------------------------------
 # SA-finetune helpers (Ye et al. 2024, doi:10.1038/s41467-024-48792-2)
 # ---------------------------------------------------------------------------
@@ -551,7 +738,18 @@ def _upload_model_artifacts(s3, work: Path) -> None:
     ``dlc-models/`` for legacy TF runs) and uploads all files under
     ``s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/``.
     """
-    print("Uploading model weights to S3 (shared helper)...")
+    print("Uploading model weights + training metadata to S3...")
+    # Upload training-datasets/ so --eval-only can reconstruct the DLC project.
+    td_dir = work / "training-datasets"
+    if td_dir.exists():
+        n_td = 0
+        for f in td_dir.rglob("*"):
+            if f.is_file():
+                rel = f.relative_to(work)
+                key = f"{RETRAIN_PREFIX}/{rel}"
+                s3.upload_file(str(f), DERIVATIVES_BUCKET, key)
+                n_td += 1
+        print(f"  Uploaded {n_td} training-dataset files")
     for model_dir_name in ("dlc-models-pytorch", "dlc-models"):
         dlc_train_dir = work / model_dir_name
         if not dlc_train_dir.exists():
@@ -1223,11 +1421,11 @@ def main() -> None:
             s3.download_file(DERIVATIVES_BUCKET, key, str(dest))
         print("  Model weights downloaded")
 
-        print("Running evaluate_network...")
-        deeplabcut.evaluate_network(str(config_path), plotting=False)
-        print("Computing per-bodypart RMSE...")
-        _compute_per_bodypart_rmse(s3, work, config_path)
-        _upload_model_artifacts(s3, work)
+        # Run per-bodypart RMSE by inference on labeled frames directly.
+        # evaluate_network requires training-datasets/ metadata which may
+        # not be on S3 from older training runs. Direct inference avoids this.
+        print("Computing per-bodypart RMSE via direct inference on labeled frames...")
+        _compute_per_bodypart_rmse_direct(s3, work, config_path)
         print("Evaluation complete.")
         return
 
