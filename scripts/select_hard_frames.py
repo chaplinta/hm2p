@@ -1,33 +1,35 @@
 #!/usr/bin/env python3
-"""Select outlier frames for DLC retraining using DLC's own extraction.
+"""Select outlier frames for DLC retraining.
 
-Wraps ``deeplabcut.extract_outlier_frames`` which identifies frames with
-large tracking jumps and low confidence, with built-in diversity
-selection. Two passes per session: 'jump' then 'uncertain'.
+Loads DLC pose predictions from S3, identifies frames with large
+tracking jumps and low confidence, selects diverse outliers via
+temporal spacing, extracts PNGs from the video, and symlinks them
+into the DLC labeled-data directory.
 
 Safety: existing CollectedData_*.csv/.h5 files are never modified.
-Extracted frames appear as PNGs in the DLC labeled-data directory.
-The user then labels them with ``deeplabcut.refine_labels`` or
-``scripts/interactive_label.py``.
 
 Usage:
     # Scan sessions to see labeling status:
     uv run python scripts/select_hard_frames.py --scan
 
-    # Extract outlier frames for all sessions (DLC defaults):
-    uv run python scripts/select_hard_frames.py
+    # Ensure every session has at least 20 frames:
+    uv run python scripts/select_hard_frames.py --min-per-session 20
 
-    # Limit to 8 frames per session:
+    # 8 new frames per session:
     uv run python scripts/select_hard_frames.py --per-session 8
 
-    # Limit to 200 frames total:
+    # One session only:
+    uv run python scripts/select_hard_frames.py --session 20220804_11_21 --per-session 8
+
+    # Primary non-excluded sessions only:
+    uv run python scripts/select_hard_frames.py --primary-only --min-per-session 20
+
+    # Limit total:
     uv run python scripts/select_hard_frames.py --total 200
 
-    # One session only:
-    uv run python scripts/select_hard_frames.py --session 20220804_11_21
-
     # Adjust thresholds:
-    uv run python scripts/select_hard_frames.py --jump-threshold 15 --p-bound 0.05
+    uv run python scripts/select_hard_frames.py --min-per-session 20 \\
+        --jump-threshold 15 --p-bound 0.1
 """
 
 from __future__ import annotations
@@ -36,12 +38,16 @@ import argparse
 import csv
 import json
 import logging
+import os
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
 import boto3
+import cv2
+import numpy as np
+import pandas as pd
 
 REGION = "ap-southeast-2"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
@@ -52,10 +58,7 @@ LABELED_DIR = (
     REPO_ROOT
     / "sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20/labeled-data"
 )
-DLC_CONFIG = (
-    REPO_ROOT
-    / "sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20/config.yaml"
-)
+RETRAIN_META_DIR = REPO_ROOT / "metadata" / "retrain_frames"
 
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
@@ -66,6 +69,15 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+ALL_BODYPARTS = [
+    "nose_tip", "left_ear", "right_ear", "head_midpoint",
+    "neck", "mid_back", "mouse_center", "tail_base",
+]
+
+# Minimum temporal gap between selected frames (in DLC-output frame units).
+# At 30 fps this is ~3.3 seconds — ensures visually distinct frames.
+MIN_FRAME_GAP = 100
+
 
 # ---------------------------------------------------------------------------
 # Session discovery
@@ -73,7 +85,6 @@ log = logging.getLogger(__name__)
 
 
 def get_sessions() -> list[dict]:
-    """Load session list from experiments.csv."""
     sessions = []
     with open(METADATA_PATH) as f:
         for row in csv.DictReader(f):
@@ -89,24 +100,12 @@ def get_sessions() -> list[dict]:
     return sessions
 
 
-def _count_labeled(session_dir: Path) -> tuple[int, int]:
-    """Return (n_pngs, n_labeled) for a labeled-data session dir."""
-    import pandas as pd
-
-    pngs = len(list(session_dir.glob("frame_*.png")))
-    n_labeled = 0
-    for h5 in session_dir.glob("CollectedData_*.h5"):
-        try:
-            df = pd.read_hdf(h5)
-            n_labeled = int((~df.isna().all(axis=1)).sum())
-        except Exception:
-            pass
-        break
-    return pngs, n_labeled
+# ---------------------------------------------------------------------------
+# Labeled-data helpers
+# ---------------------------------------------------------------------------
 
 
 def find_labeled_data_dir(sub: str, ses: str) -> Path | None:
-    """Find the labeled-data directory for a session."""
     if not LABELED_DIR.exists():
         return None
     ses_date = ses.replace("ses-", "").split("T")[0]
@@ -117,19 +116,144 @@ def find_labeled_data_dir(sub: str, ses: str) -> Path | None:
     return None
 
 
-def find_video_local(sub: str, ses: str) -> Path | None:
-    """Find overhead video on local disk (rawdata or retrain_frames)."""
-    # Check rawdata
-    rawdata = REPO_ROOT / "rawdata" / sub / ses / "behav"
-    if rawdata.exists():
-        for mp4 in rawdata.glob("*.mp4"):
-            if "side" not in mp4.name.lower():
-                return mp4
-    return None
+def count_existing_pngs(sub: str, ses: str) -> int:
+    ld = find_labeled_data_dir(sub, ses)
+    if ld is None:
+        return 0
+    return len(list(ld.glob("frame_*.png")))
+
+
+def count_labeled(session_dir: Path) -> int:
+    for h5 in session_dir.glob("CollectedData_*.h5"):
+        try:
+            df = pd.read_hdf(h5)
+            return int((~df.isna().all(axis=1)).sum())
+        except Exception:
+            pass
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Pose loading
+# ---------------------------------------------------------------------------
+
+
+def load_pose_from_s3(s3: Any, sub: str, ses: str) -> pd.DataFrame | None:
+    from hm2p.pose.select import select_best_dlc_h5_s3
+
+    prefix = f"pose/{sub}/{ses}/"
+    h5_key = select_best_dlc_h5_s3(s3, DERIVATIVES_BUCKET, prefix)
+    if h5_key is None:
+        return None
+    with tempfile.NamedTemporaryFile(suffix=".h5") as tmp:
+        s3.download_file(DERIVATIVES_BUCKET, h5_key, tmp.name)
+        return pd.read_hdf(tmp.name)
+
+
+def _resolve_bp(df: pd.DataFrame, scorer: str, bp: str) -> str | None:
+    try:
+        _ = df[(scorer, bp, "x")]
+        return bp
+    except KeyError:
+        if bp == "head_midpoint":
+            try:
+                _ = df[(scorer, "implant_base_rear", "x")]
+                return "implant_base_rear"
+            except KeyError:
+                return None
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Outlier detection (reimplements DLC's jump + uncertain logic)
+# ---------------------------------------------------------------------------
+
+
+def find_outlier_frames(
+    df: pd.DataFrame,
+    jump_threshold: float = 20.0,
+    p_bound: float = 0.1,
+) -> np.ndarray:
+    """Score each frame by outlier severity. Higher = worse tracking.
+
+    Combines two signals (same as DLC's extract_outlier_frames):
+    1. Jump: frame-to-frame displacement > threshold for any bodypart
+    2. Uncertain: mean likelihood below p_bound
+
+    Returns per-frame score in [0, inf). 0 = no outlier signal.
+    """
+    scorer = df.columns.get_level_values(0)[0]
+    n = len(df)
+    scores = np.zeros(n, dtype=np.float64)
+
+    for bp in ALL_BODYPARTS:
+        col = _resolve_bp(df, scorer, bp)
+        if col is None:
+            continue
+
+        x = df[(scorer, col, "x")].values.astype(np.float64)
+        y = df[(scorer, col, "y")].values.astype(np.float64)
+        lik = df[(scorer, col, "likelihood")].values.astype(np.float64)
+
+        # Jump signal: displacement above threshold
+        dx = np.abs(np.diff(x, prepend=x[0]))
+        dy = np.abs(np.diff(y, prepend=y[0]))
+        displacement = np.sqrt(dx**2 + dy**2)
+        jump_score = np.clip(displacement / jump_threshold, 0, None) - 1.0
+        jump_score = np.clip(jump_score, 0, None)  # only frames above threshold
+        scores += jump_score
+
+        # Uncertainty signal: low confidence
+        unc_score = np.clip(p_bound - lik, 0, None) / max(p_bound, 1e-6)
+        scores += unc_score
+
+    return scores
+
+
+def select_diverse_outliers(
+    scores: np.ndarray,
+    n_select: int,
+    existing_frames: set[int],
+    min_gap: int = MIN_FRAME_GAP,
+) -> list[int]:
+    """Pick the top outlier frames with minimum temporal spacing.
+
+    Greedy: pick highest-scoring available frame, mark its temporal
+    neighbourhood as unavailable, repeat.
+    """
+    n = len(scores)
+    available = np.ones(n, dtype=bool)
+
+    # Mark existing frames and their neighbourhood as unavailable
+    for idx in existing_frames:
+        lo = max(0, idx - min_gap)
+        hi = min(n, idx + min_gap + 1)
+        available[lo:hi] = False
+
+    selected: list[int] = []
+    # Work on a copy so we can zero out picked frames
+    s = scores.copy()
+    s[~available] = -1
+
+    for _ in range(n_select):
+        best = int(np.argmax(s))
+        if s[best] <= 0:
+            break
+        selected.append(best)
+        # Block temporal neighbourhood
+        lo = max(0, best - min_gap)
+        hi = min(n, best + min_gap + 1)
+        s[lo:hi] = -1
+
+    return selected
+
+
+# ---------------------------------------------------------------------------
+# Video download + frame extraction
+# ---------------------------------------------------------------------------
 
 
 def download_video_from_s3(s3: Any, sub: str, ses: str, dest: Path) -> Path | None:
-    """Download overhead .mp4 from S3."""
     prefix = f"rawdata/{sub}/{ses}/behav/"
     resp = s3.list_objects_v2(Bucket=RAWDATA_BUCKET, Prefix=prefix)
     for obj in resp.get("Contents", []):
@@ -144,158 +268,170 @@ def download_video_from_s3(s3: Any, sub: str, ses: str, dest: Path) -> Path | No
     return None
 
 
+def find_video_local(sub: str, ses: str) -> Path | None:
+    rawdata = REPO_ROOT / "rawdata" / sub / ses / "behav"
+    if rawdata.exists():
+        for mp4 in rawdata.glob("*.mp4"):
+            if "side" not in mp4.name.lower():
+                return mp4
+    return None
+
+
+def extract_frames(video_path: Path, frame_indices: list[int], dest_dir: Path) -> list[int]:
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    new = [i for i in frame_indices if not (dest_dir / f"frame_{int(i):06d}.png").exists()]
+    if not new:
+        return []
+    cap = cv2.VideoCapture(str(video_path))
+    written = []
+    for idx in sorted(new):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+        ret, frame = cap.read()
+        if ret:
+            cv2.imwrite(str(dest_dir / f"frame_{int(idx):06d}.png"), frame)
+            written.append(idx)
+    cap.release()
+    return written
+
+
+def symlink_into_labeled_data(src_dir: Path, labeled_dir: Path) -> int:
+    labeled_dir.mkdir(parents=True, exist_ok=True)
+    linked = 0
+    for png in sorted(src_dir.glob("frame_*.png")):
+        dest = labeled_dir / png.name
+        if not dest.exists():
+            rel = os.path.relpath(png.resolve(), labeled_dir.resolve())
+            dest.symlink_to(rel)
+            linked += 1
+    return linked
+
+
+def update_meta(session_tag: str, sub: str, ses: str, new_indices: list[int],
+                video_name: str | None = None) -> None:
+    RETRAIN_META_DIR.mkdir(parents=True, exist_ok=True)
+    meta_file = RETRAIN_META_DIR / f"{session_tag}.json"
+    existing: dict = {}
+    if meta_file.exists():
+        existing = json.loads(meta_file.read_text())
+    merged = sorted(set(existing.get("frame_indices", [])) | set(new_indices))
+    updated = {
+        "session": f"{sub}/{ses}",
+        "frame_indices": merged,
+        "n_frames": len(merged),
+    }
+    if video_name and "video" not in existing:
+        updated["video"] = video_name
+    elif "video" in existing:
+        updated["video"] = existing["video"]
+    meta_file.write_text(json.dumps(updated, indent=2))
+
+
 # ---------------------------------------------------------------------------
-# Scan mode
+# Scan
 # ---------------------------------------------------------------------------
 
 
 def scan_sessions() -> None:
-    """Print labeling status for all sessions."""
-    import pandas as pd
-
     sessions = get_sessions()
-
     print(f"\n{'Session':<25s}  {'PNGs':>5s}  {'Lbl':>5s}  {'Status':<8s}  {'Flags'}")
     print("-" * 65)
-
     total_pngs = 0
     total_labeled = 0
-    for ses_info in sessions:
-        ld = find_labeled_data_dir(ses_info["sub"], ses_info["ses"])
-        if ld is None:
-            pngs, labeled = 0, 0
-        else:
-            pngs, labeled = _count_labeled(ld)
-
+    for s in sessions:
+        ld = find_labeled_data_dir(s["sub"], s["ses"])
+        pngs = len(list(ld.glob("frame_*.png"))) if ld else 0
+        labeled = count_labeled(ld) if ld else 0
         total_pngs += pngs
         total_labeled += labeled
-
-        if pngs == 0 and labeled == 0:
-            status = "empty"
-        elif pngs == labeled:
-            status = "done"
-        else:
-            status = "partial"
-
+        status = "done" if pngs == labeled and pngs > 0 else ("partial" if pngs > 0 else "empty")
         flags = []
-        if ses_info["primary"]:
+        if s["primary"]:
             flags.append("primary")
-        if ses_info["exclude"]:
+        if s["exclude"]:
             flags.append("excl")
-
-        print(f"{ses_info['exp_id'][:25]:<25s}  {pngs:>5d}  {labeled:>5d}  "
+        print(f"{s['exp_id'][:25]:<25s}  {pngs:>5d}  {labeled:>5d}  "
               f"{status:<8s}  {' '.join(flags)}")
-
     print(f"\nTotal: {total_pngs} PNGs, {total_labeled} labeled")
 
 
 # ---------------------------------------------------------------------------
-# Extract outlier frames
+# Per-session processing
 # ---------------------------------------------------------------------------
 
 
-def extract_outliers_for_session(
+def process_session(
     s3: Any,
     ses_info: dict,
-    per_session: int | None,
-    min_per_session: int | None,
+    n_extract: int,
     jump_threshold: float,
     p_bound: float,
     dry_run: bool,
 ) -> int:
-    """Run DLC extract_outlier_frames on one session.
-
-    Returns the number of new frames extracted.
-    """
-    import deeplabcut
-
     sub, ses = ses_info["sub"], ses_info["ses"]
     exp_id = ses_info["exp_id"]
+    tag = f"{sub}_{ses}"
 
-    # Check if session already has enough frames
-    ld = find_labeled_data_dir(sub, ses)
-    pngs_before = len(list(ld.glob("frame_*.png"))) if ld else 0
-
-    if min_per_session is not None and pngs_before >= min_per_session:
-        log.info("  %s: already has %d frames (>= min %d), skipping",
-                 exp_id[:25], pngs_before, min_per_session)
+    # Load pose predictions
+    df = load_pose_from_s3(s3, sub, ses)
+    if df is None:
+        log.warning("  No pose data for %s", exp_id)
         return 0
 
-    # How many frames to extract
-    n_to_extract = per_session
-    if min_per_session is not None:
-        need = min_per_session - pngs_before
-        if n_to_extract is None:
-            n_to_extract = need
-        else:
-            n_to_extract = min(n_to_extract, need)
-        if n_to_extract <= 0:
-            return 0
+    # Find outlier frames
+    scores = find_outlier_frames(df, jump_threshold, p_bound)
 
-    # Find or download video
+    # Get existing frame indices (from metadata JSON)
+    meta_path = RETRAIN_META_DIR / f"{tag}.json"
+    existing: set[int] = set()
+    if meta_path.exists():
+        existing = set(json.loads(meta_path.read_text()).get("frame_indices", []))
+
+    # Select diverse outliers
+    selected = select_diverse_outliers(scores, n_extract, existing)
+
+    n_outliers = int((scores > 0).sum())
+    log.info("  %d outlier frames found, selected %d (gap=%d)",
+             n_outliers, len(selected), MIN_FRAME_GAP)
+
+    if not selected:
+        return 0
+
+    if dry_run:
+        log.info("  [DRY RUN] Would extract frames: %s", selected[:10])
+        return len(selected)
+
+    # Get video
     video_path = find_video_local(sub, ses)
     tmp_dir = None
     if video_path is None:
-        tmp_dir = tempfile.mkdtemp(prefix=f"hm2p-outlier-{exp_id[:20]}-")
+        tmp_dir = tempfile.mkdtemp(prefix=f"hm2p-outlier-{exp_id[:15]}-")
         video_path = download_video_from_s3(s3, sub, ses, Path(tmp_dir))
         if video_path is None:
             log.warning("  No video for %s", exp_id)
             return 0
 
-    log.info("  Video: %s  (have %d, extracting up to %s)",
-             video_path.name, pngs_before,
-             str(n_to_extract) if n_to_extract else "DLC default")
+    # Extract PNGs
+    retrain_dir = REPO_ROOT / "retrain_frames" / tag
+    written = extract_frames(video_path, selected, retrain_dir)
+    log.info("  Extracted %d PNGs", len(written))
 
-    if dry_run:
-        log.info("  [DRY RUN] Would run extract_outlier_frames on %s", exp_id)
-        return 0
-
-    # Build kwargs for numframes2pick
-    extract_kwargs: dict[str, Any] = {}
-    if n_to_extract is not None:
-        # DLC splits between the two algorithms, so give half to each
-        extract_kwargs["numframes2pick"] = max(1, n_to_extract // 2)
-
-    # Pass 1: jump-based outliers
-    try:
-        log.info("  Pass 1: jump outliers (threshold=%d px)", jump_threshold)
-        deeplabcut.extract_outlier_frames(
-            config=str(DLC_CONFIG),
-            videos=[str(video_path)],
-            outlieralgorithm="jump",
-            epsilon=jump_threshold,
-            automatic=True,
-            **extract_kwargs,
-        )
-    except Exception as e:
-        log.warning("  Jump extraction failed: %s", e)
-
-    # Pass 2: uncertainty-based outliers
-    try:
-        log.info("  Pass 2: uncertain outliers (p_bound=%.3f)", p_bound)
-        deeplabcut.extract_outlier_frames(
-            config=str(DLC_CONFIG),
-            videos=[str(video_path)],
-            outlieralgorithm="uncertain",
-            p_bound=p_bound,
-            automatic=True,
-            **extract_kwargs,
-        )
-    except Exception as e:
-        log.warning("  Uncertain extraction failed: %s", e)
-
-    # Count PNGs after
+    # Symlink into labeled-data
     ld = find_labeled_data_dir(sub, ses)
-    pngs_after = len(list(ld.glob("frame_*.png"))) if ld else 0
-    n_new = pngs_after - pngs_before
+    if ld is None:
+        clip_name = f"{exp_id}_maze-rose_overhead.camera-cropped"
+        ld = LABELED_DIR / clip_name
+    n_linked = symlink_into_labeled_data(retrain_dir, ld)
+    log.info("  Symlinked %d into %s/", n_linked, ld.name)
 
-    # Clean up temp video
-    if tmp_dir is not None:
+    # Update metadata
+    update_meta(tag, sub, ses, selected, video_name=video_path.name if video_path else None)
+
+    # Cleanup temp
+    if tmp_dir:
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    log.info("  Extracted %d new frames (total PNGs: %d)", n_new, pngs_after)
-    return n_new
+    return len(written)
 
 
 # ---------------------------------------------------------------------------
@@ -305,46 +441,27 @@ def extract_outliers_for_session(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Extract outlier frames for DLC retraining using DLC's "
-                    "own extract_outlier_frames (jump + uncertain)."
+        description="Select outlier frames for DLC retraining. "
+                    "Identifies jump + low-confidence frames from pose predictions."
     )
-    parser.add_argument(
-        "--scan", action="store_true",
-        help="Show labeling status for all sessions.",
-    )
-    parser.add_argument(
-        "--session", type=str, default=None,
-        help="Process only this session (exp_id or partial match).",
-    )
-    parser.add_argument(
-        "--per-session", type=int, default=None,
-        help="Max new frames per session (split between jump + uncertain).",
-    )
-    parser.add_argument(
-        "--total", type=int, default=None,
-        help="Max total new frames across all sessions. Splits evenly.",
-    )
-    parser.add_argument(
-        "--min-per-session", type=int, default=None,
-        help="Ensure each session has at least this many frames. "
-             "Only extracts for sessions below the minimum.",
-    )
-    parser.add_argument(
-        "--jump-threshold", type=float, default=20,
-        help="Jump outlier threshold in pixels (default 20).",
-    )
-    parser.add_argument(
-        "--p-bound", type=float, default=0.01,
-        help="Likelihood threshold for uncertain outliers (default 0.01).",
-    )
-    parser.add_argument(
-        "--primary-only", action="store_true",
-        help="Only process primary, non-excluded sessions.",
-    )
-    parser.add_argument(
-        "--dry-run", action="store_true",
-        help="Show what would happen without extracting.",
-    )
+    parser.add_argument("--scan", action="store_true",
+                        help="Show labeling status for all sessions.")
+    parser.add_argument("--session", type=str, default=None,
+                        help="Process only this session (partial match on exp_id).")
+    parser.add_argument("--per-session", type=int, default=None,
+                        help="Max new frames per session.")
+    parser.add_argument("--min-per-session", type=int, default=None,
+                        help="Ensure each session has at least this many total frames.")
+    parser.add_argument("--total", type=int, default=None,
+                        help="Max total new frames across all sessions.")
+    parser.add_argument("--primary-only", action="store_true",
+                        help="Only process primary, non-excluded sessions.")
+    parser.add_argument("--jump-threshold", type=float, default=20,
+                        help="Jump threshold in pixels (default 20).")
+    parser.add_argument("--p-bound", type=float, default=0.1,
+                        help="Likelihood threshold for uncertain frames (default 0.1).")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Show what would be selected without extracting.")
     args = parser.parse_args()
 
     if args.scan:
@@ -363,30 +480,51 @@ def main() -> None:
             print(f"No session matching '{args.session}'")
             sys.exit(1)
 
-    # Compute per-session limit
-    per_session = args.per_session
-    if args.total is not None and per_session is None:
-        per_session = max(1, args.total // len(sessions))
-
     total_new = 0
     for ses_info in sessions:
-        log.info("\n=== %s ===", ses_info["exp_id"])
-        n = extract_outliers_for_session(
-            s3, ses_info, per_session, args.min_per_session,
+        sub, ses = ses_info["sub"], ses_info["ses"]
+        existing_count = count_existing_pngs(sub, ses)
+
+        # How many to extract for this session
+        n_extract = args.per_session
+
+        if args.min_per_session is not None:
+            need = args.min_per_session - existing_count
+            if need <= 0:
+                log.info("  %s: already has %d frames (>= %d), skipping",
+                         ses_info["exp_id"][:25], existing_count, args.min_per_session)
+                continue
+            if n_extract is None:
+                n_extract = need
+            else:
+                n_extract = min(n_extract, need)
+
+        if args.total is not None:
+            remaining = args.total - total_new
+            if remaining <= 0:
+                break
+            if n_extract is None:
+                n_extract = remaining
+            else:
+                n_extract = min(n_extract, remaining)
+
+        if n_extract is None:
+            n_extract = 10  # default
+
+        log.info("\n=== %s (have %d, extracting up to %d) ===",
+                 ses_info["exp_id"], existing_count, n_extract)
+
+        n = process_session(
+            s3, ses_info, n_extract,
             args.jump_threshold, args.p_bound, args.dry_run,
         )
         total_new += n
-        if args.total is not None and total_new >= args.total:
-            log.info("Reached total limit of %d frames", args.total)
-            break
 
     print(f"\nTotal new frames extracted: {total_new}")
     if total_new > 0 and not args.dry_run:
         print(
             "\nNext steps:\n"
             "  1. Label:   uv run python scripts/interactive_label.py\n"
-            "     or:      uv run deeplabcut refine-labels --config "
-            f"{DLC_CONFIG.relative_to(REPO_ROOT)}\n"
             "  2. Upload:  uv run python scripts/upload_dlc_labels.py\n"
             "  3. Retrain: uv run python scripts/launch_dlc_finetune_ec2.py --sa-finetune"
         )
