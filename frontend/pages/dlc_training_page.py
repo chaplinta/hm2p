@@ -699,18 +699,21 @@ with st.expander("How to add more labeled frames"):
 uv run python scripts/select_hard_frames.py --scan
 ```
 
-**2. Select hard-to-track frames (targets low-confidence, visually diverse):**
+**2. Select diverse hard frames (pose-geometry farthest-point sampling):**
 ```bash
-# Select 200 hard frames across all sessions:
+# Select 200 frames across all sessions (4-12 per session, hardest get more):
 uv run python scripts/select_hard_frames.py --n 200
 
-# Or target specific bodyparts:
-uv run python scripts/select_hard_frames.py --n 200 --bodyparts nose_tip,tail_base
+# 8 frames per session across all 26 (= 208 total):
+uv run python scripts/select_hard_frames.py --n 208 --per-session-min 8 --per-session-max 8
 
-# Or one session at a time:
-uv run python scripts/select_hard_frames.py --n 20 --session 20210823
+# One session at a time:
+uv run python scripts/select_hard_frames.py --n 8 --session 20210823
 
-# Dry run first to see what would be selected:
+# Adjust difficulty vs diversity (0=pure diversity, 1=pure difficulty):
+uv run python scripts/select_hard_frames.py --n 200 --alpha 0.5
+
+# Dry run first:
 uv run python scripts/select_hard_frames.py --n 200 --dry-run
 ```
 
