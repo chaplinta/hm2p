@@ -193,78 +193,91 @@ def score_frames_by_difficulty(
     return scores
 
 
-def pixel_dedup(
-    video_path: str,
+def pose_dedup(
+    pose_df: pd.DataFrame,
     candidate_indices: list[int],
     existing_indices: set[int],
-    threshold: float = 0.98,
+    min_distance_px: float = 30.0,
 ) -> list[int]:
-    """Remove candidates that are too similar to existing or selected frames.
+    """Remove candidates whose pose is too similar to existing or selected frames.
 
-    Uses normalized cross-correlation between grayscale thumbnails.
+    Compares the mean (x, y) position of all bodyparts between frames.
+    Two frames are considered duplicates if the mean Euclidean distance
+    across all bodyparts is below ``min_distance_px``. This is robust to
+    the overhead-mouse-in-maze problem where the static background
+    dominates pixel-based comparisons.
 
     Parameters
     ----------
-    video_path : str
-        Path to video file.
+    pose_df : pd.DataFrame
+        DLC pose output with multi-index columns.
     candidate_indices : list[int]
         Frame indices to consider (sorted by priority, best first).
     existing_indices : set[int]
-        Frame indices already labeled (loaded for dedup comparison).
-    threshold : float
-        NCC threshold above which frames are considered duplicates.
+        Frame indices already labeled (in pose-file frame space).
+    min_distance_px : float
+        Minimum mean bodypart displacement (pixels) to be considered
+        different. 30 px ≈ half a mouse body width.
 
     Returns
     -------
     list[int]
         Deduplicated frame indices.
     """
-    THUMB_SIZE = 32  # smaller thumbs = less false-positive similarity
+    scorer = pose_df.columns.get_level_values(0)[0]
+    bodyparts = pose_df.columns.get_level_values(1).unique().tolist()
 
-    def _read_thumb(cap: cv2.VideoCapture, idx: int) -> np.ndarray | None:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
-        ret, frame = cap.read()
-        if not ret:
+    def _get_coords(idx: int) -> np.ndarray | None:
+        if idx < 0 or idx >= len(pose_df):
             return None
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        thumb = cv2.resize(gray, (THUMB_SIZE, THUMB_SIZE))
-        return thumb.astype(np.float32).ravel()
+        coords = []
+        for bp in bodyparts:
+            try:
+                x = float(pose_df.iloc[idx][(scorer, bp, "x")])
+                y = float(pose_df.iloc[idx][(scorer, bp, "y")])
+                coords.extend([x, y])
+            except (KeyError, ValueError):
+                coords.extend([np.nan, np.nan])
+        arr = np.array(coords, dtype=np.float64)
+        if np.all(np.isnan(arr)):
+            return None
+        return arr
 
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        log.warning("Cannot open video for dedup: %s", video_path)
-        return candidate_indices
-
-    # Load existing frame thumbnails
-    reference_thumbs: list[np.ndarray] = []
+    # Build reference poses from existing labeled frames
+    reference_poses: list[np.ndarray] = []
     for idx in sorted(existing_indices):
-        thumb = _read_thumb(cap, idx)
-        if thumb is not None:
-            reference_thumbs.append(thumb)
+        coords = _get_coords(idx)
+        if coords is not None:
+            reference_poses.append(coords)
 
     selected: list[int] = []
-    selected_thumbs: list[np.ndarray] = []
+    selected_poses: list[np.ndarray] = []
 
     for idx in candidate_indices:
-        thumb = _read_thumb(cap, idx)
-        if thumb is None:
+        coords = _get_coords(idx)
+        if coords is None:
             continue
 
         # Compare against all reference + already selected
         too_similar = False
-        norm = np.linalg.norm(thumb) or 1.0
-        for ref in reference_thumbs + selected_thumbs:
-            ref_norm = np.linalg.norm(ref) or 1.0
-            ncc = float(np.dot(thumb, ref) / (norm * ref_norm))
-            if ncc > threshold:
+        for ref in reference_poses + selected_poses:
+            # Mean Euclidean distance across bodyparts
+            diff = coords - ref
+            # Reshape to (n_bodyparts, 2) for per-bodypart distance
+            diff_2d = diff.reshape(-1, 2)
+            valid = np.isfinite(diff_2d).all(axis=1)
+            if valid.sum() == 0:
+                continue
+            dists = np.linalg.norm(diff_2d[valid], axis=1)
+            mean_dist = float(np.mean(dists))
+            if mean_dist < min_distance_px:
                 too_similar = True
                 break
 
         if not too_similar:
             selected.append(idx)
-            selected_thumbs.append(thumb)
+            selected_poses.append(coords)
 
-    cap.release()
     return selected
 
 
@@ -457,28 +470,24 @@ def process_session(
     # Take top 3x candidates for dedup headroom
     candidates = candidates[:n_select * 3]
 
+    # Pose-based dedup against existing + each other
+    selected = pose_dedup(df, candidates, existing, min_distance_px=30.0)
+    selected = selected[:n_select]
+    log.info("  Selected %d frames after dedup", len(selected))
+
     if dry_run:
-        selected = candidates[:n_select]
-        log.info("  [DRY RUN] Would select %d frames (top difficulty scores)", len(selected))
         return {
             "exp_id": exp_id, "n_selected": len(selected),
             "n_existing": len(existing), "selected": selected,
         }
 
-    # Download video for dedup + extraction
+    # Download video for frame extraction
     with tempfile.TemporaryDirectory(prefix=f"hm2p-hard-{tag}-") as tmp_str:
         tmp = Path(tmp_str)
         video_path = download_video_from_s3(s3, sub, ses, tmp)
         if video_path is None:
             log.warning("  No video for %s", exp_id)
             return {"exp_id": exp_id, "n_selected": 0, "n_existing": len(existing)}
-
-        # Pixel dedup against existing + each other
-        selected = pixel_dedup(
-            str(video_path), candidates, existing, threshold=0.92
-        )
-        selected = selected[:n_select]
-        log.info("  Selected %d frames after dedup", len(selected))
 
         if not selected:
             return {"exp_id": exp_id, "n_selected": 0, "n_existing": len(existing)}
