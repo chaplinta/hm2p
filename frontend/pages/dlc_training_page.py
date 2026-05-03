@@ -699,25 +699,25 @@ with st.expander("How to add more labeled frames"):
 uv run python scripts/select_hard_frames.py --scan
 ```
 
-**2. Select diverse hard frames (pose-geometry farthest-point sampling):**
+**2. Extract outlier frames (DLC's jump + uncertainty detection):**
 ```bash
-# Select 200 frames across all sessions (4-12 per session, hardest get more):
-uv run python scripts/select_hard_frames.py --n 200
+# All sessions, DLC defaults:
+uv run python scripts/select_hard_frames.py
 
-# 8 frames per session across all 26 (= 208 total):
-uv run python scripts/select_hard_frames.py --n 208 --per-session-min 8 --per-session-max 8
+# Limit to 8 new frames per session:
+uv run python scripts/select_hard_frames.py --per-session 8
 
-# One session at a time:
-uv run python scripts/select_hard_frames.py --n 8 --session 20210823
+# Limit to 200 total across all sessions:
+uv run python scripts/select_hard_frames.py --total 200
 
-# Adjust difficulty vs diversity (0=pure diversity, 1=pure difficulty):
-uv run python scripts/select_hard_frames.py --n 200 --alpha 0.5
+# One session only:
+uv run python scripts/select_hard_frames.py --session 20220804_11_21
 
-# Dry run first:
-uv run python scripts/select_hard_frames.py --n 200 --dry-run
+# Adjust thresholds:
+uv run python scripts/select_hard_frames.py --jump-threshold 15 --p-bound 0.05
 ```
 
-**3. Label frames in napari-deeplabcut:**
+**3. Label frames:**
 ```bash
 uv run python scripts/interactive_label.py
 ```
