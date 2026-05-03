@@ -338,6 +338,10 @@ def main() -> None:
         help="Likelihood threshold for uncertain outliers (default 0.01).",
     )
     parser.add_argument(
+        "--primary-only", action="store_true",
+        help="Only process primary, non-excluded sessions.",
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Show what would happen without extracting.",
     )
@@ -349,6 +353,9 @@ def main() -> None:
 
     s3 = boto3.client("s3", region_name=REGION)
     sessions = get_sessions()
+
+    if args.primary_only:
+        sessions = [s for s in sessions if s["primary"] and not s["exclude"]]
 
     if args.session:
         sessions = [s for s in sessions if args.session in s["exp_id"]]
