@@ -198,6 +198,7 @@ def extract_outliers_for_session(
     s3: Any,
     ses_info: dict,
     per_session: int | None,
+    min_per_session: int | None,
     jump_threshold: float,
     p_bound: float,
     dry_run: bool,
@@ -211,6 +212,26 @@ def extract_outliers_for_session(
     sub, ses = ses_info["sub"], ses_info["ses"]
     exp_id = ses_info["exp_id"]
 
+    # Check if session already has enough frames
+    ld = find_labeled_data_dir(sub, ses)
+    pngs_before = len(list(ld.glob("frame_*.png"))) if ld else 0
+
+    if min_per_session is not None and pngs_before >= min_per_session:
+        log.info("  %s: already has %d frames (>= min %d), skipping",
+                 exp_id[:25], pngs_before, min_per_session)
+        return 0
+
+    # How many frames to extract
+    n_to_extract = per_session
+    if min_per_session is not None:
+        need = min_per_session - pngs_before
+        if n_to_extract is None:
+            n_to_extract = need
+        else:
+            n_to_extract = min(n_to_extract, need)
+        if n_to_extract <= 0:
+            return 0
+
     # Find or download video
     video_path = find_video_local(sub, ses)
     tmp_dir = None
@@ -221,11 +242,9 @@ def extract_outliers_for_session(
             log.warning("  No video for %s", exp_id)
             return 0
 
-    log.info("  Video: %s", video_path.name)
-
-    # Count PNGs before
-    ld = find_labeled_data_dir(sub, ses)
-    pngs_before = len(list(ld.glob("frame_*.png"))) if ld else 0
+    log.info("  Video: %s  (have %d, extracting up to %s)",
+             video_path.name, pngs_before,
+             str(n_to_extract) if n_to_extract else "DLC default")
 
     if dry_run:
         log.info("  [DRY RUN] Would run extract_outlier_frames on %s", exp_id)
@@ -233,9 +252,9 @@ def extract_outliers_for_session(
 
     # Build kwargs for numframes2pick
     extract_kwargs: dict[str, Any] = {}
-    if per_session is not None:
+    if n_to_extract is not None:
         # DLC splits between the two algorithms, so give half to each
-        extract_kwargs["numframes2pick"] = max(1, per_session // 2)
+        extract_kwargs["numframes2pick"] = max(1, n_to_extract // 2)
 
     # Pass 1: jump-based outliers
     try:
@@ -306,6 +325,11 @@ def main() -> None:
         help="Max total new frames across all sessions. Splits evenly.",
     )
     parser.add_argument(
+        "--min-per-session", type=int, default=None,
+        help="Ensure each session has at least this many frames. "
+             "Only extracts for sessions below the minimum.",
+    )
+    parser.add_argument(
         "--jump-threshold", type=float, default=20,
         help="Jump outlier threshold in pixels (default 20).",
     )
@@ -341,7 +365,7 @@ def main() -> None:
     for ses_info in sessions:
         log.info("\n=== %s ===", ses_info["exp_id"])
         n = extract_outliers_for_session(
-            s3, ses_info, per_session,
+            s3, ses_info, per_session, args.min_per_session,
             args.jump_threshold, args.p_bound, args.dry_run,
         )
         total_new += n
