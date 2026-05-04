@@ -353,7 +353,7 @@ def update_meta(session_tag: str, sub: str, ses: str, new_indices: list[int],
     merged = sorted(set(existing.get("frame_indices", [])) | set(new_indices))
     updated = {
         "session": f"{sub}/{ses}",
-        "frame_indices": merged,
+        "frame_indices": [int(i) for i in merged],
         "n_frames": len(merged),
     }
     if video_name and "video" not in existing:
