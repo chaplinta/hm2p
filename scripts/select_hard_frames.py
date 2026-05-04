@@ -1,35 +1,28 @@
 #!/usr/bin/env python3
 """Select outlier frames for DLC retraining.
 
-Loads DLC pose predictions from S3, identifies frames with large
-tracking jumps and low confidence, selects diverse outliers via
-temporal spacing, extracts PNGs from the video, and symlinks them
-into the DLC labeled-data directory.
+Reimplements DLC's extract_outlier_frames logic without needing the
+DLC project metadata (training-datasets/, shuffle info).
+
+1. Load pose predictions from S3
+2. Find outlier frames (jump + low confidence)
+3. Download video, read outlier frames at 30px width (grayscale)
+4. K-means cluster outlier frames (k = n_to_pick)
+5. Pick one frame per cluster → maximally diverse outlier set
+6. Extract full-res PNGs, symlink into labeled-data/
+
+This is the same algorithm DLC uses internally (see
+deeplabcut.utils.frameselectiontools.KmeansbasedFrameselectioncv2).
 
 Safety: existing CollectedData_*.csv/.h5 files are never modified.
 
 Usage:
-    # Scan sessions to see labeling status:
     uv run python scripts/select_hard_frames.py --scan
-
-    # Ensure every session has at least 20 frames:
     uv run python scripts/select_hard_frames.py --min-per-session 20
-
-    # 8 new frames per session:
     uv run python scripts/select_hard_frames.py --per-session 8
-
-    # One session only:
     uv run python scripts/select_hard_frames.py --session 20220804_11_21 --per-session 8
-
-    # Primary non-excluded sessions only:
     uv run python scripts/select_hard_frames.py --primary-only --min-per-session 20
-
-    # Limit total:
     uv run python scripts/select_hard_frames.py --total 200
-
-    # Adjust thresholds:
-    uv run python scripts/select_hard_frames.py --min-per-session 20 \\
-        --jump-threshold 15 --p-bound 0.1
 """
 
 from __future__ import annotations
@@ -48,6 +41,7 @@ import boto3
 import cv2
 import numpy as np
 import pandas as pd
+from sklearn.cluster import MiniBatchKMeans
 
 REGION = "ap-southeast-2"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
@@ -74,9 +68,10 @@ ALL_BODYPARTS = [
     "neck", "mid_back", "mouse_center", "tail_base",
 ]
 
-# Minimum temporal gap between selected frames (in DLC-output frame units).
-# At 30 fps this is ~3.3 seconds — ensures visually distinct frames.
-MIN_FRAME_GAP = 100
+# Thumbnail width for k-means clustering (DLC default = 30).
+# At this size the mouse is ~4-5 px, maze walls are a few px —
+# k-means clusters by gross mouse position + pose + lighting.
+RESIZE_WIDTH = 30
 
 
 # ---------------------------------------------------------------------------
@@ -118,9 +113,7 @@ def find_labeled_data_dir(sub: str, ses: str) -> Path | None:
 
 def count_existing_pngs(sub: str, ses: str) -> int:
     ld = find_labeled_data_dir(sub, ses)
-    if ld is None:
-        return 0
-    return len(list(ld.glob("frame_*.png")))
+    return len(list(ld.glob("frame_*.png"))) if ld else 0
 
 
 def count_labeled(session_dir: Path) -> int:
@@ -165,26 +158,23 @@ def _resolve_bp(df: pd.DataFrame, scorer: str, bp: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Outlier detection (reimplements DLC's jump + uncertain logic)
+# Outlier detection
 # ---------------------------------------------------------------------------
 
 
-def find_outlier_frames(
+def find_outlier_indices(
     df: pd.DataFrame,
     jump_threshold: float = 20.0,
     p_bound: float = 0.1,
-) -> np.ndarray:
-    """Score each frame by outlier severity. Higher = worse tracking.
+) -> list[int]:
+    """Find frame indices that are outliers (jump or low confidence).
 
-    Combines two signals (same as DLC's extract_outlier_frames):
-    1. Jump: frame-to-frame displacement > threshold for any bodypart
-    2. Uncertain: mean likelihood below p_bound
-
-    Returns per-frame score in [0, inf). 0 = no outlier signal.
+    Same logic as DLC's extract_outlier_frames: a frame is an outlier if
+    ANY bodypart has a jump > threshold or confidence < p_bound.
     """
     scorer = df.columns.get_level_values(0)[0]
     n = len(df)
-    scores = np.zeros(n, dtype=np.float64)
+    is_outlier = np.zeros(n, dtype=bool)
 
     for bp in ALL_BODYPARTS:
         col = _resolve_bp(df, scorer, bp)
@@ -195,67 +185,108 @@ def find_outlier_frames(
         y = df[(scorer, col, "y")].values.astype(np.float64)
         lik = df[(scorer, col, "likelihood")].values.astype(np.float64)
 
-        # Jump signal: displacement above threshold
-        dx = np.abs(np.diff(x, prepend=x[0]))
-        dy = np.abs(np.diff(y, prepend=y[0]))
+        # Jump: frame-to-frame displacement > threshold
+        dx = np.diff(x, prepend=x[0])
+        dy = np.diff(y, prepend=y[0])
         displacement = np.sqrt(dx**2 + dy**2)
-        jump_score = np.clip(displacement / jump_threshold, 0, None) - 1.0
-        jump_score = np.clip(jump_score, 0, None)  # only frames above threshold
-        scores += jump_score
+        is_outlier |= displacement > jump_threshold
 
-        # Uncertainty signal: low confidence
-        unc_score = np.clip(p_bound - lik, 0, None) / max(p_bound, 1e-6)
-        scores += unc_score
+        # Uncertain: likelihood below bound
+        is_outlier |= lik < p_bound
 
-    return scores
+    indices = list(np.where(is_outlier)[0])
+
+    # Exclude any frames already in the retrain metadata
+    return indices
 
 
-def select_diverse_outliers(
-    scores: np.ndarray,
-    n_select: int,
-    existing_frames: set[int],
-    fps: float = 30.0,
-    bin_seconds: float = 30.0,
+# ---------------------------------------------------------------------------
+# K-means on video thumbnails (DLC's approach)
+# ---------------------------------------------------------------------------
+
+
+def kmeans_select_from_video(
+    video_path: str,
+    candidate_indices: list[int],
+    n_pick: int,
+    existing_indices: set[int],
 ) -> list[int]:
-    """Pick the worst outlier frame from each temporal bin.
+    """Read candidate frames at 30px width, k-means cluster, pick one per cluster.
 
-    Divides the session into bins of ``bin_seconds`` duration. From each
-    bin, picks the single highest-scoring frame that isn't already
-    labeled. Returns up to ``n_select`` frames, prioritising bins with
-    the worst outlier scores.
-
-    This guarantees temporal diversity — frames are spread across the
-    entire session, not clustered in one failure-mode region.
+    This is DLC's KmeansbasedFrameselectioncv2 algorithm. Clustering on
+    tiny grayscale thumbnails naturally groups by mouse position + pose +
+    lighting. Picking one per cluster gives maximally diverse frames.
     """
-    n = len(scores)
-    bin_size = max(1, int(fps * bin_seconds))
+    # Remove already-existing frames from candidates
+    candidates = [i for i in candidate_indices if i not in existing_indices]
+    if not candidates:
+        return []
+    if len(candidates) <= n_pick:
+        return candidates
 
-    # Mark existing frames as unavailable
-    available = np.ones(n, dtype=bool)
-    for idx in existing_frames:
-        available[idx] = False
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        log.warning("Cannot open video: %s", video_path)
+        return candidates[:n_pick]
 
-    # Find the best outlier per bin
-    bin_picks: list[tuple[float, int]] = []  # (score, frame_idx)
-    for bin_start in range(0, n, bin_size):
-        bin_end = min(bin_start + bin_size, n)
-        bin_scores = scores[bin_start:bin_end].copy()
-        bin_avail = available[bin_start:bin_end]
-        bin_scores[~bin_avail] = -1
+    # Get video dimensions for resize ratio
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    ratio = RESIZE_WIDTH / w
+    h_resized = max(1, int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) * ratio))
+    w_resized = RESIZE_WIDTH
 
-        if (bin_scores > 0).any():
-            best_in_bin = int(np.argmax(bin_scores))
-            bin_picks.append((float(bin_scores[best_in_bin]), bin_start + best_in_bin))
+    # Read thumbnails for all candidate frames
+    log.info("    Reading %d outlier frames at %dpx width for clustering...",
+             len(candidates), RESIZE_WIDTH)
+    thumbs = []
+    valid_indices = []
+    for idx in candidates:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        small = cv2.resize(gray, (w_resized, h_resized),
+                           interpolation=cv2.INTER_NEAREST)
+        thumbs.append(small.astype(np.float64).ravel())
+        valid_indices.append(idx)
 
-    # Sort bins by score (worst outliers first), take top n_select
-    bin_picks.sort(key=lambda x: x[0], reverse=True)
-    selected = [idx for _, idx in bin_picks[:n_select]]
+    cap.release()
+
+    if len(valid_indices) <= n_pick:
+        return valid_indices
+
+    # K-means clustering (DLC's approach: k = n_pick)
+    data = np.array(thumbs)
+    data -= data.mean(axis=0)  # mean-subtract (same as DLC)
+
+    k = min(n_pick, len(data))
+    log.info("    K-means clustering %d frames into %d clusters...",
+             len(data), k)
+    kmeans = MiniBatchKMeans(
+        n_clusters=k, batch_size=min(100, len(data)),
+        max_iter=50, n_init=3,
+    )
+    kmeans.fit(data)
+
+    # Pick one frame per cluster (closest to cluster centre, not random)
+    selected = []
+    for cluster_id in range(k):
+        member_mask = kmeans.labels_ == cluster_id
+        if not member_mask.any():
+            continue
+        member_indices = np.where(member_mask)[0]
+        # Pick the member closest to the cluster centre
+        centre = kmeans.cluster_centers_[cluster_id]
+        dists = np.linalg.norm(data[member_indices] - centre, axis=1)
+        best = member_indices[np.argmin(dists)]
+        selected.append(valid_indices[best])
 
     return selected
 
 
 # ---------------------------------------------------------------------------
-# Video download + frame extraction
+# Video helpers
 # ---------------------------------------------------------------------------
 
 
@@ -383,28 +414,25 @@ def process_session(
         log.warning("  No pose data for %s", exp_id)
         return 0
 
-    # Find outlier frames
-    scores = find_outlier_frames(df, jump_threshold, p_bound)
+    # Find outlier frame indices
+    outlier_indices = find_outlier_indices(df, jump_threshold, p_bound)
+    log.info("  %d outlier frames found", len(outlier_indices))
 
-    # Get existing frame indices (from metadata JSON)
+    if not outlier_indices:
+        log.info("  No outliers, skipping")
+        return 0
+
+    # Get existing frame indices
     meta_path = RETRAIN_META_DIR / f"{tag}.json"
     existing: set[int] = set()
     if meta_path.exists():
         existing = set(json.loads(meta_path.read_text()).get("frame_indices", []))
 
-    # Select diverse outliers
-    selected = select_diverse_outliers(scores, n_extract, existing)
-
-    n_outliers = int((scores > 0).sum())
-    log.info("  %d outlier frames found, selected %d (gap=%d)",
-             n_outliers, len(selected), MIN_FRAME_GAP)
-
-    if not selected:
-        return 0
-
     if dry_run:
-        log.info("  [DRY RUN] Would extract frames: %s", selected[:10])
-        return len(selected)
+        n_avail = len([i for i in outlier_indices if i not in existing])
+        log.info("  [DRY RUN] %d outliers available, would pick %d via k-means",
+                 n_avail, min(n_extract, n_avail))
+        return min(n_extract, n_avail)
 
     # Get video
     video_path = find_video_local(sub, ses)
@@ -416,7 +444,19 @@ def process_session(
             log.warning("  No video for %s", exp_id)
             return 0
 
-    # Extract PNGs
+    # K-means select diverse outliers from video
+    selected = kmeans_select_from_video(
+        str(video_path), outlier_indices, n_extract, existing,
+    )
+    log.info("  Selected %d diverse frames via k-means", len(selected))
+
+    if not selected:
+        if tmp_dir:
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        return 0
+
+    # Extract full-res PNGs
     retrain_dir = REPO_ROOT / "retrain_frames" / tag
     written = extract_frames(video_path, selected, retrain_dir)
     log.info("  Extracted %d PNGs", len(written))
@@ -430,9 +470,9 @@ def process_session(
     log.info("  Symlinked %d into %s/", n_linked, ld.name)
 
     # Update metadata
-    update_meta(tag, sub, ses, selected, video_name=video_path.name if video_path else None)
+    update_meta(tag, sub, ses, selected,
+                video_name=video_path.name if video_path else None)
 
-    # Cleanup temp
     if tmp_dir:
         import shutil
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -447,8 +487,8 @@ def process_session(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Select outlier frames for DLC retraining. "
-                    "Identifies jump + low-confidence frames from pose predictions."
+        description="Select diverse outlier frames for DLC retraining. "
+                    "Uses DLC's k-means-on-thumbnails approach for diversity."
     )
     parser.add_argument("--scan", action="store_true",
                         help="Show labeling status for all sessions.")
@@ -491,7 +531,6 @@ def main() -> None:
         sub, ses = ses_info["sub"], ses_info["ses"]
         existing_count = count_existing_pngs(sub, ses)
 
-        # How many to extract for this session
         n_extract = args.per_session
 
         if args.min_per_session is not None:
@@ -515,7 +554,7 @@ def main() -> None:
                 n_extract = min(n_extract, remaining)
 
         if n_extract is None:
-            n_extract = 10  # default
+            n_extract = 10
 
         log.info("\n=== %s (have %d, extracting up to %d) ===",
                  ses_info["exp_id"], existing_count, n_extract)
