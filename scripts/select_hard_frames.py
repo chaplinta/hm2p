@@ -214,36 +214,42 @@ def select_diverse_outliers(
     scores: np.ndarray,
     n_select: int,
     existing_frames: set[int],
-    min_gap: int = MIN_FRAME_GAP,
+    fps: float = 30.0,
+    bin_seconds: float = 30.0,
 ) -> list[int]:
-    """Pick the top outlier frames with minimum temporal spacing.
+    """Pick the worst outlier frame from each temporal bin.
 
-    Greedy: pick highest-scoring available frame, mark its temporal
-    neighbourhood as unavailable, repeat.
+    Divides the session into bins of ``bin_seconds`` duration. From each
+    bin, picks the single highest-scoring frame that isn't already
+    labeled. Returns up to ``n_select`` frames, prioritising bins with
+    the worst outlier scores.
+
+    This guarantees temporal diversity — frames are spread across the
+    entire session, not clustered in one failure-mode region.
     """
     n = len(scores)
+    bin_size = max(1, int(fps * bin_seconds))
+
+    # Mark existing frames as unavailable
     available = np.ones(n, dtype=bool)
-
-    # Mark existing frames and their neighbourhood as unavailable
     for idx in existing_frames:
-        lo = max(0, idx - min_gap)
-        hi = min(n, idx + min_gap + 1)
-        available[lo:hi] = False
+        available[idx] = False
 
-    selected: list[int] = []
-    # Work on a copy so we can zero out picked frames
-    s = scores.copy()
-    s[~available] = -1
+    # Find the best outlier per bin
+    bin_picks: list[tuple[float, int]] = []  # (score, frame_idx)
+    for bin_start in range(0, n, bin_size):
+        bin_end = min(bin_start + bin_size, n)
+        bin_scores = scores[bin_start:bin_end].copy()
+        bin_avail = available[bin_start:bin_end]
+        bin_scores[~bin_avail] = -1
 
-    for _ in range(n_select):
-        best = int(np.argmax(s))
-        if s[best] <= 0:
-            break
-        selected.append(best)
-        # Block temporal neighbourhood
-        lo = max(0, best - min_gap)
-        hi = min(n, best + min_gap + 1)
-        s[lo:hi] = -1
+        if (bin_scores > 0).any():
+            best_in_bin = int(np.argmax(bin_scores))
+            bin_picks.append((float(bin_scores[best_in_bin]), bin_start + best_in_bin))
+
+    # Sort bins by score (worst outliers first), take top n_select
+    bin_picks.sort(key=lambda x: x[0], reverse=True)
+    selected = [idx for _, idx in bin_picks[:n_select]]
 
     return selected
 
