@@ -235,52 +235,82 @@ def kmeans_select_from_video(
     h_resized = max(1, int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) * ratio))
     w_resized = RESIZE_WIDTH
 
-    # Read thumbnails for all candidate frames
-    log.info("    Reading %d outlier frames at %dpx width for clustering...",
-             len(candidates), RESIZE_WIDTH)
-    thumbs = []
-    valid_indices = []
-    for idx in candidates:
+    def _read_thumb(idx: int) -> np.ndarray | None:
         cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
         ret, frame = cap.read()
         if not ret:
-            continue
+            return None
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         small = cv2.resize(gray, (w_resized, h_resized),
                            interpolation=cv2.INTER_NEAREST)
-        thumbs.append(small.astype(np.float64).ravel())
-        valid_indices.append(idx)
+        return small.astype(np.float64).ravel()
+
+    # Read thumbnails for existing labeled frames (to include in clustering)
+    existing_thumbs = []
+    existing_thumb_count = 0
+    for idx in sorted(existing_indices):
+        thumb = _read_thumb(idx)
+        if thumb is not None:
+            existing_thumbs.append(thumb)
+            existing_thumb_count += 1
+
+    # Read thumbnails for candidate outlier frames
+    log.info("    Reading %d outlier frames at %dpx width for clustering...",
+             len(candidates), RESIZE_WIDTH)
+    candidate_thumbs = []
+    valid_indices = []
+    for idx in candidates:
+        thumb = _read_thumb(idx)
+        if thumb is not None:
+            candidate_thumbs.append(thumb)
+            valid_indices.append(idx)
 
     cap.release()
 
     if len(valid_indices) <= n_pick:
         return valid_indices
 
-    # K-means clustering (DLC's approach: k = n_pick)
-    data = np.array(thumbs)
-    data -= data.mean(axis=0)  # mean-subtract (same as DLC)
+    # Combine existing + candidate thumbnails for joint clustering.
+    # Existing frames participate in clustering so they "occupy" clusters,
+    # preventing new frames from being selected in the same visual region.
+    all_thumbs = existing_thumbs + candidate_thumbs
+    data = np.array(all_thumbs)
+    data -= data.mean(axis=0)  # mean-subtract
 
-    k = min(n_pick, len(data))
-    log.info("    K-means clustering %d frames into %d clusters...",
-             len(data), k)
+    # More clusters than frames to pick — existing frames will occupy some,
+    # leaving the rest for new picks. Use n_pick + n_existing so there are
+    # enough clusters for both.
+    n_total = len(data)
+    k = min(n_pick + existing_thumb_count, n_total)
+    log.info("    K-means clustering %d frames (%d existing + %d candidates) into %d clusters...",
+             n_total, existing_thumb_count, len(candidate_thumbs), k)
     kmeans = MiniBatchKMeans(
-        n_clusters=k, batch_size=min(100, len(data)),
+        n_clusters=k, batch_size=min(100, n_total),
         max_iter=50, n_init=3,
     )
     kmeans.fit(data)
 
-    # Pick one frame per cluster (closest to cluster centre, not random)
+    # Identify which clusters already have an existing frame
+    existing_labels = set(kmeans.labels_[:existing_thumb_count])
+
+    # Pick one candidate per cluster, skipping clusters that contain existing frames
     selected = []
     for cluster_id in range(k):
-        member_mask = kmeans.labels_ == cluster_id
+        if cluster_id in existing_labels:
+            continue  # this cluster looks like an already-labeled frame
+        # Find candidate members (indices offset by existing_thumb_count)
+        member_mask = kmeans.labels_[existing_thumb_count:] == cluster_id
         if not member_mask.any():
             continue
-        member_indices = np.where(member_mask)[0]
-        # Pick the member closest to the cluster centre
+        member_local = np.where(member_mask)[0]
+        # Pick closest to cluster centre
         centre = kmeans.cluster_centers_[cluster_id]
-        dists = np.linalg.norm(data[member_indices] - centre, axis=1)
-        best = member_indices[np.argmin(dists)]
+        candidate_data = data[existing_thumb_count:]
+        dists = np.linalg.norm(candidate_data[member_local] - centre, axis=1)
+        best = member_local[np.argmin(dists)]
         selected.append(valid_indices[best])
+        if len(selected) >= n_pick:
+            break
 
     return selected
 
