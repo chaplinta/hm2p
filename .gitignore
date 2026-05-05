@@ -102,3 +102,5 @@ sourcedata/trackers/dlc/*/labeled-data/**/*.png
 # Docker
 docker/.env
 review_frames/*.png
+metadata/pca_cache/
+tmp_thumbnails/

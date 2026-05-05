@@ -37,7 +37,6 @@ import cv2
 import numpy as np
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
-from sklearn.decomposition import PCA
 
 REGION = "ap-southeast-2"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
@@ -50,11 +49,10 @@ LABELED_DIR = (
 )
 RETRAIN_META_DIR = REPO_ROOT / "metadata" / "retrain_frames"
 
-THUMB_SIZE = 64  # resize all frames to 64x64 square
-N_CLUSTERS = 50  # k-means classes
-PCA_VARIANCE = 0.95  # keep PCs explaining 95% of variance
-SAMPLE_STRIDE = 10  # sample every Nth frame for clustering (speed)
+THUMB_SIZE = 64  # must match build_pca_cache.py
 
+# Add scripts/ to path so we can import build_pca_cache
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 logging.basicConfig(
@@ -278,7 +276,9 @@ def process_session(
     n_new: int,
     dry_run: bool,
 ) -> int:
-    """PCA + k-means selection for one session."""
+    """PCA + k-means selection for one session. Uses cache if available."""
+    from build_pca_cache import build_cache, cache_path, load_cache
+
     sub, ses = ses_info["sub"], ses_info["ses"]
     exp_id = ses_info["exp_id"]
     tag = f"{sub}_{ses}"
@@ -286,65 +286,70 @@ def process_session(
     existing_indices = get_existing_frame_indices(sub, ses)
     log.info("  %s: %d existing frames", exp_id[:25], len(existing_indices))
 
-    # Get video
-    video_path = find_video_local(sub, ses)
+    # Load or build PCA cache
+    cache = load_cache(sub, ses)
+    video_path = None
     tmp_dir = None
-    if video_path is None:
-        tmp_dir = tempfile.mkdtemp(prefix=f"hm2p-sel-{exp_id[:15]}-")
-        video_path = download_video_from_s3(s3, sub, ses, Path(tmp_dir))
+
+    if cache is not None:
+        log.info("  Loaded PCA cache (%d frames, %d PCs)",
+                 len(cache["frame_indices"]), cache["data_pca"].shape[1])
+    else:
+        log.info("  No cache found, building...")
+        video_path = find_video_local(sub, ses)
         if video_path is None:
-            log.warning("  No video for %s", exp_id)
+            tmp_dir = tempfile.mkdtemp(prefix=f"hm2p-sel-{exp_id[:15]}-")
+            video_path = download_video_from_s3(s3, sub, ses, Path(tmp_dir))
+            if video_path is None:
+                log.warning("  No video for %s", exp_id)
+                return 0
+        cache = build_cache(str(video_path), sub, ses)
+        if cache is None:
+            if tmp_dir:
+                import shutil
+                shutil.rmtree(tmp_dir, ignore_errors=True)
             return 0
 
-    cap = cv2.VideoCapture(str(video_path))
-    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.release()
+    data_pca = cache["data_pca"]
+    valid_indices = cache["frame_indices"]
+    pca = cache["pca"]
 
-    # Sample frame indices (every SAMPLE_STRIDE frames)
-    all_indices = list(range(0, n_frames, SAMPLE_STRIDE))
-    log.info("  %d total frames, sampling %d (stride=%d)",
-             n_frames, len(all_indices), SAMPLE_STRIDE)
-
-    # Read thumbnails for sampled frames
-    log.info("  Reading thumbnails at %dx%d...", THUMB_SIZE, THUMB_SIZE)
-    data, valid_indices = read_thumbnails(str(video_path), all_indices)
-    # Set k = existing + n_new so there are enough clusters for both
+    # K-means: k = existing + n_new
     n_existing = len(existing_indices)
     k = n_existing + n_new
-    if len(data) < k:
-        log.warning("  Too few sampled frames (%d) for %d clusters", len(data), k)
-        k = len(data)
+    if len(data_pca) < k:
+        log.warning("  Too few sampled frames (%d) for %d clusters", len(data_pca), k)
+        k = len(data_pca)
 
-    # PCA: keep components explaining 95% of variance
-    log.info("  PCA (%.0f%% variance)...", PCA_VARIANCE * 100)
-    pca = PCA(n_components=PCA_VARIANCE, svd_solver="full")
-    data_pca = pca.fit_transform(data)
-    log.info("  %d PCs explain %.1f%% variance (from %d pixels)",
-             data_pca.shape[1], pca.explained_variance_ratio_.sum() * 100,
-             THUMB_SIZE * THUMB_SIZE)
-
-    # K-means
-    log.info("  K-means clustering %d frames into %d clusters (%d existing + %d new)...",
-             len(data_pca), k, n_existing, n_new)
+    log.info("  K-means: %d clusters (%d existing + %d new)",
+             k, n_existing, n_new)
     kmeans = MiniBatchKMeans(
         n_clusters=k, batch_size=min(100, len(data_pca)),
         max_iter=50, n_init=3,
     )
     kmeans.fit(data_pca)
 
-    # Map existing frames to their clusters
+    # Map existing frames to clusters via PCA projection
     existing_list = sorted(existing_indices)
     occupied_clusters: set[int] = set()
     if existing_list:
-        ex_data, ex_valid = read_thumbnails(str(video_path), existing_list)
-        if len(ex_data) > 0:
-            ex_pca = pca.transform(ex_data)
-            ex_labels = kmeans.predict(ex_pca)
-            occupied_clusters = set(int(l) for l in ex_labels)
-            log.info("  Existing frames occupy %d / %d clusters",
-                     len(occupied_clusters), k)
+        # Need video to read existing frame thumbnails
+        if video_path is None:
+            video_path = find_video_local(sub, ses)
+        if video_path is None and tmp_dir is None:
+            tmp_dir = tempfile.mkdtemp(prefix=f"hm2p-sel-{exp_id[:15]}-")
+            video_path = download_video_from_s3(s3, sub, ses, Path(tmp_dir))
 
-    # Pick from empty clusters (closest to centroid), up to n_new
+        if video_path is not None:
+            ex_data, ex_valid = read_thumbnails(str(video_path), existing_list)
+            if len(ex_data) > 0:
+                ex_pca = pca.transform(ex_data)
+                ex_labels = kmeans.predict(ex_pca)
+                occupied_clusters = set(int(l) for l in ex_labels)
+                log.info("  Existing frames occupy %d / %d clusters",
+                         len(occupied_clusters), k)
+
+    # Pick from empty clusters (closest to centroid)
     selected = []
     for cluster_id in range(k):
         if cluster_id in occupied_clusters:
@@ -356,7 +361,7 @@ def process_session(
         centre = kmeans.cluster_centers_[cluster_id]
         dists = np.linalg.norm(data_pca[member_local] - centre, axis=1)
         best = member_local[np.argmin(dists)]
-        selected.append(valid_indices[best])
+        selected.append(int(valid_indices[best]))
         if len(selected) >= n_new:
             break
 
@@ -370,11 +375,22 @@ def process_session(
         return 0
 
     if dry_run:
-        log.info("  [DRY RUN] Would extract frames: %s", selected[:10])
+        log.info("  [DRY RUN] Would extract: %s", selected[:10])
         if tmp_dir:
             import shutil
             shutil.rmtree(tmp_dir, ignore_errors=True)
         return len(selected)
+
+    # Need video for extraction
+    if video_path is None:
+        video_path = find_video_local(sub, ses)
+    if video_path is None and tmp_dir is None:
+        tmp_dir = tempfile.mkdtemp(prefix=f"hm2p-sel-{exp_id[:15]}-")
+        video_path = download_video_from_s3(s3, sub, ses, Path(tmp_dir))
+
+    if video_path is None:
+        log.warning("  No video for extraction")
+        return 0
 
     # Extract full-res PNGs
     retrain_dir = REPO_ROOT / "retrain_frames" / tag
