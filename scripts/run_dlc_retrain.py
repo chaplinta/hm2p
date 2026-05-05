@@ -885,7 +885,8 @@ def _upload_model_artifacts(s3, work: Path) -> None:
 
 
 def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
-          sa_finetune: bool = False) -> Path:
+          sa_finetune: bool = False,
+          bodyparts: list[str] | None = None) -> Path:
     """Download labels from S3, fine-tune DLC, upload model weights.
 
     Parameters
@@ -906,6 +907,11 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
         (Ye et al. 2024). When False, runs the legacy ImageNet HRNet
         path. Mutually exclusive at the API level — both paths share
         the same S3 download / upload scaffolding.
+    bodyparts
+        Override the bodyparts list in config.yaml. When set, only these
+        bodyparts are trained. Labels for other bodyparts remain in
+        CollectedData but are ignored by DLC during training.
+        E.g. ``["left_ear", "right_ear"]`` for ears-only experiment.
     """
     import deeplabcut
 
@@ -934,6 +940,13 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
 
     # Update project path
     cfg["project_path"] = str(work)
+
+    # Override bodyparts if requested (for experiments like ears-only).
+    # Labels are NOT modified — DLC ignores columns for unlisted bodyparts.
+    original_bodyparts = cfg.get("bodyparts", [])
+    if bodyparts is not None:
+        cfg["bodyparts"] = bodyparts
+        print(f"  Bodyparts override: {original_bodyparts} → {bodyparts}")
 
     with open(config_path, "w") as f:
         yaml.dump(cfg, f)
@@ -1500,6 +1513,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Promote completed sessions even if some inference sessions failed. "
              "By default auto-promotion is skipped if any session fails.",
     )
+    parser.add_argument(
+        "--bodyparts", type=str, default=None,
+        help="Override bodyparts for training (comma-separated). "
+             "E.g. --bodyparts left_ear,right_ear for ears-only experiment. "
+             "Labels are NOT modified — DLC ignores unlisted bodyparts.",
+    )
     return parser
 
 
@@ -1574,9 +1593,11 @@ def main() -> None:
 
     config_path = None
     if do_train:
+        bp_override = args.bodyparts.split(",") if args.bodyparts else None
         config_path = train(
             s3, maxiters=args.maxiters, epochs=epochs,
             batch_size=args.batch_size, sa_finetune=args.sa_finetune,
+            bodyparts=bp_override,
         )
 
     if do_infer:

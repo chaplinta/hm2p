@@ -61,6 +61,7 @@ def build_user_data(
     train_only: bool = False,
     sa_finetune: bool = False,
     eval_only: bool = False,
+    bodyparts: str | None = None,
 ) -> str:
     """Build the EC2 user-data script.
 
@@ -107,10 +108,14 @@ def build_user_data(
         mode = "train+infer"
 
     if sa_finetune:
-        # Append the flag — order does not matter to argparse.
         mode_flag = f"{mode_flag} --sa-finetune"
         mode_label = f"{mode_label} [SA fine-tune]"
         mode = f"{mode}+sa"
+
+    if bodyparts:
+        mode_flag = f"{mode_flag} --bodyparts {bodyparts}"
+        mode_label = f"{mode_label} [bodyparts: {bodyparts}]"
+        mode = f"{mode}+bp-{bodyparts.replace(',', '-')}"
 
     cost_launch = format_cost_record_launch(
         DERIVATIVES_BUCKET,
@@ -257,6 +262,7 @@ def launch(
     dry_run: bool = False,
     sa_finetune: bool = False,
     eval_only: bool = False,
+    bodyparts: str | None = None,
 ) -> None:
     """Launch the retraining instance.
 
@@ -307,6 +313,7 @@ def launch(
         train_only=train_only,
         eval_only=eval_only,
         sa_finetune=sa_finetune,
+        bodyparts=bodyparts,
     )
 
     if dry_run:
@@ -472,6 +479,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "120 GB. Compatible with --infer-only. "
         "Cite: Ye et al. 2024, doi:10.1038/s41467-024-48792-2.",
     )
+    parser.add_argument(
+        "--bodyparts", type=str, default=None,
+        help="Override bodyparts (comma-separated). "
+        "E.g. --bodyparts left_ear,right_ear for ears-only.",
+    )
     return parser
 
 
@@ -505,6 +517,7 @@ def main() -> None:
             dry_run=args.dry_run,
             sa_finetune=args.sa_finetune,
             eval_only=args.eval_only,
+            bodyparts=args.bodyparts,
         )
 
 
