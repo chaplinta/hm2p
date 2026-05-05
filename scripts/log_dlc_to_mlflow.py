@@ -99,8 +99,7 @@ def import_run(s3, run_name: str | None = None) -> None:
         if eval_rows:
             eval_data = eval_rows[-1]  # most recent eval
 
-    # Load SA finetune notes
-    notes = _get_s3_json(s3, f"{RETRAIN_PREFIX}/models/_sa_finetune_notes.txt")
+    # Load SA finetune notes (plain text, not JSON)
     notes_text = _get_s3_text(s3, f"{RETRAIN_PREFIX}/models/_sa_finetune_notes.txt")
 
     # Load cost record
