@@ -107,6 +107,7 @@ export HF_HUB_DISABLE_XET=1
 export HF_HUB_ENABLE_HF_TRANSFER=0
 
 pip3 install --break-system-packages --quiet --pre deeplabcut
+pip3 install --break-system-packages --quiet wandb
 
 # Step 3: Re-install CUDA PyTorch if DLC overwrote it
 pip3 install --break-system-packages \\

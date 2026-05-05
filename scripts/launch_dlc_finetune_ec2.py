@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from pathlib import Path
 
 import boto3
 from ec2_constants import (
@@ -124,12 +126,25 @@ def build_user_data(
         shutdown_key="_cost_record_shutdown.json",
     )
 
+    # W&B API key — read from env or ~/.wandb_api_key
+    wandb_key = os.environ.get("WANDB_API_KEY", "")
+    if not wandb_key:
+        wandb_key_file = Path.home() / ".wandb_api_key"
+        if wandb_key_file.exists():
+            wandb_key = wandb_key_file.read_text().strip()
+    wandb_block = ""
+    if wandb_key:
+        wandb_block = f'export WANDB_API_KEY="{wandb_key}"\nexport WANDB_MODE=online'
+    else:
+        wandb_block = 'export WANDB_MODE=offline\necho "WARNING: No WANDB_API_KEY — logging offline only"'
+
     return f"""#!/bin/bash
 exec > >(tee /var/log/hm2p-dlc-retrain.log) 2>&1
 echo "=== DLC retrain ({mode_label}, GPU enforced, 24h timeout) ==="
 echo "Started: $(date -u)"
 
 {creds}
+{wandb_block}
 {IMDS_HELPER_SNIPPET}
 
 # Define shutdown handler as a function to avoid single-quote

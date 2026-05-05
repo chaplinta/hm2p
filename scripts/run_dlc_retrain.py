@@ -596,6 +596,27 @@ def _apply_sa_augmentation_patch(pytorch_cfg_path: Path) -> None:
     )
 
 
+def _inject_wandb_logger(pytorch_cfg_path: Path, run_name: str) -> None:
+    """Add W&B logger config to pytorch_config.yaml.
+
+    DLC 3.x has native WandbLogger support via its logger registry.
+    This injects the config block so training logs live to W&B.
+    """
+    import yaml
+
+    with open(pytorch_cfg_path) as f:
+        pcfg = yaml.safe_load(f)
+    pcfg["logger"] = {
+        "type": "WandbLogger",
+        "project_name": "hm2p-dlc",
+        "run_name": run_name,
+        "image_log_interval": 10,
+    }
+    with open(pytorch_cfg_path, "w") as f:
+        yaml.dump(pcfg, f)
+    print(f"  W&B logger configured: project=hm2p-dlc, run={run_name}")
+
+
 def _build_sa_notes(
     *, detector: str, conversion_array: list[int], epochs: int,
     lr: float, batch_size: int,
@@ -695,6 +716,7 @@ def _train_sa_finetune(
         latest = max(pytorch_cfgs, key=lambda p: p.stat().st_mtime)
         _check_sa_input_size(latest)
         _apply_sa_augmentation_patch(latest)
+        _inject_wandb_logger(latest, f"SA-finetune-{epochs}ep")
     else:
         print("  WARNING: no pytorch_config.yaml found post-create_training_dataset")
 
@@ -853,12 +875,6 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
         _compute_per_bodypart_rmse(s3, work, config_path)
         update_progress(s3, "Training (SA): evaluation complete")
         _upload_model_artifacts(s3, work)
-        # Log to MLflow (best-effort — don't block on failure)
-        try:
-            from log_dlc_to_mlflow import import_run
-            import_run(s3, run_name=f"SA-finetune-{epochs}ep")
-        except Exception as e:
-            print(f"  MLflow logging failed (non-fatal): {e}")
         update_progress(s3, "Training complete (SA fine-tune)")
         return config_path
 
@@ -946,6 +962,7 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
         with open(pcfg_path, "w") as f:
             yaml.dump(pcfg, f)
         print(f"  Config updated: {pcfg_path.name}")
+        _inject_wandb_logger(pcfg_path, f"ImageNet-HRNet-{epochs}ep")
 
     update_progress(s3, f"Training: HRNet-W32 ({epochs} epochs)")
 
@@ -1013,13 +1030,6 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
             break
     else:
         print("  WARNING: no model directory found")
-
-    # Log to MLflow (best-effort)
-    try:
-        from log_dlc_to_mlflow import import_run
-        import_run(s3, run_name=f"ImageNet-HRNet-{epochs}ep")
-    except Exception as e:
-        print(f"  MLflow logging failed (non-fatal): {e}")
 
     update_progress(s3, "Training complete", maxiters=maxiters)
     return config_path
