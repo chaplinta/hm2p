@@ -1,28 +1,22 @@
 #!/usr/bin/env python3
-"""Select outlier frames for DLC retraining.
+"""Select diverse frames for DLC retraining via PCA + k-means.
 
-Reimplements DLC's extract_outlier_frames logic without needing the
-DLC project metadata (training-datasets/, shuffle info).
-
-1. Load pose predictions from S3
-2. Find outlier frames (jump + low confidence)
-3. Download video, read outlier frames at 30px width (grayscale)
-4. K-means cluster outlier frames (k = n_to_pick)
-5. Pick one frame per cluster → maximally diverse outlier set
-6. Extract full-res PNGs, symlink into labeled-data/
-
-This is the same algorithm DLC uses internally (see
-deeplabcut.utils.frameselectiontools.KmeansbasedFrameselectioncv2).
+For each session:
+1. Download video from S3
+2. Sample frames, resize to 64x64 grayscale
+3. PCA to 95% variance (strips static background)
+4. K-means with k=50 classes
+5. Check which clusters already have a labeled frame
+6. For each empty cluster, extract the frame closest to centroid
 
 Safety: existing CollectedData_*.csv/.h5 files are never modified.
 
 Usage:
     uv run python scripts/select_hard_frames.py --scan
+    uv run python scripts/select_hard_frames.py --session 20210920
     uv run python scripts/select_hard_frames.py --min-per-session 20
-    uv run python scripts/select_hard_frames.py --per-session 8
-    uv run python scripts/select_hard_frames.py --session 20220804_11_21 --per-session 8
     uv run python scripts/select_hard_frames.py --primary-only --min-per-session 20
-    uv run python scripts/select_hard_frames.py --total 200
+    uv run python scripts/select_hard_frames.py --k 80 --session 20210920
 """
 
 from __future__ import annotations
@@ -32,6 +26,7 @@ import csv
 import json
 import logging
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -42,6 +37,7 @@ import cv2
 import numpy as np
 import pandas as pd
 from sklearn.cluster import MiniBatchKMeans
+from sklearn.decomposition import PCA
 
 REGION = "ap-southeast-2"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
@@ -54,6 +50,11 @@ LABELED_DIR = (
 )
 RETRAIN_META_DIR = REPO_ROOT / "metadata" / "retrain_frames"
 
+THUMB_SIZE = 64  # resize all frames to 64x64 square
+N_CLUSTERS = 50  # k-means classes
+PCA_VARIANCE = 0.95  # keep PCs explaining 95% of variance
+SAMPLE_STRIDE = 10  # sample every Nth frame for clustering (speed)
+
 sys.path.insert(0, str(REPO_ROOT / "src"))
 
 logging.basicConfig(
@@ -62,16 +63,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger(__name__)
-
-ALL_BODYPARTS = [
-    "nose_tip", "left_ear", "right_ear", "head_midpoint",
-    "neck", "mid_back", "mouse_center", "tail_base",
-]
-
-# Thumbnail width for k-means clustering (DLC default = 30).
-# At this size the mouse is ~4-5 px, maze walls are a few px —
-# k-means clusters by gross mouse position + pose + lighting.
-RESIZE_WIDTH = 30
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +102,19 @@ def find_labeled_data_dir(sub: str, ses: str) -> Path | None:
     return None
 
 
+def get_existing_frame_indices(sub: str, ses: str) -> set[int]:
+    """Get frame indices of existing PNGs in labeled-data/."""
+    ld = find_labeled_data_dir(sub, ses)
+    if ld is None:
+        return set()
+    indices = set()
+    for png in ld.glob("frame_*.png"):
+        m = re.match(r"frame_(\d+)\.png", png.name)
+        if m:
+            indices.add(int(m.group(1)))
+    return indices
+
+
 def count_existing_pngs(sub: str, ses: str) -> int:
     ld = find_labeled_data_dir(sub, ses)
     return len(list(ld.glob("frame_*.png"))) if ld else 0
@@ -124,195 +128,6 @@ def count_labeled(session_dir: Path) -> int:
         except Exception:
             pass
     return 0
-
-
-# ---------------------------------------------------------------------------
-# Pose loading
-# ---------------------------------------------------------------------------
-
-
-def load_pose_from_s3(s3: Any, sub: str, ses: str) -> pd.DataFrame | None:
-    from hm2p.pose.select import select_best_dlc_h5_s3
-
-    prefix = f"pose/{sub}/{ses}/"
-    h5_key = select_best_dlc_h5_s3(s3, DERIVATIVES_BUCKET, prefix)
-    if h5_key is None:
-        return None
-    with tempfile.NamedTemporaryFile(suffix=".h5") as tmp:
-        s3.download_file(DERIVATIVES_BUCKET, h5_key, tmp.name)
-        return pd.read_hdf(tmp.name)
-
-
-def _resolve_bp(df: pd.DataFrame, scorer: str, bp: str) -> str | None:
-    try:
-        _ = df[(scorer, bp, "x")]
-        return bp
-    except KeyError:
-        if bp == "head_midpoint":
-            try:
-                _ = df[(scorer, "implant_base_rear", "x")]
-                return "implant_base_rear"
-            except KeyError:
-                return None
-        return None
-
-
-# ---------------------------------------------------------------------------
-# Outlier detection
-# ---------------------------------------------------------------------------
-
-
-def find_outlier_indices(
-    df: pd.DataFrame,
-    jump_threshold: float = 20.0,
-    p_bound: float = 0.1,
-) -> list[int]:
-    """Find frame indices that are outliers (jump or low confidence).
-
-    Same logic as DLC's extract_outlier_frames: a frame is an outlier if
-    ANY bodypart has a jump > threshold or confidence < p_bound.
-    """
-    scorer = df.columns.get_level_values(0)[0]
-    n = len(df)
-    is_outlier = np.zeros(n, dtype=bool)
-
-    for bp in ALL_BODYPARTS:
-        col = _resolve_bp(df, scorer, bp)
-        if col is None:
-            continue
-
-        x = df[(scorer, col, "x")].values.astype(np.float64)
-        y = df[(scorer, col, "y")].values.astype(np.float64)
-        lik = df[(scorer, col, "likelihood")].values.astype(np.float64)
-
-        # Jump: frame-to-frame displacement > threshold
-        dx = np.diff(x, prepend=x[0])
-        dy = np.diff(y, prepend=y[0])
-        displacement = np.sqrt(dx**2 + dy**2)
-        is_outlier |= displacement > jump_threshold
-
-        # Uncertain: likelihood below bound
-        is_outlier |= lik < p_bound
-
-    indices = list(np.where(is_outlier)[0])
-
-    # Exclude any frames already in the retrain metadata
-    return indices
-
-
-# ---------------------------------------------------------------------------
-# K-means on video thumbnails (DLC's approach)
-# ---------------------------------------------------------------------------
-
-
-def kmeans_select_from_video(
-    video_path: str,
-    candidate_indices: list[int],
-    n_pick: int,
-    existing_indices: set[int],
-) -> list[int]:
-    """Read candidate frames at 30px width, k-means cluster, pick one per cluster.
-
-    This is DLC's KmeansbasedFrameselectioncv2 algorithm. Clustering on
-    tiny grayscale thumbnails naturally groups by mouse position + pose +
-    lighting. Picking one per cluster gives maximally diverse frames.
-    """
-    # Remove already-existing frames from candidates
-    candidates = [i for i in candidate_indices if i not in existing_indices]
-    if not candidates:
-        return []
-    if len(candidates) <= n_pick:
-        return candidates
-
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        log.warning("Cannot open video: %s", video_path)
-        return candidates[:n_pick]
-
-    # Get video dimensions for resize ratio
-    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    ratio = RESIZE_WIDTH / w
-    h_resized = max(1, int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) * ratio))
-    w_resized = RESIZE_WIDTH
-
-    def _read_thumb(idx: int) -> np.ndarray | None:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
-        ret, frame = cap.read()
-        if not ret:
-            return None
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        small = cv2.resize(gray, (w_resized, h_resized),
-                           interpolation=cv2.INTER_NEAREST)
-        return small.astype(np.float64).ravel()
-
-    # Read thumbnails for existing labeled frames (to include in clustering)
-    existing_thumbs = []
-    existing_thumb_count = 0
-    for idx in sorted(existing_indices):
-        thumb = _read_thumb(idx)
-        if thumb is not None:
-            existing_thumbs.append(thumb)
-            existing_thumb_count += 1
-
-    # Read thumbnails for candidate outlier frames
-    log.info("    Reading %d outlier frames at %dpx width for clustering...",
-             len(candidates), RESIZE_WIDTH)
-    candidate_thumbs = []
-    valid_indices = []
-    for idx in candidates:
-        thumb = _read_thumb(idx)
-        if thumb is not None:
-            candidate_thumbs.append(thumb)
-            valid_indices.append(idx)
-
-    cap.release()
-
-    if len(valid_indices) <= n_pick:
-        return valid_indices
-
-    # Combine existing + candidate thumbnails for joint clustering.
-    # Existing frames participate in clustering so they "occupy" clusters,
-    # preventing new frames from being selected in the same visual region.
-    all_thumbs = existing_thumbs + candidate_thumbs
-    data = np.array(all_thumbs)
-    data -= data.mean(axis=0)  # mean-subtract
-
-    # More clusters than frames to pick — existing frames will occupy some,
-    # leaving the rest for new picks. Use n_pick + n_existing so there are
-    # enough clusters for both.
-    n_total = len(data)
-    k = min(n_pick + existing_thumb_count, n_total)
-    log.info("    K-means clustering %d frames (%d existing + %d candidates) into %d clusters...",
-             n_total, existing_thumb_count, len(candidate_thumbs), k)
-    kmeans = MiniBatchKMeans(
-        n_clusters=k, batch_size=min(100, n_total),
-        max_iter=50, n_init=3,
-    )
-    kmeans.fit(data)
-
-    # Identify which clusters already have an existing frame
-    existing_labels = set(kmeans.labels_[:existing_thumb_count])
-
-    # Pick one candidate per cluster, skipping clusters that contain existing frames
-    selected = []
-    for cluster_id in range(k):
-        if cluster_id in existing_labels:
-            continue  # this cluster looks like an already-labeled frame
-        # Find candidate members (indices offset by existing_thumb_count)
-        member_mask = kmeans.labels_[existing_thumb_count:] == cluster_id
-        if not member_mask.any():
-            continue
-        member_local = np.where(member_mask)[0]
-        # Pick closest to cluster centre
-        centre = kmeans.cluster_centers_[cluster_id]
-        candidate_data = data[existing_thumb_count:]
-        dists = np.linalg.norm(candidate_data[member_local] - centre, axis=1)
-        best = member_local[np.argmin(dists)]
-        selected.append(valid_indices[best])
-        if len(selected) >= n_pick:
-            break
-
-    return selected
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +195,7 @@ def update_meta(session_tag: str, sub: str, ses: str, new_indices: list[int],
     existing: dict = {}
     if meta_file.exists():
         existing = json.loads(meta_file.read_text())
-    merged = sorted(set(existing.get("frame_indices", [])) | set(new_indices))
+    merged = sorted(set(existing.get("frame_indices", [])) | set(int(i) for i in new_indices))
     updated = {
         "session": f"{sub}/{ses}",
         "frame_indices": [int(i) for i in merged],
@@ -422,69 +237,149 @@ def scan_sessions() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Per-session processing
+# Core: PCA + k-means frame selection
 # ---------------------------------------------------------------------------
+
+
+def read_thumbnails(
+    video_path: str,
+    frame_indices: list[int],
+) -> tuple[np.ndarray, list[int]]:
+    """Read frames from video, resize to THUMB_SIZE x THUMB_SIZE grayscale.
+
+    Returns (data, valid_indices) where data is (n, THUMB_SIZE^2).
+    """
+    cap = cv2.VideoCapture(video_path)
+    if not cap.isOpened():
+        return np.empty((0, THUMB_SIZE * THUMB_SIZE)), []
+
+    thumbs = []
+    valid = []
+    for idx in frame_indices:
+        cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+        ret, frame = cap.read()
+        if not ret:
+            continue
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        small = cv2.resize(gray, (THUMB_SIZE, THUMB_SIZE),
+                           interpolation=cv2.INTER_NEAREST)
+        thumbs.append(small.astype(np.float64).ravel())
+        valid.append(idx)
+
+    cap.release()
+    if not thumbs:
+        return np.empty((0, THUMB_SIZE * THUMB_SIZE)), []
+    return np.array(thumbs), valid
 
 
 def process_session(
     s3: Any,
     ses_info: dict,
-    n_extract: int,
-    jump_threshold: float,
-    p_bound: float,
+    n_clusters: int,
+    max_new: int | None,
     dry_run: bool,
 ) -> int:
+    """PCA + k-means selection for one session."""
     sub, ses = ses_info["sub"], ses_info["ses"]
     exp_id = ses_info["exp_id"]
     tag = f"{sub}_{ses}"
 
-    # Load pose predictions
-    df = load_pose_from_s3(s3, sub, ses)
-    if df is None:
-        log.warning("  No pose data for %s", exp_id)
-        return 0
-
-    # Find outlier frame indices
-    outlier_indices = find_outlier_indices(df, jump_threshold, p_bound)
-    log.info("  %d outlier frames found", len(outlier_indices))
-
-    if not outlier_indices:
-        log.info("  No outliers, skipping")
-        return 0
-
-    # Get existing frame indices
-    meta_path = RETRAIN_META_DIR / f"{tag}.json"
-    existing: set[int] = set()
-    if meta_path.exists():
-        existing = set(json.loads(meta_path.read_text()).get("frame_indices", []))
-
-    if dry_run:
-        n_avail = len([i for i in outlier_indices if i not in existing])
-        log.info("  [DRY RUN] %d outliers available, would pick %d via k-means",
-                 n_avail, min(n_extract, n_avail))
-        return min(n_extract, n_avail)
+    existing_indices = get_existing_frame_indices(sub, ses)
+    log.info("  %s: %d existing frames", exp_id[:25], len(existing_indices))
 
     # Get video
     video_path = find_video_local(sub, ses)
     tmp_dir = None
     if video_path is None:
-        tmp_dir = tempfile.mkdtemp(prefix=f"hm2p-outlier-{exp_id[:15]}-")
+        tmp_dir = tempfile.mkdtemp(prefix=f"hm2p-sel-{exp_id[:15]}-")
         video_path = download_video_from_s3(s3, sub, ses, Path(tmp_dir))
         if video_path is None:
             log.warning("  No video for %s", exp_id)
             return 0
 
-    # K-means select diverse outliers from video
-    selected = kmeans_select_from_video(
-        str(video_path), outlier_indices, n_extract, existing,
+    cap = cv2.VideoCapture(str(video_path))
+    n_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    cap.release()
+
+    # Sample frame indices (every SAMPLE_STRIDE frames)
+    all_indices = list(range(0, n_frames, SAMPLE_STRIDE))
+    log.info("  %d total frames, sampling %d (stride=%d)",
+             n_frames, len(all_indices), SAMPLE_STRIDE)
+
+    # Read thumbnails for sampled frames
+    log.info("  Reading thumbnails at %dx%d...", THUMB_SIZE, THUMB_SIZE)
+    data, valid_indices = read_thumbnails(str(video_path), all_indices)
+    if len(data) < n_clusters:
+        log.warning("  Too few frames (%d) for %d clusters", len(data), n_clusters)
+        if tmp_dir:
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        return 0
+
+    # PCA: keep components explaining 95% of variance
+    log.info("  PCA (%.0f%% variance)...", PCA_VARIANCE * 100)
+    pca = PCA(n_components=PCA_VARIANCE, svd_solver="full")
+    data_pca = pca.fit_transform(data)
+    log.info("  %d PCs explain %.1f%% variance (from %d pixels)",
+             data_pca.shape[1], pca.explained_variance_ratio_.sum() * 100,
+             THUMB_SIZE * THUMB_SIZE)
+
+    # K-means
+    k = min(n_clusters, len(data_pca))
+    log.info("  K-means clustering %d frames into %d clusters...",
+             len(data_pca), k)
+    kmeans = MiniBatchKMeans(
+        n_clusters=k, batch_size=min(100, len(data_pca)),
+        max_iter=50, n_init=3,
     )
-    log.info("  Selected %d diverse frames via k-means", len(selected))
+    kmeans.fit(data_pca)
+
+    # Map existing frames to their clusters.
+    # Read thumbnails of existing frames and project into PCA space.
+    existing_list = sorted(existing_indices)
+    occupied_clusters: set[int] = set()
+    if existing_list:
+        ex_data, ex_valid = read_thumbnails(str(video_path), existing_list)
+        if len(ex_data) > 0:
+            ex_pca = pca.transform(ex_data)
+            ex_labels = kmeans.predict(ex_pca)
+            occupied_clusters = set(int(l) for l in ex_labels)
+            log.info("  Existing frames occupy %d / %d clusters",
+                     len(occupied_clusters), k)
+
+    # Find empty clusters and pick closest frame to centroid
+    selected = []
+    for cluster_id in range(k):
+        if cluster_id in occupied_clusters:
+            continue
+        member_mask = kmeans.labels_ == cluster_id
+        if not member_mask.any():
+            continue
+        member_local = np.where(member_mask)[0]
+        centre = kmeans.cluster_centers_[cluster_id]
+        dists = np.linalg.norm(data_pca[member_local] - centre, axis=1)
+        best = member_local[np.argmin(dists)]
+        selected.append(valid_indices[best])
+
+    # Apply max_new limit
+    if max_new is not None and len(selected) > max_new:
+        selected = selected[:max_new]
+
+    log.info("  %d empty clusters → %d new frames to extract",
+             k - len(occupied_clusters), len(selected))
 
     if not selected:
         if tmp_dir:
             import shutil
             shutil.rmtree(tmp_dir, ignore_errors=True)
         return 0
+
+    if dry_run:
+        log.info("  [DRY RUN] Would extract frames: %s", selected[:10])
+        if tmp_dir:
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+        return len(selected)
 
     # Extract full-res PNGs
     retrain_dir = REPO_ROOT / "retrain_frames" / tag
@@ -497,7 +392,7 @@ def process_session(
         clip_name = f"{exp_id}_maze-rose_overhead.camera-cropped"
         ld = LABELED_DIR / clip_name
     n_linked = symlink_into_labeled_data(retrain_dir, ld)
-    log.info("  Symlinked %d into %s/", n_linked, ld.name)
+    log.info("  Symlinked %d new frames into %s/", n_linked, ld.name)
 
     # Update metadata
     update_meta(tag, sub, ses, selected,
@@ -517,8 +412,7 @@ def process_session(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Select diverse outlier frames for DLC retraining. "
-                    "Uses DLC's k-means-on-thumbnails approach for diversity."
+        description="Select diverse frames via PCA + k-means on 64x64 thumbnails."
     )
     parser.add_argument("--scan", action="store_true",
                         help="Show labeling status for all sessions.")
@@ -532,10 +426,8 @@ def main() -> None:
                         help="Max total new frames across all sessions.")
     parser.add_argument("--primary-only", action="store_true",
                         help="Only process primary, non-excluded sessions.")
-    parser.add_argument("--jump-threshold", type=float, default=20,
-                        help="Jump threshold in pixels (default 20).")
-    parser.add_argument("--p-bound", type=float, default=0.1,
-                        help="Likelihood threshold for uncertain frames (default 0.1).")
+    parser.add_argument("--k", type=int, default=N_CLUSTERS,
+                        help=f"Number of k-means clusters (default {N_CLUSTERS}).")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be selected without extracting.")
     args = parser.parse_args()
@@ -561,7 +453,7 @@ def main() -> None:
         sub, ses = ses_info["sub"], ses_info["ses"]
         existing_count = count_existing_pngs(sub, ses)
 
-        n_extract = args.per_session
+        max_new = args.per_session
 
         if args.min_per_session is not None:
             need = args.min_per_session - existing_count
@@ -569,30 +461,25 @@ def main() -> None:
                 log.info("  %s: already has %d frames (>= %d), skipping",
                          ses_info["exp_id"][:25], existing_count, args.min_per_session)
                 continue
-            if n_extract is None:
-                n_extract = need
+            if max_new is None:
+                max_new = need
             else:
-                n_extract = min(n_extract, need)
+                max_new = min(max_new, need)
 
         if args.total is not None:
             remaining = args.total - total_new
             if remaining <= 0:
                 break
-            if n_extract is None:
-                n_extract = remaining
+            if max_new is None:
+                max_new = remaining
             else:
-                n_extract = min(n_extract, remaining)
+                max_new = min(max_new, remaining)
 
-        if n_extract is None:
-            n_extract = 10
+        log.info("\n=== %s (have %d%s) ===",
+                 ses_info["exp_id"], existing_count,
+                 f", max {max_new} new" if max_new else "")
 
-        log.info("\n=== %s (have %d, extracting up to %d) ===",
-                 ses_info["exp_id"], existing_count, n_extract)
-
-        n = process_session(
-            s3, ses_info, n_extract,
-            args.jump_threshold, args.p_bound, args.dry_run,
-        )
+        n = process_session(s3, ses_info, args.k, max_new, args.dry_run)
         total_new += n
 
     print(f"\nTotal new frames extracted: {total_new}")
