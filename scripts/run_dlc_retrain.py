@@ -413,6 +413,35 @@ def _compute_per_bodypart_rmse_direct(s3, work: Path, config_path: Path) -> None
     print(f"  Uploaded _per_bodypart_eval.json")
 
 
+def _push_bodypart_rmse_to_wandb(work: Path) -> None:
+    """Push per-bodypart RMSE/PCK metrics to the live W&B run summary.
+
+    Reads ``_per_bodypart_eval.json`` from the working directory (written
+    by ``_compute_per_bodypart_rmse`` or ``_compute_per_bodypart_rmse_direct``)
+    and adds each bodypart's RMSE, median error, and PCK@10 to the W&B
+    run summary. Silently no-ops if wandb is unavailable or no run is active.
+    """
+    try:
+        import wandb
+
+        if wandb.run is None:
+            return
+        bp_json_path = work / "_per_bodypart_eval.json"
+        if not bp_json_path.exists():
+            return
+        bp_data = json.loads(bp_json_path.read_text())
+        for bp, data in bp_data.get("bodyparts", {}).items():
+            if data and data.get("rmse") is not None:
+                wandb.run.summary[f"bodypart/{bp}_rmse"] = data["rmse"]
+                wandb.run.summary[f"bodypart/{bp}_median"] = data.get(
+                    "median_error"
+                )
+                if data.get("pck_10") is not None:
+                    wandb.run.summary[f"bodypart/{bp}_pck10"] = data["pck_10"]
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # SA-finetune helpers (Ye et al. 2024, doi:10.1038/s41467-024-48792-2)
 # ---------------------------------------------------------------------------
@@ -563,12 +592,21 @@ def _check_sa_input_size(pytorch_cfg_path: Path) -> bool:
     return False
 
 
-def _apply_sa_augmentation_patch(pytorch_cfg_path: Path) -> None:
-    """Apply v2 §4.3 augmentation tweaks to the SA shuffle's pytorch_config.
+def _apply_sa_augmentation_patch(pytorch_cfg_path: Path, *, epochs: int = 120) -> None:
+    """Apply v2 §4.3 augmentation + head tweaks to the SA shuffle's pytorch_config.
 
-    The augmentation block is the only YAML edit that survives the
-    `make_super_animal_finetune_config` path (the backbone block is
-    written by DLC and must not be touched). Edits in place.
+    Edits the augmentation block, enables the locref (location refinement)
+    head for sub-pixel precision, and sets a weighted heatmap target
+    generator that upweights ear keypoints (indices 1, 2 = left_ear,
+    right_ear). Accurate ear tracking is critical for HD angle computation.
+
+    Parameters
+    ----------
+    pytorch_cfg_path
+        Path to the shuffle's ``pytorch_config.yaml``.
+    epochs
+        Training epochs — used to set scheduler milestones appropriately.
+        If epochs <= 120, milestones are [80, 110]. If > 120, [160, 190].
     """
     import yaml
 
@@ -588,33 +626,79 @@ def _apply_sa_augmentation_patch(pytorch_cfg_path: Path) -> None:
         "brightness_contrast",
         {"brightness_limit": 0.15, "contrast_limit": 0.10, "p": 0.5},
     )
+
+    # Enable location refinement (locref) head for sub-pixel precision.
+    pcfg.setdefault("model", {})
+    pcfg["model"]["generate_locref"] = True
+    heads = pcfg["model"].setdefault("heads", {})
+    bp_head = heads.setdefault("bodypart", {})
+    bp_head["locref_config"] = {
+        "channels": [32, 16],
+        "kernel_size": [1],
+        "strides": [1],
+    }
+
+    # Weighted heatmap target generator: upweight ears (indices 1, 2)
+    # for accurate HD angle computation. Requires weighted_heatmap.py
+    # on PYTHONPATH (handled by EC2 user-data).
+    bp_head["target_generator"] = {
+        "type": "WeightedHeatmapGaussianGenerator",
+        "keypoint_weights": {1: 3.0, 2: 3.0},
+    }
+
+    # Scheduler milestones: adapt to epoch count.
+    milestones = [80, 110] if epochs <= 120 else [160, 190]
+    train_settings = pcfg.setdefault("train_settings", {})
+    scheduler = train_settings.setdefault("scheduler", {})
+    scheduler["type"] = "MultiStepLR"
+    scheduler.setdefault("params", {})["milestones"] = milestones
+    scheduler["params"]["gamma"] = 0.1
+
     with open(pytorch_cfg_path, "w") as f:
         yaml.dump(pcfg, f)
     print(
-        "  SA augmentation patch applied: rot=±30°, scale=0.7-1.3, "
-        "noise=10, brightness/contrast=±15%/±10%, flip H+V."
+        f"  SA augmentation patch applied: rot=±30°, scale=0.7-1.3, "
+        f"noise=10, brightness/contrast=±15%/±10%, flip H+V, "
+        f"locref=True, ear_weight=3.0, milestones={milestones}."
     )
 
 
-def _inject_wandb_logger(pytorch_cfg_path: Path, run_name: str) -> None:
+def _inject_wandb_logger(
+    pytorch_cfg_path: Path, run_name: str, *, tags: list[str] | None = None,
+) -> None:
     """Add W&B logger config to pytorch_config.yaml.
 
     DLC 3.x has native WandbLogger support via its logger registry.
     This injects the config block so training logs live to W&B.
+
+    Parameters
+    ----------
+    pytorch_cfg_path
+        Path to the shuffle's ``pytorch_config.yaml``.
+    run_name
+        Human-readable run name shown in the W&B dashboard.
+    tags
+        Optional list of tags for the W&B run (e.g. ``["sa-finetune"]``
+        or ``["imagenet"]``). Helps distinguish training paths in the
+        dashboard.
     """
     import yaml
 
     with open(pytorch_cfg_path) as f:
         pcfg = yaml.safe_load(f)
-    pcfg["logger"] = {
+    logger_cfg: dict = {
         "type": "WandbLogger",
         "project_name": "hm2p-dlc",
         "run_name": run_name,
         "image_log_interval": 10,
     }
+    if tags:
+        logger_cfg["tags"] = tags
+    pcfg["logger"] = logger_cfg
     with open(pytorch_cfg_path, "w") as f:
         yaml.dump(pcfg, f)
-    print(f"  W&B logger configured: project=hm2p-dlc, run={run_name}")
+    tag_str = f", tags={tags}" if tags else ""
+    print(f"  W&B logger configured: project=hm2p-dlc, run={run_name}{tag_str}")
 
 
 def _build_sa_notes(
@@ -715,12 +799,16 @@ def _train_sa_finetune(
         # writes the new shuffle last).
         latest = max(pytorch_cfgs, key=lambda p: p.stat().st_mtime)
         _check_sa_input_size(latest)
-        _apply_sa_augmentation_patch(latest)
-        _inject_wandb_logger(latest, f"SA-finetune-{epochs}ep")
+        _apply_sa_augmentation_patch(latest, epochs=epochs)
+        _inject_wandb_logger(
+            latest, f"SA-finetune-{epochs}ep",
+            tags=["sa-finetune", "hrnet-w32", "memory-replay"],
+        )
     else:
         print("  WARNING: no pytorch_config.yaml found post-create_training_dataset")
 
     lr = 5e-5
+    milestones = [80, 110] if epochs <= 120 else [160, 190]
     update_progress(s3, f"Training (SA): {epochs} epochs (lr={lr:g})")
     deeplabcut.train_network(
         str(config_path),
@@ -733,7 +821,7 @@ def _train_sa_finetune(
             "train_settings.optimizer.params.lr": lr,
             "model.backbone.freeze_bn_stats": True,
             "train_settings.scheduler.type": "MultiStepLR",
-            "train_settings.scheduler.params.milestones": [90, 110],
+            "train_settings.scheduler.params.milestones": milestones,
             "train_settings.scheduler.params.gamma": 0.1,
         },
     )
@@ -873,6 +961,7 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
         deeplabcut.evaluate_network(str(config_path), plotting=False)
         update_progress(s3, "Training (SA): per-bodypart RMSE")
         _compute_per_bodypart_rmse(s3, work, config_path)
+        _push_bodypart_rmse_to_wandb(work)
         update_progress(s3, "Training (SA): evaluation complete")
         _upload_model_artifacts(s3, work)
         update_progress(s3, "Training complete (SA fine-tune)")
@@ -919,6 +1008,30 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
                     head_cfg["locref_config"]["channels"] = [32, (n_bodyparts or 8) * 2]
         print(f"  Head channels: 32 → {n_bodyparts} bodyparts")
 
+        # Enable location refinement (locref) head for sub-pixel precision.
+        pcfg["model"]["generate_locref"] = True
+        bp_head = pcfg["model"].setdefault("heads", {}).setdefault("bodypart", {})
+        bp_head["locref_config"] = {
+            "channels": [32, 16],
+            "kernel_size": [1],
+            "strides": [1],
+        }
+
+        # Weighted heatmap target generator: upweight ears (indices 1, 2)
+        # for accurate HD angle computation.
+        bp_head["target_generator"] = {
+            "type": "WeightedHeatmapGaussianGenerator",
+            "keypoint_weights": {1: 3.0, 2: 3.0},
+        }
+
+        # Scheduler milestones: adapt to epoch count.
+        milestones = [80, 110] if epochs <= 120 else [160, 190]
+        sched = pcfg["train_settings"].setdefault("scheduler", {})
+        sched["type"] = "MultiStepLR"
+        sched.setdefault("params", {})["milestones"] = milestones
+        sched["params"]["gamma"] = 0.1
+        print(f"  Scheduler milestones: {milestones}")
+
         # Aggressive augmentation for overhead mouse tracking with
         # light/dark alternation and high pose variability.
         # Enable ImageNet pretraining (DLC HRNet template defaults to false)
@@ -962,7 +1075,10 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
         with open(pcfg_path, "w") as f:
             yaml.dump(pcfg, f)
         print(f"  Config updated: {pcfg_path.name}")
-        _inject_wandb_logger(pcfg_path, f"ImageNet-HRNet-{epochs}ep")
+        _inject_wandb_logger(
+            pcfg_path, f"ImageNet-HRNet-{epochs}ep",
+            tags=["imagenet", "hrnet-w32"],
+        )
 
     update_progress(s3, f"Training: HRNet-W32 ({epochs} epochs)")
 
@@ -984,6 +1100,7 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
     # Per-bodypart RMSE from DLC evaluation predictions.
     print("Computing per-bodypart RMSE...")
     _compute_per_bodypart_rmse(s3, work, config_path)
+    _push_bodypart_rmse_to_wandb(work)
 
     # Upload evaluation results (per-bodypart RMSE).
     # DLC may write these in evaluation-results/ or inside the model dir.

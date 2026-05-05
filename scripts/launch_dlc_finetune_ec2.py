@@ -234,6 +234,11 @@ cd /home/ubuntu
 git clone https://github.com/chaplinta/hm2p.git
 cd hm2p
 
+# Register the custom weighted heatmap target generator so DLC can
+# import WeightedHeatmapGaussianGenerator at training time. The module
+# lives in scripts/ — adding it to PYTHONPATH is sufficient.
+export PYTHONPATH="/home/ubuntu/hm2p/scripts:$PYTHONPATH"
+
 # Mark GPU as active during processing
 touch /tmp/gpu_processing_active
 python3 scripts/run_dlc_retrain.py {mode_flag}

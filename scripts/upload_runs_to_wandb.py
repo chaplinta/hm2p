@@ -53,33 +53,63 @@ def _get_s3_json(s3, key: str) -> dict | None:
         return None
 
 
+def _discover_learning_stats_key(s3) -> str | None:
+    """Find learning_stats.csv under the models prefix by listing S3.
+
+    DLC writes this file at varying paths depending on the project name,
+    shuffle, and iteration. Instead of hardcoding the path, we list all
+    objects and pick the first match.
+    """
+    prefix = f"{RETRAIN_PREFIX}/models/"
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            if obj["Key"].endswith("learning_stats.csv"):
+                log.info("Found learning_stats.csv: %s", obj["Key"])
+                return obj["Key"]
+    return None
+
+
 def upload_run(s3, run_name: str) -> None:
     import wandb
 
-    # Load learning stats
-    stats_key = (
-        f"{RETRAIN_PREFIX}/models/iteration-0/"
-        "hm2p-retrainMar20-trainset80shuffle1/train/learning_stats.csv"
-    )
+    # Load learning stats — discover the path dynamically since it
+    # varies by project name, shuffle index, and iteration.
+    stats_key = _discover_learning_stats_key(s3)
+    if stats_key is None:
+        log.error(
+            "No learning_stats.csv found under s3://%s/%s/models/",
+            DERIVATIVES_BUCKET,
+            RETRAIN_PREFIX,
+        )
+        return
     stats_text = _get_s3_text(s3, stats_key)
     if stats_text is None:
-        log.error("No learning_stats.csv on S3")
+        log.error("Could not read %s", stats_key)
         return
 
     rows = list(csv.DictReader(io.StringIO(stats_text)))
     log.info("Loaded %d epochs", len(rows))
 
-    # Load eval results
-    eval_key = (
-        f"{RETRAIN_PREFIX}/models/evaluation-results-pytorch/"
-        "iteration-0/CombinedEvaluation-results.csv"
-    )
-    eval_text = _get_s3_text(s3, eval_key)
+    # Load eval results — discover dynamically (path varies by DLC version)
+    eval_key = None
+    eval_prefix = f"{RETRAIN_PREFIX}/models/"
+    paginator = s3.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=eval_prefix):
+        for obj in page.get("Contents", []):
+            if obj["Key"].endswith("CombinedEvaluation-results.csv"):
+                eval_key = obj["Key"]
+                log.info("Found eval results: %s", eval_key)
+                break
+        if eval_key:
+            break
     eval_data = None
-    if eval_text:
-        eval_rows = list(csv.DictReader(io.StringIO(eval_text)))
-        if eval_rows:
-            eval_data = eval_rows[-1]
+    if eval_key:
+        eval_text = _get_s3_text(s3, eval_key)
+        if eval_text:
+            eval_rows = list(csv.DictReader(io.StringIO(eval_text)))
+            if eval_rows:
+                eval_data = eval_rows[-1]
 
     # Load extras
     notes_text = _get_s3_text(s3, f"{RETRAIN_PREFIX}/models/_sa_finetune_notes.txt")
@@ -146,11 +176,19 @@ def upload_run(s3, run_name: str) -> None:
         if summary:
             run.summary.update(summary)
 
-    # Log per-bodypart
+    # Log per-bodypart metrics (RMSE, median error, PCK)
     if bp_eval and "bodyparts" in bp_eval:
         for bp, data in bp_eval["bodyparts"].items():
             if data and data.get("rmse") is not None:
                 run.summary[f"bodypart/{bp}_rmse"] = data["rmse"]
+                if data.get("median_error") is not None:
+                    run.summary[f"bodypart/{bp}_median"] = data["median_error"]
+                if data.get("pck_5") is not None:
+                    run.summary[f"bodypart/{bp}_pck5"] = data["pck_5"]
+                if data.get("pck_10") is not None:
+                    run.summary[f"bodypart/{bp}_pck10"] = data["pck_10"]
+                if data.get("pck_20") is not None:
+                    run.summary[f"bodypart/{bp}_pck20"] = data["pck_20"]
 
     run.finish()
     log.info("Uploaded run '%s' to W&B project hm2p-dlc", run_name)
