@@ -163,6 +163,52 @@ def build_cache(video_path: str, sub: str, ses: str) -> dict | None:
     }
 
 
+def plot_pca(sub: str, ses: str, exp_id: str) -> None:
+    """Plot variance explained and PC1 vs PC2 scatter for a session."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    cache = load_cache(sub, ses)
+    if cache is None:
+        log.warning("  No cache for %s", exp_id)
+        return
+
+    pca = cache["pca"]
+    data_pca = cache["data_pca"]
+
+    plot_dir = CACHE_DIR / "plots"
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    tag = f"{sub}_{ses}"
+
+    # Variance explained
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+    var = pca.explained_variance_ratio_
+    cumvar = np.cumsum(var)
+    ax = axes[0]
+    ax.bar(range(1, len(var) + 1), var * 100, color="#1f77b4", alpha=0.7, label="Individual")
+    ax.plot(range(1, len(cumvar) + 1), cumvar * 100, "r-o", markersize=3, label="Cumulative")
+    ax.axhline(95, color="grey", linestyle="--", linewidth=0.8, label="95%")
+    ax.set_xlabel("Principal Component")
+    ax.set_ylabel("Variance Explained (%)")
+    ax.set_title(f"PCA Variance — {exp_id[:25]}")
+    ax.legend(fontsize=8)
+
+    # PC1 vs PC2 scatter
+    ax = axes[1]
+    ax.scatter(data_pca[:, 0], data_pca[:, 1], s=1, alpha=0.3, c="#1f77b4")
+    ax.set_xlabel(f"PC1 ({var[0]*100:.1f}%)")
+    ax.set_ylabel(f"PC2 ({var[1]*100:.1f}%)")
+    ax.set_title(f"PC1 vs PC2 — {exp_id[:25]}")
+
+    plt.tight_layout()
+    out_path = plot_dir / f"{tag}.png"
+    plt.savefig(out_path, dpi=150)
+    plt.close()
+    log.info("  Saved plot: %s", out_path)
+
+
 def load_cache(sub: str, ses: str) -> dict | None:
     """Load cached PCA data if it exists."""
     p = cache_path(sub, ses)
@@ -190,6 +236,8 @@ def main() -> None:
                         help="Only process primary, non-excluded sessions.")
     parser.add_argument("--force", action="store_true",
                         help="Rebuild cache even if it exists.")
+    parser.add_argument("--plot", action="store_true",
+                        help="Save variance + PC1 vs PC2 plots per session.")
     args = parser.parse_args()
 
     s3 = boto3.client("s3", region_name=REGION)
@@ -211,7 +259,10 @@ def main() -> None:
         exp_id = ses_info["exp_id"]
 
         if not args.force and cache_path(sub, ses).exists():
-            log.info("  %s: cache exists, skipping", exp_id[:25])
+            if args.plot:
+                plot_pca(sub, ses, exp_id)
+            else:
+                log.info("  %s: cache exists, skipping", exp_id[:25])
             skipped += 1
             continue
 
@@ -229,12 +280,16 @@ def main() -> None:
         result = build_cache(str(video_path), sub, ses)
         if result is not None:
             built += 1
+            if args.plot:
+                plot_pca(sub, ses, exp_id)
 
         if tmp_dir:
             import shutil
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     print(f"\nBuilt {built} caches, skipped {skipped} existing")
+    if args.plot:
+        print(f"Plots saved to {CACHE_DIR / 'plots'}/")
 
 
 if __name__ == "__main__":
