@@ -853,6 +853,12 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
         _compute_per_bodypart_rmse(s3, work, config_path)
         update_progress(s3, "Training (SA): evaluation complete")
         _upload_model_artifacts(s3, work)
+        # Log to MLflow (best-effort — don't block on failure)
+        try:
+            from log_dlc_to_mlflow import import_run
+            import_run(s3, run_name=f"SA-finetune-{epochs}ep")
+        except Exception as e:
+            print(f"  MLflow logging failed (non-fatal): {e}")
         update_progress(s3, "Training complete (SA fine-tune)")
         return config_path
 
@@ -1007,6 +1013,13 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
             break
     else:
         print("  WARNING: no model directory found")
+
+    # Log to MLflow (best-effort)
+    try:
+        from log_dlc_to_mlflow import import_run
+        import_run(s3, run_name=f"ImageNet-HRNet-{epochs}ep")
+    except Exception as e:
+        print(f"  MLflow logging failed (non-fatal): {e}")
 
     update_progress(s3, "Training complete", maxiters=maxiters)
     return config_path
