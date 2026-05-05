@@ -275,8 +275,7 @@ def read_thumbnails(
 def process_session(
     s3: Any,
     ses_info: dict,
-    n_clusters: int,
-    max_new: int | None,
+    n_new: int,
     dry_run: bool,
 ) -> int:
     """PCA + k-means selection for one session."""
@@ -309,12 +308,12 @@ def process_session(
     # Read thumbnails for sampled frames
     log.info("  Reading thumbnails at %dx%d...", THUMB_SIZE, THUMB_SIZE)
     data, valid_indices = read_thumbnails(str(video_path), all_indices)
-    if len(data) < n_clusters:
-        log.warning("  Too few frames (%d) for %d clusters", len(data), n_clusters)
-        if tmp_dir:
-            import shutil
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-        return 0
+    # Set k = existing + n_new so there are enough clusters for both
+    n_existing = len(existing_indices)
+    k = n_existing + n_new
+    if len(data) < k:
+        log.warning("  Too few sampled frames (%d) for %d clusters", len(data), k)
+        k = len(data)
 
     # PCA: keep components explaining 95% of variance
     log.info("  PCA (%.0f%% variance)...", PCA_VARIANCE * 100)
@@ -325,17 +324,15 @@ def process_session(
              THUMB_SIZE * THUMB_SIZE)
 
     # K-means
-    k = min(n_clusters, len(data_pca))
-    log.info("  K-means clustering %d frames into %d clusters...",
-             len(data_pca), k)
+    log.info("  K-means clustering %d frames into %d clusters (%d existing + %d new)...",
+             len(data_pca), k, n_existing, n_new)
     kmeans = MiniBatchKMeans(
         n_clusters=k, batch_size=min(100, len(data_pca)),
         max_iter=50, n_init=3,
     )
     kmeans.fit(data_pca)
 
-    # Map existing frames to their clusters.
-    # Read thumbnails of existing frames and project into PCA space.
+    # Map existing frames to their clusters
     existing_list = sorted(existing_indices)
     occupied_clusters: set[int] = set()
     if existing_list:
@@ -347,7 +344,7 @@ def process_session(
             log.info("  Existing frames occupy %d / %d clusters",
                      len(occupied_clusters), k)
 
-    # Find empty clusters and pick closest frame to centroid
+    # Pick from empty clusters (closest to centroid), up to n_new
     selected = []
     for cluster_id in range(k):
         if cluster_id in occupied_clusters:
@@ -360,13 +357,11 @@ def process_session(
         dists = np.linalg.norm(data_pca[member_local] - centre, axis=1)
         best = member_local[np.argmin(dists)]
         selected.append(valid_indices[best])
+        if len(selected) >= n_new:
+            break
 
-    # Apply max_new limit
-    if max_new is not None and len(selected) > max_new:
-        selected = selected[:max_new]
-
-    log.info("  %d empty clusters → %d new frames to extract",
-             k - len(occupied_clusters), len(selected))
+    log.info("  Selected %d new frames from %d empty clusters",
+             len(selected), k - len(occupied_clusters))
 
     if not selected:
         if tmp_dir:
@@ -426,8 +421,6 @@ def main() -> None:
                         help="Max total new frames across all sessions.")
     parser.add_argument("--primary-only", action="store_true",
                         help="Only process primary, non-excluded sessions.")
-    parser.add_argument("--k", type=int, default=N_CLUSTERS,
-                        help=f"Number of k-means clusters (default {N_CLUSTERS}).")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be selected without extracting.")
     args = parser.parse_args()
@@ -435,6 +428,10 @@ def main() -> None:
     if args.scan:
         scan_sessions()
         return
+
+    if args.per_session is None and args.min_per_session is None and args.total is None:
+        print("Specify --per-session, --min-per-session, or --total")
+        sys.exit(1)
 
     s3 = boto3.client("s3", region_name=REGION)
     sessions = get_sessions()
@@ -453,7 +450,7 @@ def main() -> None:
         sub, ses = ses_info["sub"], ses_info["ses"]
         existing_count = count_existing_pngs(sub, ses)
 
-        max_new = args.per_session
+        n_new = args.per_session
 
         if args.min_per_session is not None:
             need = args.min_per_session - existing_count
@@ -461,25 +458,27 @@ def main() -> None:
                 log.info("  %s: already has %d frames (>= %d), skipping",
                          ses_info["exp_id"][:25], existing_count, args.min_per_session)
                 continue
-            if max_new is None:
-                max_new = need
+            if n_new is None:
+                n_new = need
             else:
-                max_new = min(max_new, need)
+                n_new = min(n_new, need)
 
         if args.total is not None:
             remaining = args.total - total_new
             if remaining <= 0:
                 break
-            if max_new is None:
-                max_new = remaining
+            if n_new is None:
+                n_new = remaining
             else:
-                max_new = min(max_new, remaining)
+                n_new = min(n_new, remaining)
 
-        log.info("\n=== %s (have %d%s) ===",
-                 ses_info["exp_id"], existing_count,
-                 f", max {max_new} new" if max_new else "")
+        if n_new is None or n_new <= 0:
+            continue
 
-        n = process_session(s3, ses_info, args.k, max_new, args.dry_run)
+        log.info("\n=== %s (have %d, selecting %d new) ===",
+                 ses_info["exp_id"], existing_count, n_new)
+
+        n = process_session(s3, ses_info, n_new, args.dry_run)
         total_new += n
 
     print(f"\nTotal new frames extracted: {total_new}")
