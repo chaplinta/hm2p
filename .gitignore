@@ -104,3 +104,4 @@ docker/.env
 review_frames/*.png
 metadata/pca_cache/
 tmp_thumbnails/
+wandb/
