@@ -632,10 +632,12 @@ def _apply_sa_augmentation_patch(pytorch_cfg_path: Path, *, epochs: int = 120) -
     pcfg["model"]["generate_locref"] = True
     heads = pcfg["model"].setdefault("heads", {})
     bp_head = heads.setdefault("bodypart", {})
+    # Match heatmap stride (DLC default is 2 for HRNet heads).
+    heatmap_stride = bp_head.get("heatmap_config", {}).get("strides", [2])
     bp_head["locref_config"] = {
         "channels": [32, 16],
         "kernel_size": [1],
-        "strides": [1],
+        "strides": heatmap_stride,
     }
 
     # Scheduler milestones: adapt to epoch count.
@@ -1016,10 +1018,11 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
         # Enable location refinement (locref) head for sub-pixel precision.
         pcfg["model"]["generate_locref"] = True
         bp_head = pcfg["model"].setdefault("heads", {}).setdefault("bodypart", {})
+        heatmap_stride = bp_head.get("heatmap_config", {}).get("strides", [2])
         bp_head["locref_config"] = {
             "channels": [32, 16],
             "kernel_size": [1],
-            "strides": [1],
+            "strides": heatmap_stride,
         }
 
         # Scheduler milestones: adapt to epoch count.
