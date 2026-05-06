@@ -483,7 +483,7 @@ def _resolve_epochs(epochs: int | None, *, sa_finetune: bool) -> int:
     """Resolve the default ``--epochs`` to 120 (SA) or 400 (ImageNet)."""
     if epochs is not None:
         return epochs
-    return 120 if sa_finetune else 400
+    return 200 if sa_finetune else 400
 
 
 def main() -> None:
