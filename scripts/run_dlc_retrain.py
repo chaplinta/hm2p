@@ -638,14 +638,6 @@ def _apply_sa_augmentation_patch(pytorch_cfg_path: Path, *, epochs: int = 120) -
         "strides": [1],
     }
 
-    # Weighted heatmap target generator: upweight ears (indices 1, 2)
-    # for accurate HD angle computation. Requires weighted_heatmap.py
-    # on PYTHONPATH (handled by EC2 user-data).
-    bp_head["target_generator"] = {
-        "type": "WeightedHeatmapGaussianGenerator",
-        "keypoint_weights": {1: 3.0, 2: 3.0},
-    }
-
     # Scheduler milestones: adapt to epoch count.
     milestones = [80, 110] if epochs <= 120 else [160, 190]
     train_settings = pcfg.setdefault("train_settings", {})
@@ -1028,13 +1020,6 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
             "channels": [32, 16],
             "kernel_size": [1],
             "strides": [1],
-        }
-
-        # Weighted heatmap target generator: upweight ears (indices 1, 2)
-        # for accurate HD angle computation.
-        bp_head["target_generator"] = {
-            "type": "WeightedHeatmapGaussianGenerator",
-            "keypoint_weights": {1: 3.0, 2: 3.0},
         }
 
         # Scheduler milestones: adapt to epoch count.
