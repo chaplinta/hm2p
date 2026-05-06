@@ -174,10 +174,16 @@ def extract_frames(video_path: Path, frame_indices: list[int], dest_dir: Path) -
     return written
 
 
-def symlink_into_labeled_data(src_dir: Path, labeled_dir: Path) -> int:
+def symlink_into_labeled_data(
+    src_dir: Path, labeled_dir: Path, frame_indices: list[int],
+) -> int:
+    """Symlink only the specified frames, not everything in src_dir."""
     labeled_dir.mkdir(parents=True, exist_ok=True)
     linked = 0
-    for png in sorted(src_dir.glob("frame_*.png")):
+    for idx in frame_indices:
+        png = src_dir / f"frame_{int(idx):06d}.png"
+        if not png.exists():
+            continue
         dest = labeled_dir / png.name
         if not dest.exists():
             rel = os.path.relpath(png.resolve(), labeled_dir.resolve())
@@ -402,7 +408,7 @@ def process_session(
     if ld is None:
         clip_name = f"{exp_id}_maze-rose_overhead.camera-cropped"
         ld = LABELED_DIR / clip_name
-    n_linked = symlink_into_labeled_data(retrain_dir, ld)
+    n_linked = symlink_into_labeled_data(retrain_dir, ld, selected)
     log.info("  Symlinked %d new frames into %s/", n_linked, ld.name)
 
     # Update metadata
