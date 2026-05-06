@@ -220,24 +220,16 @@ else:
     print('transforms.py already patched')
 " || echo "WARNING: DLC brightness patch failed (non-fatal)"
 
-# Patch DLC memory_replay.py to handle missing 'bboxes'/'bodyparts' keys.
-# DLC 3.0rc13 assumes detector always returns these, but when no animal
-# is detected the keys are absent → KeyError at lines 120 and 217.
-# Fix: sed-insert a setdefault line before the assignment.
-MR_FILE=$(python3 -c "import deeplabcut,inspect,pathlib; print(pathlib.Path(inspect.getfile(deeplabcut)).parent / 'pose_estimation_pytorch' / 'modelzoo' / 'memory_replay.py')" 2>/dev/null | tail -1)
-if grep -q 'sa_predictions\[image\] = prediction' "$MR_FILE" && ! grep -q 'hm2p patch' "$MR_FILE"; then
-    sed -i '/sa_predictions\[image\] = prediction/i\\        prediction.setdefault("bboxes", []); prediction.setdefault("bodyparts", [])  # hm2p patch' "$MR_FILE"
-    echo "Patched memory_replay.py: setdefault for bboxes/bodyparts"
-else
-    echo "memory_replay.py: already patched or marker not found"
-fi
-
 # Clone repo and run — disable set -e so Python errors don't kill
 # the script before the EXIT trap can upload logs.
 set +e
 cd /home/ubuntu
 git clone https://github.com/chaplinta/hm2p.git
 cd hm2p
+
+# Patch DLC memory_replay.py bug (KeyError on missing bboxes/bodyparts).
+# Standalone Python script avoids all bash quoting issues.
+python3 scripts/patch_dlc_memory_replay.py || echo "WARNING: memory_replay patch failed (non-fatal)"
 
 # Register the custom weighted heatmap target generator so DLC can
 # import WeightedHeatmapGaussianGenerator at training time. The module
