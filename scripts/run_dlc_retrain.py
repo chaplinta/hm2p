@@ -627,19 +627,6 @@ def _apply_sa_augmentation_patch(pytorch_cfg_path: Path, *, epochs: int = 120) -
         {"brightness_limit": 0.15, "contrast_limit": 0.10, "p": 0.5},
     )
 
-    # Enable location refinement (locref) head for sub-pixel precision.
-    pcfg.setdefault("model", {})
-    pcfg["model"]["generate_locref"] = True
-    heads = pcfg["model"].setdefault("heads", {})
-    bp_head = heads.setdefault("bodypart", {})
-    # Match heatmap stride (DLC default is 2 for HRNet heads).
-    heatmap_stride = bp_head.get("heatmap_config", {}).get("strides", [2])
-    bp_head["locref_config"] = {
-        "channels": [32, 16],
-        "kernel_size": [1],
-        "strides": heatmap_stride,
-    }
-
     # Scheduler milestones: adapt to epoch count.
     milestones = [80, 110] if epochs <= 120 else [160, 190]
     train_settings = pcfg.setdefault("train_settings", {})
@@ -1014,16 +1001,6 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
                 if "locref_config" in head_cfg:
                     head_cfg["locref_config"]["channels"] = [32, (n_bodyparts or 8) * 2]
         print(f"  Head channels: 32 → {n_bodyparts} bodyparts")
-
-        # Enable location refinement (locref) head for sub-pixel precision.
-        pcfg["model"]["generate_locref"] = True
-        bp_head = pcfg["model"].setdefault("heads", {}).setdefault("bodypart", {})
-        heatmap_stride = bp_head.get("heatmap_config", {}).get("strides", [2])
-        bp_head["locref_config"] = {
-            "channels": [32, 16],
-            "kernel_size": [1],
-            "strides": heatmap_stride,
-        }
 
         # Scheduler milestones: adapt to epoch count.
         milestones = [80, 110] if epochs <= 120 else [160, 190]
