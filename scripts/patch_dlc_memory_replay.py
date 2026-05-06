@@ -45,12 +45,7 @@ def patch() -> bool:
 
     patched = False
 
-    # Patch 1: get_pose_predictions serialisation (line ~120)
-    old1 = '"bboxes": predictions["bboxes"].tolist(),'
-    new1 = '"bboxes": predictions.get("bboxes", []) if not hasattr(predictions.get("bboxes"), "tolist") else predictions["bboxes"].tolist(),  # hm2p-patched'
-
-    # Simpler: just guard with .get() and handle both cases
-    # Actually simplest: add setdefault before the dict comprehension
+    # Patch 1: setdefault after inference loop
     old_block = "    for image, prediction in zip(images_to_process, predictions):\n        sa_predictions[image] = prediction"
     new_block = (
         "    for image, prediction in zip(images_to_process, predictions):\n"
@@ -64,12 +59,22 @@ def patch() -> bool:
         patched = True
         print("Patched get_pose_predictions (setdefault for bboxes/bodyparts)")
 
-    # Patch 2: prepare_memory_replay_dataset consumption (line ~217)
-    old2 = 'prediction["bboxes"]'
-    new2 = 'prediction.get("bboxes", [])'
+    # Patch 2: dict comprehension serialisation — guard .tolist() calls
+    old_serial = (
+        '            "bodyparts": predictions["bodyparts"].tolist(),\n'
+        '            "bboxes": predictions["bboxes"].tolist(),'
+    )
+    new_serial = (
+        '            "bodyparts": predictions["bodyparts"].tolist() if hasattr(predictions.get("bodyparts"), "tolist") else predictions.get("bodyparts", []),  # hm2p-patched\n'
+        '            "bboxes": predictions["bboxes"].tolist() if hasattr(predictions.get("bboxes"), "tolist") else predictions.get("bboxes", []),  # hm2p-patched'
+    )
 
-    # Only replace in the prepare_memory_replay_dataset context
-    # Find the function and replace within it
+    if old_serial in code:
+        code = code.replace(old_serial, new_serial)
+        patched = True
+        print("Patched get_pose_predictions (dict comprehension .tolist() guard)")
+
+    # Patch 3: prepare_memory_replay_dataset bbox consumption
     old_line2 = 'bbox_preds = [xywh2xyxy(pred) for pred in prediction["bboxes"]]'
     new_line2 = 'bbox_preds = [xywh2xyxy(pred) for pred in prediction.get("bboxes", [])]  # hm2p-patched'
 
@@ -78,7 +83,7 @@ def patch() -> bool:
         patched = True
         print("Patched prepare_memory_replay_dataset (bbox_preds .get())")
 
-    # Patch 3: bodyparts access in the same function
+    # Patch 4: bodyparts access in prepare_memory_replay_dataset
     old_line3 = 'matched_pred = prediction["bodyparts"][optimal_index]'
     new_line3 = 'matched_pred = prediction.get("bodyparts", [None] * (optimal_index + 1))[optimal_index] if prediction.get("bodyparts") and optimal_index < len(prediction.get("bodyparts", [])) else None  # hm2p-patched'
 
