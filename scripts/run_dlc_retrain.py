@@ -1573,22 +1573,37 @@ def main() -> None:
             config_path = work / "config.yaml"
             s3.download_file(DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/config.yaml", str(config_path))
 
-            # Download model weights
+            # Download model weights + training-datasets metadata
             print("Downloading model weights from S3...")
-            resp = s3.list_objects_v2(
-                Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/"
-            )
-            model_files = resp.get("Contents", [])
-            if not model_files:
+            paginator = s3.get_paginator("list_objects_v2")
+            n_model = 0
+            for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/"):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    rel = key[len(f"{RETRAIN_PREFIX}/models/"):]
+                    if not rel or rel.startswith("_"):
+                        continue
+                    dest = work / "dlc-models-pytorch" / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    s3.download_file(DERIVATIVES_BUCKET, key, str(dest))
+                    n_model += 1
+            if n_model == 0:
                 print("ERROR: no model weights on S3. Run training first.")
                 sys.exit(1)
-            for obj in model_files:
-                key = obj["Key"]
-                rel = key[len(f"{RETRAIN_PREFIX}/models/"):]
-                dest = work / "dlc-models-pytorch" / rel
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                s3.download_file(DERIVATIVES_BUCKET, key, str(dest))
-            print(f"  Downloaded {len(model_files)} model files")
+            print(f"  Downloaded {n_model} model files")
+
+            # Download training-datasets (needed by analyze_videos for shuffle metadata)
+            print("Downloading training-datasets metadata...")
+            n_td = 0
+            for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/training-datasets/"):
+                for obj in page.get("Contents", []):
+                    key = obj["Key"]
+                    rel = key[len(f"{RETRAIN_PREFIX}/"):]
+                    dest = work / rel
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    s3.download_file(DERIVATIVES_BUCKET, key, str(dest))
+                    n_td += 1
+            print(f"  Downloaded {n_td} training-dataset files")
 
             # Fix project_path in config
             import yaml
