@@ -846,6 +846,14 @@ def _upload_model_artifacts(s3, work: Path) -> None:
         if not dlc_train_dir.exists():
             continue
         print(f"  Found {model_dir_name}/")
+        # Delete old snapshots on S3 to prevent model architecture mismatches
+        # when multiple training runs upload to the same prefix.
+        print("  Cleaning old snapshots from S3...")
+        _paginator = s3.get_paginator("list_objects_v2")
+        for _page in _paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/iteration-0/"):
+            for _obj in _page.get("Contents", []):
+                if "snapshot" in _obj["Key"]:
+                    s3.delete_object(Bucket=DERIVATIVES_BUCKET, Key=_obj["Key"])
         n_files = 0
         for f in dlc_train_dir.rglob("*"):
             if f.is_file():
