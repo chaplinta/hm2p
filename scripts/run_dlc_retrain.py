@@ -1236,20 +1236,22 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
 
             video = mp4s[0]
 
-            # Subsample to 30fps. The median filter window in the kinematics
-            # pipeline (currently 3 frames) is tuned for ~100ms at 30fps.
-            # If this frame rate changes, update the window in
-            # src/hm2p/kinematics/compute.py:median_filter_dataset() and
-            # scripts/render_dlc_videos.py to maintain ~100ms smoothing.
+            # Subsample to 30fps for consistent frame rate across sessions.
             sub_path = work / f"{video.stem}_30fps.mp4"
-            subprocess.run(
+            ffmpeg_result = subprocess.run(
                 ["ffmpeg", "-y", "-i", str(video),
                  "-vf", "fps=30", "-vsync", "drop",
                  "-c:v", "libx264", "-preset", "fast", "-crf", "18",
                  str(sub_path)],
                 capture_output=True,
             )
-            dlc_video = sub_path if sub_path.exists() else video
+            if sub_path.exists() and sub_path.stat().st_size > 1000:
+                dlc_video = sub_path
+            else:
+                print(f"  WARNING: ffmpeg 30fps subsample failed (rc={ffmpeg_result.returncode}), using original video")
+                if ffmpeg_result.stderr:
+                    print(f"  ffmpeg stderr: {ffmpeg_result.stderr.decode()[-200:]}")
+                dlc_video = video
 
             # Run inference
             out_dir = work / "output"
