@@ -1,7 +1,7 @@
 # bioRxiv Scan — 10 May 2026
 
 Literature scan for recent preprints relevant to the hm2p project: two-photon calcium
-imaging of Penk+ and Penk⁺CamKII+ RSP head-direction cells in freely moving mice,
+imaging of Penk+ and Penk⁻CamKII+ RSP head-direction cells in freely moving mice,
 light/dark alternation in a rose maze.
 
 Search date: 2026-05-10. Scan window: May 10, 2026 (the May 9 scan covered through
@@ -85,7 +85,7 @@ May 3, May 5, May 6, May 8, May 9, and May 10.
 **Cumulative picture across all scans (April 2–May 10, 39 days, 20 scans):**
 
 No preprint has characterised HD tuning of genetically defined RSP neuron populations
-(Penk+ or Penk⁺CamKII+) across any scan window. No paper combining RSP, calcium
+(Penk+ or Penk⁻CamKII+) across any scan window. No paper combining RSP, calcium
 imaging, and visual landmark removal has appeared since the Tian et al. 2026 MEC paper
 captured in the April 2 scan. The Penk+ cortical navigation literature gap is unchanged
 after seventeen consecutive silent cycles on that topic.
