@@ -97,6 +97,29 @@ _NECK: str = "neck"
 # Keypoints used for body centroid position
 _BODY_KEYPOINTS: tuple[str, ...] = ("mid_back", "mouse_center", "tail_base")
 
+# SuperAnimal → project bodypart name mapping.
+# The SA model outputs "nose" instead of "nose_tip" and
+# "implant_base_rear" maps to "head_midpoint". Other names match.
+_SA_TO_PROJECT_NAMES: dict[str, str] = {
+    "nose": "nose_tip",
+    "implant_base_rear": "head_midpoint",
+}
+
+
+def rename_sa_bodyparts(ds):
+    """Rename SuperAnimal bodypart names to project names in an xarray Dataset.
+
+    Operates in-place on the ``keypoints`` coordinate. Safe to call
+    on datasets that already use project names (no-op).
+    """
+    if "keypoints" not in ds.coords:
+        return ds
+    current = list(ds.coords["keypoints"].values)
+    renamed = [_SA_TO_PROJECT_NAMES.get(k, k) for k in current]
+    if renamed != current:
+        ds = ds.assign_coords(keypoints=renamed)
+    return ds
+
 
 # ---------------------------------------------------------------------------
 # Pure helper functions (no I/O — fully unit-testable)
@@ -738,8 +761,12 @@ def load_pose_dataset(pose_path: Path, tracker: str) -> xr.Dataset:
     import inspect
     sig = inspect.signature(load_poses.from_file)
     if "file_path" in sig.parameters:
-        return load_poses.from_file(file_path=pose_path, source_software=source_software)
-    return load_poses.from_file(file=pose_path, source_software=source_software)
+        ds = load_poses.from_file(file_path=pose_path, source_software=source_software)
+    else:
+        ds = load_poses.from_file(file=pose_path, source_software=source_software)
+    # Rename SA bodypart names to project names (e.g. "nose" → "nose_tip")
+    ds = rename_sa_bodyparts(ds)
+    return ds
 
 
 def apply_orientation_rotation(ds: xr.Dataset, angle_deg: float) -> xr.Dataset:
