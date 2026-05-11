@@ -50,7 +50,7 @@ from ec2_utils import (
 
 # Keep a local alias for the AMI variable name used below
 AMI = AMI_ID
-INSTANCE_TYPE = "g4dn.xlarge"  # fallback from g5.xlarge (capacity issues)
+INSTANCE_TYPE = "g4dn.2xlarge"  # 32 GB RAM (xlarge OOM'd on parallel prefetch)
 TAG_NAME = "hm2p-dlc-retrain"
 
 
