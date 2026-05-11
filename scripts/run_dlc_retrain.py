@@ -1254,7 +1254,7 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
     print(f"\n=== Prefetching {total} videos (parallel download + ffmpeg) ===")
     update_progress(s3, "Prefetching videos", total=total)
     prefetched: dict[str, Path | None] = {}
-    with ThreadPoolExecutor(max_workers=1) as pool:  # sequential — 3 OOM'd
+    with ThreadPoolExecutor(max_workers=2) as pool:  # 3 OOM'd on g4dn.xlarge
         futures = {pool.submit(_prefetch_session, ses): ses for ses in sessions}
         for future in as_completed(futures):
             exp_id_done, video_path = future.result()
