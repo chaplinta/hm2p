@@ -236,8 +236,8 @@ python3 scripts/patch_dlc_memory_replay.py || echo "WARNING: memory_replay patch
 # lives in scripts/ — adding it to PYTHONPATH is sufficient.
 export PYTHONPATH="/home/ubuntu/hm2p/scripts:$PYTHONPATH"
 
-# Mark GPU as active during processing
-touch /tmp/gpu_processing_active
+# GPU watchdog flag is created by the Python script AFTER prefetch
+# completes (not here), so the watchdog doesn't kill during download.
 python3 scripts/run_dlc_retrain.py {mode_flag}
 rm -f /tmp/gpu_processing_active
 

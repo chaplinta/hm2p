@@ -917,6 +917,9 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
         check=True,
     )
 
+    # Signal GPU watchdog that processing is starting.
+    Path("/tmp/gpu_processing_active").touch()
+
     config_path = work / "config.yaml"
     if not config_path.exists():
         raise FileNotFoundError("No config.yaml in S3 dlc-retrain/")
@@ -1263,6 +1266,9 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
             status = "skip" if video_path is None else video_path.name
             print(f"  [{n_done}/{total}] {exp_id_done[:25]}: {status}")
     print(f"Prefetch complete: {len(prefetched)} sessions")
+
+    # Signal GPU watchdog that processing is starting (prefetch was CPU-only).
+    Path("/tmp/gpu_processing_active").touch()
 
     # --- Phase 2: sequential GPU inference ---
     for i, ses in enumerate(sessions, 1):
