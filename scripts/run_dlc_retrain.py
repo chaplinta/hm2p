@@ -1208,73 +1208,22 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
     run_id = datetime.datetime.utcnow().isoformat() + "Z"
     instance_id = get_instance_id()
 
-    # --- Phase 1: parallel download + ffmpeg subsample ---
-    # Download and subsample all videos to 30fps in parallel (I/O-bound).
-    # This runs before inference so the GPU doesn't wait on downloads.
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    def _prefetch_session(ses_info: dict) -> tuple[str, Path | None]:
-        """Download video and subsample to 30fps. Returns (exp_id, video_path)."""
-        _sub, _ses_id = ses_info["sub"], ses_info["ses"]
-        _exp_id = ses_info["exp_id"]
-        _s3 = boto3.client("s3", region_name=REGION)
-
-        # Skip if already has results
-        existing_resp = _s3.list_objects_v2(
-            Bucket=DERIVATIVES_BUCKET,
-            Prefix=f"{FINETUNED_PREFIX}/{_sub}/{_ses_id}/",
-            MaxKeys=1,
-        )
-        if existing_resp.get("Contents"):
-            return (_exp_id, None)  # None signals "skip"
-
-        _work = Path(f"/tmp/dlc-infer/{_sub}/{_ses_id}")
-        _work.mkdir(parents=True, exist_ok=True)
-        video_dir = _work / "behav"
-        video_dir.mkdir(parents=True, exist_ok=True)
-        _download_session_video(_s3, RAWDATA_BUCKET, _sub, _ses_id, video_dir)
-
-        mp4s = list(video_dir.glob("*overhead*.mp4")) + list(video_dir.glob("*cropped*.mp4"))
-        if not mp4s:
-            mp4s = list(video_dir.glob("*.mp4"))
-        if not mp4s:
-            return (_exp_id, None)
-
-        video = mp4s[0]
-        sub_path = _work / f"{video.stem}_30fps.mp4"
-        if not sub_path.exists():
-            subprocess.run(
-                ["ffmpeg", "-y", "-i", str(video),
-                 "-r", "30",
-                 "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                 str(sub_path)],
-                capture_output=True,
-            )
-        if sub_path.exists() and sub_path.stat().st_size > 1000:
-            return (_exp_id, sub_path)
-        return (_exp_id, video)
-
-    print(f"\n=== Prefetching {total} videos (parallel download + ffmpeg) ===")
-    update_progress(s3, "Prefetching videos", total=total)
-    prefetched: dict[str, Path | None] = {}
-    with ThreadPoolExecutor(max_workers=4) as pool:  # g4dn.2xlarge has 32 GB RAM
-        futures = {pool.submit(_prefetch_session, ses): ses for ses in sessions}
-        for future in as_completed(futures):
-            exp_id_done, video_path = future.result()
-            prefetched[exp_id_done] = video_path
-            n_done = len(prefetched)
-            status = "skip" if video_path is None else video_path.name
-            print(f"  [{n_done}/{total}] {exp_id_done[:25]}: {status}")
-    print(f"Prefetch complete: {len(prefetched)} sessions")
-
-    # Signal GPU watchdog that processing is starting (prefetch was CPU-only).
-    Path("/tmp/gpu_processing_active").touch()
-
-    # --- Phase 2: sequential GPU inference ---
+    # --- Sequential: download, subsample, infer, upload, cleanup per session ---
     for i, ses in enumerate(sessions, 1):
         sub, ses_id = ses["sub"], ses["ses"]
         exp_id = ses["exp_id"]
         print(f"\n=== [{i}/{total}] {sub}/{ses_id} ===")
+
+        # Skip sessions that already have results
+        existing_resp = s3.list_objects_v2(
+            Bucket=DERIVATIVES_BUCKET,
+            Prefix=f"{FINETUNED_PREFIX}/{sub}/{ses_id}/",
+            MaxKeys=1,
+        )
+        if existing_resp.get("Contents"):
+            print("  Already has results, skipping")
+            completed.append(exp_id)
+            continue
 
         # Progress: session starting
         update_progress(
@@ -1283,18 +1232,45 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
             current_session=exp_id,
         )
 
-        # Use prefetched video (already downloaded + subsampled)
-        dlc_video_path = prefetched.get(exp_id)
-        if dlc_video_path is None:
-            print(f"  Skipped (already has results or no video)")
-            completed.append(exp_id)
-            continue
-
         work = Path(f"/tmp/dlc-infer/{sub}/{ses_id}")
         work.mkdir(parents=True, exist_ok=True)
-        dlc_video = dlc_video_path
 
         try:
+            # Download video
+            video_dir = work / "behav"
+            video_dir.mkdir(parents=True, exist_ok=True)
+            _download_session_video(s3, RAWDATA_BUCKET, sub, ses_id, video_dir)
+
+            mp4s = list(video_dir.glob("*overhead*.mp4")) + list(video_dir.glob("*cropped*.mp4"))
+            if not mp4s:
+                mp4s = list(video_dir.glob("*.mp4"))
+            if not mp4s:
+                print("  No video found, skipping")
+                failed.append(exp_id)
+                continue
+
+            video = mp4s[0]
+
+            # Subsample to 30fps
+            sub_path = work / f"{video.stem}_30fps.mp4"
+            ffmpeg_result = subprocess.run(
+                ["ffmpeg", "-y", "-i", str(video),
+                 "-r", "30",
+                 "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+                 str(sub_path)],
+                capture_output=True,
+            )
+            if sub_path.exists() and sub_path.stat().st_size > 1000:
+                dlc_video = sub_path
+                print(f"  Subsampled to 30fps: {sub_path.name}")
+            else:
+                print(f"  WARNING: ffmpeg failed (rc={ffmpeg_result.returncode}), using original")
+                if ffmpeg_result.stderr:
+                    print(f"  stderr: {ffmpeg_result.stderr.decode()[-300:]}")
+                dlc_video = video
+
+            # Signal GPU watchdog (first session only)
+            Path("/tmp/gpu_processing_active").touch()
 
             # Run inference
             out_dir = work / "output"
