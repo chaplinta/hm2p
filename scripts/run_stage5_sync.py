@@ -138,18 +138,23 @@ def run_session(
         # Report output stats
         with h5py.File(output_path, "r") as f:
             keys = list(f.keys())
-            ft_len = f["frame_times"].shape[0]
-            dff_out = f["dff"].shape
-            print(f"  sync.h5 keys: {keys}")
-            print(f"  ROIs: {dff_out[0]}, imaging frames: {dff_out[1]}")
-            print(f"  frame_times length: {ft_len}")
+            sync_status = f.attrs.get("sync_status", "unknown")
+            print(f"  sync.h5 keys: {len(keys)} datasets, sync_status={sync_status}")
 
-            # Check kinematics-to-imaging match
-            for k in ("hd_deg", "x_mm", "y_mm", "speed_cm_s"):
-                if k in f:
-                    print(f"  {k} length: {f[k].shape[0]} (resampled)")
+            if "frame_times" not in f or "dff" not in f:
+                # Stub output — sync classified as FAILED
+                print(f"  WARNING: sync.h5 is a stub (sync_status={sync_status})")
+                print(f"  Available keys: {keys[:10]}")
+            else:
+                ft_len = f["frame_times"].shape[0]
+                dff_out = f["dff"].shape
+                print(f"  ROIs: {dff_out[0]}, imaging frames: {dff_out[1]}")
+                print(f"  frame_times length: {ft_len}")
+                for k in ("hd_deg", "x_mm", "y_mm", "speed_cm_s"):
+                    if k in f:
+                        print(f"  {k} length: {f[k].shape[0]} (resampled)")
 
-        # Upload to S3 with verify — raises RuntimeError on failure, ensuring non-zero exit
+        # Upload to S3 with verify
         print(f"  Uploading to s3://{DERIVATIVES_BUCKET}/{sync_key}")
         s3_upload_with_verify(s3, output_path, DERIVATIVES_BUCKET, sync_key)
 
