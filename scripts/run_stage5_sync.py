@@ -100,6 +100,16 @@ def run_session(
         print(f"  Downloading ca.h5...")
         s3.download_file(DERIVATIVES_BUCKET, ca_key, str(ca_local))
 
+        # Download timestamps.h5
+        ts_key = f"movement/{sub}/{ses}/timestamps.h5"
+        ts_local = session_dir / "timestamps.h5"
+        if s3_key_exists(s3, DERIVATIVES_BUCKET, ts_key):
+            print(f"  Downloading timestamps.h5...")
+            s3.download_file(DERIVATIVES_BUCKET, ts_key, str(ts_local))
+        else:
+            ts_local = None
+            print(f"  WARNING: no timestamps.h5 at {ts_key}")
+
         # Report input stats
         import h5py
 
@@ -133,6 +143,7 @@ def run_session(
             ca_h5=ca_local,
             session_id=session_id,
             output_path=output_path,
+            timestamps_h5=ts_local,
         )
 
         # Report output stats
