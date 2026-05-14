@@ -1,0 +1,227 @@
+{
+  "cross_session": {
+    "dataset": {
+      "n_usable_sessions": 21,
+      "n_primary_sessions": 12,
+      "n_animals": 15
+    },
+    "control_1": {
+      "description": "Unique cells visited per active minute (speed >= 2.5 cm/s). Approximated from per-epoch coverage and active fraction. Controls for the speed confound: if normalised coverage is still lower in dark, the finding stands independent of reduced locomotion.",
+      "method": "coverage_frac * 23 / frac_active (approximation from summaries)",
+      "n": 21,
+      "mean_light": 21.886228802876488,
+      "mean_dark": 20.025923270831747,
+      "median_light": 23.714831573655104,
+      "median_dark": 22.01251137397634,
+      "test": {
+        "stat": 31.0,
+        "p": 0.0021514892578125,
+        "r": 0.7316017316017316,
+        "n": 21,
+        "test": "wilcoxon_signed_rank"
+      }
+    },
+    "control_2": {
+      "description": "HD mean resultant length at each maze-node type (junction, corridor, dead end), compared between light and dark. Controls for maze geometry confound on HD non-uniformity.",
+      "status": "requires_frame_data",
+      "note": "This control requires frame-level HD and position data from sync.h5 files. Cannot be computed from per-session summaries. When sync.h5 files are regenerated, re-run this script."
+    },
+    "control_3": {
+      "description": "MRL and median |AHV| using only active frames (speed >= 2.5 cm/s). Controls for immobility driving HD non-uniformity. NOTE: The main analysis ALREADY restricts to active frames (mask_hd_light = valid & light_on & active & hd_finite). These values are identical to the Figure 5 results.",
+      "already_active_only": true,
+      "mrl": {
+        "n": 21,
+        "mean_light": 0.2966859651179852,
+        "mean_dark": 0.33796896650918756,
+        "median_light": 0.2903176907676313,
+        "median_dark": 0.3569272956822708,
+        "test": {
+          "stat": 43.0,
+          "p": 0.010125160217285156,
+          "r": 0.6277056277056277,
+          "n": 21,
+          "test": "wilcoxon_signed_rank"
+        }
+      },
+      "ahv": {
+        "n": 21,
+        "mean_light": 121.37933458600726,
+        "mean_dark": 115.05576160975865,
+        "median_light": 120.42620468139648,
+        "median_dark": 114.32706451416016,
+        "test": {
+          "stat": 49.0,
+          "p": 0.01947307586669922,
+          "r": 0.5757575757575757,
+          "n": 21,
+          "test": "wilcoxon_signed_rank"
+        }
+      },
+      "holm_bonferroni_adjusted_p": {
+        "mrl": 0.020250320434570312,
+        "ahv": 0.01947307586669922
+      }
+    },
+    "control_4": {
+      "description": "Speed at each maze-node type including all valid frames (not just active). Shows full distributions including immobility. The existing Friedman test used active-only frames.",
+      "status": "requires_frame_data",
+      "note": "This control requires frame-level speed and position data from sync.h5 files. Cannot be computed from per-session summaries. When sync.h5 files are regenerated, re-run this script.",
+      "active_only_reference": {
+        "mean_junction": 14.94618622881287,
+        "mean_corridor": 17.87271766121401,
+        "mean_dead_end": 26.319764779084938,
+        "friedman": {
+          "stat": 14.952380952380963,
+          "p": 0.0005664110672210443,
+          "n": 21
+        },
+        "posthoc_junc_vs_corr": {
+          "stat": 11.0,
+          "p": 5.245208740234375e-05,
+          "r": 0.9047619047619048,
+          "n": 21,
+          "test": "wilcoxon_signed_rank"
+        },
+        "posthoc_junc_vs_de": {
+          "stat": 17.0,
+          "p": 0.00019741058349609375,
+          "r": 0.8528138528138528,
+          "n": 21,
+          "test": "wilcoxon_signed_rank"
+        },
+        "posthoc_corr_vs_de": {
+          "stat": 34.0,
+          "p": 0.0032787322998046875,
+          "r": 0.7056277056277056,
+          "n": 21,
+          "test": "wilcoxon_signed_rank"
+        },
+        "posthoc_adjusted_p": {
+          "junc_vs_corr": 0.00015735626220703125,
+          "junc_vs_de": 0.0003948211669921875,
+          "corr_vs_de": 0.0032787322998046875
+        }
+      }
+    },
+    "control_5": {
+      "n_observed": 21,
+      "n_null_total": 21000,
+      "n_simulations_per_session": 1000,
+      "observed_mean": -0.19596228440876706,
+      "observed_median": -0.1714285714285714,
+      "observed_sd": 0.10179025558151009,
+      "null_mean": -0.1405158731824146,
+      "null_median": -0.14056382632831238,
+      "null_sd": 0.05971624715490257,
+      "null_pct_2_5": -0.26003393128882907,
+      "null_pct_97_5": -0.021413736817610083,
+      "test_observed_vs_null": {
+        "U": 150895.0,
+        "p": 0.012272339646665109,
+        "cliff_d": -0.3156689342403628,
+        "n1": 21,
+        "n2": 21000,
+        "test": "mann_whitney_u"
+      },
+      "permutation_p_onesided": 0.0,
+      "permutation_p_twosided": 0.0,
+      "n_observed_below_null_ci": 5,
+      "n_observed_above_null_ci": 0,
+      "frac_observed_outside_null_ci": 0.23809523809523808,
+      "description": "Random walk null model for sequential turn alternation. Simulates 1000 random walks per session on the maze graph and compares the observed lag-1 turn autocorrelation to the null. If observed alternation is significantly more negative than the null, it reflects a genuine behavioural strategy, not a maze geometry artefact."
+    },
+    "control_6": {
+      "description": "Per-bodypart valid-frame fraction (non-NaN in raw kinematics) in light vs dark. NaN indicates non-detection by the pose tracker. This checks whether any bodypart has systematically worse tracking in one condition.",
+      "status": "requires_frame_data",
+      "note": "This control requires per-bodypart raw positions from kinematics.h5 files. These are not currently on S3. When kinematics.h5 files are regenerated, re-run this script."
+    },
+    "control_7": {
+      "description": "Key comparisons re-run using only primary_exp=True sessions (one session per animal). Controls for pseudoreplication from animals with multiple sessions.",
+      "n_sessions": 12,
+      "n_animals": 12,
+      "epoch_coverage": {
+        "n": 12,
+        "mean_light": 0.4388888888888889,
+        "mean_dark": 0.3903985507246377,
+        "test": {
+          "stat": 10.0,
+          "p": 0.02099609375,
+          "r": 0.7435897435897436,
+          "n": 12,
+          "test": "wilcoxon_signed_rank"
+        }
+      },
+      "coverage_per_active_min": {
+        "n": 12,
+        "mean_light": 19.957533802529316,
+        "mean_dark": 18.891446145107214,
+        "test": {
+          "stat": 21.0,
+          "p": 0.17626953125,
+          "r": 0.46153846153846156,
+          "n": 12,
+          "test": "wilcoxon_signed_rank"
+        }
+      },
+      "mrl": {
+        "n": 12,
+        "mean_light": 0.3023371492846354,
+        "mean_dark": 0.3286637054741432,
+        "test": {
+          "stat": 26.0,
+          "p": 0.33935546875,
+          "r": 0.33333333333333337,
+          "n": 12,
+          "test": "wilcoxon_signed_rank"
+        }
+      },
+      "ahv": {
+        "n": 12,
+        "mean_light": 116.17395814259847,
+        "mean_dark": 111.21810531616211,
+        "test": {
+          "stat": 10.0,
+          "p": 0.02099609375,
+          "r": 0.7435897435897436,
+          "n": 12,
+          "test": "wilcoxon_signed_rank"
+        }
+      },
+      "speed": {
+        "n": 12,
+        "mean_light": 2.787617256244024,
+        "mean_dark": 2.4557725936174393,
+        "test": {
+          "stat": 17.0,
+          "p": 0.09228515625,
+          "r": 0.5641025641025641,
+          "n": 12,
+          "test": "wilcoxon_signed_rank"
+        }
+      },
+      "frac_active": {
+        "n": 12,
+        "mean_light": 0.5066427698160184,
+        "mean_dark": 0.4792742825893486,
+        "test": {
+          "stat": 20.0,
+          "p": 0.1513671875,
+          "r": 0.4871794871794872,
+          "n": 12,
+          "test": "wilcoxon_signed_rank"
+        }
+      },
+      "turn_autocorr_vs_zero": {
+        "n": 12,
+        "mean": -0.17947814740739443,
+        "test": {
+          "stat": 0.0,
+          "p": 0.00048828125,
+          "r": 1.0,
+          "n": 12,
+          "test": "wilcoxon_one_sample"
+        }
+      }
+    }
+  }
+}
