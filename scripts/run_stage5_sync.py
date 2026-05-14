@@ -59,8 +59,18 @@ def s3_key_exists(s3, bucket: str, key: str) -> bool:
 def run_session(
     s3, sub: str, ses: str, exp_id: str, work_dir: Path,
     dry_run: bool = False, force: bool = False,
+    champion_id: str = "",
 ) -> str:
-    """Run Stage 5 for a single session. Returns status string."""
+    """Run Stage 5 for a single session. Returns status string.
+
+    Parameters
+    ----------
+    champion_id:
+        The current champion id string from the manifest. Used to verify
+        that kinematics.h5 was produced by the current champion before
+        running sync. If empty, champion enforcement is skipped (should
+        not happen in normal pipeline operation).
+    """
     print(f"\n--- {sub}/{ses} ({exp_id}) ---")
 
     kin_key = f"kinematics/{sub}/{ses}/kinematics.h5"
@@ -95,6 +105,28 @@ def run_session(
         print(f"  Downloading kinematics.h5...")
         s3.download_file(DERIVATIVES_BUCKET, kin_key, str(kin_local))
 
+        # --- Champion enforcement: verify kinematics.h5 was produced by
+        # the current champion model. If the dlc_champion_id attribute
+        # does not match, refuse to run. ---
+        import h5py
+
+        with h5py.File(kin_local, "r") as f:
+            kin_champion_id = f.attrs.get("dlc_champion_id", "unknown")
+            if isinstance(kin_champion_id, bytes):
+                kin_champion_id = kin_champion_id.decode("utf-8")
+
+        if champion_id and kin_champion_id != champion_id:
+            print(
+                f"  ERROR: kinematics.h5 was produced by champion "
+                f"{kin_champion_id!r}, but the current champion is "
+                f"{champion_id!r}. Re-run Stage 3 first."
+            )
+            return (
+                f"error: champion mismatch — kinematics.h5 has "
+                f"dlc_champion_id={kin_champion_id!r}, expected {champion_id!r}"
+            )
+        print(f"  Champion check passed: {kin_champion_id}")
+
         # Download ca.h5
         ca_local = session_dir / "ca.h5"
         print(f"  Downloading ca.h5...")
@@ -111,8 +143,6 @@ def run_session(
             print(f"  WARNING: no timestamps.h5 at {ts_key}")
 
         # Report input stats
-        import h5py
-
         with h5py.File(kin_local, "r") as f:
             kin_frames = f["frame_times"].shape[0]
             print(f"  Kinematics frames: {kin_frames}")
@@ -146,11 +176,26 @@ def run_session(
             timestamps_h5=ts_local,
         )
 
+        # Verify that sync.h5 carries dlc_champion_id (it should, via
+        # _read_kin_provenance in align.py). If not, stamp it explicitly.
+        with h5py.File(output_path, "a") as f:
+            existing = f.attrs.get("dlc_champion_id", None)
+            if existing is None and champion_id:
+                f.attrs["dlc_champion_id"] = champion_id
+                print(f"  Stamped dlc_champion_id={champion_id} on sync.h5")
+
         # Report output stats
         with h5py.File(output_path, "r") as f:
             keys = list(f.keys())
             sync_status = f.attrs.get("sync_status", "unknown")
-            print(f"  sync.h5 keys: {len(keys)} datasets, sync_status={sync_status}")
+            sync_champion = f.attrs.get("dlc_champion_id", "missing")
+            if isinstance(sync_champion, bytes):
+                sync_champion = sync_champion.decode("utf-8")
+            print(
+                f"  sync.h5 keys: {len(keys)} datasets, "
+                f"sync_status={sync_status}, "
+                f"dlc_champion_id={sync_champion}"
+            )
 
             if "frame_times" not in f or "dff" not in f:
                 # Stub output — sync classified as FAILED
@@ -211,6 +256,17 @@ def main():
     work_dir = Path(tempfile.mkdtemp(prefix="hm2p-stage5-"))
     print(f"Work dir: {work_dir}")
 
+    # Load champion manifest at startup — required for champion enforcement.
+    from hm2p.pose.select import ChampionMismatchError, load_champion_manifest
+    try:
+        champion_manifest = load_champion_manifest(s3, DERIVATIVES_BUCKET)
+    except ChampionMismatchError as e:
+        print(f"ERROR: {e}")
+        print("Declare a champion with scripts/declare_dlc_champion.py first.")
+        sys.exit(1)
+    champion_id = str(champion_manifest.get("champion_id", ""))
+    print(f"Champion: {champion_id}")
+
     if args.session is not None:
         if args.session.isdigit():
             sessions = [sessions[int(args.session)]]
@@ -226,6 +282,7 @@ def main():
             status = run_session(
                 s3, ses["sub"], ses["ses"], ses["exp_id"], work_dir,
                 dry_run=args.dry_run, force=args.force,
+                champion_id=champion_id,
             )
             results[ses["exp_id"]] = status
     finally:

@@ -9,14 +9,18 @@ import pytest
 
 from hm2p.pose.select import (
     CHAMPION_MANIFEST_KEY,
+    ChampionMismatchError,
     _snapshot_number,
     compute_champion_id,
     extract_architecture,
     extract_dlc_provenance,
     get_champion_manifest,
+    load_champion_manifest,
     resolve_champion_id,
     select_best_dlc_h5,
     select_best_dlc_h5_s3,
+    select_champion_h5,
+    select_champion_h5_s3,
 )
 
 # ---------------------------------------------------------------------------
@@ -460,3 +464,174 @@ def test_resolve_champion_id_handles_int_snapshot_in_manifest():
     assert resolve_champion_id(
         "hm2p_hrnetw32_shuffle1", "HrnetW32", "290", manifest,
     ) == "dlc-20260423-hrnetw32-snap290"
+
+
+# ---------------------------------------------------------------------------
+# ChampionMismatchError
+# ---------------------------------------------------------------------------
+
+
+def test_champion_mismatch_error_is_exception():
+    """ChampionMismatchError is a subclass of Exception."""
+    assert issubclass(ChampionMismatchError, Exception)
+
+
+def test_champion_mismatch_error_message():
+    """Error message is preserved."""
+    err = ChampionMismatchError("expected snap290, found snap110")
+    assert "snap290" in str(err)
+    assert "snap110" in str(err)
+
+
+# ---------------------------------------------------------------------------
+# select_champion_h5
+# ---------------------------------------------------------------------------
+
+
+_CHAMP_ID_290 = "dlc-20260423-hrnetw32-snap290"
+_CHAMP_ID_110 = "dlc-20260423-hrnetw32-snap110"
+
+
+def test_select_champion_h5_finds_matching_snapshot():
+    """Returns the key whose filename contains the champion's snapshot."""
+    keys = [_FT_110, _FT_290, _SA_KEY]
+    result = select_champion_h5(keys, _CHAMP_ID_290)
+    assert result == _FT_290
+
+
+def test_select_champion_h5_finds_snapshot_110():
+    """Selects snapshot 110 when champion_id ends with snap110."""
+    keys = [_FT_110, _FT_290]
+    result = select_champion_h5(keys, _CHAMP_ID_110)
+    assert result == _FT_110
+
+
+def test_select_champion_h5_raises_when_no_match():
+    """Raises ChampionMismatchError when no file matches the snapshot."""
+    keys = [_FT_110, _SA_KEY]
+    with pytest.raises(ChampionMismatchError, match="snap290"):
+        select_champion_h5(keys, _CHAMP_ID_290)
+
+
+def test_select_champion_h5_raises_on_empty_list():
+    """Raises ChampionMismatchError when the key list is empty."""
+    with pytest.raises(ChampionMismatchError, match="0 .h5 file"):
+        select_champion_h5([], _CHAMP_ID_290)
+
+
+def test_select_champion_h5_excludes_filtered_and_single():
+    """_filtered and _single variants are excluded before matching."""
+    keys = [_FILTERED, _SINGLE, _FT_290]
+    result = select_champion_h5(keys, _CHAMP_ID_290)
+    assert result == _FT_290
+
+
+def test_select_champion_h5_excludes_filtered_then_raises():
+    """If the only matching file is _filtered, raise (it is excluded)."""
+    keys = [_FILTERED]
+    with pytest.raises(ChampionMismatchError):
+        select_champion_h5(keys, _CHAMP_ID_290)
+
+
+def test_select_champion_h5_bad_champion_id_format():
+    """Raises ChampionMismatchError if champion_id has no snap suffix."""
+    with pytest.raises(ChampionMismatchError, match="Cannot parse snapshot"):
+        select_champion_h5([_FT_290], "bad-format-no-snap")
+
+
+def test_select_champion_h5_underscore_snapshot_separator():
+    """Matches snapshot with underscore separators (snapshot_best_290)."""
+    key_underscore = (
+        "pose/s/a/videoDLC_HrnetW32_proj_shuffle1_snapshot_best_290.h5"
+    )
+    result = select_champion_h5([key_underscore], _CHAMP_ID_290)
+    assert result == key_underscore
+
+
+def test_select_champion_h5_ignores_non_h5():
+    """Non-.h5 files are filtered out before matching."""
+    keys = ["pose/s/a/data.csv", "pose/s/a/video.mp4", _FT_290]
+    result = select_champion_h5(keys, _CHAMP_ID_290)
+    assert result == _FT_290
+
+
+# ---------------------------------------------------------------------------
+# select_champion_h5_s3
+# ---------------------------------------------------------------------------
+
+
+def _make_s3_for_champion(keys: list[str]) -> MagicMock:
+    """Build a mock S3 client for select_champion_h5_s3 tests."""
+    client = MagicMock()
+    client.exceptions = MagicMock()
+    paginator = MagicMock()
+    paginator.paginate.return_value = [
+        {"Contents": [{"Key": k} for k in keys]}
+    ]
+    client.get_paginator.return_value = paginator
+    return client
+
+
+def test_select_champion_h5_s3_finds_match():
+    """S3 wrapper finds the champion's file."""
+    keys = [_FT_110, _FT_290]
+    client = _make_s3_for_champion(keys)
+    result = select_champion_h5_s3(
+        client, "hm2p-derivatives", "pose/s/a/", _CHAMP_ID_290,
+    )
+    assert result == _FT_290
+
+
+def test_select_champion_h5_s3_raises_when_no_h5():
+    """Raises ChampionMismatchError when no .h5 files exist at all."""
+    client = _make_s3_for_champion([])
+    with pytest.raises(ChampionMismatchError, match="No .h5 files found"):
+        select_champion_h5_s3(
+            client, "hm2p-derivatives", "pose/s/a/", _CHAMP_ID_290,
+        )
+
+
+def test_select_champion_h5_s3_raises_when_no_match():
+    """Raises ChampionMismatchError when files exist but none match."""
+    keys = [_FT_110]  # only snap 110, looking for 290
+    client = _make_s3_for_champion(keys)
+    with pytest.raises(ChampionMismatchError, match="snapshot-best-290"):
+        select_champion_h5_s3(
+            client, "hm2p-derivatives", "pose/s/a/", _CHAMP_ID_290,
+        )
+
+
+# ---------------------------------------------------------------------------
+# load_champion_manifest
+# ---------------------------------------------------------------------------
+
+
+def test_load_champion_manifest_returns_dict():
+    """Returns the manifest when it exists."""
+    expected = {
+        "champion_id": "dlc-20260423-hrnetw32-snap290",
+        "model_name": "proj",
+        "architecture": "HrnetW32",
+        "snapshot": "290",
+    }
+    s3 = _make_s3_with_manifest(expected)
+    got = load_champion_manifest(s3, "hm2p-derivatives")
+    assert got == expected
+
+
+def test_load_champion_manifest_raises_when_absent():
+    """Raises ChampionMismatchError when the manifest is missing."""
+    s3 = _make_s3_with_manifest(None)
+    with pytest.raises(ChampionMismatchError, match="not found"):
+        load_champion_manifest(s3, "hm2p-derivatives")
+
+
+def test_load_champion_manifest_raises_on_corrupt_json():
+    """Raises ChampionMismatchError when the manifest is corrupt."""
+    s3 = MagicMock()
+    s3.exceptions.NoSuchKey = _FakeS3NoSuchKey
+    body = MagicMock()
+    body.read.return_value = b"{not json"
+    s3.get_object.return_value = {"Body": body}
+    with pytest.raises(ChampionMismatchError, match="not found"):
+        load_champion_manifest(s3, "hm2p-derivatives")

@@ -12,6 +12,15 @@ Champion model concept (see docs/dlc-champion-model.md):
     filename, or both. Callers stamp that string into derivative outputs;
     the frontend reads it back and refuses to display anything that does
     not match the current champion.
+
+Champion enforcement (strict mode):
+    Pipeline stages (3, 5, retrain promotion) use ``select_champion_h5`` and
+    ``load_champion_manifest`` which raise ``ChampionMismatchError`` on any
+    discrepancy. There are no silent fallbacks — if the champion's pose file
+    is missing, the pipeline crashes with a clear diagnostic message. The
+    legacy ``select_best_dlc_h5`` / ``select_best_dlc_h5_s3`` functions
+    remain for backward compatibility with frontend pages that display QC
+    data for non-champion models.
 """
 
 from __future__ import annotations
@@ -26,13 +35,203 @@ log = logging.getLogger(__name__)
 # bucket. Public constant so callers don't hardcode the path.
 CHAMPION_MANIFEST_KEY = "dlc-champion.json"
 
+
 # ---------------------------------------------------------------------------
-# Public API
+# Exceptions
+# ---------------------------------------------------------------------------
+
+
+class ChampionMismatchError(Exception):
+    """Raised when no pose file matches the current champion model.
+
+    The message includes the expected champion snapshot identifier and the
+    list of files that were found, so the operator can diagnose whether the
+    session needs re-inference or the champion manifest is stale.
+    """
+
+
+# ---------------------------------------------------------------------------
+# Champion-strict API (pipeline stages use these)
+# ---------------------------------------------------------------------------
+
+
+def load_champion_manifest(s3_client: object, bucket: str) -> dict:
+    """Load the project-wide DLC champion manifest from S3.
+
+    Unlike :func:`get_champion_manifest`, this function raises instead of
+    returning ``None`` when the manifest is absent or unreadable. Pipeline
+    stages that require champion enforcement must call this function at
+    startup.
+
+    Parameters
+    ----------
+    s3_client:
+        A boto3 S3 client (``boto3.client("s3")``).
+    bucket:
+        Derivatives bucket name (e.g. ``"hm2p-derivatives"``).
+
+    Returns
+    -------
+    dict
+        Parsed manifest dict.
+
+    Raises
+    ------
+    ChampionMismatchError
+        When the manifest does not exist or cannot be parsed.
+    """
+    manifest = get_champion_manifest(s3_client, bucket)
+    if manifest is None:
+        raise ChampionMismatchError(
+            f"Champion manifest not found at s3://{bucket}/{CHAMPION_MANIFEST_KEY}. "
+            f"Declare a champion with scripts/declare_dlc_champion.py before "
+            f"running pipeline stages."
+        )
+    log.info(
+        "Loaded champion manifest: %s",
+        manifest.get("champion_id", "(no champion_id)"),
+    )
+    return manifest
+
+
+def select_champion_h5(h5_keys: list[str], champion_id: str) -> str:
+    """Select the pose .h5 whose filename contains the champion's snapshot.
+
+    Filters .h5 keys (excluding ``_single`` and ``_filtered`` variants),
+    then returns the one whose filename matches the champion model. The
+    match is based on the snapshot number embedded in the ``champion_id``
+    string (the ``snap<N>`` suffix).
+
+    There is no fallback. If no file matches, this function raises
+    :class:`ChampionMismatchError` — the caller must not proceed with a
+    non-champion pose file.
+
+    Parameters
+    ----------
+    h5_keys:
+        List of S3 object keys (full paths) to search.
+    champion_id:
+        The current champion id string (e.g.
+        ``"dlc-20260423-hrnetw32-snap290"``). The snapshot number is
+        extracted from the ``snap<N>`` suffix.
+
+    Returns
+    -------
+    str
+        The S3 key of the matching pose file.
+
+    Raises
+    ------
+    ChampionMismatchError
+        When no .h5 key matches the champion's snapshot.
+    """
+    # Extract snapshot number from champion_id (format: dlc-YYYYMMDD-arch-snapN).
+    snap_match = re.search(r"snap(\d+)$", champion_id)
+    if not snap_match:
+        raise ChampionMismatchError(
+            f"Cannot parse snapshot from champion_id {champion_id!r}. "
+            f"Expected format: dlc-YYYYMMDD-arch-snapN."
+        )
+    champion_snapshot = snap_match.group(1)
+
+    # Filter to valid .h5 files (same filter as select_best_dlc_h5).
+    filtered = [
+        k for k in h5_keys
+        if k.endswith(".h5")
+        and "_single" not in k.split("/")[-1]
+        and "_filtered" not in k.split("/")[-1]
+    ]
+
+    # Find keys that match the champion's snapshot.
+    matches = [
+        k for k in filtered
+        if f"snapshot-best-{champion_snapshot}" in k
+        or f"snapshot_best_{champion_snapshot}" in k
+        or f"snapshot_best-{champion_snapshot}" in k
+        or f"snapshot-best_{champion_snapshot}" in k
+    ]
+
+    if not matches:
+        filenames = [k.split("/")[-1] for k in filtered]
+        raise ChampionMismatchError(
+            f"No pose file matches champion {champion_id!r} "
+            f"(expected snapshot-best-{champion_snapshot}). "
+            f"Found {len(filtered)} .h5 file(s): {filenames!r}. "
+            f"Re-run DLC inference (Stage 2b) to produce pose output "
+            f"for the current champion model."
+        )
+
+    selected = matches[0]
+    log.info(
+        "Selected champion pose file: %s (champion_id=%s)",
+        selected,
+        champion_id,
+    )
+    return selected
+
+
+def select_champion_h5_s3(
+    s3_client: object,
+    bucket: str,
+    prefix: str,
+    champion_id: str,
+) -> str:
+    """List .h5 files under an S3 prefix and select the champion's file.
+
+    S3 wrapper around :func:`select_champion_h5`. Lists all .h5 objects
+    under ``prefix``, then delegates to the pure selection function.
+
+    Parameters
+    ----------
+    s3_client:
+        A boto3 S3 client (``boto3.client("s3")``).
+    bucket:
+        S3 bucket name.
+    prefix:
+        S3 key prefix for the session's pose directory, e.g.
+        ``"pose/sub-1114353/ses-20210823T165950/"``.
+    champion_id:
+        The current champion id string.
+
+    Returns
+    -------
+    str
+        The S3 key of the matching pose file.
+
+    Raises
+    ------
+    ChampionMismatchError
+        When no .h5 key under the prefix matches the champion.
+    """
+    all_h5: list[str] = []
+    paginator = s3_client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+            if key.endswith(".h5"):
+                all_h5.append(key)
+
+    if not all_h5:
+        raise ChampionMismatchError(
+            f"No .h5 files found under s3://{bucket}/{prefix}. "
+            f"Run DLC inference (Stage 2b) for this session first."
+        )
+
+    return select_champion_h5(all_h5, champion_id)
+
+
+# ---------------------------------------------------------------------------
+# Legacy API (backward-compatible, used by frontend pages)
 # ---------------------------------------------------------------------------
 
 
 def select_best_dlc_h5(h5_keys: list[str]) -> str | None:
     """Select the best finetuned DLC .h5 from a list of S3 object keys.
+
+    .. deprecated::
+        Use :func:`select_champion_h5` for pipeline stages. This function
+        is retained for backward compatibility with frontend pages that
+        display QC data for non-champion models.
 
     Selection rules (applied in order):
 

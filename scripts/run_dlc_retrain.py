@@ -1349,7 +1349,9 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
     except Exception as e:
         print(f"  WARNING: could not upload _inference_errors.json: {e}")
 
-    # Auto-promote: copy pose-finetuned/ → pose/ on S3
+    # Auto-promote: declare champion FIRST, then copy pose-finetuned/ → pose/
+    # on S3. If champion declaration fails, promotion is aborted — this
+    # prevents pose/ from containing files that do not match any manifest.
     if failed and not skip_failed:
         print(
             f"\nSkipping auto-promote: {len(failed)} session(s) failed — "
@@ -1367,82 +1369,67 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
 
     # Only promote sessions that completed successfully
     sessions_to_promote = [s for s in sessions if s["exp_id"] in completed]
-    print(f"\nPromoting {len(sessions_to_promote)} finetuned sessions → pose/ on S3...")
-    for ses in sessions_to_promote:
-        sub, ses_id = ses["sub"], ses["ses"]
-        src_prefix = f"{FINETUNED_PREFIX}/{sub}/{ses_id}/"
-        resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=src_prefix)
-        for obj in resp.get("Contents", []):
-            src_key = obj["Key"]
-            dst_key = src_key.replace(FINETUNED_PREFIX, "pose", 1)
-            s3.copy_object(
-                Bucket=DERIVATIVES_BUCKET,
-                CopySource={"Bucket": DERIVATIVES_BUCKET, "Key": src_key},
-                Key=dst_key,
-            )
-        print(f"  {sub}/{ses_id}: promoted")
 
-    update_progress(
-        s3, "Promoted to pose/",
-        completed=len(completed), total=total,
-        promoted=len(sessions_to_promote), failed=len(failed),
-        failed_sessions=failed,
-    )
-    print("Promotion complete.")
+    # --- Step 1: Declare champion FIRST (before copying files to pose/) ---
+    # If declaration fails, STOP — do not promote. This is the
+    # declare-before-promote contract: the manifest must point at the
+    # model before any files appear in pose/.
+    print("\n=== Declaring new DLC champion (before promotion) ===")
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))  # noqa
+    from hm2p.pose.select import extract_architecture, extract_dlc_provenance
 
-    # Declare the new project-wide champion. Done here, after promotion to
-    # pose/ has succeeded, so the manifest only ever points at h5 files that
-    # actually exist in pose/. See docs/dlc-champion-model.md.
-    print("\n=== Declaring new DLC champion ===")
+    # Find one finetuned h5 from pose-finetuned/ to read identifiers.
+    sample = sessions_to_promote[0]
+    sample_prefix = f"{FINETUNED_PREFIX}/{sample['sub']}/{sample['ses']}/"
+    sample_resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=sample_prefix)
+    h5_filenames = [
+        obj["Key"].split("/")[-1]
+        for obj in sample_resp.get("Contents", [])
+        if obj["Key"].endswith(".h5")
+        and "_single" not in obj["Key"].split("/")[-1]
+        and "_filtered" not in obj["Key"].split("/")[-1]
+        and ("Hrnet" in obj["Key"] or "Resnet" in obj["Key"])
+    ]
+    if not h5_filenames:
+        print(
+            f"ERROR: No finetuned .h5 found under {sample_prefix}. "
+            f"Cannot declare champion — aborting promotion."
+        )
+        return
+    h5_filename = h5_filenames[0]
+    model_name, snapshot = extract_dlc_provenance(h5_filename)
+    architecture = extract_architecture(h5_filename)
+    if architecture is None:
+        print(
+            f"ERROR: Could not extract architecture from {h5_filename!r}. "
+            f"Cannot declare champion — aborting promotion."
+        )
+        return
+
+    notes_lines = [
+        "Auto-declared by run_dlc_retrain.py.",
+        f"Sessions promoted: {len(sessions_to_promote)}; "
+        f"failed: {len(failed)}; total: {total}.",
+    ]
+    # If the SA-finetune training path stashed a notes file on S3,
+    # prepend its contents (init source, conversion array, etc.).
     try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))  # noqa
-        from hm2p.pose.select import extract_architecture, extract_dlc_provenance
-        # Find one promoted h5 to read the identifiers from. Any promoted
-        # session works — they all carry the same model_name and snapshot.
-        sample = sessions_to_promote[0]
-        sample_prefix = f"pose/{sample['sub']}/{sample['ses']}/"
-        sample_resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=sample_prefix)
-        h5_filenames = [
-            obj["Key"].split("/")[-1]
-            for obj in sample_resp.get("Contents", [])
-            if obj["Key"].endswith(".h5")
-            and "_single" not in obj["Key"].split("/")[-1]
-            and "_filtered" not in obj["Key"].split("/")[-1]
-            and ("Hrnet" in obj["Key"] or "Resnet" in obj["Key"])
-        ]
-        if not h5_filenames:
-            raise RuntimeError(
-                f"No finetuned .h5 found under {sample_prefix} after promotion."
-            )
-        h5_filename = h5_filenames[0]
-        model_name, snapshot = extract_dlc_provenance(h5_filename)
-        architecture = extract_architecture(h5_filename)
-        if architecture is None:
-            raise RuntimeError(
-                f"Could not extract architecture from {h5_filename!r}."
-            )
-        notes_lines = [
-            "Auto-declared by run_dlc_retrain.py.",
-            f"Sessions promoted: {len(sessions_to_promote)}; "
-            f"failed: {len(failed)}; total: {total}.",
-        ]
-        # If the SA-finetune training path stashed a notes file on S3,
-        # prepend its contents (init source, conversion array, etc.).
-        try:
-            sa_notes_obj = s3.get_object(
-                Bucket=DERIVATIVES_BUCKET,
-                Key=f"{RETRAIN_PREFIX}/models/_sa_finetune_notes.txt",
-            )
-            sa_notes = sa_notes_obj["Body"].read().decode("utf-8").strip()
-            if sa_notes:
-                notes_lines.insert(0, sa_notes)
-        except Exception:
-            # ImageNet path leaves no notes file — that's expected.
-            pass
-        notes = " ".join(notes_lines)
+        sa_notes_obj = s3.get_object(
+            Bucket=DERIVATIVES_BUCKET,
+            Key=f"{RETRAIN_PREFIX}/models/_sa_finetune_notes.txt",
+        )
+        sa_notes = sa_notes_obj["Body"].read().decode("utf-8").strip()
+        if sa_notes:
+            notes_lines.insert(0, sa_notes)
+    except Exception:
+        # ImageNet path leaves no notes file — that's expected.
+        pass
+    notes = " ".join(notes_lines)
+
+    try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa
         from declare_dlc_champion import declare_champion  # noqa
-        declare_champion(
+        champion_manifest = declare_champion(
             model_name=model_name,
             architecture=architecture,
             snapshot=snapshot,
@@ -1451,15 +1438,91 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
             s3_client=s3,
             bucket=DERIVATIVES_BUCKET,
         )
+        champion_id = champion_manifest.get("champion_id", "unknown")
+        print(f"  Champion declared: {champion_id}")
     except Exception:
-        print("ERROR: champion declaration failed (see traceback). "
-              "The pipeline will continue but the manifest is not updated. "
-              "Run scripts/declare_dlc_champion.py manually to fix.")
+        print(
+            "ERROR: champion declaration failed (see traceback). "
+            "Aborting promotion — pose/ files will NOT be updated. "
+            "Fix the issue and run scripts/declare_dlc_champion.py manually, "
+            "then scripts/promote_finetuned_pose.py to promote."
+        )
         traceback.print_exc()
+        return
+
+    # --- Step 2: Delete existing files from pose/ before copying new ones ---
+    # This prevents stale files from a previous model coexisting with the
+    # new champion's output.
+    print(f"\nPromoting {len(sessions_to_promote)} finetuned sessions → pose/ on S3...")
+    for ses in sessions_to_promote:
+        sub, ses_id = ses["sub"], ses["ses"]
+        dst_prefix = f"pose/{sub}/{ses_id}/"
+
+        # Delete all existing files under pose/{sub}/{ses}/
+        paginator = s3.get_paginator("list_objects_v2")
+        keys_to_delete: list[str] = []
+        for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=dst_prefix):
+            for obj in page.get("Contents", []):
+                keys_to_delete.append(obj["Key"])
+        if keys_to_delete:
+            # Batch delete (up to 1000 at a time per S3 API)
+            for i in range(0, len(keys_to_delete), 1000):
+                batch = keys_to_delete[i : i + 1000]
+                s3.delete_objects(
+                    Bucket=DERIVATIVES_BUCKET,
+                    Delete={"Objects": [{"Key": k} for k in batch]},
+                )
+            print(f"  {sub}/{ses_id}: deleted {len(keys_to_delete)} old file(s)")
+
+        # Copy new files from pose-finetuned/ → pose/
+        src_prefix = f"{FINETUNED_PREFIX}/{sub}/{ses_id}/"
+        resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=src_prefix)
+        n_copied = 0
+        for obj in resp.get("Contents", []):
+            src_key = obj["Key"]
+            dst_key = src_key.replace(FINETUNED_PREFIX, "pose", 1)
+            s3.copy_object(
+                Bucket=DERIVATIVES_BUCKET,
+                CopySource={"Bucket": DERIVATIVES_BUCKET, "Key": src_key},
+                Key=dst_key,
+            )
+            n_copied += 1
+        print(f"  {sub}/{ses_id}: promoted ({n_copied} file(s))")
+
+    # --- Step 3: Verify promotion — champion's file exists in pose/ ---
+    print("\n=== Verifying promotion ===")
+    from hm2p.pose.select import select_champion_h5_s3
+    verification_failures: list[str] = []
+    for ses in sessions_to_promote:
+        sub, ses_id = ses["sub"], ses["ses"]
+        pose_prefix = f"pose/{sub}/{ses_id}/"
+        try:
+            verified_key = select_champion_h5_s3(
+                s3, DERIVATIVES_BUCKET, pose_prefix, champion_id,
+            )
+            print(f"  {sub}/{ses_id}: verified ({Path(verified_key).name})")
+        except Exception as e:
+            print(f"  {sub}/{ses_id}: VERIFICATION FAILED — {e}")
+            verification_failures.append(ses["exp_id"])
+    if verification_failures:
+        print(
+            f"\nWARNING: {len(verification_failures)} session(s) failed "
+            f"post-promotion verification: {verification_failures}"
+        )
+
+    update_progress(
+        s3, "Promoted to pose/",
+        completed=len(completed), total=total,
+        promoted=len(sessions_to_promote), failed=len(failed),
+        failed_sessions=failed,
+        champion_id=champion_id,
+    )
+    print("Promotion complete.")
 
     update_progress(
         s3, "Inference + promotion complete. Launching CPU instance for downstream + render.",
         completed=len(completed), total=total,
+        champion_id=champion_id,
     )
 
     # Launch a CPU instance for downstream stages + video rendering.

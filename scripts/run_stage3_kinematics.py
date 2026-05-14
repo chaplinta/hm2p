@@ -139,15 +139,33 @@ def parse_meta_txt(meta_path: Path) -> tuple[float, np.ndarray, tuple[float, flo
     return mm_per_pix, corners, (cx, cy), maze_rotation_deg
 
 
-def find_dlc_h5(s3, bucket: str, prefix: str) -> str | None:
-    """Find the best finetuned DLC .h5 file under a given S3 prefix.
+def find_champion_dlc_h5(
+    s3: object, bucket: str, prefix: str, champion_id: str,
+) -> str:
+    """Find the champion DLC .h5 file under a given S3 prefix.
 
-    Delegates to :func:`hm2p.pose.select.select_best_dlc_h5_s3`, which
-    checks for a ``promoted.json`` manifest first and falls back to the
-    highest-snapshot heuristic.
+    Delegates to :func:`hm2p.pose.select.select_champion_h5_s3`, which
+    matches files against the champion's snapshot. Raises
+    :class:`~hm2p.pose.select.ChampionMismatchError` if no match is found.
+
+    Parameters
+    ----------
+    s3:
+        boto3 S3 client.
+    bucket:
+        S3 bucket name.
+    prefix:
+        S3 key prefix (e.g. ``"pose/sub-1114353/ses-20210823T165950/"``).
+    champion_id:
+        The current champion id string.
+
+    Returns
+    -------
+    str
+        S3 key of the champion's pose file.
     """
-    from hm2p.pose.select import select_best_dlc_h5_s3
-    return select_best_dlc_h5_s3(s3, bucket, prefix)
+    from hm2p.pose.select import select_champion_h5_s3
+    return select_champion_h5_s3(s3, bucket, prefix, champion_id)
 
 
 def _extract_dlc_provenance(dlc_filename: str) -> tuple[str, str]:
@@ -175,6 +193,16 @@ def run_session(
     """Run Stage 3 for a single session. Returns status string."""
     print(f"\n--- {sub}/{ses} ({exp_id}) ---")
 
+    # Champion manifest is required — caller must load it at startup.
+    if champion_manifest is None:
+        print("  ERROR: no champion manifest — cannot select pose file")
+        return "error: no champion manifest"
+
+    champion_id = str(champion_manifest.get("champion_id", ""))
+    if not champion_id:
+        print("  ERROR: champion manifest has no champion_id")
+        return "error: champion manifest missing champion_id"
+
     # Check if kinematics.h5 already exists on S3
     kin_key = f"kinematics/{sub}/{ses}/kinematics.h5"
     if not force:
@@ -185,12 +213,16 @@ def run_session(
         except s3.exceptions.ClientError:
             pass  # Does not exist, proceed
 
-    # Check for DLC output on S3
+    # Select the champion's pose file — raises ChampionMismatchError if
+    # no matching file exists. There is no fallback.
+    from hm2p.pose.select import ChampionMismatchError
+
     pose_prefix = f"pose/{sub}/{ses}/"
-    dlc_key = find_dlc_h5(s3, DERIVATIVES_BUCKET, pose_prefix)
-    if dlc_key is None:
-        print(f"  SKIP: no DLC .h5 file at {pose_prefix}")
-        return "skip_no_dlc"
+    try:
+        dlc_key = find_champion_dlc_h5(s3, DERIVATIVES_BUCKET, pose_prefix, champion_id)
+    except ChampionMismatchError as e:
+        print(f"  ERROR: {e}")
+        return f"error: {e}"
 
     # Check for timestamps.h5
     ts_key = f"movement/{sub}/{ses}/timestamps.h5"
@@ -213,22 +245,12 @@ def run_session(
     if bad_intervals:
         print(f"  Bad behaviour intervals: {bad_intervals}")
 
-    # Extract DLC model provenance from the output filename, then resolve
-    # the project-wide champion id by matching the triplet against the
-    # current champion manifest. "unknown" means this h5 was not produced
-    # by the current champion (or no manifest exists yet) — the frontend
-    # treats that as stale.
-    from hm2p.pose.select import (
-        extract_architecture,
-        extract_dlc_provenance,
-        resolve_champion_id,
-    )
+    # The selected file is guaranteed to match the champion — stamp its id.
+    from hm2p.pose.select import extract_dlc_provenance
+
     dlc_filename = Path(dlc_key).name
     dlc_model_name, dlc_snapshot = extract_dlc_provenance(dlc_filename)
-    dlc_architecture = extract_architecture(dlc_filename)
-    dlc_champion_id = resolve_champion_id(
-        dlc_model_name, dlc_architecture, dlc_snapshot, champion_manifest,
-    )
+    dlc_champion_id = champion_id
 
     if dry_run:
         print(f"  DRY RUN: would process and upload kinematics.h5")
@@ -363,15 +385,16 @@ def main():
     work_dir = Path(tempfile.mkdtemp(prefix="hm2p-stage3-"))
     print(f"Work dir: {work_dir}")
 
-    # Load champion manifest once. Per-session resolution then matches each
-    # session's chosen DLC h5 against this manifest to decide what to stamp.
-    from hm2p.pose.select import get_champion_manifest as _get_manifest
-    champion_manifest = _get_manifest(s3, DERIVATIVES_BUCKET)
-    if champion_manifest is None:
-        print("No champion manifest found at s3://hm2p-derivatives/dlc-champion.json. "
-              "All sessions will be stamped with dlc_champion_id='unknown'.")
-    else:
-        print(f"Champion: {champion_manifest.get('champion_id', '?')}")
+    # Load champion manifest once — required for champion enforcement.
+    # Raises ChampionMismatchError if the manifest is absent.
+    from hm2p.pose.select import ChampionMismatchError, load_champion_manifest
+    try:
+        champion_manifest = load_champion_manifest(s3, DERIVATIVES_BUCKET)
+    except ChampionMismatchError as e:
+        print(f"ERROR: {e}")
+        print("Declare a champion with scripts/declare_dlc_champion.py first.")
+        sys.exit(1)
+    print(f"Champion: {champion_manifest.get('champion_id', '?')}")
 
     if args.session is not None:
         if args.session.isdigit():
