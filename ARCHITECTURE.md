@@ -213,12 +213,16 @@ hm2p-v2/
 │       │   ├── soma_classifier.py # Soma/dend/artefact classifier framework
 │       │   ├── run_suite2p.py     # Suite2p batch runner: wraps suite2p.run_s2p()
 │       │   ├── zdrift.py          # Z-drift estimation from serial2p z-stacks
+│       │   ├── curation.py        # ROI curation utilities (accept/reject, merge)
 │       │   └── caiman.py          # CaimanExtractor
 │       ├── pose/
 │       │   ├── __init__.py
 │       │   ├── preprocess.py      # load_meta + undistort/crop utils (videos are pre-processed)
 │       │   ├── quality.py         # Pose quality metrics: PCK, likelihood, jitter
 │       │   ├── retrain.py         # Helpers for DLC active-learning retraining
+│       │   ├── select.py          # DLC h5 selection, champion manifest, provenance resolution
+│       │   ├── finetune.py        # SuperAnimal fine-tuning helpers (dataset creation, config)
+│       │   ├── dedup.py           # Frame deduplication for DLC labeled data
 │       │   └── run.py             # Dispatch to DLC / SLEAP / LP based on session.tracker
 │       ├── kinematics/
 │       │   ├── __init__.py
@@ -233,6 +237,7 @@ hm2p-v2/
 │       │   ├── spikes.py            # CASCADE calibrated spike inference
 │       │   ├── events.py            # Voigts & Harnett fallback event detection
 │       │   ├── population.py        # Population-level calcium signal summaries
+│       │   ├── qc.py                # Calcium signal quality control metrics
 │       │   └── run.py               # Stage 4 runner: neuropil → dF/F → CASCADE → ca.h5
 │       ├── analysis/
 │       │   ├── __init__.py
@@ -259,7 +264,10 @@ hm2p-v2/
 │       │   ├── __init__.py
 │       │   ├── topology.py        # q-rose maze graph: 7×5 grid, adjacency, dead ends
 │       │   ├── discretize.py      # Continuous x/y → maze cell assignment
-│       │   └── analysis.py        # Occupancy, exploration, turn bias, sequences
+│       │   ├── analysis.py        # Occupancy, exploration, turn bias, sequences
+│       │   └── neural.py          # NaviGraph maze-neural analyses: node activity maps,
+│       │                          #   light/dark contrast, junction vs corridor MVL,
+│       │                          #   corridor traversal familiarity effects
 │       ├── anatomy/
 │       │   ├── __init__.py
 │       │   ├── register.py        # brainreg: serial2p → Allen CCFv3 registration
@@ -268,7 +276,9 @@ hm2p-v2/
 │       ├── sync/
 │       │   ├── __init__.py
 │       │   ├── align.py           # Resample behaviour to imaging timestamps
-│       │   └── validate.py        # Post-sync validation: shape, NaN, temporal monotonicity
+│       │   ├── validate.py        # Post-sync validation: shape, NaN, temporal monotonicity
+│       │   ├── diagnostics.py     # Sync diagnostic metrics (frame count mismatches, etc.)
+│       │   └── report.py          # Sync summary report generation
 │       ├── patching/
 │       │   ├── __init__.py
 │       │   ├── config.py                    # Patching pipeline configuration
@@ -290,7 +300,7 @@ hm2p-v2/
 │           ├── s3.py              # S3 path resolution (cloud vs local)
 │           └── aws_cost.py        # AWS cost estimation and billing queries
 ├── tests/                         # Tests live in tests/ mirroring src/hm2p/ structure.
-│   │                              # 97 test files, 1,814 tests as of March 2026.
+│   │                              # 131 test files as of May 2026.
 │   │                              # See tests/ directory for details.
 │   └── ...
 ├── workflow/
@@ -317,7 +327,10 @@ hm2p-v2/
 ├── frontend/
 │   ├── app.py                     # Streamlit entry point (st.navigation)
 │   ├── data.py                    # S3 data loading, caching, session filters
-│   └── pages/                     # 60 page modules (one per analysis view)
+│   ├── components/                # Reusable Streamlit UI components
+│   │   ├── maze_canvas.py         # Interactive maze grid canvas widget
+│   │   └── sync_diag.py           # Sync diagnostics display component
+│   └── pages/                     # 68 page modules (one per analysis view)
 │       │                          # Notable pages: ahv_page, analysis_page, anatomy_page,
 │       │                          # anchoring_page, cascade_page, classify_page, decoder_page,
 │       │                          # drift_page, gain_page, hd_tuning_page, info_theory_page,
@@ -343,6 +356,17 @@ hm2p-v2/
 │   ├── launch_dlc_finetune_ec2.py  # Launch g4dn for DLC training + re-inference
 │   ├── run_dlc_retrain.py         # Training + re-inference script (runs on EC2)
 │   ├── promote_finetuned_pose.py  # Copy pose-finetuned/ → pose/ after QC
+│   ├── declare_dlc_champion.py    # Declare new project-wide DLC champion model
+│   ├── promote_dlc_model.py      # Write per-session promoted.json after QC
+│   ├── render_dlc_videos.py      # Render DLC-overlaid videos + .provenance.json sidecars
+│   ├── render_exemplar_clips.py  # Render short exemplar video clips for QC pages
+│   ├── compare_models.py         # Compare DLC model performance across sessions
+│   ├── compute_bodypart_rmse.py  # Per-bodypart RMSE/PCK metrics for DLC evaluation
+│   ├── launch_downstream_cpu.py  # Launch EC2 CPU instance for Stages 3→5→6
+│   ├── launch_kpms_ec2.py        # Launch EC2 for keypoint-MoSeq syllable extraction
+│   ├── poll_pipeline_health.py   # Monitor EC2 pipeline run health via S3 progress files
+│   ├── train_soma_classifier.py  # Train logistic regression soma/dend classifier
+│   ├── upload_runs_to_wandb.py   # Upload DLC training runs to W&B for tracking
 │   │                              # Infrastructure scripts (AWS setup — run once):
 │   ├── setup_ec2_iam.py           # IAM roles + instance profiles for EC2
 │   ├── setup_frontend_iam.py      # IAM policy for Streamlit frontend S3 access
@@ -748,3 +772,4 @@ s3://hm2p-derivatives/
 ```
 | vulture | Dead code detection — finds unused functions and variables |
 | structlog | Structured JSON logging throughout pipeline stages |
+| W&B (wandb) | DLC training run tracking — loss curves, per-bodypart RMSE/PCK metrics |

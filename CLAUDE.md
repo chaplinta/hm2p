@@ -259,13 +259,15 @@ invalidated. Two mechanisms enforce this in the frontend:
 **Enforcement contract for DLC-derived pages:**
 - Every page that loads sync.h5 or analysis.h5 must call `is_session_current()`
   with the result of `get_dlc_champion()`.
-- Every page that displays rendered videos must call `_video_is_current()` to check
-  the `.provenance.json` sidecar.
+- Every page that displays rendered videos should check the `.provenance.json`
+  sidecar via `get_video_champion_id()`. A convenience wrapper
+  `_video_is_current()` is planned but not yet implemented.
 - The shared warning banner is `render_champion_staleness_warning()` — do not
   reimplement it per page.
-- The `load_session()` helper in `frontend/data.py` embeds the staleness check and
-  attaches a `"stale"` key to the returned dict. Pages that call `load_session()`
-  and ignore the `"stale"` key must document why.
+- A `load_session()` helper in `frontend/data.py` that embeds the staleness check
+  and attaches `"stale"` / `"stale_reason"` keys is planned but not yet
+  implemented (see DLC Champion Phase 3a in PLAN.md). Until then, pages must
+  call `get_dlc_champion()` and `is_session_current()` directly.
 
 Full specification in [docs/dlc-champion-model.md](docs/dlc-champion-model.md).
 Pipeline stage dependencies in [PLAN.md](PLAN.md).

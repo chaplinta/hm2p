@@ -107,7 +107,7 @@ Current default: **DeepLabCut 3.0 (PyTorch) — SuperAnimal TopViewMouse + HRNet
 
 | Property | Detail |
 | --- | --- |
-| Body parts | `left_ear`, `right_ear`, `mid_back`, `mouse_center`, `tail_base` |
+| Body parts | `nose_tip`, `left_ear`, `right_ear`, `head_midpoint`, `neck`, `mid_back`, `mouse_center`, `tail_base` |
 | Output format | `.h5` per video: `(frame × body_part) → (x, y, likelihood)` |
 | Current volume | ~55 GB (model weights + labeled frames + outputs) |
 
@@ -281,7 +281,7 @@ Steps:
 Stage 2b uses these weights for inference.
 
 **Tools:** DeepLabCut 3.x (PyTorch), SuperAnimal TopViewMouse + HRNet-W32 + FasterRCNN
-**Compute:** GPU required — EC2 g5.xlarge (A10G) or local GPU machine
+**Compute:** GPU required — EC2 g4dn.2xlarge (T4, 32 GB RAM) or local GPU machine
 
 **Launch:**
 ```bash
@@ -751,7 +751,7 @@ Notebooks
     `scripts/launch_dlc_parallel.py` (DLC parallel shards). Both support `--status`,
     `--terminate`, `--dry-run`.
 16. ✅ **Visualization script** — `scripts/viz_suite2p.py` generates multi-panel figure.
-17. ✅ **Frontend / dashboard** — Streamlit app with 59 pages organized in 5 navigation
+17. ✅ **Frontend / dashboard** — Streamlit app with 68 pages organized in 5 navigation
     sections (Overview, Pipeline, Explore, Analysis, System). Loads real data from S3;
     shows clear message if unavailable. No synthetic data.
 18. ✅ **keypoint-MoSeq** — Docker container + orchestration script implemented for
@@ -805,26 +805,18 @@ Goal: establish the manifest and the provenance ID without touching any derivati
 files. After this phase the champion is declared automatically at the end of each
 successful training run; no frontend check runs yet.
 
-- ⬜ **1a** Extend `src/hm2p/pose/select.py`: add `get_champion_manifest(s3, bucket)`
-  function that loads `dlc-champion.json`. Add `compute_champion_id(model_name,
-  architecture, snapshot) -> str` helper. Extend `select_best_dlc_h5_s3` to return
-  `(h5_key, champion_id | None)` (breaking change for callers — fix all call sites
-  in the same PR).
-- ⬜ **1b** Extend `scripts/promote_dlc_model.py`: fetch champion manifest at start,
-  stamp `dlc_champion_id` into each promoted.json being written.
-- ⬜ **1c** New script `scripts/declare_dlc_champion.py`: constructs champion_id,
-  reads EC2 instance ID from IMDS and git SHA from `git rev-parse HEAD`, archives
-  previous manifest to `dlc-champion-history/`, writes new `dlc-champion.json`
-  (with `promoted_by_ec2_instance`, `promoted_by_git_sha`, `promoted_at`, optional
-  `note`), deletes `pipeline_rerun.json`. Supports `--note "..."` for manual
-  invocations and `--dry-run` for testing.
-- ⬜ **1d** Extend `scripts/run_dlc_retrain.py`: call `declare_dlc_champion.py` (or
-  its importable function) as the final step of a successful training+inference run,
-  before the instance self-terminates. This makes champion declaration automatic —
-  no separate operator step is needed.
-- ⬜ **1e** Tests: unit tests for `compute_champion_id`, `get_champion_manifest`,
-  extended `select_best_dlc_h5_s3` return type, `declare_dlc_champion.py` logic
-  (IMDS lookup, git SHA read, archive + write sequence, dry-run behaviour).
+- ✅ **1a** `src/hm2p/pose/select.py`: `get_champion_manifest()`,
+  `compute_champion_id()`, `resolve_champion_id()`, `extract_dlc_provenance()`.
+  `select_best_dlc_h5_s3` return type kept as `str | None`; champion resolution
+  is handled separately via `resolve_champion_id()`.
+- ✅ **1b** `scripts/promote_dlc_model.py`: writes per-session `promoted.json`.
+- ✅ **1c** `scripts/declare_dlc_champion.py`: constructs champion_id,
+  reads EC2 instance ID from IMDS and git SHA, archives previous manifest to
+  `dlc-champion-history/`, writes new `dlc-champion.json`. Supports `--note` and
+  `--dry-run`.
+- ✅ **1d** `scripts/run_dlc_retrain.py`: calls `declare_champion()` as the
+  final step of a successful training+inference run, before self-termination.
+- ✅ **1e** Tests: `tests/pose/test_select.py`, `tests/scripts/test_declare_dlc_champion.py`.
 
 ### Phase 2 — Derivative Provenance
 
@@ -834,18 +826,17 @@ derivatives. Phase 2 ends with all 26 sessions processed under the first real
 champion ID; pre-existing derivatives without `dlc_champion_id` are simply stale
 until this phase completes. No retroactive champion is declared for older runs.
 
-- ⬜ **2a** `src/hm2p/kinematics/compute.py`: add `dlc_champion_id` parameter;
-  write `attrs["dlc_champion_id"]` alongside existing `dlc_model_name` /
-  `dlc_snapshot`.
-- ⬜ **2b** `scripts/run_stage3_kinematics.py`: pass `champion_id` from `find_dlc_h5()`
-  into `run_session()`. Fetch manifest once at startup.
-- ⬜ **2c** `src/hm2p/sync/align.py`: copy `dlc_champion_id` from kin_attrs (add to
-  the list at line 153 alongside existing keys).
-- ⬜ **2d** `src/hm2p/analysis/save.py`: copy provenance triplet from sync.h5 attrs
-  into analysis.h5 root attrs.
-- ⬜ **2e** `scripts/render_dlc_videos.py`: after each video upload write
-  `.provenance.json` sidecar with champion_id, model_name, snapshot, source_h5_key,
-  rendered_at, render_mode.
+- ✅ **2a** `src/hm2p/kinematics/compute.py`: `dlc_champion_id` parameter;
+  written to `attrs["dlc_champion_id"]`.
+- ✅ **2b** `scripts/run_stage3_kinematics.py`: passes `champion_id` via
+  `resolve_champion_id()`. Fetches manifest once at startup.
+- ✅ **2c** `src/hm2p/sync/align.py`: copies `dlc_champion_id` from kinematics
+  attrs into sync.h5.
+- ✅ **2d** `src/hm2p/analysis/save.py`: copies provenance triplet
+  (`dlc_model_name`, `dlc_snapshot`, `dlc_champion_id`) from sync.h5 into
+  analysis.h5 root attrs.
+- ✅ **2e** `scripts/render_dlc_videos.py`: writes `.provenance.json` sidecar
+  with champion_id, model_name, snapshot per rendered video.
 - ⬜ **2f** Re-run Stages 3 → 5 → 6 for all 26 sessions to stamp champion_id into HDF5.
 - ⬜ **2g** Re-run `render_dlc_videos.py --all` to produce sidecar files.
 - ⬜ **2h** Tests: verify kinematics.h5 attrs include champion_id; verify sync.h5
@@ -859,16 +850,16 @@ Goal: every page that displays DLC-derived data shows a staleness warning when
 All pages listed in `docs/dlc-champion-model.md` Section 3.6 are updated in a
 single PR — no transitional period where only some pages enforce the contract.
 
-- ⬜ **3a** `frontend/data.py`: add `get_dlc_champion()` (TTL 300 s), `is_session_current()`,
-  `render_champion_staleness_warning()`, `get_video_champion_id()`,
-  `_video_is_current()`. Extend `load_session()` to embed champion check and attach
-  `"stale"` / `"stale_reason"` keys.
-- ⬜ **3b** `frontend/pages/pipeline_page.py`: show champion identity in Stage 2a row.
-- ⬜ **3c** `frontend/pages/dlc_viewer_page.py`: guard "Sync all rendered videos"
-  button with `_video_is_current()`; show video-level provenance in the viewer.
-- ⬜ **3d** All analysis and QC pages listed in `docs/dlc-champion-model.md` Section 3.6:
-  add `champion = get_dlc_champion()` and `is_session_current()` call near top of page.
-  Use `render_champion_staleness_warning()` shared banner — do not reimplement it.
+- 🔶 **3a** `frontend/data.py`: `get_dlc_champion()`, `is_session_current()`,
+  `render_champion_staleness_warning()`, `get_video_champion_id()` are implemented.
+  Remaining: `_video_is_current()` helper and `load_session()` with embedded
+  staleness check (`"stale"` / `"stale_reason"` keys) are not yet implemented.
+- ✅ **3b** `frontend/pages/pipeline_page.py`: shows champion identity in Stage 2a row.
+- 🔶 **3c** `frontend/pages/dlc_viewer_page.py`: calls `get_dlc_champion()` for
+  provenance display. Remaining: `_video_is_current()` guard not yet implemented.
+- 🔶 **3d** Some analysis and QC pages call `is_session_current()` (tracking_quality,
+  rastermap). Remaining: not all pages listed in `docs/dlc-champion-model.md`
+  Section 3.6 have been updated.
 - ⬜ **3e** Tests: mock `get_dlc_champion()` returning None, matching, and mismatching
   champion; verify `is_session_current()` return values; verify banner is rendered
   only when stale.

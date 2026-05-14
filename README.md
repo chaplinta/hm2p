@@ -56,7 +56,7 @@ hm2p-v2/
 ├── ARCHITECTURE.md    ← code layout, HDF5 schemas, interface contracts
 ├── CLAUDE.md          ← coding standards, tool versions, rules for AI agents (auto-loaded by Claude Code)
 ├── old-pipeline/      ← legacy pipeline code (read-only reference — never modify)
-├── frontend/         ← Streamlit dashboard (53 pages)
+├── frontend/         ← Streamlit dashboard (68 pages)
 │   ├── app.py
 │   ├── data.py       ← S3 data loading + caching
 │   └── pages/        ← analysis, pipeline QC, system pages
@@ -91,7 +91,7 @@ Stage 1 — 2P Extraction          Stage 2a — DLC Training (GPU, 24h max)
                                      ▼
                                    Stage 2b — DLC Inference
                                      DeepLabCut (default) / SLEAP / LightningPose
-                                     Keypoint tracking (5 body parts)
+                                     Keypoint tracking (8 body parts)
                                      → derivatives/pose/
   │                                  │
   ▼ Stage 4 — Calcium Processing   Stage 3 — Kinematics
@@ -221,10 +221,10 @@ The `sync.h5` file loads directly into **pynapple** for analysis:
 import pynapple as nap, h5py
 
 with h5py.File("sync.h5") as f:
-    t      = f["frame_time"][:]
+    t      = f["frame_times"][:]
     spikes = nap.TsdFrame(t=t, d=f["spikes"][:].T)   # ROIs × time → TsdFrame
-    hd     = nap.Tsd(t=t, d=f["hd"][:])
-    speed  = nap.Tsd(t=t, d=f["speed"][:])
+    hd     = nap.Tsd(t=t, d=f["hd_deg"][:])
+    speed  = nap.Tsd(t=t, d=f["speed_cm_s"][:])
 
 # Time-aware restriction to active periods only:
 active_ep     = nap.IntervalSet(...)
@@ -289,7 +289,7 @@ instructions (local macOS and devcontainer).
 | EC2 cloud run infrastructure | Done |
 | Snakemake DAG | Pending — rules defined, shell commands needed |
 | Docker images for cloud | Done (gpu, cpu, kpms Dockerfiles) |
-| Frontend dashboard (53 pages) | Done |
+| Frontend dashboard (68 pages) | Done |
 | Analysis framework (17 modules) | Done |
 | Patching pipeline (10 modules, 227 tests) | Done |
 | keypoint-MoSeq Docker integration | Done |
