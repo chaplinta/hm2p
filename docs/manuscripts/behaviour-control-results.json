@@ -59,7 +59,7 @@
       },
       "holm_bonferroni_adjusted_p": {
         "mrl": 0.020250320434570312,
-        "ahv": 0.01947307586669922
+        "ahv": 0.020250320434570312
       }
     },
     "control_4": {
@@ -105,26 +105,30 @@
     },
     "control_5": {
       "n_observed": 21,
+      "n_null_session_means": 21,
       "n_null_total": 21000,
       "n_simulations_per_session": 1000,
       "observed_mean": -0.19596228440876706,
       "observed_median": -0.1714285714285714,
       "observed_sd": 0.10179025558151009,
+      "null_session_mean": -0.14051587318241462,
       "null_mean": -0.1405158731824146,
       "null_median": -0.14056382632831238,
       "null_sd": 0.05971624715490257,
       "null_pct_2_5": -0.26003393128882907,
       "null_pct_97_5": -0.021413736817610083,
       "test_observed_vs_null": {
-        "U": 150895.0,
-        "p": 0.012272339646665109,
-        "cliff_d": -0.3156689342403628,
+        "U": 147.0,
+        "p": 0.06630309624589314,
+        "cliff_d": -0.3333333333333333,
         "n1": 21,
-        "n2": 21000,
+        "n2": 21,
         "test": "mann_whitney_u"
       },
       "permutation_p_onesided": 0.0,
       "permutation_p_twosided": 0.0,
+      "permutation_p_onesided_fmt": "<0.0001",
+      "permutation_p_twosided_fmt": "<0.0001",
       "n_observed_below_null_ci": 5,
       "n_observed_above_null_ci": 0,
       "frac_observed_outside_null_ci": 0.23809523809523808,

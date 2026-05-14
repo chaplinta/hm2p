@@ -343,15 +343,48 @@ def _draw_maze_topology(ax: plt.Axes, maze) -> None:
     ax.set_yticklabels(np.arange(0, 5))
 
 
-def _draw_example_trajectory(ax: plt.Axes, maze, results: dict) -> None:
-    """Draw schematic example trajectory on the maze.
+def _try_load_real_trajectory():
+    """Attempt to download a real trajectory from sync.h5 on S3.
 
-    Since raw trajectory data is not in the JSON, we create a plausible
-    trajectory through the maze graph to illustrate the exploration path.
-    Each step moves between adjacent cell centres with small jitter,
-    constrained to stay within the corridor footprint.
+    Tries sub-1114353/ses-20210823T165950 first (first usable session).
+    Returns (x_maze, y_maze, light_on) arrays or None if unavailable.
     """
-    rng = np.random.default_rng(12345)
+    try:
+        import boto3
+        import h5py
+        import tempfile
+        import os
+
+        s3 = boto3.client("s3", region_name="ap-southeast-2")
+        key = "sync/sub-1114353/ses-20210823T165950/sync.h5"
+        with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
+            tmppath = tmp.name
+        try:
+            s3.download_file("hm2p-derivatives", key, tmppath)
+            with h5py.File(tmppath, "r") as f:
+                if "x_maze" in f and "y_maze" in f and "light_on" in f:
+                    return (
+                        f["x_maze"][:],
+                        f["y_maze"][:],
+                        f["light_on"][:].astype(bool),
+                    )
+        except Exception:
+            pass
+        finally:
+            if os.path.exists(tmppath):
+                os.unlink(tmppath)
+    except Exception:
+        pass
+    return None
+
+
+def _draw_example_trajectory(ax: plt.Axes, maze, results: dict) -> None:
+    """Draw example trajectory on the maze.
+
+    Attempts to load a real trajectory from sync.h5 on S3.  If
+    unavailable (pipeline not yet re-run), falls back to a schematic
+    graph-constrained walk and labels it clearly.
+    """
     adj = maze.adj
 
     # Draw maze cell outlines first (background)
@@ -371,41 +404,55 @@ def _draw_example_trajectory(ax: plt.Axes, maze, results: dict) -> None:
         ax.plot([wall_x, wall_x], [c1[1], c1[1] + 1],
                 color="#666666", linewidth=2, zorder=1)
 
-    # Random walk on the graph — stays on valid cells
-    walk = [(0, 0)]
-    visited = {(0, 0)}
-    current = (0, 0)
-    for _ in range(250):
-        neighbours = adj[current]
-        unvisited = [n for n in neighbours if n not in visited]
-        if unvisited:
-            current = unvisited[rng.integers(len(unvisited))]
-        else:
-            current = neighbours[rng.integers(len(neighbours))]
-        walk.append(current)
-        visited.add(current)
+    real_data = _try_load_real_trajectory()
 
-    # Build piecewise-linear trajectory between cell centres with jitter
-    # Each step from cell A to cell B is drawn as a line segment with
-    # small perpendicular offset so overlapping traversals are visible.
-    n_steps = len(walk) - 1
-    mid = n_steps // 2  # split light / dark
+    if real_data is not None:
+        x_maze, y_maze, light_on = real_data
+        valid = np.isfinite(x_maze) & np.isfinite(y_maze)
+        # Subsample for visual clarity (every 3rd frame)
+        step = 3
+        for mask, col, label in [
+            (valid & light_on, COL_LIGHT, "Light"),
+            (valid & ~light_on, COL_DARK, "Dark"),
+        ]:
+            idx = np.where(mask)[0][::step]
+            ax.plot(x_maze[idx], y_maze[idx], color=col, linewidth=0.25,
+                    alpha=0.5, label=label, zorder=2)
+        title_suffix = ""
+    else:
+        # DEFERRED: sync.h5 not yet on S3, use graph-constrained schematic
+        rng = np.random.default_rng(12345)
+        walk = [(0, 0)]
+        visited = {(0, 0)}
+        current = (0, 0)
+        for _ in range(250):
+            neighbours = adj[current]
+            unvisited = [n for n in neighbours if n not in visited]
+            if unvisited:
+                current = unvisited[rng.integers(len(unvisited))]
+            else:
+                current = neighbours[rng.integers(len(neighbours))]
+            walk.append(current)
+            visited.add(current)
 
-    for condition, (start, end, col) in enumerate([
-        (0, mid, COL_LIGHT),
-        (mid, n_steps, COL_DARK),
-    ]):
-        xs, ys = [], []
-        for i in range(start, end + 1):
-            cx, cy = walk[i]
-            jx = rng.normal(0, 0.12)
-            jy = rng.normal(0, 0.12)
-            # Clamp jitter to stay within the cell [0.1, 0.9] relative
-            xs.append(cx + 0.5 + np.clip(jx, -0.35, 0.35))
-            ys.append(cy + 0.5 + np.clip(jy, -0.35, 0.35))
-        label = "Light" if condition == 0 else "Dark"
-        ax.plot(xs, ys, color=col, linewidth=0.35, alpha=0.65,
-                label=label, zorder=2)
+        n_steps = len(walk) - 1
+        mid = n_steps // 2
+
+        for condition, (start, end, col) in enumerate([
+            (0, mid, COL_LIGHT),
+            (mid, n_steps, COL_DARK),
+        ]):
+            xs, ys = [], []
+            for i in range(start, end + 1):
+                cx, cy = walk[i]
+                jx = rng.normal(0, 0.12)
+                jy = rng.normal(0, 0.12)
+                xs.append(cx + 0.5 + np.clip(jx, -0.35, 0.35))
+                ys.append(cy + 0.5 + np.clip(jy, -0.35, 0.35))
+            label = "Light" if condition == 0 else "Dark"
+            ax.plot(xs, ys, color=col, linewidth=0.35, alpha=0.65,
+                    label=label, zorder=2)
+        title_suffix = " (schematic)"
 
     ax.legend(fontsize=5.5, loc="lower right", frameon=True, framealpha=0.9,
               edgecolor="#CCCCCC", handletextpad=0.3, borderpad=0.3)
@@ -418,6 +465,8 @@ def _draw_example_trajectory(ax: plt.Axes, maze, results: dict) -> None:
     ax.set_xticklabels(np.arange(0, 7))
     ax.set_yticks(np.arange(0, 5) + 0.5)
     ax.set_yticklabels(np.arange(0, 5))
+    if title_suffix:
+        ax.set_title(f"Example trajectory{title_suffix}", fontsize=7)
 
 
 # ---------------------------------------------------------------------------
@@ -713,61 +762,56 @@ def figure5(results: dict) -> None:
 
 
 def _draw_hd_polar(ax: plt.Axes, sessions: list[dict]) -> None:
-    """Draw HD distribution polar histograms for light vs dark.
+    """Draw MRL summary on polar axes using real per-session data.
 
-    Uses MRL values per session to create a summary polar display.
-    Since raw HD histograms are not in the JSON, we draw per-session
-    MRL vectors as radial lines from the origin, showing the distribution
-    of preferred directions and MRL magnitudes.
+    Displays real per-session MRL magnitudes as radial markers
+    distributed uniformly around the circle (for visual separation
+    only -- angular position is arbitrary since per-session preferred
+    directions are not stored in the results JSON).  Mean MRL for
+    each condition is shown as a concentric circle.
+
+    All MRL values are real, computed from active-only frames in the
+    main analysis.
     """
-    rng = np.random.default_rng(99)
+    light_mrls = np.array([s["hd_mrl_light"] for s in sessions
+                           if s.get("hd_mrl_light") is not None])
+    dark_mrls = np.array([s["hd_mrl_dark"] for s in sessions
+                          if s.get("hd_mrl_dark") is not None])
+    n = len(light_mrls)
 
-    # Since we don't have per-session preferred direction, simulate
-    # plausible PDs from the maze geometry (dominant corridor orientations
-    # are 0, 90, 180, 270 degrees)
-    n = len(sessions)
-    # Use a mixture of cardinal directions with noise to represent
-    # maze-constrained heading
-    cardinal = np.array([0, np.pi / 2, np.pi, 3 * np.pi / 2])
-    pds = np.concatenate([
-        cardinal[rng.integers(0, 4, n)] + rng.normal(0, 0.3, n)
-    ])[:n]
+    # Distribute sessions uniformly around the circle for display
+    # (angular position is for visual separation, not data)
+    theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
 
-    light_mrls = np.array([s["hd_mrl_light"] for s in sessions])
-    dark_mrls = np.array([s["hd_mrl_dark"] for s in sessions])
+    # Per-session MRL dots
+    ax.scatter(theta, light_mrls, color=COL_LIGHT, s=18, alpha=0.7,
+               edgecolors="none", zorder=3, label=None)
+    ax.scatter(theta + 0.08, dark_mrls, color=COL_DARK, s=18, alpha=0.7,
+               edgecolors="none", zorder=3, label=None)
 
-    # Draw MRL vectors for each session
+    # Connecting lines between light and dark for each session
     for i in range(n):
-        ax.plot(
-            [pds[i], pds[i]],
-            [0, light_mrls[i]],
-            color=COL_LIGHT,
-            linewidth=0.8,
-            alpha=0.5,
-        )
-        ax.plot(
-            [pds[i] + 0.05, pds[i] + 0.05],
-            [0, dark_mrls[i]],
-            color=COL_DARK,
-            linewidth=0.8,
-            alpha=0.5,
-        )
+        ax.plot([theta[i], theta[i] + 0.08],
+                [light_mrls[i], dark_mrls[i]],
+                color="#CCCCCC", linewidth=0.4, zorder=2)
 
-    # Grand mean MRL as thick circle
-    mean_mrl_light = np.mean(light_mrls)
-    mean_mrl_dark = np.mean(dark_mrls)
+    # Grand mean MRL as concentric circles
+    mean_mrl_light = float(np.mean(light_mrls))
+    mean_mrl_dark = float(np.mean(dark_mrls))
     theta_circle = np.linspace(0, 2 * np.pi, 100)
     ax.plot(theta_circle, [mean_mrl_light] * 100, color=COL_LIGHT,
-            linewidth=1.5, linestyle="-", label=f"Light (MRL={mean_mrl_light:.2f})")
+            linewidth=1.5, linestyle="-",
+            label=f"Light (MRL={mean_mrl_light:.3f})")
     ax.plot(theta_circle, [mean_mrl_dark] * 100, color=COL_DARK,
-            linewidth=1.5, linestyle="--", label=f"Dark (MRL={mean_mrl_dark:.2f})")
+            linewidth=1.5, linestyle="--",
+            label=f"Dark (MRL={mean_mrl_dark:.3f})")
 
     ax.set_ylim(0, 0.6)
     ax.set_yticks([0.2, 0.4])
     ax.set_yticklabels(["0.2", "0.4"], fontsize=5)
     ax.legend(fontsize=5, loc="lower left", bbox_to_anchor=(-0.15, -0.18),
               frameon=True, framealpha=0.9, edgecolor="#CCCCCC")
-    ax.set_title("HD distribution (MRL)", fontsize=7, pad=12)
+    ax.set_title("Per-session MRL", fontsize=7, pad=12)
 
 
 # ---------------------------------------------------------------------------

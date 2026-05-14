@@ -39,7 +39,7 @@ _This control requires frame-level HD and position data from sync.h5 files. Cann
 | Metric | Light | Dark | Test | p_adj |
 | ------ | ----- | ---- | ---- | ----- |
 | MRL (active only) | 0.297 | 0.338 | W = 43.0, p = 0.0101, r = 0.628, N = 21 | 0.0203 |
-| Median |AHV| (active only) | 121.4 | 115.1 | W = 49.0, p = 0.0195, r = 0.576, N = 21 | 0.0195 |
+| Median |AHV| (active only) | 121.4 | 115.1 | W = 49.0, p = 0.0195, r = 0.576, N = 21 | 0.0203 |
 
 ---
 
@@ -65,8 +65,8 @@ Active-only reference from Figure 6:
 - Observed: mean = -0.196, median = -0.171, SD = 0.102 (N = 21)
 - Null: mean = -0.141, median = -0.141, SD = 0.060 (N = 21000 simulations)
 - Null 95% CI: [-0.260, -0.021]
-- Mann-Whitney (observed vs null): U = 150895.0, p = 0.0123, d = -0.316
-- Bootstrap permutation p (one-sided, H1: observed < null): 0.0000
+- Mann-Whitney (21 observed vs 21 per-session null means): U = 147.0, p = 0.0663, d = -0.333
+- Bootstrap permutation p (one-sided, H1: observed < null): <0.0001
 - Sessions outside null 95% CI: 5 below, 0 above (23.8%)
 
 **Note:** The null distribution itself has a negative mean (-0.141), indicating that maze geometry alone produces some degree of turn alternation. The question is whether the observed alternation (-0.196) exceeds this geometry-driven baseline.
@@ -112,7 +112,7 @@ Turn autocorrelation vs 0 (primary only): mean = -0.179, W = 0.0, p = 0.0005, r 
 | 2. MRL by node type | requires_frame_data | Deferred |
 | 3. MRL/AHV active only | verified | Already active-only; MRL p = 0.0101 |
 | 4. Speed by node type (all) | requires_frame_data | Deferred |
-| 5. Random walk null | computed | Permutation p = 0.0000, d = -0.316 |
+| 5. Random walk null | computed | Permutation p = <0.0001, d = -0.333 |
 | 6. Bodypart tracking quality | requires_frame_data | Deferred |
 | 7. Primary-only | computed | Coverage p = 0.0210, r = 0.744 |
 

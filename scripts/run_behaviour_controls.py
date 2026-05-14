@@ -223,16 +223,27 @@ def friedman_test(*groups):
 
 
 def holm_bonferroni(p_values):
-    """Apply Holm-Bonferroni correction. Returns adjusted p-values."""
+    """Apply Holm-Bonferroni correction. Returns adjusted p-values.
+
+    The adjustment is: p_adj[i] = p_sorted[i] * (n - rank_i), where
+    rank_i is the 0-based rank in ascending order.  A cumulative maximum
+    is then applied so that adjusted p-values are non-decreasing when
+    sorted by raw p-value (Holm 1979, requirement for step-down control).
+    """
     pvals = np.asarray(p_values, dtype=float)
     n = len(pvals)
     if n == 0:
         return pvals.tolist()
     order = np.argsort(pvals)
+    sorted_adj = np.array(
+        [min(pvals[order[rank]] * (n - rank), 1.0) for rank in range(n)]
+    )
+    # Enforce monotonicity: adjusted p-values must be non-decreasing
+    sorted_adj = np.maximum.accumulate(sorted_adj)
+    # Map back to original order
     adjusted = np.empty(n)
     for rank, idx in enumerate(order):
-        adjusted[idx] = pvals[idx] * (n - rank)
-    adjusted = np.minimum(adjusted, 1.0)
+        adjusted[idx] = sorted_adj[rank]
     return adjusted.tolist()
 
 
@@ -324,15 +335,24 @@ def _turn_autocorrelation_from_cell_seq(cs, maze):
     return float(rho)
 
 
+def _fmt_perm_p(p: float) -> str:
+    """Format a permutation p-value, showing '<0.0001' when p == 0."""
+    if p == 0.0:
+        return "<0.0001"
+    return f"{p:.4f}"
+
+
 def control_5_random_walk_null(
     observed_autocorrs, observed_turn_counts, maze, n_simulations=1000
 ):
     """Simulate random walks and compare alternation to observed data.
 
-    For each session, simulates random walks on the maze graph of
-    comparable length and computes the lag-1 turn autocorrelation.
-    The null distribution tests whether observed alternation exceeds
-    what a random walk would produce.
+    For each session, simulates ``n_simulations`` random walks on the
+    maze graph of comparable length and computes the lag-1 turn
+    autocorrelation.  The per-session null mean (averaged over the 1000
+    simulations) is then used for the Mann-Whitney comparison, giving
+    a matched N-observed vs N-null comparison (e.g. 21 vs 21) rather
+    than an inflated 21-vs-21000 test.
 
     Parameters
     ----------
@@ -351,17 +371,14 @@ def control_5_random_walk_null(
     """
     rng = np.random.default_rng(42)
 
-    # Estimate cell sequence length from turn counts. Each L/R turn implies
-    # the walker visited a junction. The total cell sequence is roughly
-    # 2x the number of turns (including non-junction visits).
-    # Use a conversion factor: each junction visit corresponds to ~3 cells
-    # in the cell sequence (approach, junction, departure).
-    null_autocorrs_all = []
+    null_autocorrs_all = []       # all individual simulations (for CI)
+    per_session_null_means = []   # one mean per session (for MW test)
     per_session_null = []
 
     for i, walk_len in enumerate(observed_turn_counts):
         if walk_len < 20:
             per_session_null.append([])
+            per_session_null_means.append(None)
             continue
         session_null = []
         for _ in range(n_simulations):
@@ -371,17 +388,32 @@ def control_5_random_walk_null(
                 session_null.append(ac)
                 null_autocorrs_all.append(ac)
         per_session_null.append(session_null)
+        # One summary value per session for the MW test
+        if session_null:
+            per_session_null_means.append(float(np.mean(session_null)))
+        else:
+            per_session_null_means.append(None)
 
     null_arr = np.array(null_autocorrs_all) if null_autocorrs_all else np.array([])
     observed = np.array([a for a in observed_autocorrs if a is not None])
 
+    # Per-session null means (drop None entries for sessions with no
+    # valid simulations)
+    null_session_means = np.array(
+        [m for m in per_session_null_means if m is not None]
+    )
+
     result = {
         "n_observed": len(observed),
+        "n_null_session_means": len(null_session_means),
         "n_null_total": len(null_arr),
         "n_simulations_per_session": n_simulations,
         "observed_mean": float(np.mean(observed)) if len(observed) > 0 else None,
         "observed_median": float(np.median(observed)) if len(observed) > 0 else None,
         "observed_sd": float(np.std(observed, ddof=1)) if len(observed) > 1 else None,
+        "null_session_mean": (
+            float(np.mean(null_session_means)) if len(null_session_means) > 0 else None
+        ),
         "null_mean": float(np.mean(null_arr)) if len(null_arr) > 0 else None,
         "null_median": float(np.median(null_arr)) if len(null_arr) > 0 else None,
         "null_sd": float(np.std(null_arr, ddof=1)) if len(null_arr) > 1 else None,
@@ -393,9 +425,12 @@ def control_5_random_walk_null(
         ),
     }
 
-    # Mann-Whitney U: observed session-level autocorrs vs null distribution
-    if len(observed) >= 3 and len(null_arr) >= 3:
-        result["test_observed_vs_null"] = mannwhitney_test(observed, null_arr)
+    # Mann-Whitney U: N observed session autocorrs vs N per-session null
+    # means.  This is the correct comparison (matched sample sizes).
+    if len(observed) >= 3 and len(null_session_means) >= 3:
+        result["test_observed_vs_null"] = mannwhitney_test(
+            observed, null_session_means
+        )
     else:
         result["test_observed_vs_null"] = {"p": None}
 
@@ -414,9 +449,14 @@ def control_5_random_walk_null(
         p_perm_twosided = float(np.mean(np.abs(perm_means) >= np.abs(obs_mean)))
         result["permutation_p_onesided"] = p_perm_onesided
         result["permutation_p_twosided"] = p_perm_twosided
+        # Formatted strings for report (avoid "0.0000")
+        result["permutation_p_onesided_fmt"] = _fmt_perm_p(p_perm_onesided)
+        result["permutation_p_twosided_fmt"] = _fmt_perm_p(p_perm_twosided)
     else:
         result["permutation_p_onesided"] = None
         result["permutation_p_twosided"] = None
+        result["permutation_p_onesided_fmt"] = "N/A"
+        result["permutation_p_twosided_fmt"] = "N/A"
 
     # How many observed sessions fall outside the null 95% CI?
     if len(observed) > 0 and len(null_arr) > 0:
@@ -749,18 +789,25 @@ def main():
         f"median={c5.get('observed_median'):.3f} (N={c5.get('n_observed')})"
     )
     print(
-        f"  Null:     mean={c5.get('null_mean'):.3f}, "
+        f"  Null (per-session means): mean={c5.get('null_session_mean'):.3f}, "
+        f"N={c5.get('n_null_session_means')}"
+    )
+    print(
+        f"  Null (all sims):  mean={c5.get('null_mean'):.3f}, "
         f"median={c5.get('null_median'):.3f}, "
         f"95% CI=[{c5.get('null_pct_2_5'):.3f}, {c5.get('null_pct_97_5'):.3f}] "
         f"(N={c5.get('n_null_total')})"
     )
     mw = c5.get("test_observed_vs_null", {})
     print(
-        f"  Mann-Whitney: U={mw.get('U')}, p={mw.get('p')}, "
+        f"  Mann-Whitney ({c5.get('n_observed')} obs vs "
+        f"{c5.get('n_null_session_means')} null means): "
+        f"U={mw.get('U')}, p={mw.get('p')}, "
         f"Cliff's d={mw.get('cliff_d')}"
     )
     print(
-        f"  Permutation p (one-sided): {c5.get('permutation_p_onesided'):.4f}"
+        f"  Permutation p (one-sided): "
+        f"{c5.get('permutation_p_onesided_fmt', 'N/A')}"
     )
     print(
         f"  Sessions outside null 95% CI: "
@@ -1101,10 +1148,11 @@ def _write_summary_markdown(stats):
         f"(N = {c5.get('n_null_total')} simulations)",
         f"- Null 95% CI: [{_rv(c5.get('null_pct_2_5'))}, "
         f"{_rv(c5.get('null_pct_97_5'))}]",
-        f"- Mann-Whitney (observed vs null): "
+        f"- Mann-Whitney ({c5.get('n_observed')} observed vs "
+        f"{c5.get('n_null_session_means')} per-session null means): "
         f"{_fmt_test(c5.get('test_observed_vs_null'))}",
         f"- Bootstrap permutation p (one-sided, H1: observed < null): "
-        f"{_rv(c5.get('permutation_p_onesided'), '.4f')}",
+        f"{c5.get('permutation_p_onesided_fmt', 'N/A')}",
         f"- Sessions outside null 95% CI: "
         f"{c5.get('n_observed_below_null_ci')} below, "
         f"{c5.get('n_observed_above_null_ci')} above"
@@ -1229,9 +1277,9 @@ def _write_summary_markdown(stats):
     )
 
     # C5
-    c5_p = stats.get("control_5", {}).get("permutation_p_onesided")
+    c5_p_fmt = stats.get("control_5", {}).get("permutation_p_onesided_fmt", "N/A")
     c5_d = stats.get("control_5", {}).get("test_observed_vs_null", {}).get("cliff_d")
-    c5_finding = f"Permutation p = {c5_p:.4f}" if c5_p is not None else "N/A"
+    c5_finding = f"Permutation p = {c5_p_fmt}"
     if c5_d is not None:
         c5_finding += f", d = {c5_d:.3f}"
     lines.append(f"| 5. Random walk null | computed | {c5_finding} |")

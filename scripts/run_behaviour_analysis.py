@@ -173,18 +173,28 @@ def friedman_test(*groups):
 
 
 def holm_bonferroni(p_values):
-    """Apply Holm-Bonferroni correction. Returns adjusted p-values."""
+    """Apply Holm-Bonferroni correction. Returns adjusted p-values.
+
+    The adjustment is: p_adj[i] = p_sorted[i] * (n - rank_i), where
+    rank_i is the 0-based rank in ascending order.  A cumulative maximum
+    is then applied so that adjusted p-values are non-decreasing when
+    sorted by raw p-value (Holm 1979, requirement for step-down control).
+    """
     pvals = np.asarray(p_values, dtype=float)
     n = len(pvals)
     if n == 0:
         return pvals
     # Sort and correct
     order = np.argsort(pvals)
+    sorted_adj = np.array(
+        [min(pvals[order[rank]] * (n - rank), 1.0) for rank in range(n)]
+    )
+    # Enforce monotonicity: adjusted p-values must be non-decreasing
+    sorted_adj = np.maximum.accumulate(sorted_adj)
+    # Map back to original order
     adjusted = np.empty(n)
     for rank, idx in enumerate(order):
-        adjusted[idx] = pvals[idx] * (n - rank)
-    # Enforce monotonicity and cap at 1
-    adjusted = np.minimum(adjusted, 1.0)
+        adjusted[idx] = sorted_adj[rank]
     return adjusted.tolist()
 
 
