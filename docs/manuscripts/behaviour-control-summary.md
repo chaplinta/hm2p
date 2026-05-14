@@ -69,7 +69,9 @@ Active-only reference from Figure 6:
 - Bootstrap permutation p (one-sided, H1: observed < null): 0.0000
 - Sessions outside null 95% CI: 5 below, 0 above (23.8%)
 
-**Interpretation:** The permutation test is significant, indicating that observed alternation is stronger than the null random walk model, even though individual session values overlap with the null distribution.
+**Note:** The null distribution itself has a negative mean (-0.141), indicating that maze geometry alone produces some degree of turn alternation. The question is whether the observed alternation (-0.196) exceeds this geometry-driven baseline.
+
+**Interpretation:** Observed alternation is significantly stronger than the random walk null (permutation p < 0.05). While maze geometry contributes some alternation, mice show additional spontaneous alternation beyond what the graph structure would produce.
 
 ---
 
@@ -106,12 +108,12 @@ Turn autocorrelation vs 0 (primary only): mean = -0.179, W = 0.0, p = 0.0005, r 
 
 | Control | Status | Key finding |
 | ------- | ------ | ----------- |
-| 1. Coverage per active min | computed | p=0.0022 |
+| 1. Coverage per active min | computed | p = 0.0022, r = 0.732 |
 | 2. MRL by node type | requires_frame_data | Deferred |
-| 3. MRL/AHV active only | verified | Already active-only; MRL p=0.010125160217285156 |
+| 3. MRL/AHV active only | verified | Already active-only; MRL p = 0.0101 |
 | 4. Speed by node type (all) | requires_frame_data | Deferred |
-| 5. Random walk null | computed | Permutation p=0.0000 |
+| 5. Random walk null | computed | Permutation p = 0.0000, d = -0.316 |
 | 6. Bodypart tracking quality | requires_frame_data | Deferred |
-| 7. Primary-only | computed | Coverage p=0.02099609375 |
+| 7. Primary-only | computed | Coverage p = 0.0210, r = 0.744 |
 
 
