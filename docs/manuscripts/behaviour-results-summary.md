@@ -49,7 +49,7 @@ All tests are non-parametric. Effect sizes: rank-biserial r (Wilcoxon), Cliff's 
 
 ### Sequential turn autocorrelation
 
-- **Overall autocorrelation vs 0:** mean = -0.196, W = 0.0, p = 0.0000, p_adj = 0.0000, r = 1.000, N = 21
+- **Overall autocorrelation vs 0:** mean = -0.196, W = 0.0, p < 0.0001, p_adj < 0.0001, r = 1.000, N = 21
 - **Light vs dark autocorrelation:** light mean = -0.227, dark mean = -0.175, W = 84.0, p = 0.2877, p_adj = 0.8632, r = 0.273, N = 21
 
 ### Per-junction turn bias (pooled across sessions)
@@ -80,7 +80,7 @@ All tests are non-parametric. Effect sizes: rank-biserial r (Wilcoxon), Cliff's 
 - **Mean speed (cm/s):** Junction = 14.95, Corridor = 17.87, Dead end = 26.32
 - **Friedman test:** W = 15.0, p = 0.0006, N = 21
 - **Post-hoc (Holm-Bonferroni):** J vs C p_adj = 0.00015735626220703125, J vs DE p_adj = 0.0003948211669921875, C vs DE p_adj = 0.0032787322998046875
-- **Junction approach:** pre = 14.43, at = 21.64 cm/s, W = 7.0, p = 0.0000, r = 0.939, N = 21
+- **Junction approach:** pre = 14.43, at = 21.64 cm/s, W = 7.0, p < 0.0001, r = 0.939, N = 21
 
 ---
 
