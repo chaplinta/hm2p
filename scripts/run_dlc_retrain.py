@@ -1375,7 +1375,7 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
     # declare-before-promote contract: the manifest must point at the
     # model before any files appear in pose/.
     print("\n=== Declaring new DLC champion (before promotion) ===")
-    sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))  # noqa
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))  # noqa
     from hm2p.pose.select import extract_architecture, extract_dlc_provenance
 
     # Find one finetuned h5 from pose-finetuned/ to read identifiers.
