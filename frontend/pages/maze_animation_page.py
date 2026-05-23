@@ -38,7 +38,7 @@ _SKELETON = [
 # Bodypart colours: matplotlib.cm.rainbow / DLC-native palette, mirrored
 # from frontend/pages/dlc_viewer_page.py (BP_HEX). This is the canonical
 # DLC-rainbow palette used across the frontend (also in training_qc_page
-# and training_fit_page). The legend rendered in dlc_viewer_page uses
+# and dlc_training_page). The legend rendered in dlc_viewer_page uses
 # these colours, so the maze animation must match for cross-page
 # consistency. ``render_dlc_videos.KEYPOINT_COLORS`` uses a different
 # (BGR-bright) palette and is the inconsistent one.

@@ -579,9 +579,16 @@ def classify(
 
     cam_dur = scalars.cam.duration_s
     img_dur = scalars.img.duration_s
-    max_dur = max(cam_dur, img_dur) if np.isfinite(cam_dur) and np.isfinite(img_dur) else 0.0
-    if max_dur > 0:
-        overlap_frac = scalars.cross.overlap_s / max_dur
+    # Use imaging duration as denominator: what matters is whether the
+    # imaging window is covered by camera data.  A camera overshoot
+    # (camera kept recording after imaging stopped) should not reduce
+    # the overlap fraction — the resampled data within the imaging
+    # window is unaffected.
+    ref_dur = img_dur if np.isfinite(img_dur) and img_dur > 0 else (
+        cam_dur if np.isfinite(cam_dur) and cam_dur > 0 else 0.0
+    )
+    if ref_dur > 0:
+        overlap_frac = scalars.cross.overlap_s / ref_dur
         if overlap_frac < float(hard["temporal_overlap_min_frac"]):
             failures.append(
                 f"temporal_overlap_hard: overlap_frac={overlap_frac:.4f} "
@@ -670,8 +677,8 @@ def classify(
     if scalars.s2p_off_by_one_fix_applied:
         warnings.append("s2p_off_by_one_fix_applied")
 
-    if max_dur > 0:
-        overlap_frac = scalars.cross.overlap_s / max_dur
+    if ref_dur > 0:
+        overlap_frac = scalars.cross.overlap_s / ref_dur
         warn_frac = float(warn["temporal_overlap_warn_frac"])
         hard_frac = float(hard["temporal_overlap_min_frac"])
         if hard_frac <= overlap_frac < warn_frac:

@@ -105,3 +105,5 @@ review_frames/*.png
 metadata/pca_cache/
 tmp_thumbnails/
 wandb/
+.napari-deeplabcut.json
+sourcedata/trackers/dlc/*/training-datasets/

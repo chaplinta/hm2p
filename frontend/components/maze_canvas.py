@@ -64,11 +64,12 @@ def _js_animation_code(uid: str) -> str:
     const lblHD = document.getElementById('lbl-hd-{uid}');
     const lblSpeed = document.getElementById('lbl-speed-{uid}');
     const lblLight = document.getElementById('lbl-light-{uid}');
+    const lblTicks = document.getElementById('lbl-ticks-{uid}');
 
     scrubber.max = N - 1;
     scrubber.value = 0;
 
-    let playing = false;
+    let playing = true;   // auto-play on load
     let frameIdx = 0;
     let lastTimestamp = null;
     let animId = null;
@@ -78,11 +79,17 @@ def _js_animation_code(uid: str) -> str:
         ? (D.frame_times[N - 1] - D.frame_times[0]) / (N - 1)
         : 0.1;
 
-    btnPlay.addEventListener('click', function() {{
+    function togglePlay() {{
         playing = !playing;
-        btnPlay.textContent = playing ? 'Pause' : 'Play';
-        lastTimestamp = null;
-    }});
+        btnPlay.textContent = playing ? '\u23f8 Pause' : '\u25b6 Play';
+        canvas.style.borderColor = playing ? '#4CAF50' : '#ddd';
+        canvas.style.borderWidth = playing ? '3px' : '1px';
+    }}
+    window.__togglePlay_{uid} = togglePlay;
+    btnPlay.addEventListener('click', togglePlay);
+    // Click canvas to play/pause too
+    canvas.addEventListener('click', togglePlay);
+    canvas.style.cursor = 'pointer';
 
     scrubber.addEventListener('input', function() {{
         frameIdx = parseInt(this.value, 10);
@@ -343,24 +350,32 @@ def _js_animation_code(uid: str) -> str:
     }}
 
     // ── Animation loop ──────────────────────────────────────────────
-    function tick(timestamp) {{
-        if (playing) {{
-            if (lastTimestamp === null) lastTimestamp = timestamp;
-            const elapsed = (timestamp - lastTimestamp) / 1000;
-            lastTimestamp = timestamp;
-            const playbackRate = parseFloat(selSpeed.value);
-            const dataElapsed = elapsed * playbackRate;
-            const framesToAdvance = dataElapsed / dataDt;
-            frameIdx += framesToAdvance;
-            if (frameIdx >= N) frameIdx = 0;
-        }}
+    // Use setInterval instead of requestAnimationFrame — rAF is
+    // unreliable in Streamlit iframes (browser pauses rAF for iframes
+    // it considers inactive).  setInterval at ~60 fps works regardless
+    // of iframe visibility state.
+    const TICK_MS = 16;  // ~60 fps
+    let lastTick = Date.now();
+
+    let totalTicks = 0;
+    function tick() {{
+        totalTicks++;
+        if (lblTicks) lblTicks.textContent = totalTicks;
+        if (!playing) {{ lastTick = Date.now(); return; }}
+        const now = Date.now();
+        const elapsed = (now - lastTick) / 1000;
+        lastTick = now;
+        const playbackRate = parseFloat(selSpeed.value);
+        const dataElapsed = elapsed * playbackRate;
+        const framesToAdvance = dataElapsed / dataDt;
+        frameIdx += framesToAdvance;
+        if (frameIdx >= N) frameIdx = 0;
         drawFrame(Math.floor(frameIdx));
-        animId = requestAnimationFrame(tick);
     }}
 
     // Draw initial frame and start loop
     drawFrame(0);
-    animId = requestAnimationFrame(tick);
+    setInterval(tick, TICK_MS);
 }})();
 """
 
@@ -466,7 +481,7 @@ def build_maze_canvas_html(payload: dict[str, Any]) -> str:
 {_css_styles(uid)}
 <div class="maze-container-{uid}">
     <div class="maze-controls">
-        <button id="btn-play-{uid}">Play</button>
+        <button id="btn-play-{uid}" onclick="window.__togglePlay_{uid}&&window.__togglePlay_{uid}()">\u23f8 Pause</button>
         <label style="font-size:12px;">Speed:
             <select id="sel-speed-{uid}">
                 <option value="0.25">0.25x</option>
@@ -486,6 +501,7 @@ def build_maze_canvas_html(payload: dict[str, Any]) -> str:
         <span><span class="label">HD:</span> <span id="lbl-hd-{uid}">--</span></span>
         <span><span class="label">Speed:</span> <span id="lbl-speed-{uid}">--</span></span>
         <span><span class="label">Light:</span> <span id="lbl-light-{uid}">--</span></span>
+        <span><span class="label">Ticks:</span> <span id="lbl-ticks-{uid}">0</span></span>
     </div>
 </div>
 <script>
@@ -511,15 +527,7 @@ def render_maze_canvas(payload: dict[str, Any], height: int = 780) -> None:
         Height of the iframe in pixels. Used only by the
         ``st.components.v1.html`` fallback; ``st.html`` sizes to content.
     """
-    import streamlit as st
+    import streamlit.components.v1 as components
 
     html = build_maze_canvas_html(payload)
-
-    if hasattr(st, "html"):
-        # st.html (>= 1.44) — current API, not iframed
-        st.html(html, unsafe_allow_javascript=True)
-    else:
-        # Fallback for older Streamlit versions
-        import streamlit.components.v1 as components
-
-        components.html(html, height=height, scrolling=False)
+    components.html(html, height=height, scrolling=False)

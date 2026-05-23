@@ -895,52 +895,22 @@ class TestRenderMazeCanvas:
             trail_seconds=1.0, step=1, arrow_length=0.5,
         )
 
-    def test_render_calls_st_html_if_available(self):
-        """render_maze_canvas should call st.html on modern Streamlit."""
+    def test_render_uses_components_html(self):
+        """render_maze_canvas should call st.components.v1.html."""
         from unittest.mock import MagicMock, patch
         from frontend.components.maze_canvas import render_maze_canvas
 
         payload = self._make_payload()
-        mock_st = MagicMock()
-        mock_st.html = MagicMock()
-
-        with patch.dict("sys.modules", {"streamlit": mock_st}):
-            render_maze_canvas(payload, height=780)
-
-        mock_st.html.assert_called_once()
-        call_args = mock_st.html.call_args
-        # First positional arg should be the HTML string
-        html_arg = call_args[0][0]
-        assert "<canvas" in html_arg
-
-    def test_render_falls_back_to_components_html(self):
-        """If st.html is not available, should fall back to components.v1.html."""
-        from unittest.mock import MagicMock, patch
-        from frontend.components.maze_canvas import render_maze_canvas
-
-        payload = self._make_payload()
-
-        # Build a mock streamlit package hierarchy so that
-        # ``import streamlit.components.v1 as components`` works
         mock_components_v1 = MagicMock()
-        mock_components = MagicMock()
-        mock_components.v1 = mock_components_v1
-
-        # Create a mock st that does NOT have `html` — triggers fallback
-        mock_st = MagicMock()
-        del mock_st.html  # ensure hasattr(st, "html") is False
-        mock_st.components = mock_components
 
         with patch.dict("sys.modules", {
-            "streamlit": mock_st,
-            "streamlit.components": mock_components,
+            "streamlit.components": MagicMock(),
             "streamlit.components.v1": mock_components_v1,
         }):
             render_maze_canvas(payload, height=780)
 
         mock_components_v1.html.assert_called_once()
-        call_args = mock_components_v1.html.call_args
-        html_arg = call_args[0][0]
+        html_arg = mock_components_v1.html.call_args[0][0]
         assert "<canvas" in html_arg
 
 

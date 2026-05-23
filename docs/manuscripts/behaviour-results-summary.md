@@ -26,7 +26,7 @@ All tests are non-parametric. Effect sizes: rank-biserial r (Wilcoxon), Cliff's 
 | ---------- | ----- | ---- | ---- |
 | Median speed (cm/s) | 1.89 | 1.86 | W = 70.0, p = 0.1193, p_adj = 0.3580, r = 0.394, N = 21 |
 | Fraction active | 0.466 | 0.443 | W = 79.0, p = 0.2157, p_adj = 0.4314, r = 0.316, N = 21 |
-| Median immobility bout (s) | 0.82 | 0.87 | W = 41.0, p = 0.2792, p_adj = 0.2792, r = 0.317, N = 21 |
+| Median immobility bout (s) | 0.82 | 0.87 | W = 41.0, p = 0.2792, p_adj = 0.4314, r = 0.317, N = 21 |
 
 ---
 
@@ -35,7 +35,7 @@ All tests are non-parametric. Effect sizes: rank-biserial r (Wilcoxon), Cliff's 
 | Comparison | Light | Dark | Test |
 | ---------- | ----- | ---- | ---- |
 | Per-epoch coverage | 0.438 | 0.381 | W = 33.0, p = 0.0029, p_adj = 0.0086, r = 0.714, N = 21 |
-| Dead-end rate (visits/min) | 14.65 | 14.65 | W = 111.0, p = 0.8917, p_adj = 0.8917, r = 0.039, N = 21 |
+| Dead-end rate (visits/min) | 14.65 | 14.65 | W = 111.0, p = 0.8917, p_adj = 1.0000, r = 0.039, N = 21 |
 | Exploration efficiency (w=5) | 3.39 | 3.36 | W = 107.0, p = 0.7854, p_adj = 1.0000, r = 0.074, N = 21 |
 
 ---
@@ -44,19 +44,19 @@ All tests are non-parametric. Effect sizes: rank-biserial r (Wilcoxon), Cliff's 
 
 | Comparison | Light | Dark | Test |
 | ---------- | ----- | ---- | ---- |
-| Left fraction | 0.487 | 0.489 | W = 111.0, p = 0.8917, p_adj = 0.8917, r = 0.039, N = 21 |
+| Left fraction | 0.487 | 0.489 | W = 111.0, p = 0.8917, p_adj = 1.0000, r = 0.039, N = 21 |
 | Back-tracking rate | 0.572 | 0.580 | W = 110.0, p = 0.8649, p_adj = 1.0000, r = 0.048, N = 21 |
 
 ### Sequential turn autocorrelation
 
-- **Overall autocorrelation vs 0:** mean = -0.196, W = 0.0, p < 0.0001, p_adj < 0.0001, r = 1.000, N = 21
+- **Overall autocorrelation vs 0:** mean = -0.196, W = 0.0, p = 0.0000, p_adj = 0.0000, r = 1.000, N = 21
 - **Light vs dark autocorrelation:** light mean = -0.227, dark mean = -0.175, W = 84.0, p = 0.2877, p_adj = 0.8632, r = 0.273, N = 21
 
 ### Per-junction turn bias (pooled across sessions)
 
 | Junction | Left | Right | Total | Left frac | Binomial p | p_adj |
 | -------- | ---- | ----- | ----- | --------- | ---------- | ----- |
-| (1, 0) | 282 | 291 | 573 | 0.492 | 0.7383 | 0.7383 |
+| (1, 0) | 282 | 291 | 573 | 0.492 | 0.7383 | 1.0000 |
 | (1, 2) | 245 | 260 | 505 | 0.485 | 0.5333 | 1.0000 |
 | (1, 4) | 241 | 230 | 471 | 0.512 | 0.6450 | 1.0000 |
 | (3, 2) | 244 | 267 | 511 | 0.477 | 0.3304 | 1.0000 |
@@ -71,7 +71,7 @@ All tests are non-parametric. Effect sizes: rank-biserial r (Wilcoxon), Cliff's 
 | Comparison | Light | Dark | Test |
 | ---------- | ----- | ---- | ---- |
 | HD mean resultant length | 0.297 | 0.338 | W = 43.0, p = 0.0101, p_adj = 0.0203, r = 0.628, N = 21 |
-| Median |AHV| (deg/s) | 121.4 | 115.1 | W = 49.0, p = 0.0195, p_adj = 0.0195, r = 0.576, N = 21 |
+| Median |AHV| (deg/s) | 121.4 | 115.1 | W = 49.0, p = 0.0195, p_adj = 0.0203, r = 0.576, N = 21 |
 
 ---
 
@@ -80,7 +80,7 @@ All tests are non-parametric. Effect sizes: rank-biserial r (Wilcoxon), Cliff's 
 - **Mean speed (cm/s):** Junction = 14.95, Corridor = 17.87, Dead end = 26.32
 - **Friedman test:** W = 15.0, p = 0.0006, N = 21
 - **Post-hoc (Holm-Bonferroni):** J vs C p_adj = 0.00015735626220703125, J vs DE p_adj = 0.0003948211669921875, C vs DE p_adj = 0.0032787322998046875
-- **Junction approach:** pre = 14.43, at = 21.64 cm/s, W = 7.0, p < 0.0001, r = 0.939, N = 21
+- **Junction approach:** pre = 14.43, at = 21.64 cm/s, W = 7.0, p = 0.0000, r = 0.939, N = 21
 
 ---
 

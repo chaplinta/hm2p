@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """Select training frames based on image appearance clustering.
 
-For each session, downloads the overhead video from S3, extracts thumbnails
-at regular intervals, clusters them with PCA + k-means, then selects frames
-from underrepresented clusters weighted by DLC model uncertainty. Existing
-labeled frames are taken into account to avoid redundant selections.
+For each session:
+1. Load PCA cache (or extract thumbnails from video + run PCA).
+2. Count existing labeled frames for this session.
+3. Compute n_new = max(0, target - n_existing).
+4. k-means with k = n_existing + n_new clusters.
+5. Project existing labeled frames into PCA space to find occupied clusters.
+6. Select one frame from each unoccupied cluster.
 
 Usage:
-    uv run python scripts/select_frames_image_clustering.py --n 120 --dry-run
-    uv run python scripts/select_frames_image_clustering.py --n 120
-    uv run python scripts/select_frames_image_clustering.py --n 120 \\
+    uv run python scripts/select_frames_image_clustering.py --per-session 30 --dry-run
+    uv run python scripts/select_frames_image_clustering.py --per-session 30
+    uv run python scripts/select_frames_image_clustering.py --per-session 30 \\
         --session 20210823_16_59_50_1114353
-    uv run python scripts/select_frames_image_clustering.py --n 120 \\
-        --per-session-max 8 --per-session-min 2
 """
 
 from __future__ import annotations
@@ -45,6 +46,7 @@ METADATA_PATH = REPO_ROOT / "metadata" / "experiments.csv"
 RETRAIN_DIR = REPO_ROOT / "retrain_frames"
 LABELED_DIR = REPO_ROOT / "sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20/labeled-data"
 RETRAIN_META_DIR = REPO_ROOT / "metadata" / "retrain_frames"
+PCA_CACHE_DIR = REPO_ROOT / "metadata" / "pca_cache"
 
 # Ensure src/hm2p is importable
 sys.path.insert(0, str(REPO_ROOT / "src"))
@@ -145,6 +147,36 @@ def already_labelled_frames(session_tag: str) -> set[int]:
 
 
 # ---------------------------------------------------------------------------
+# PCA cache (from build_pca_cache.py)
+# ---------------------------------------------------------------------------
+
+
+def load_pca_cache(sub: str, ses: str) -> dict | None:
+    """Load pre-built PCA cache if available.
+
+    Returns dict with ``data_pca``, ``frame_indices``, ``n_frames``
+    or None.
+    """
+    import pickle
+
+    cache_file = PCA_CACHE_DIR / f"{sub}_{ses}.npz"
+    pca_file = cache_file.with_suffix(".pca.pkl")
+    if not cache_file.exists():
+        return None
+    npz = np.load(cache_file)
+    pca_model = None
+    if pca_file.exists():
+        with open(pca_file, "rb") as f:
+            pca_model = pickle.load(f)
+    return {
+        "data_pca": npz["data_pca"],
+        "frame_indices": npz["frame_indices"],
+        "n_frames": int(npz["n_frames"]),
+        "pca": pca_model,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Thumbnail extraction
 # ---------------------------------------------------------------------------
 
@@ -211,44 +243,86 @@ def extract_thumbnails(
 # ---------------------------------------------------------------------------
 
 
-def cluster_frames(
-    features: np.ndarray,
-    n_clusters: int = 30,
-    pca_dims: int = 50,
-) -> np.ndarray:
-    """Cluster frame thumbnails using PCA + k-means.
+def cluster_and_select(
+    data_pca: np.ndarray,
+    frame_indices: np.ndarray,
+    existing_frame_indices: set[int],
+    n_target: int,
+    thumb_stride: int = THUMB_STRIDE,
+) -> list[int]:
+    """k=n_target clusters. Existing frames claim clusters. Select from the rest.
+
+    Algorithm:
+    1. k-means with k = n_target (always).
+    2. For each existing labeled frame, find nearest sampled frame and
+       assign it to that frame's cluster → cluster is "occupied".
+    3. Pick one new frame from each unoccupied cluster (closest to centroid).
+    4. If still short of n_target, pick from clusters sorted by fewest
+       existing occupants.
+    5. Stop when existing + new = n_target.
 
     Parameters
     ----------
-    features : np.ndarray, shape (N, D)
-        Thumbnail feature vectors.
-    n_clusters : int
-        Number of k-means clusters.
-    pca_dims : int
-        Number of PCA components to retain before clustering.
+    data_pca : np.ndarray, shape (N, D)
+        PCA-transformed thumbnail features.
+    frame_indices : np.ndarray, shape (N,)
+        Video frame index for each sampled thumbnail.
+    existing_frame_indices : set[int]
+        Frame indices already labeled.
+    n_target : int
+        Desired total (existing + new) per session.
+    thumb_stride : int
+        Stride used during thumbnail sampling.
 
     Returns
     -------
-    np.ndarray, shape (N,) int32
-        Cluster label for each frame.
+    list[int]
+        New frame indices to extract.
     """
     from sklearn.cluster import KMeans
-    from sklearn.decomposition import PCA
 
-    n_samples = features.shape[0]
-    if n_samples < 2:
-        return np.zeros(n_samples, dtype=np.int32)
+    n_existing = len(existing_frame_indices)
+    n_new = max(0, n_target - n_existing)
+    if n_new == 0:
+        return []
 
-    # Cap PCA dims and clusters to available data
-    actual_pca = min(pca_dims, n_samples, features.shape[1])
-    actual_k = min(n_clusters, n_samples)
+    n_samples = data_pca.shape[0]
+    k = min(n_target, n_samples)
+    if k < 2:
+        return []
 
-    pca = PCA(n_components=actual_pca, random_state=42)
-    reduced = pca.fit_transform(features)
+    km = KMeans(n_clusters=k, n_init=10, random_state=42)
+    labels = km.fit_predict(data_pca)
 
-    km = KMeans(n_clusters=actual_k, n_init=10, random_state=42)
-    labels = km.fit_predict(reduced)
-    return labels.astype(np.int32)
+    # Assign existing frames to clusters via nearest sampled frame.
+    fi_array = frame_indices.astype(np.int64)
+    cluster_occupancy: dict[int, int] = {c: 0 for c in range(k)}
+    for ef in existing_frame_indices:
+        dists = np.abs(fi_array - ef)
+        nearest_idx = int(np.argmin(dists))
+        if dists[nearest_idx] <= thumb_stride * 2:
+            cluster_occupancy[int(labels[nearest_idx])] += 1
+
+    # Sort clusters: empty first, then by fewest occupants.
+    clusters_by_need = sorted(range(k), key=lambda c: cluster_occupancy[c])
+
+    selected: list[int] = []
+    for c in clusters_by_need:
+        if len(selected) >= n_new:
+            break
+        # Pick frame closest to centroid that isn't already labeled
+        mask = labels == c
+        c_pca = data_pca[mask]
+        c_frames = frame_indices[mask]
+        centroid = km.cluster_centers_[c]
+        order = np.argsort(np.linalg.norm(c_pca - centroid, axis=1))
+        for idx in order:
+            fi = int(c_frames[idx])
+            if fi not in existing_frame_indices and fi not in selected:
+                selected.append(fi)
+                break
+
+    return selected
 
 
 def extract_frame_confidences(pose_df: pd.DataFrame | None) -> np.ndarray | None:
@@ -683,41 +757,19 @@ def update_retrain_meta(
 def process_session(
     s3: Any,
     session_info: dict,
-    n_select: int,
-    n_clusters: int,
+    n_target: int,
     dry_run: bool,
 ) -> dict:
-    """Run the full cluster-based selection pipeline for one session.
+    """Run the cluster-based selection pipeline for one session.
 
-    1. Download video from S3 (into tempdir).
-    2. Extract thumbnails every THUMB_STRIDE frames.
-    3. PCA + k-means clustering.
-    4. Load existing labeled frame indices.
-    5. Load DLC confidence from S3 pose file.
-    6. Score clusters by coverage + uncertainty.
-    7. Select frames, then pixel dedup.
-    8. Extract PNGs + create symlinks (unless dry_run).
-    9. Update metadata JSON (unless dry_run).
+    1. Load PCA cache (or fall back to video download + thumbnail extraction).
+    2. Count existing labeled frames → compute n_new = target - existing.
+    3. k-means with k = existing + n_new.
+    4. Mark clusters occupied by existing frames.
+    5. Select one frame per unoccupied cluster.
+    6. Extract PNGs + symlink (unless dry_run).
 
-    Parameters
-    ----------
-    s3 :
-        boto3 S3 client.
-    session_info : dict
-        Keys: ``exp_id``, ``sub``, ``ses``, ``primary``, ``exclude``.
-    n_select : int
-        Number of new frames to select.
-    n_clusters : int
-        k-means cluster count.
-    dry_run : bool
-        If True, skip extraction and metadata updates.
-
-    Returns
-    -------
-    dict
-        Summary with keys: ``exp_id``, ``sub``, ``ses``, ``n_selected``,
-        ``n_existing``, ``n_clusters_used``, ``cluster_scores``,
-        ``selected_indices``.
+    Returns summary dict.
     """
     sub = session_info["sub"]
     ses = session_info["ses"]
@@ -725,120 +777,93 @@ def process_session(
     session_tag = f"{sub}_{ses}"
 
     existing = already_labelled_frames(session_tag)
-    expected_per_cluster = max(1.0, len(existing) / max(1, n_clusters))
+    n_existing = len(existing)
+    n_new = max(0, n_target - n_existing)
 
-    log.info("  Loading pose confidence from S3...")
-    pose_df = load_pose_from_s3(s3, sub, ses)
-    confidences = extract_frame_confidences(pose_df)
-    pose_n_frames = len(pose_df) if pose_df is not None else 0
+    if n_new == 0:
+        log.info("  Already have %d >= %d frames, nothing to do.", n_existing, n_target)
+        return {
+            "exp_id": exp_id, "sub": sub, "ses": ses,
+            "n_selected": 0, "n_existing": n_existing,
+            "selected_indices": [],
+        }
+
+    # Try PCA cache first
+    pca_cache = load_pca_cache(sub, ses)
+    video_path = None
 
     with tempfile.TemporaryDirectory(prefix=f"hm2p-{session_tag}-") as tmp_str:
         tmp = Path(tmp_str)
-        video_path = download_video_from_s3(s3, sub, ses, tmp)
-        if video_path is None:
-            log.warning("  No video found on S3 for %s, skipping.", exp_id)
-            return {
-                "exp_id": exp_id,
-                "sub": sub,
-                "ses": ses,
-                "n_selected": 0,
-                "n_existing": len(existing),
-                "n_clusters_used": 0,
-                "cluster_scores": {},
-                "selected_indices": [],
-            }
 
-        log.info("  Extracting thumbnails (stride=%d) ...", THUMB_STRIDE)
-        features, frame_indices = extract_thumbnails(str(video_path), stride=THUMB_STRIDE)
-        log.info("  %d thumbnails extracted.", len(features))
+        if pca_cache is not None:
+            log.info("  PCA cache: %d frames, %d PCs. existing=%d, need=%d",
+                     pca_cache["data_pca"].shape[0], pca_cache["data_pca"].shape[1],
+                     n_existing, n_new)
+            data_pca = pca_cache["data_pca"]
+            frame_indices = pca_cache["frame_indices"]
+        else:
+            log.info("  No PCA cache — downloading video...")
+            video_path = download_video_from_s3(s3, sub, ses, tmp)
+            if video_path is None:
+                log.warning("  No video on S3 for %s, skipping.", exp_id)
+                return {
+                    "exp_id": exp_id, "sub": sub, "ses": ses,
+                    "n_selected": 0, "n_existing": n_existing,
+                    "selected_indices": [],
+                }
+            log.info("  Extracting thumbnails (stride=%d)...", THUMB_STRIDE)
+            features, frame_indices = extract_thumbnails(str(video_path), stride=THUMB_STRIDE)
+            log.info("  %d thumbnails. Running PCA + clustering...", len(features))
+            if len(features) < 2:
+                log.warning("  Too few frames for %s, skipping.", exp_id)
+                return {
+                    "exp_id": exp_id, "sub": sub, "ses": ses,
+                    "n_selected": 0, "n_existing": n_existing,
+                    "selected_indices": [],
+                }
+            from sklearn.decomposition import PCA as SkPCA
+            actual_pca = min(50, len(features), features.shape[1])
+            pca = SkPCA(n_components=actual_pca, random_state=42)
+            data_pca = pca.fit_transform(features)
 
-        if len(features) < 2:
-            log.warning("  Too few frames to cluster for %s, skipping.", exp_id)
-            return {
-                "exp_id": exp_id,
-                "sub": sub,
-                "ses": ses,
-                "n_selected": 0,
-                "n_existing": len(existing),
-                "n_clusters_used": 0,
-                "cluster_scores": {},
-                "selected_indices": [],
-            }
-
-        log.info("  Clustering into %d clusters (PCA+KMeans)...", n_clusters)
-        actual_k = min(n_clusters, len(features))
-        cluster_labels = cluster_frames(features, n_clusters=actual_k)
-
-        cluster_scores = score_clusters(
-            cluster_labels=cluster_labels,
+        # k = existing + n_new, select from unoccupied clusters
+        selected = cluster_and_select(
+            data_pca=data_pca,
             frame_indices=frame_indices,
-            confidences=confidences,
-            pose_n_frames=pose_n_frames,
             existing_frame_indices=existing,
-            expected_per_cluster=expected_per_cluster,
+            n_target=n_target,
         )
 
-        # Select 3x candidates to give dedup room to prune
-        candidates = select_from_clusters(
-            cluster_labels=cluster_labels,
-            frame_indices=frame_indices,
-            cluster_scores=cluster_scores,
-            confidences=confidences,
-            pose_n_frames=pose_n_frames,
-            n_select=n_select * 3,
-            existing_frame_indices=existing,
-        )
-
-        if not candidates:
-            log.info("  No new candidates found for %s.", exp_id)
+        if not selected:
+            log.info("  No new frames selected for %s.", exp_id)
             return {
-                "exp_id": exp_id,
-                "sub": sub,
-                "ses": ses,
-                "n_selected": 0,
-                "n_existing": len(existing),
-                "n_clusters_used": actual_k,
-                "cluster_scores": cluster_scores,
+                "exp_id": exp_id, "sub": sub, "ses": ses,
+                "n_selected": 0, "n_existing": n_existing,
                 "selected_indices": [],
             }
-
-        # Pixel dedup against existing PNGs
-        retrain_session_dir = RETRAIN_DIR / session_tag
-        retrain_session_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            from hm2p.pose.dedup import filter_duplicates_against_existing
-
-            n_before = len(candidates)
-            candidates = filter_duplicates_against_existing(
-                str(video_path), candidates, retrain_session_dir
-            )
-            n_removed = n_before - len(candidates)
-            if n_removed > 0:
-                log.info("  Dedup: removed %d/%d duplicate candidates.", n_removed, n_before)
-        except Exception as exc:
-            log.warning("  Dedup check failed: %s", exc)
-
-        # Limit to requested count after dedup
-        selected = candidates[:n_select]
 
         if dry_run:
-            log.info("  [DRY RUN] Would select %d frames for %s.", len(selected), exp_id)
+            log.info("  [DRY RUN] Would select %d new frames for %s.", len(selected), exp_id)
             return {
-                "exp_id": exp_id,
-                "sub": sub,
-                "ses": ses,
-                "n_selected": len(selected),
-                "n_existing": len(existing),
-                "n_clusters_used": actual_k,
-                "cluster_scores": cluster_scores,
+                "exp_id": exp_id, "sub": sub, "ses": ses,
+                "n_selected": len(selected), "n_existing": n_existing,
                 "selected_indices": selected,
             }
 
-        # Extract frames to retrain_frames/<session>/
+        # Download video for PNG extraction if we used cache earlier
+        if video_path is None:
+            video_path = download_video_from_s3(s3, sub, ses, tmp)
+        if video_path is None:
+            log.warning("  Cannot extract PNGs — no video on S3.")
+            return {
+                "exp_id": exp_id, "sub": sub, "ses": ses,
+                "n_selected": 0, "n_existing": n_existing,
+                "selected_indices": [],
+            }
+
+        retrain_session_dir = RETRAIN_DIR / session_tag
         extract_frames_to_retrain_dir(video_path, selected, retrain_session_dir)
 
-        # Symlink into labeled-data/<clip>/
         ld_dir = find_labeled_data_dir(sub, ses)
         if ld_dir is not None:
             n_linked = symlink_frames_into_labeled_data(retrain_session_dir, ld_dir)
@@ -847,18 +872,12 @@ def process_session(
         else:
             log.info("  No labeled-data/ dir found for %s — skipping symlink.", exp_id)
 
-        # Update metadata JSON
-        video_name = video_path.name
-        update_retrain_meta(session_tag, sub, ses, selected, video_name=video_name)
+        update_retrain_meta(session_tag, sub, ses, selected,
+                            video_name=video_path.name if video_path else None)
 
     return {
-        "exp_id": exp_id,
-        "sub": sub,
-        "ses": ses,
-        "n_selected": len(selected),
-        "n_existing": len(existing),
-        "n_clusters_used": actual_k,
-        "cluster_scores": cluster_scores,
+        "exp_id": exp_id, "sub": sub, "ses": ses,
+        "n_selected": len(selected), "n_existing": n_existing,
         "selected_indices": selected,
     }
 
@@ -866,61 +885,6 @@ def process_session(
 # ---------------------------------------------------------------------------
 # Frame budget allocation
 # ---------------------------------------------------------------------------
-
-
-def allocate_frames(
-    sessions: list[dict],
-    total_n: int,
-    per_session_max: int,
-    per_session_min: int,
-) -> dict[str, int]:
-    """Allocate frame budget across sessions.
-
-    Primary sessions can receive up to ``per_session_max``; all others up to
-    ``per_session_min``. Every session with data gets at least
-    ``per_session_min`` if budget allows.
-
-    Parameters
-    ----------
-    sessions : list[dict]
-        Session dicts with ``sub``, ``ses``, ``primary``, ``exclude`` keys.
-    total_n : int
-        Total frame budget.
-    per_session_max : int
-        Maximum frames for a primary session.
-    per_session_min : int
-        Minimum frames per session (also maximum for non-primary sessions).
-
-    Returns
-    -------
-    dict[str, int]
-        Mapping from session_tag to frame count to select.
-    """
-    allocations: dict[str, int] = {}
-    remaining = total_n
-
-    # First pass: everyone gets the minimum
-    for s in sessions:
-        tag = f"{s['sub']}_{s['ses']}"
-        alloc = min(per_session_min, remaining)
-        allocations[tag] = alloc
-        remaining -= alloc
-        if remaining <= 0:
-            break
-
-    # Second pass: top up primary sessions to per_session_max
-    for s in sessions:
-        if remaining <= 0:
-            break
-        tag = f"{s['sub']}_{s['ses']}"
-        current = allocations.get(tag, 0)
-        session_max = per_session_max if s["primary"] else per_session_min
-        extra = min(session_max - current, remaining)
-        if extra > 0:
-            allocations[tag] = current + extra
-            remaining -= extra
-
-    return allocations
 
 
 # ---------------------------------------------------------------------------
@@ -933,28 +897,11 @@ def main() -> None:
         description="Select training frames by image-appearance clustering."
     )
     parser.add_argument(
-        "--n",
-        type=int,
-        default=120,
-        help="Total frames to select across all sessions (default 120).",
-    )
-    parser.add_argument(
-        "--per-session-max",
-        type=int,
-        default=8,
-        help="Max frames for primary sessions (default 8).",
-    )
-    parser.add_argument(
-        "--per-session-min",
-        type=int,
-        default=2,
-        help="Min frames per session; max for non-primary (default 2).",
-    )
-    parser.add_argument(
-        "--n-clusters",
+        "--per-session",
         type=int,
         default=30,
-        help="k-means cluster count per session (default 30).",
+        help="Target total labeled frames per session (default 30). "
+             "Sessions already at or above this count are skipped.",
     )
     parser.add_argument(
         "--session", type=str, default=None, help="Process a single session by exp_id."
@@ -978,64 +925,42 @@ def main() -> None:
             log.error("Session %r not found in experiments.csv.", args.session)
             sys.exit(1)
 
-    # Sort: primary first, then by fewest existing labels (most room to add)
-    all_sessions.sort(
-        key=lambda s: (
-            not s["primary"],
-            len(already_labelled_frames(f"{s['sub']}_{s['ses']}")),
-        )
-    )
-
-    allocations = allocate_frames(all_sessions, args.n, args.per_session_max, args.per_session_min)
-
     print(f"\n{'=' * 62}")
     print("  Image-clustering frame selection")
     print(
-        f"  Sessions: {len(all_sessions)}   Budget: {args.n}   "
-        f"Clusters: {args.n_clusters}   Dry-run: {args.dry_run}"
+        f"  Sessions: {len(all_sessions)}   Target: {args.per_session}/session   "
+        f"Dry-run: {args.dry_run}"
     )
     print(f"{'=' * 62}\n")
 
     results = []
     for i, sess in enumerate(all_sessions, 1):
-        tag = f"{sess['sub']}_{sess['ses']}"
-        n_alloc = allocations.get(tag, 0)
-        if n_alloc == 0:
-            log.info("[%d/%d] %s: allocation = 0, skipping.", i, len(all_sessions), sess["exp_id"])
-            continue
-
         flag = "primary" if sess["primary"] else ("excl" if sess["exclude"] else "2nd")
-        log.info(
-            "[%d/%d] %s  [%s]  budget=%d", i, len(all_sessions), sess["exp_id"], flag, n_alloc
-        )
+        log.info("[%d/%d] %s  [%s]", i, len(all_sessions), sess["exp_id"], flag)
 
         result = process_session(
             s3=s3,
             session_info=sess,
-            n_select=n_alloc,
-            n_clusters=args.n_clusters,
+            n_target=args.per_session,
             dry_run=args.dry_run,
         )
         results.append(result)
 
-        # Summary line per session
         n_existing = result["n_existing"]
         n_selected = result["n_selected"]
-        k = result["n_clusters_used"]
-        top_scores = sorted(result["cluster_scores"].values(), reverse=True)[:5]
-        score_str = ", ".join(f"{v:.3f}" for v in top_scores)
-        print(f"  {sess['exp_id']}")
-        print(f"    clusters={k}  existing_labels={n_existing}  new_frames={n_selected}")
-        print(f"    top cluster scores: [{score_str}]")
+        print(f"  {sess['exp_id']}:  existing={n_existing}  new={n_selected}  "
+              f"total={n_existing + n_selected}")
         if result["selected_indices"]:
             idx_preview = result["selected_indices"][:6]
             has_more = "..." if len(result["selected_indices"]) > 6 else ""
-            print(f"    selected indices: {idx_preview}{has_more}")
+            print(f"    selected: {idx_preview}{has_more}")
         print()
 
-    total_selected = sum(r["n_selected"] for r in results)
+    total_new = sum(r["n_selected"] for r in results)
+    total_existing = sum(r["n_existing"] for r in results)
     print(f"{'=' * 62}")
-    print(f"  Total: {total_selected}/{args.n} frames across {len(results)} sessions")
+    print(f"  Existing: {total_existing}   New: {total_new}   "
+          f"Total: {total_existing + total_new}")
     if args.dry_run:
         print("  [DRY RUN] — no frames extracted.")
     print(f"{'=' * 62}\n")

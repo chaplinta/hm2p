@@ -129,10 +129,16 @@ def main() -> None:
             if src.exists():
                 # PNG exists in retrain_frames, just needs symlink
                 dest = session_dir / fname
-                if not dest.exists():
-                    rel = os.path.relpath(src.resolve(), session_dir.resolve())
-                    dest.symlink_to(rel)
-                    total_linked += 1
+                # Remove any existing (possibly corrupt) entry
+                try:
+                    os.unlink(str(dest))
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    pass
+                rel = os.path.relpath(src.resolve(), session_dir.resolve())
+                dest.symlink_to(rel)
+                total_linked += 1
             else:
                 still_missing[fname] = idx
 

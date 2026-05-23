@@ -234,18 +234,28 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
         frame_gt: dict[str, list[float]] = {}
         frame_pred: dict[str, list[float]] = {}
 
+        # When idx is a tuple, pandas .loc interprets it as multi-level
+        # indexing rather than a single key lookup.  Wrapping in a list
+        # forces pandas to treat the tuple as one label; .iloc[0] then
+        # extracts the scalar from the resulting single-element Series.
+        _tuple_idx = isinstance(idx, tuple)
+
         for bp in bodyparts:
             try:
-                gx = float(gt.loc[idx, (gt_scorer, bp, "x")])
-                gy = float(gt.loc[idx, (gt_scorer, bp, "y")])
+                gx_val = gt.loc[[idx], (gt_scorer, bp, "x")].iloc[0] if _tuple_idx else gt.loc[idx, (gt_scorer, bp, "x")]
+                gy_val = gt.loc[[idx], (gt_scorer, bp, "y")].iloc[0] if _tuple_idx else gt.loc[idx, (gt_scorer, bp, "y")]
+                gx = float(gx_val)
+                gy = float(gy_val)
             except (KeyError, ValueError):
                 continue
             if np.isnan(gx) or np.isnan(gy):
                 continue
 
             try:
-                px = float(pred.loc[idx, (pred_scorer, bp, "x")])
-                py = float(pred.loc[idx, (pred_scorer, bp, "y")])
+                px_val = pred.loc[[idx], (pred_scorer, bp, "x")].iloc[0] if _tuple_idx else pred.loc[idx, (pred_scorer, bp, "x")]
+                py_val = pred.loc[[idx], (pred_scorer, bp, "y")].iloc[0] if _tuple_idx else pred.loc[idx, (pred_scorer, bp, "y")]
+                px = float(px_val)
+                py = float(py_val)
             except (KeyError, ValueError):
                 continue
             if np.isnan(px) or np.isnan(py):

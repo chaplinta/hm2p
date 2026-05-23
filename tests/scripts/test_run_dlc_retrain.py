@@ -79,8 +79,8 @@ class TestResolveEpochs:
     def test_default_imagenet_400(self):
         assert rdr.resolve_epochs(None, sa_finetune=False) == 400
 
-    def test_default_sa_120(self):
-        assert rdr.resolve_epochs(None, sa_finetune=True) == 120
+    def test_default_sa_200(self):
+        assert rdr.resolve_epochs(None, sa_finetune=True) == 200
 
     def test_explicit_overrides_imagenet_default(self):
         assert rdr.resolve_epochs(50, sa_finetune=False) == 50
@@ -382,7 +382,7 @@ class TestTrainSaFinetune:
         assert upd["train_settings.optimizer.params.lr"] == pytest.approx(5e-5)
         assert upd["model.backbone.freeze_bn_stats"] is True
         assert upd["train_settings.scheduler.type"] == "MultiStepLR"
-        assert upd["train_settings.scheduler.params.milestones"] == [90, 110]
+        assert upd["train_settings.scheduler.params.milestones"] == [80, 110]
         assert upd["train_settings.scheduler.params.gamma"] == pytest.approx(0.1)
 
     def test_skips_manual_backbone_rewrite(self, tmp_path: Path, monkeypatch):

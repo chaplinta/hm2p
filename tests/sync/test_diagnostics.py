@@ -447,6 +447,28 @@ class TestClassifyTiers:
         assert status == "FAILED_TEMPORAL_OVERLAP"
         assert any(x.startswith("temporal_overlap_hard") for x in f)
 
+    def test_camera_overshoot_not_failed(self) -> None:
+        """Camera recording 384s beyond imaging should NOT fail overlap check.
+
+        The overlap fraction is relative to imaging duration, not the
+        longer camera duration. Session 20220531 had this exact issue:
+        camera ran ~384s past imaging end but data within the imaging
+        window was perfect.
+        """
+        s = _ok_scalars()
+        # Imaging: 600s, Camera: 984s (384s overshoot)
+        s.img = replace(s.img, duration_s=600.0)
+        s.cam = replace(s.cam, duration_s=984.0)
+        # Full imaging window is covered by camera → overlap = 600s
+        s.cross = CrossChannelScalars(
+            overlap_s=600.0, start_offset_ms=0.0, end_offset_ms=-384000.0
+        )
+        status, warnings, _f = classify(s)
+        assert status != "FAILED_TEMPORAL_OVERLAP", (
+            f"Camera overshoot should not fail overlap: status={status}"
+        )
+        assert status in ("OK", "OK_WITH_WARNINGS")
+
     def test_failed_truncated_camera(self) -> None:
         s = _ok_scalars()
         s.cam = replace(s.cam, duration_s=2.0)

@@ -10,7 +10,7 @@ SuperAnimalConversionTables:
     tail_base: tail_base
 Task: hm2p-retrain
 TrainingFraction:
-- 0.80
+- 0.90
 alphavalue: 0.7
 batch_size: 8
 bodyparts:

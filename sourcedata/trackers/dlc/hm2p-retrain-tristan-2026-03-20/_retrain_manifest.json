@@ -5,127 +5,127 @@
     "has_h5": true
   },
   "20210920_11_09_41_1114356_maze-rose_overhead.camera-cropped": {
-    "n_frames": 9,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20210923_15_05_27_1114356_maze-rose_overhead.camera-cropped": {
-    "n_frames": 12,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20210924_16_09_26_1114356_maze-rose_overhead.camera-cropped": {
-    "n_frames": 6,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20211028_10_22_43_1114356_maze-rose_overhead.camera-cropped": {
-    "n_frames": 10,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20211028_11_25_53_1115465_maze-rose_overhead.camera-cropped": {
-    "n_frames": 7,
+    "n_frames": 29,
     "has_csv": true,
     "has_h5": true
   },
   "20211029_13_50_14_1115465_maze-rose_overhead.camera-cropped": {
-    "n_frames": 17,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20211102_15_11_38_1115465_maze-rose_overhead.camera-cropped": {
-    "n_frames": 2,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20211203_15_10_31_1115464_maze-rose_overhead.camera-cropped": {
-    "n_frames": 15,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20211216_14_36_47_1115816_maze-rose_overhead.camera-cropped": {
-    "n_frames": 7,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20220408_15_02_02_1116663_maze-rose_overhead.camera-cropped": {
-    "n_frames": 9,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20220411_16_45_16_1116663_maze-rose_overhead.camera-cropped": {
-    "n_frames": 2,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20220531_11_06_17_1117217_maze-rose_overhead.camera-cropped": {
-    "n_frames": 6,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20220601_13_53_29_1117217_maze-rose_overhead.camera-cropped": {
-    "n_frames": 2,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20220608_15_27_36_1117217_maze-rose_overhead.camera-cropped": {
-    "n_frames": 21,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20220608_16_22_10_1116994_maze-rose_overhead.camera-cropped": {
-    "n_frames": 23,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20220802_15_06_57_1117646_maze-rose_overhead.camera-cropped": {
-    "n_frames": 20,
+    "n_frames": 28,
     "has_csv": true,
     "has_h5": true
   },
   "20220804_11_22_03_1117646_maze-rose_overhead.camera-cropped": {
-    "n_frames": 16,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20220804_13_52_06_1117646_maze-rose_overhead.camera-cropped": {
-    "n_frames": 19,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20221003_14_36_59_1118020_maze-rose_overhead.camera-cropped": {
-    "n_frames": 22,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20221004_10_43_03_1118023_maze-rose_overhead.camera-cropped": {
-    "n_frames": 18,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20221010_11_43_39_1118018_maze-rose_overhead.camera-cropped": {
-    "n_frames": 12,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20221018_10_56_20_1117788_maze-rose_overhead.camera-cropped": {
-    "n_frames": 10,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20221115_13_27_52_1118213_maze-rose_overhead.camera-cropped": {
-    "n_frames": 12,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20221116_14_31_17_1118320_maze-rose_overhead.camera-cropped": {
-    "n_frames": 17,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   },
   "20221117_13_20_37_1118317_maze-rose_overhead.camera-cropped": {
-    "n_frames": 17,
+    "n_frames": 30,
     "has_csv": true,
     "has_h5": true
   }

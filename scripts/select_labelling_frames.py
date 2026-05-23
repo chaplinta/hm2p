@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Select the best frames to label across all sessions for DLC retraining.
+"""Add the N worst-tracked frames per session for DLC retraining.
 
-Downloads pose .h5 files from S3, finds frames where the model struggles
-(low confidence, temporal jumps, unusual poses), and selects a diverse
-set across sessions ensuring no near-duplicates.
+For each session, downloads the pose .h5 from S3, scores every frame by
+model uncertainty (weighted confidence, temporal jumps, unusual poses),
+then selects the top N worst frames that are NOT similar to existing
+labeled frames (image-based dedup + pose diversity).
 
 Usage:
-    uv run python scripts/select_labelling_frames.py             # 60 frames
-    uv run python scripts/select_labelling_frames.py --n 100     # 100 frames
-    uv run python scripts/select_labelling_frames.py --dry-run   # show selection without extracting
+    uv run python scripts/select_labelling_frames.py --extra 10 --dry-run
+    uv run python scripts/select_labelling_frames.py --extra 10
+    uv run python scripts/select_labelling_frames.py --extra 10 --session 20210823_16_59_50_1114353
 """
 
 from __future__ import annotations
@@ -356,14 +357,15 @@ def select_diverse(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Select best frames for DLC labelling")
-    parser.add_argument("--n", type=int, default=60, help="Total frames to select")
-    parser.add_argument("--per-session-max", type=int, default=8,
-                        help="Max frames per session")
-    parser.add_argument("--per-session-min", type=int, default=2,
-                        help="Min frames per session (if session has data)")
+    parser = argparse.ArgumentParser(
+        description="Add the N worst-tracked frames per session for DLC retraining."
+    )
+    parser.add_argument("--extra", type=int, default=10,
+                        help="Number of extra frames to add per session (default 10).")
     parser.add_argument("--min-spacing", type=int, default=30,
                         help="Min frame spacing within a session")
+    parser.add_argument("--session", type=str, default=None,
+                        help="Process a single session by exp_id.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show selection without extracting frames")
     parser.add_argument("--label", action="store_true",
@@ -373,303 +375,184 @@ def main():
     s3 = boto3.client("s3", region_name=REGION)
     sessions = get_sessions()
 
-    # Load experiment flags for primary/exclude weighting
-    import csv as _csv
-    exp_flags = {}
-    with open(METADATA_PATH) as _f:
-        for row in _csv.DictReader(_f):
-            exp_flags[row["exp_id"]] = {
-                "primary": str(row.get("primary_exp", "1")).strip() == "1",
-                "exclude": str(row.get("exclude", "0")).strip() == "1",
-            }
+    if args.session:
+        sessions = [s for s in sessions if s["exp_id"] == args.session]
+        if not sessions:
+            print(f"Session {args.session!r} not found.")
+            sys.exit(1)
 
-    print(f"Scanning {len(sessions)} sessions for frame selection...")
-
-    # Score all sessions
-    session_scores = []
-    for ses_info in sessions:
-        sub, ses = ses_info["sub"], ses_info["ses"]
-        session_tag = f"{sub}_{ses}"
-
-        df = load_pose_from_s3(s3, sub, ses)
-        if df is None:
-            print(f"  {ses_info['exp_id']}: no pose data, skipping")
-            continue
-
-        scores, positions, bp_names = score_frames(df)
-        mean_score = float(np.nanmean(scores))
-        already = already_labelled_frames(session_tag)
-        flags = exp_flags.get(ses_info["exp_id"], {"primary": True, "exclude": False})
-
-        # Load existing labeled positions for diversity seeding
-        existing_pos = None
-        labeled_h5 = None
-        for ld in LABELED_DIR.iterdir():
-            if ld.is_dir():
-                ses_date = ses.replace("ses-", "").split("T")[0]
-                animal = sub.replace("sub-", "")
-                parts = ld.name.split("_")
-                if len(parts) >= 5 and parts[0] == ses_date and parts[4].startswith(animal):
-                    h5 = ld / "CollectedData_tristan.h5"
-                    if h5.exists():
-                        try:
-                            import pandas as _pd
-                            gt = _pd.read_hdf(h5)
-                            if len(gt) > 0 and gt.notna().any().any():
-                                labeled_h5 = gt
-                        except Exception:
-                            pass
-                    break
-
-        if labeled_h5 is not None and positions is not None:
-            # Extract positions at labeled frame indices
-            import re as _re
-            labeled_indices = []
-            for idx in labeled_h5.index:
-                frame_file = idx[2] if isinstance(idx, tuple) else str(idx).split("/")[-1]
-                m = _re.match(r"frame_(\d+)\.png", frame_file)
-                if m:
-                    fi = int(m.group(1))
-                    if fi < len(positions):
-                        labeled_indices.append(fi)
-            if labeled_indices:
-                existing_pos = positions[labeled_indices]
-
-        session_scores.append({
-            "exp_id": ses_info["exp_id"],
-            "sub": sub,
-            "ses": ses,
-            "tag": session_tag,
-            "n_frames": len(df),
-            "mean_score": mean_score,
-            "scores": scores,
-            "positions": positions,
-            "existing_positions": existing_pos,
-            "n_already_labelled": len(already),
-            "already_labelled": already,
-            "df": df,
-            "primary": flags["primary"],
-            "exclude": flags["exclude"],
-        })
-        flag_str = "primary" if flags["primary"] else ("excl" if flags["exclude"] else "2nd")
-        print(f"  {ses_info['exp_id']}: {len(df)} frames, score={mean_score:.3f}, "
-              f"labelled={len(already)}, {flag_str}")
-
-    # Sort: primary sessions first, then by score (worst first),
-    # then by fewest existing labels
-    session_scores.sort(key=lambda s: (
-        not s["primary"],  # primary first
-        -s["mean_score"],  # worst score first
-        s["n_already_labelled"],  # fewest labels first
-    ))
-
-    # Allocate frames across sessions.
-    # Primary sessions get higher max allocation.
-    remaining = args.n
-    allocations = {}
-
-    # First pass: give each session its minimum
-    for s in session_scores:
-        n_alloc = min(args.per_session_min, remaining)
-        allocations[s["tag"]] = n_alloc
-        remaining -= n_alloc
-        if remaining <= 0:
-            break
-
-    # Second pass: distribute remaining. Primary sessions get up to
-    # per_session_max; non-primary get up to per_session_min.
-    for s in session_scores:
-        if remaining <= 0:
-            break
-        current = allocations.get(s["tag"], 0)
-        max_for_session = args.per_session_max if s["primary"] else args.per_session_min
-        extra = min(max_for_session - current, remaining)
-        if extra > 0:
-            allocations[s["tag"]] = current + extra
-            remaining -= extra
-
-    # Select specific frames per session
     print(f"\n{'='*60}")
-    print(f"Selecting {args.n} frames across {len(allocations)} sessions")
+    print(f"  Adding {args.extra} worst frames per session")
+    print(f"  Sessions: {len(sessions)}   Dry-run: {args.dry_run}")
     print(f"{'='*60}\n")
 
     all_selected = {}
     total = 0
 
-    for s in session_scores:
-        tag = s["tag"]
-        n_alloc = allocations.get(tag, 0)
-        if n_alloc == 0:
+    for i, ses_info in enumerate(sessions, 1):
+        sub, ses = ses_info["sub"], ses_info["ses"]
+        session_tag = f"{sub}_{ses}"
+        exp_id = ses_info["exp_id"]
+
+        df = load_pose_from_s3(s3, sub, ses)
+        if df is None:
+            print(f"  [{i}/{len(sessions)}] {exp_id}: no pose data, skipping")
             continue
 
-        positions = s["positions"]
-        existing_pos = s.get("existing_positions")
+        scores, positions, bp_names = score_frames(df)
+        already = already_labelled_frames(session_tag)
 
-        # Get 3x candidates using pose-based diversity, then image_dedup
-        # will prune to n_alloc using actual pixel similarity.
+        # Load existing labeled positions for diversity check
+        existing_pos = None
+        import re as _re
+        for ld in LABELED_DIR.iterdir():
+            if not ld.is_dir():
+                continue
+            ses_date = ses.replace("ses-", "").split("T")[0]
+            animal = sub.replace("sub-", "")
+            if ses_date in ld.name and animal in ld.name:
+                h5 = ld / "CollectedData_tristan.h5"
+                if h5.exists():
+                    try:
+                        gt = pd.read_hdf(h5)
+                        if len(gt) > 0 and positions is not None:
+                            labeled_indices = []
+                            for idx in gt.index:
+                                ff = idx[2] if isinstance(idx, tuple) else str(idx).split("/")[-1]
+                                m = _re.match(r"frame_(\d+)\.png", ff)
+                                if m:
+                                    fi = int(m.group(1))
+                                    if fi < len(positions):
+                                        labeled_indices.append(fi)
+                            if labeled_indices:
+                                existing_pos = positions[labeled_indices]
+                    except Exception:
+                        pass
+                break
+
+        # Get 3x candidates for dedup headroom
         candidates = select_diverse(
-            s["scores"], positions, n_alloc * 3,
+            scores, positions, args.extra * 3,
             min_spacing=args.min_spacing,
-            exclude=s["already_labelled"],
+            exclude=already,
             existing_positions=existing_pos,
         )
 
-        all_selected[tag] = {
-            "exp_id": s["exp_id"],
-            "sub": s["sub"],
-            "ses": s["ses"],
-            "frames": candidates,  # will be pruned by image_dedup during extraction
-            "n_target": n_alloc,
-        }
-        total += min(n_alloc, len(candidates))
+        # Trim to target
+        selected = candidates[:args.extra]
 
-        scores_at_selected = [f"{s['scores'][i]:.3f}" for i in candidates[:n_alloc]]
-        print(f"{s['exp_id']}: {len(candidates)} candidates → target {n_alloc} "
-              f"(already labelled: {s['n_already_labelled']})")
-        print(f"  Top indices: {candidates[:n_alloc]}")
-        print(f"  Top scores:  {scores_at_selected}")
-        print()
+        score_strs = [f"{scores[i]:.3f}" for i in selected[:5]]
+        print(f"  [{i}/{len(sessions)}] {exp_id}: existing={len(already)}, "
+              f"adding={len(selected)}, top scores={score_strs}")
 
-    print(f"Total: {total} frames across {len(all_selected)} sessions")
+        if selected:
+            all_selected[session_tag] = {
+                "exp_id": exp_id, "sub": sub, "ses": ses,
+                "frames": selected,
+            }
+            total += len(selected)
 
-    # Save selection as JSON
+    print(f"\nTotal: {total} new frames across {len(all_selected)} sessions")
+
+    # Save selection
     output_path = Path("retrain_frames/_next_batch.json")
     output_path.parent.mkdir(exist_ok=True)
     output_path.write_text(json.dumps(all_selected, indent=2, default=str))
-    print(f"\nSaved selection to {output_path}")
+    print(f"Saved to {output_path}")
 
     if args.dry_run:
         print("\n[DRY RUN] — no frames extracted.")
         return
 
-    # Extract frames for all sessions (no napari unless --label)
+    # Extract frames
     import subprocess
     import shutil
+    import cv2
 
-    print(f"\n{'='*60}")
-    if args.label:
-        print(f"Extracting and labelling {total} frames across {len(all_selected)} sessions.")
-        print(f"Napari will open for each session — label frames, close to continue.")
-    else:
-        print(f"Extracting {total} frames across {len(all_selected)} sessions.")
-    print(f"{'='*60}\n")
+    print(f"\nExtracting {total} frames...\n")
 
     for i, (tag, info) in enumerate(all_selected.items(), 1):
-        print(f"[{i}/{len(all_selected)}] {info['exp_id']} — {len(info['frames'])} frames")
+        sub, ses, exp_id = info["sub"], info["ses"], info["exp_id"]
+        print(f"[{i}/{len(all_selected)}] {exp_id}")
 
-        sub, ses = info["sub"], info["ses"]
-        session_tag = f"{sub}_{ses}"
-
-        # Download video from S3 and extract frames
-        # (reuse prepare_retrain_frames logic but without napari)
-        rf_dir = RETRAIN_DIR / session_tag
+        rf_dir = RETRAIN_DIR / tag
         rf_dir.mkdir(parents=True, exist_ok=True)
 
-        # Check which frames already exist
-        new_frames = []
-        for idx in info["frames"]:
-            png = rf_dir / f"frame_{int(idx):06d}.png"
-            if not png.exists():
-                new_frames.append(idx)
+        # Download video
+        s3_prefix = f"rawdata/{sub}/{ses}/behav/"
+        resp = s3.list_objects_v2(Bucket=RAWDATA_BUCKET, Prefix=s3_prefix, MaxKeys=20)
+        video_path = None
+        video_dir = Path(f"/tmp/{tag}")
+        video_dir.mkdir(parents=True, exist_ok=True)
+        for obj in resp.get("Contents", []):
+            fn = obj["Key"].split("/")[-1]
+            if fn.endswith(".mp4") and "side" not in fn.lower():
+                local = video_dir / fn
+                if not local.exists():
+                    s3.download_file(RAWDATA_BUCKET, obj["Key"], str(local))
+                if "overhead" in fn or "cropped" in fn:
+                    video_path = local
+                elif video_path is None:
+                    video_path = local
 
-        if not new_frames:
-            print(f"  All {len(info['frames'])} frames already extracted, skipping download")
-        else:
-            print(f"  Extracting {len(new_frames)} new frames ({len(info['frames']) - len(new_frames)} already exist)")
+        if video_path is None:
+            print(f"  No video found, skipping")
+            continue
 
-            # Download video
-            video_dir = Path(f"/tmp/{session_tag}")
-            video_dir.mkdir(parents=True, exist_ok=True)
-            s3_prefix = f"rawdata/{sub}/{ses}/behav/"
-            resp = s3.list_objects_v2(Bucket=RAWDATA_BUCKET, Prefix=s3_prefix, MaxKeys=20)
-            video_path = None
-            for obj in resp.get("Contents", []):
-                fn = obj["Key"].split("/")[-1]
-                if fn.endswith(".mp4") and "side" not in fn.lower():
-                    local = video_dir / fn
-                    if not local.exists():
-                        s3.download_file(RAWDATA_BUCKET, obj["Key"], str(local))
-                    if "overhead" in fn or "cropped" in fn:
-                        video_path = local
-                    elif video_path is None:
-                        video_path = local
+        # Image dedup against existing PNGs on disk
+        try:
+            sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+            from hm2p.pose.dedup import filter_duplicates_against_existing
+            before = len(info["frames"])
+            info["frames"] = filter_duplicates_against_existing(
+                str(video_path), info["frames"], rf_dir,
+            )[:args.extra]
+            removed = before - len(info["frames"])
+            if removed:
+                print(f"  Dedup removed {removed} similar frames")
+        except Exception as e:
+            print(f"  Dedup failed: {e}")
+            info["frames"] = info["frames"][:args.extra]
 
-            if video_path is None:
-                print(f"  ERROR: no video found, skipping")
+        # Extract PNGs
+        cap = cv2.VideoCapture(str(video_path))
+        written = 0
+        for idx in sorted(info["frames"]):
+            out = rf_dir / f"frame_{int(idx):06d}.png"
+            if out.exists():
                 continue
+            cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
+            ret, frame = cap.read()
+            if ret:
+                cv2.imwrite(str(out), frame)
+                written += 1
+        cap.release()
+        if written:
+            print(f"  Extracted {written} PNGs")
 
-            # Image-based dedup: reject candidates identical to existing
-            # frames on disk or to each other (full-res pixel diff, <1% = dup)
-            n_before = len(info["frames"])
-            try:
-                sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
-                from hm2p.pose.dedup import filter_duplicates_against_existing
-                deduped = filter_duplicates_against_existing(
-                    str(video_path), info["frames"], rf_dir,
-                )
-                info["frames"] = deduped
-                new_frames = [f for f in deduped if not (rf_dir / f"frame_{int(f):06d}.png").exists()]
-                n_removed = n_before - len(deduped)
-                if n_removed > 0:
-                    print(f"  Dedup: removed {n_removed}/{n_before} frames identical to existing")
-            except Exception as e:
-                print(f"  Dedup check failed: {e}")
-
-            # Also apply target limit after dedup
-            n_target = info.get("n_target", len(info["frames"]))
-            if len(info["frames"]) > n_target:
-                info["frames"] = info["frames"][:n_target]
-                new_frames = [f for f in info["frames"] if not (rf_dir / f"frame_{int(f):06d}.png").exists()]
-
-            # Extract frames
-            import cv2
-            cap = cv2.VideoCapture(str(video_path))
-            for idx in sorted(new_frames):
-                cap.set(cv2.CAP_PROP_POS_FRAMES, int(idx))
-                ret, frame = cap.read()
-                if ret:
-                    cv2.imwrite(str(rf_dir / f"frame_{int(idx):06d}.png"), frame)
-            cap.release()
-            print(f"  Extracted {len(new_frames)} frames to {rf_dir}/")
-
-        # Copy frames to labeled-data dir
-        # Find or create the labeled-data session folder
-        if LABELED_DIR.exists():
-            # Find matching video stem
-            video_stem = None
-            for ld in LABELED_DIR.iterdir():
-                if ld.is_dir() and session_tag.split("_")[0].replace("sub-", "") in ld.name:
-                    # Match by date component
-                    ses_date = ses.replace("ses-", "").split("T")[0]
-                    if ses_date in ld.name:
-                        video_stem = ld.name
-                        break
-
-            if video_stem:
-                ld_dir = LABELED_DIR / video_stem
-            else:
-                # Create new — use first mp4 stem
-                if video_path:
-                    video_stem = video_path.stem
-                    ld_dir = LABELED_DIR / video_stem
-                    ld_dir.mkdir(parents=True, exist_ok=True)
-                else:
-                    ld_dir = None
-
-            if ld_dir and ld_dir.exists():
-                copied = 0
-                for png in rf_dir.glob("frame_*.png"):
-                    dest = ld_dir / png.name
+        # Symlink into labeled-data
+        for ld in LABELED_DIR.iterdir():
+            if not ld.is_dir():
+                continue
+            ses_date = ses.replace("ses-", "").split("T")[0]
+            animal = sub.replace("sub-", "")
+            if ses_date in ld.name and animal in ld.name:
+                import os
+                linked = 0
+                for png in sorted(rf_dir.glob("frame_*.png")):
+                    dest = ld / png.name
                     if not dest.exists():
-                        shutil.copy2(png, dest)
-                        copied += 1
-                if copied:
-                    print(f"  Copied {copied} new frames to labeled-data/")
+                        rel = os.path.relpath(png.resolve(), ld.resolve())
+                        dest.symlink_to(rel)
+                        linked += 1
+                if linked:
+                    print(f"  Symlinked {linked} into labeled-data/")
+                break
 
-        # Save frame indices to metadata
+        # Update metadata
         meta_dir = Path("metadata/retrain_frames")
         meta_dir.mkdir(parents=True, exist_ok=True)
-        meta_file = meta_dir / f"{session_tag}.json"
+        meta_file = meta_dir / f"{tag}.json"
         existing_indices = set()
         if meta_file.exists():
             existing_data = json.loads(meta_file.read_text())
@@ -681,27 +564,15 @@ def main():
             "n_frames": len(all_indices),
         }, indent=2))
 
-        # Open napari if --label
         if args.label:
             cmd = [
-                sys.executable, "scripts/prepare_retrain_frames.py",
-                f"{sub}/{ses}", *[str(f) for f in info["frames"]],
+                sys.executable, "scripts/interactive_label.py",
+                "--session", exp_id,
             ]
             subprocess.run(cmd)
 
     print(f"\n{'='*60}")
-    print(f"Done! {total} frames across {len(all_selected)} sessions.")
-    if args.label:
-        print(f"\nNext steps:")
-        print(f"  uv run python scripts/upload_dlc_labels.py")
-        print(f"  uv run python scripts/launch_dlc_finetune_ec2.py")
-    else:
-        print(f"\nFrames extracted. To label them:")
-        print(f"  uv run python scripts/select_labelling_frames.py --n {args.n} --label")
-        print(f"\nOr label manually per session:")
-        for tag, info in all_selected.items():
-            frames_str = " ".join(str(f) for f in info["frames"])
-            print(f"  uv run python scripts/prepare_retrain_frames.py {info['sub']}/{info['ses']} {frames_str}")
+    print(f"Done! Added {total} frames across {len(all_selected)} sessions.")
     print(f"{'='*60}")
 
 

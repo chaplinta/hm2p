@@ -921,30 +921,31 @@ tab_pose, tab_image = st.tabs(["Pose-based selection", "Image-clustering selecti
 
 with tab_pose:
     st.markdown(
-        "Scores every frame by model uncertainty (HD-critical keypoints "
-        "weighted 3x), temporal jumps, and unusual posture. Primary sessions "
-        "get more frames. New frames are diverse relative to existing labels."
+        "Adds the N worst-tracked frames per session. Scores by model "
+        "uncertainty (HD-critical keypoints weighted 3×), temporal jumps, "
+        "and unusual posture. Rejects frames similar to existing labels "
+        "(pose diversity + image dedup)."
     )
     st.code(
-        f"# Preview\n"
-        f"uv run python scripts/select_labelling_frames.py --n {n_auto} --dry-run\n\n"
-        f"# Extract and label\n"
-        f"uv run python scripts/select_labelling_frames.py --n {n_auto} --label",
+        "# Preview — add 10 worst frames per session\n"
+        "uv run python scripts/select_labelling_frames.py --extra 10 --dry-run\n\n"
+        "# Extract and label\n"
+        "uv run python scripts/select_labelling_frames.py --extra 10 --label",
         language="bash",
     )
 
 with tab_image:
     st.markdown(
-        "Downloads each video, clusters frames by visual appearance "
-        "(PCA + k-means on 64x64 thumbnails), then selects from "
-        "under-represented clusters. Better at finding visually distinct "
-        "frames that the pose-based method might miss."
+        "PCA on 64×64 thumbnails, k-means with k = existing + needed. "
+        "Existing labeled frames mark occupied clusters; new frames are "
+        "selected only from unoccupied clusters (closest to centroid). "
+        "`--per-session 30` means 'bring each session up to 30 total'."
     )
     st.code(
-        f"# Preview\n"
-        f"uv run python scripts/select_frames_image_clustering.py --n {n_auto} --dry-run\n\n"
-        f"# Extract and label\n"
-        f"uv run python scripts/select_frames_image_clustering.py --n {n_auto} --label",
+        "# Preview\n"
+        "uv run python scripts/select_frames_image_clustering.py --per-session 30 --dry-run\n\n"
+        "# Extract and label\n"
+        "uv run python scripts/select_frames_image_clustering.py --per-session 30 --label",
         language="bash",
     )
 

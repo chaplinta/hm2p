@@ -724,11 +724,15 @@ session on the maze graph). The null distribution had a negative mean
 (-0.141), confirming that the maze topology contributes some alternation.
 The observed alternation was stronger than the per-session null means
 (Mann-Whitney U = 147.0, p = 0.066, Cliff's d = -0.33, 21 observed vs 21
-per-session null means), and bootstrap permutation testing confirmed that
-the observed alternation exceeded the null (p < 0.0001), with 5 of 21
-sessions (24%) falling below the null 95% CI. Mice therefore show
-spontaneous alternation beyond what maze geometry alone would produce,
-though the effect size is modest.
+per-session null means). Note that the Mann-Whitney test does not reach
+significance at alpha = 0.05, so the between-group comparison alone does
+not establish that observed alternation exceeds the topology-driven null.
+However, bootstrap permutation testing confirmed that the observed
+alternation exceeded the null (p < 0.0001), and 5 of 21 sessions (24%)
+fell below the null 95% CI. Mice therefore show spontaneous alternation
+beyond what maze geometry alone would produce, though the effect size is
+modest and the conclusion rests primarily on the permutation test and the
+per-session outlier analysis rather than the Mann-Whitney comparison.
 
 "Global left-right bias was minimal (left fraction: 0.49, not significantly
 different from 0.5). No individual junction showed a significant left-right
@@ -1155,7 +1159,7 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
 5. **Animal sex.** One female (1118023) is included among 15 males. Check
    whether her behavioural metrics are outliers.
 
-6. **Animals with multiple sessions.** Some animals contribute 2--4
+6. **Animals with multiple sessions.** Some animals contribute 2--3
    sessions. For session-level statistics, this creates mild
    pseudoreplication. Report results both with all sessions and with only
    one session per animal (first or primary).

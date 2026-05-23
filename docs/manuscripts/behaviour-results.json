@@ -4748,7 +4748,7 @@
       "holm_bonferroni_adjusted_p": {
         "speed": 0.35802555084228516,
         "frac_active": 0.43136024475097656,
-        "immobility_bout": 0.27916972524632655
+        "immobility_bout": 0.43136024475097656
       }
     },
     "figure3": {
@@ -4790,7 +4790,7 @@
       },
       "holm_bonferroni_adjusted_p": {
         "epoch_coverage": 0.008571624755859375,
-        "dead_end_rate": 0.8917322158813477,
+        "dead_end_rate": 1.0,
         "exploration_efficiency": 1.0
       }
     },
@@ -4878,7 +4878,7 @@
           "total": 573,
           "left_frac": 0.49214659685863876,
           "binomial_p": 0.7382576972073156,
-          "binomial_p_adjusted": 0.7382576972073156
+          "binomial_p_adjusted": 1.0
         },
         "(5, 0)": {
           "total_left": 257,
@@ -4922,7 +4922,7 @@
         }
       },
       "holm_bonferroni_adjusted_p": {
-        "left_frac": 0.8917322158813477,
+        "left_frac": 1.0,
         "autocorr_vs_zero": 3.814697265625e-06,
         "autocorr_light_vs_dark": 0.8632020950317383,
         "back_rate": 1.0
@@ -4955,7 +4955,7 @@
       },
       "holm_bonferroni_adjusted_p": {
         "hd_mrl": 0.020250320434570312,
-        "ahv": 0.01947307586669922
+        "ahv": 0.020250320434570312
       }
     },
     "figure6": {
@@ -5102,8 +5102,8 @@
       "holm_bonferroni_adjusted_p": {
         "median_speed": 0.05128205128205128,
         "frac_active": 1.0,
-        "coverage": 0.9218967565112268,
-        "left_frac": 0.8512820512820513,
+        "coverage": 1.0,
+        "left_frac": 1.0,
         "light_dark_speed_diff": 0.9025641025641026
       }
     },
