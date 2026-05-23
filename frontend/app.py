@@ -144,11 +144,6 @@ dlc_training_page = st.Page(
 training_qc_page = st.Page(
     str(_app_dir / "pages/training_qc_page.py"), title="Training QC", icon=":material/fact_check:"
 )
-training_fit_page = st.Page(
-    str(_app_dir / "pages/training_fit_page.py"),
-    title="Training Fit",
-    icon=":material/troubleshoot:",
-)
 label_review_page = st.Page(
     str(_app_dir / "pages/label_review_page.py"),
     title="Label Review",
@@ -353,7 +348,6 @@ pg = st.navigation(
             cascade_page,
             dlc_training_page,
             training_qc_page,
-            training_fit_page,
             label_review_page,
             dlc_page,
             dlc_viewer_page,

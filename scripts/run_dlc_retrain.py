@@ -89,11 +89,30 @@ def update_progress(s3, status: str, **extra: object) -> None:
 def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
     """Compute per-bodypart RMSE from DLC evaluate_network predictions.
 
-    DLC's evaluate_network saves per-image predictions as multi-index H5
-    files in evaluation-results-pytorch/. This function loads them,
-    matches against ground-truth labels, and computes RMSE per bodypart.
-    Uploads result as ``_per_bodypart_eval.json`` to S3.
+    DLC 3.x PyTorch ``evaluate_network`` saves a prediction H5 file at::
+
+        evaluation-results-pytorch/iteration-{N}/{project}-trainset{frac}shuffle{n}/{scorer}.h5
+
+    The scorer name follows the pattern
+    ``DLC_{net}_{project}shuffle{n}_snapshot_{epoch}``.
+
+    This function locates the prediction H5, loads it, loads the
+    ground-truth labels from ``CollectedData_*.h5``, and computes per-
+    bodypart RMSE plus per-frame error details. If the prediction H5 is
+    not found (e.g. evaluate_network was not called, or the file
+    structure changed), it falls back to running DLC inference directly
+    on the labeled frame PNGs.
+
+    The output JSON (``_per_bodypart_eval.json``) includes:
+
+    - ``bodyparts``: per-bodypart aggregate metrics (RMSE, median, PCK)
+    - ``per_frame``: per-frame detail with ground-truth and predicted
+      coordinates, pixel errors, and train/test split labels
+
+    Uploads to ``s3://hm2p-derivatives/dlc-retrain/models/_per_bodypart_eval.json``.
     """
+    import pickle
+
     import pandas as pd
     import yaml
 
@@ -101,25 +120,12 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
         cfg = yaml.safe_load(f)
     bodyparts = cfg.get("bodyparts", [])
 
-    # Find DLC's prediction H5 files from evaluate_network.
-    # DLC 3.x saves them as: evaluation-results-pytorch/.../
-    #   DLC_<net>_<project>shuffle<n>_snapshot_<epoch>-<split>.h5
-    # where split is "train" or "test".
-    pred_files = sorted(work.rglob("*snapshot*test*.h5"))
-    if not pred_files:
-        # Some DLC versions save predictions as .csv
-        pred_files = sorted(work.rglob("*snapshot*test*.csv"))
-    if not pred_files:
-        # Fall back: look for any eval predictions
-        pred_files = sorted(work.rglob("*predictions*.h5"))
-
-    # Find ground-truth labeled data
+    # ── Load ground-truth labels ────────────────────────────────────────
     gt_files = sorted(work.rglob("CollectedData_*.h5"))
     if not gt_files:
         print("  No ground-truth files found for per-bodypart RMSE")
         return
 
-    # Load ground truth (merge all labeled data)
     gt_frames = []
     for gf in gt_files:
         try:
@@ -132,71 +138,152 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
     gt = pd.concat(gt_frames) if len(gt_frames) > 1 else gt_frames[0]
     gt_scorer = gt.columns.get_level_values(0)[0]
 
-    # If we have DLC prediction files, compute per-bodypart RMSE from them
-    per_bp_errors: dict[str, list[float]] = {bp: [] for bp in bodyparts}
+    # ── Determine train/test split ──────────────────────────────────────
+    # DLC stores split info as a pickle in training-datasets/
+    train_indices: set[int] = set()
+    test_indices: set[int] = set()
+    split_map: dict[int, str] = {}
 
-    if pred_files:
-        for pf in pred_files:
-            try:
-                if pf.suffix == ".h5":
-                    pred = pd.read_hdf(pf)
-                else:
-                    pred = pd.read_csv(pf, header=[0, 1, 2], index_col=0)
-            except Exception as e:
-                print(f"  Could not read {pf.name}: {e}")
-                continue
-
-            pred_scorer = pred.columns.get_level_values(0)[0]
-
-            # Match rows by index
-            common = gt.index.intersection(pred.index)
-            for idx in common:
-                for bp in bodyparts:
-                    try:
-                        gx = float(gt.loc[idx, (gt_scorer, bp, "x")])
-                        gy = float(gt.loc[idx, (gt_scorer, bp, "y")])
-                        px = float(pred.loc[idx, (pred_scorer, bp, "x")])
-                        py = float(pred.loc[idx, (pred_scorer, bp, "y")])
-                    except (KeyError, ValueError):
-                        continue
-                    if any(np.isnan(v) for v in (gx, gy, px, py)):
-                        continue
-                    err = float(np.sqrt((gx - px) ** 2 + (gy - py) ** 2))
-                    per_bp_errors[bp].append(err)
-
-    if not any(per_bp_errors.values()):
-        print("  No matched predictions found for per-bodypart RMSE")
-        # Fall back: run inference on test frames directly
-        print("  Attempting direct inference on labeled frames...")
+    doc_pickles = sorted(work.rglob("Documentation_data-*.pickle"))
+    if doc_pickles:
         try:
-            import deeplabcut
-            # Get test frame paths from the training dataset split
-            test_frames = []
-            for idx in gt.index:
-                if isinstance(idx, tuple):
-                    frame_path = str(work / idx[0] if len(idx) > 0 else "")
-                else:
-                    frame_path = str(work / str(idx))
-                if Path(frame_path).exists():
-                    test_frames.append(frame_path)
-
-            if test_frames:
-                print(f"  Running inference on {len(test_frames)} labeled frames...")
-                # Use DLC's inference on individual frames
-                for frame_path in test_frames[:5]:  # sample
-                    print(f"    {Path(frame_path).name}")
+            with open(doc_pickles[-1], "rb") as f:
+                meta = pickle.load(f)
+            # meta is (data, train_indices_array, test_indices_array)
+            if len(meta) >= 3:
+                train_indices = set(int(i) for i in meta[1])
+                test_indices = set(int(i) for i in meta[2])
+                for idx in train_indices:
+                    split_map[idx] = "train"
+                for idx in test_indices:
+                    split_map[idx] = "test"
+                print(f"  Train/test split: {len(train_indices)} train, {len(test_indices)} test")
         except Exception as e:
-            print(f"  Direct inference failed: {e}")
+            print(f"  WARNING: could not load train/test split: {e}")
+
+    # ── Find DLC prediction H5 ─────────────────────────────────────────
+    # Try multiple glob patterns for DLC 3.x PyTorch evaluation output.
+    # The file is named {scorer}.h5 (no "snapshot" or "test" in the name
+    # in DLC 3.x — the old globs were wrong for PyTorch).
+    pred = None
+    pred_file_used = None
+
+    # Pattern 1: evaluation-results-pytorch/**/*.h5
+    eval_h5s = sorted(work.rglob("evaluation-results-pytorch/**/*.h5"))
+    # Pattern 2: evaluation-results/**/*.h5 (legacy)
+    eval_h5s += sorted(work.rglob("evaluation-results/**/*.h5"))
+    # Pattern 3: broader search — any DLC_ scorer .h5 in eval dirs
+    eval_h5s += sorted(work.glob("**/DLC_*.h5"))
+    # Pattern 4: any .h5 with "snapshot" in name (TF-era naming)
+    eval_h5s += sorted(work.rglob("*snapshot*.h5"))
+
+    # Deduplicate, exclude CollectedData files
+    seen: set[str] = set()
+    unique_h5s = []
+    for h5 in eval_h5s:
+        if h5.name.startswith("CollectedData"):
+            continue
+        key = str(h5.resolve())
+        if key not in seen:
+            seen.add(key)
+            unique_h5s.append(h5)
+
+    for pf in unique_h5s:
+        try:
+            pred = pd.read_hdf(pf)
+            pred_file_used = pf
+            print(f"  Loaded prediction file: {pf.relative_to(work)}")
+            break
+        except Exception as e:
+            print(f"  Could not read {pf.name}: {e}")
+            continue
+
+    # ── Fallback: run inference on labeled PNGs ─────────────────────────
+    if pred is None:
+        print("  No evaluation prediction H5 found; running direct inference on labeled frames...")
+        pred, pred_file_used = _run_inference_on_labeled_frames(
+            work,
+            config_path,
+            bodyparts,
+        )
+
+    if pred is None:
+        print("  No predictions available for per-bodypart RMSE")
         return
 
-    # Build summary
-    result = {"bodyparts": {}, "n_total_matched": sum(len(v) for v in per_bp_errors.values())}
+    pred_scorer = pred.columns.get_level_values(0)[0]
+
+    # ── Compute per-frame errors ────────────────────────────────────────
+    per_bp_errors: dict[str, list[float]] = {bp: [] for bp in bodyparts}
+    per_frame: list[dict] = []
+
+    common = gt.index.intersection(pred.index)
+    if len(common) == 0:
+        print("  WARNING: no common indices between GT and predictions")
+        # Try matching by last path component (frame filename)
+        common = _match_indices_by_filename(gt, pred)
+
+    for row_i, idx in enumerate(common):
+        frame_id = _index_to_frame_id(idx)
+        split = split_map.get(row_i, "unknown")
+        # If split_map uses original integer indices, also try matching
+        if split == "unknown" and row_i in split_map:
+            split = split_map[row_i]
+
+        frame_errors: dict[str, float] = {}
+        frame_gt: dict[str, list[float]] = {}
+        frame_pred: dict[str, list[float]] = {}
+
+        for bp in bodyparts:
+            try:
+                gx = float(gt.loc[idx, (gt_scorer, bp, "x")])
+                gy = float(gt.loc[idx, (gt_scorer, bp, "y")])
+            except (KeyError, ValueError):
+                continue
+            if np.isnan(gx) or np.isnan(gy):
+                continue
+
+            try:
+                px = float(pred.loc[idx, (pred_scorer, bp, "x")])
+                py = float(pred.loc[idx, (pred_scorer, bp, "y")])
+            except (KeyError, ValueError):
+                continue
+            if np.isnan(px) or np.isnan(py):
+                continue
+
+            err = float(np.sqrt((gx - px) ** 2 + (gy - py) ** 2))
+            per_bp_errors[bp].append(err)
+            frame_errors[bp] = round(err, 2)
+            frame_gt[bp] = [round(gx, 1), round(gy, 1)]
+            frame_pred[bp] = [round(px, 1), round(py, 1)]
+
+        if frame_errors:
+            per_frame.append(
+                {
+                    "frame_id": frame_id,
+                    "split": split,
+                    "errors": frame_errors,
+                    "gt": frame_gt,
+                    "pred": frame_pred,
+                }
+            )
+
+    if not any(per_bp_errors.values()):
+        print("  No matched predictions for per-bodypart RMSE")
+        return
+
+    # ── Build summary ───────────────────────────────────────────────────
+    result: dict = {
+        "bodyparts": {},
+        "n_total_matched": sum(len(v) for v in per_bp_errors.values()),
+        "per_frame": per_frame,
+    }
     for bp in bodyparts:
         errs = per_bp_errors[bp]
         if errs:
             arr = np.array(errs)
             result["bodyparts"][bp] = {
-                "rmse": float(np.sqrt(np.mean(arr ** 2))),
+                "rmse": float(np.sqrt(np.mean(arr**2))),
                 "mean_error": float(np.mean(arr)),
                 "median_error": float(np.median(arr)),
                 "std": float(np.std(arr)),
@@ -213,60 +300,105 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
     for bp in bodyparts:
         d = result["bodyparts"][bp]
         if d["rmse"] is not None:
-            print(f"    {bp:<16s}  RMSE={d['rmse']:6.2f}  median={d['median_error']:6.2f}  "
-                  f"PCK@10={d['pck_10']:5.1f}%  n={d['n']}")
+            print(
+                f"    {bp:<16s}  RMSE={d['rmse']:6.2f}  median={d['median_error']:6.2f}  "
+                f"PCK@10={d['pck_10']:5.1f}%  n={d['n']}"
+            )
         else:
             print(f"    {bp:<16s}  (no data)")
+
+    n_train = sum(1 for pf in per_frame if pf["split"] == "train")
+    n_test = sum(1 for pf in per_frame if pf["split"] == "test")
+    print(f"  Per-frame records: {len(per_frame)} total ({n_train} train, {n_test} test)")
 
     # Upload
     out = work / "_per_bodypart_eval.json"
     out.write_text(json.dumps(result, indent=2))
-    s3.upload_file(str(out), DERIVATIVES_BUCKET,
-                   f"{RETRAIN_PREFIX}/models/_per_bodypart_eval.json")
-    print(f"  Uploaded to s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/_per_bodypart_eval.json")
+    s3.upload_file(
+        str(out), DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/models/_per_bodypart_eval.json"
+    )
+    print(
+        f"  Uploaded to s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/_per_bodypart_eval.json"
+    )
 
 
-def _compute_per_bodypart_rmse_direct(s3, work: Path, config_path: Path) -> None:
-    """Compute per-bodypart RMSE by running DLC inference on labeled frames.
+def _index_to_frame_id(idx: object) -> str:
+    """Convert a DLC DataFrame index entry to a human-readable frame ID.
 
-    Unlike _compute_per_bodypart_rmse (which reads evaluate_network output),
-    this runs analyze_videos on labeled frame images directly. Does not need
-    training-datasets/ metadata or shuffle info.
+    DLC multi-index entries look like ``('labeled-data', 'clip_name',
+    'frame_000123.png')`` or plain strings like ``'path/to/frame.png'``.
     """
-    import deeplabcut
+    if isinstance(idx, tuple):
+        return str(idx[-1]) if idx else str(idx)
+    return str(idx)
+
+
+def _match_indices_by_filename(
+    gt: "pd.DataFrame",
+    pred: "pd.DataFrame",
+) -> list:
+    """Match GT and prediction rows by frame filename when indices differ.
+
+    Returns a list of GT index values that have a filename match in pred.
+    """
+
+    def _extract_stem(idx: object) -> str:
+        if isinstance(idx, tuple):
+            s = str(idx[-1])
+        else:
+            s = str(idx)
+        return Path(s).stem
+
+    pred_stems = {_extract_stem(idx): idx for idx in pred.index}
+    matched = []
+    for gt_idx in gt.index:
+        stem = _extract_stem(gt_idx)
+        if stem in pred_stems:
+            matched.append(gt_idx)
+    print(f"  Filename-matched {len(matched)} frames")
+    return matched
+
+
+def _run_inference_on_labeled_frames(
+    work: Path,
+    config_path: Path,
+    bodyparts: list[str],
+) -> tuple["pd.DataFrame | None", "Path | None"]:
+    """Run DLC inference directly on labeled frame PNGs.
+
+    Copies all labeled PNGs into a temp directory, runs
+    ``analyze_time_lapse_frames`` (or falls back to ``analyze_videos``
+    with an ffmpeg-assembled video), and returns the prediction DataFrame.
+
+    Returns
+    -------
+    pred : pd.DataFrame | None
+        The prediction DataFrame, or None if inference failed.
+    pred_path : Path | None
+        Path to the prediction file used.
+    """
     import pandas as pd
-    import yaml
 
-    with open(config_path) as f:
-        cfg = yaml.safe_load(f)
-    bodyparts = cfg.get("bodyparts", [])
+    try:
+        import deeplabcut
+    except ImportError:
+        print("  deeplabcut not available for direct inference")
+        return None, None
 
-    # Collect all labeled frames and their ground truth
+    # Collect all labeled frame PNGs
     gt_files = sorted(work.rglob("CollectedData_*.h5"))
-    if not gt_files:
-        print("  No ground-truth files found")
-        return
-
-    # Find PNG frames alongside the CollectedData files
-    frame_dirs = set()
-    for gf in gt_files:
-        frame_dirs.add(gf.parent)
-
-    # Gather all frame images
+    frame_dirs = {gf.parent for gf in gt_files}
     all_frames = []
     for fd in frame_dirs:
-        pngs = sorted(fd.glob("*.png"))
-        if pngs:
-            all_frames.extend(pngs)
+        all_frames.extend(sorted(fd.glob("*.png")))
 
     if not all_frames:
-        print("  No labeled frame PNGs found")
-        return
+        print("  No labeled frame PNGs found for direct inference")
+        return None, None
 
     print(f"  Found {len(all_frames)} labeled frame images")
 
-    # Run DLC inference on labeled frames (treat them as a batch)
-    # Copy frames to a temporary directory as a "video" of images
+    # Copy frames to a flat directory
     infer_dir = work / "_eval_frames"
     infer_dir.mkdir(exist_ok=True)
     for f in all_frames:
@@ -277,7 +409,7 @@ def _compute_per_bodypart_rmse_direct(s3, work: Path, config_path: Path) -> None
     out_dir = work / "_eval_output"
     out_dir.mkdir(exist_ok=True)
 
-    # Use analyze_time_lapse_frames for image directories
+    # Try analyze_time_lapse_frames first (DLC 3.x image-directory API)
     print("  Running DLC inference on labeled frames...")
     try:
         deeplabcut.analyze_time_lapse_frames(
@@ -285,139 +417,65 @@ def _compute_per_bodypart_rmse_direct(s3, work: Path, config_path: Path) -> None
             str(infer_dir),
             save_as_csv=True,
         )
-    except AttributeError:
-        # DLC 3.x may not have analyze_time_lapse_frames;
-        # fall back to creating a video from images
-        print("  analyze_time_lapse_frames not available, using analyze_videos...")
-        import subprocess as _sp
+    except (AttributeError, TypeError):
+        # DLC 3.x may not have analyze_time_lapse_frames; assemble video
+        print("  analyze_time_lapse_frames not available; assembling video from frames...")
         vid_path = work / "_eval_frames.mp4"
-        _sp.run([
-            "ffmpeg", "-y", "-framerate", "1",
-            "-pattern_type", "glob", "-i", f"{infer_dir}/*.png",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            str(vid_path),
-        ], capture_output=True)
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-framerate",
+                "1",
+                "-pattern_type",
+                "glob",
+                "-i",
+                f"{infer_dir}/*.png",
+                "-c:v",
+                "libx264",
+                "-pix_fmt",
+                "yuv420p",
+                str(vid_path),
+            ],
+            capture_output=True,
+        )
         if vid_path.exists():
             deeplabcut.analyze_videos(
-                str(config_path), [str(vid_path)],
+                str(config_path),
+                [str(vid_path)],
                 destfolder=str(out_dir),
             )
 
-    # Find prediction output
+    # Find prediction output (exclude CollectedData files)
     pred_files = sorted(infer_dir.rglob("*.h5")) + sorted(out_dir.rglob("*.h5"))
-    pred_csvs = sorted(infer_dir.rglob("*.csv")) + sorted(out_dir.rglob("*.csv"))
     pred_files = [f for f in pred_files if "CollectedData" not in f.name]
+    pred_csvs = sorted(infer_dir.rglob("*.csv")) + sorted(out_dir.rglob("*.csv"))
     pred_csvs = [f for f in pred_csvs if "CollectedData" not in f.name]
 
-    if not pred_files and not pred_csvs:
-        print("  No prediction output found after inference")
-        return
-
-    # Load predictions
-    pred = None
     for pf in pred_files + pred_csvs:
         try:
             if pf.suffix == ".h5":
                 pred = pd.read_hdf(pf)
             else:
                 pred = pd.read_csv(pf, header=[0, 1, 2], index_col=0)
-            print(f"  Loaded predictions: {pf.name} ({len(pred)} frames)")
-            break
+            print(f"  Loaded direct-inference predictions: {pf.name} ({len(pred)} frames)")
+            return pred, pf
         except Exception as e:
             print(f"  Could not read {pf.name}: {e}")
 
-    if pred is None:
-        print("  Could not load any prediction files")
-        return
+    print("  No prediction output found after direct inference")
+    return None, None
 
-    pred_scorer = pred.columns.get_level_values(0)[0]
-
-    # Load all ground truth
-    gt_all = []
-    for gf in gt_files:
-        try:
-            gt_all.append(pd.read_hdf(gf))
-        except Exception:
-            continue
-    gt = pd.concat(gt_all) if len(gt_all) > 1 else gt_all[0]
-    gt_scorer = gt.columns.get_level_values(0)[0]
-
-    # Match by frame filename
-    per_bp_errors: dict[str, list[float]] = {bp: [] for bp in bodyparts}
-    matched = 0
-
-    for gt_idx in gt.index:
-        # Extract frame filename from index
-        if isinstance(gt_idx, tuple):
-            frame_name = gt_idx[-1] if len(gt_idx) > 0 else str(gt_idx)
-        else:
-            frame_name = str(gt_idx).split("/")[-1]
-
-        # Find matching prediction row
-        for pred_idx in pred.index:
-            pred_name = str(pred_idx).split("/")[-1] if not isinstance(pred_idx, tuple) else str(pred_idx[-1])
-            if Path(frame_name).stem == Path(pred_name).stem:
-                for bp in bodyparts:
-                    try:
-                        gx = float(gt.loc[gt_idx, (gt_scorer, bp, "x")])
-                        gy = float(gt.loc[gt_idx, (gt_scorer, bp, "y")])
-                        px = float(pred.loc[pred_idx, (pred_scorer, bp, "x")])
-                        py = float(pred.loc[pred_idx, (pred_scorer, bp, "y")])
-                    except (KeyError, ValueError):
-                        continue
-                    if any(np.isnan(v) for v in (gx, gy, px, py)):
-                        continue
-                    err = float(np.sqrt((gx - px) ** 2 + (gy - py) ** 2))
-                    per_bp_errors[bp].append(err)
-                matched += 1
-                break
-
-    print(f"  Matched {matched} frames")
-
-    if not any(per_bp_errors.values()):
-        print("  No matched predictions")
-        return
-
-    # Build and upload result
-    result = {"bodyparts": {}, "n_matched": matched, "method": "direct_inference"}
-    for bp in bodyparts:
-        errs = per_bp_errors[bp]
-        if errs:
-            arr = np.array(errs)
-            result["bodyparts"][bp] = {
-                "rmse": float(np.sqrt(np.mean(arr ** 2))),
-                "mean_error": float(np.mean(arr)),
-                "median_error": float(np.median(arr)),
-                "std": float(np.std(arr)),
-                "n": len(errs),
-                "pck_5": float((arr <= 5).mean() * 100),
-                "pck_10": float((arr <= 10).mean() * 100),
-                "pck_20": float((arr <= 20).mean() * 100),
-            }
-        else:
-            result["bodyparts"][bp] = {"rmse": None, "n": 0}
-
-    print("\n  Per-bodypart RMSE (direct inference on labeled frames):")
-    for bp in bodyparts:
-        d = result["bodyparts"][bp]
-        if d.get("rmse") is not None:
-            print(f"    {bp:<16s}  RMSE={d['rmse']:6.2f}  median={d['median_error']:6.2f}  "
-                  f"PCK@10={d['pck_10']:5.1f}%  n={d['n']}")
-        else:
-            print(f"    {bp:<16s}  (no data)")
-
-    out = work / "_per_bodypart_eval.json"
-    out.write_text(json.dumps(result, indent=2))
-    s3.upload_file(str(out), DERIVATIVES_BUCKET,
-                   f"{RETRAIN_PREFIX}/models/_per_bodypart_eval.json")
-    print(f"  Uploaded _per_bodypart_eval.json")
+    # _compute_per_bodypart_rmse_direct has been merged into
+    # _compute_per_bodypart_rmse above (the fallback path calls
+    # _run_inference_on_labeled_frames when no prediction H5 is found).
 
 
 def _push_bodypart_rmse_to_wandb(work: Path) -> None:
     """Push per-bodypart RMSE/PCK metrics to the live W&B run summary.
 
     Reads ``_per_bodypart_eval.json`` from the working directory (written
-    by ``_compute_per_bodypart_rmse`` or ``_compute_per_bodypart_rmse_direct``)
+    by ``_compute_per_bodypart_rmse``)
     and adds each bodypart's RMSE, median error, and PCK@10 to the W&B
     run summary. Silently no-ops if wandb is unavailable or no run is active.
     """
@@ -433,9 +491,7 @@ def _push_bodypart_rmse_to_wandb(work: Path) -> None:
         for bp, data in bp_data.get("bodyparts", {}).items():
             if data and data.get("rmse") is not None:
                 wandb.run.summary[f"bodypart/{bp}_rmse"] = data["rmse"]
-                wandb.run.summary[f"bodypart/{bp}_median"] = data.get(
-                    "median_error"
-                )
+                wandb.run.summary[f"bodypart/{bp}_median"] = data.get("median_error")
                 if data.get("pck_10") is not None:
                     wandb.run.summary[f"bodypart/{bp}_pck10"] = data["pck_10"]
     except Exception:
@@ -457,8 +513,14 @@ SA_CONVERSION_ARRAY = [0, 1, 2, 26, 7, 8, 9, 13]
 #: Project bodyparts in canonical order. The conversion array assumes this
 #: ordering.
 PROJECT_BODYPARTS = (
-    "nose_tip", "left_ear", "right_ear", "head_midpoint",
-    "neck", "mid_back", "mouse_center", "tail_base",
+    "nose_tip",
+    "left_ear",
+    "right_ear",
+    "head_midpoint",
+    "neck",
+    "mid_back",
+    "mouse_center",
+    "tail_base",
 )
 
 
@@ -476,10 +538,7 @@ def _ensure_default_net_type_hrnet(config_path: Path) -> bool:
     cur = cfg.get("default_net_type")
     if cur == "hrnet_w32":
         return False
-    print(
-        f"  WARNING: default_net_type was {cur!r}; rewriting to 'hrnet_w32' "
-        f"in {config_path}"
-    )
+    print(f"  WARNING: default_net_type was {cur!r}; rewriting to 'hrnet_w32' in {config_path}")
     cfg["default_net_type"] = "hrnet_w32"
     with open(config_path, "w") as f:
         yaml.dump(cfg, f)
@@ -502,10 +561,7 @@ def _validate_sa_conversion_table(config_path: Path) -> None:
 
     with open(config_path) as f:
         cfg = yaml.safe_load(f)
-    tables = (
-        cfg.get("SuperAnimalConversionTables", {})
-        .get("superanimal_topviewmouse", {})
-    )
+    tables = cfg.get("SuperAnimalConversionTables", {}).get("superanimal_topviewmouse", {})
     missing = [bp for bp in PROJECT_BODYPARTS if bp not in tables]
     if missing:
         raise ValueError(
@@ -645,7 +701,10 @@ def _apply_sa_augmentation_patch(pytorch_cfg_path: Path, *, epochs: int = 120) -
 
 
 def _inject_wandb_logger(
-    pytorch_cfg_path: Path, run_name: str, *, tags: list[str] | None = None,
+    pytorch_cfg_path: Path,
+    run_name: str,
+    *,
+    tags: list[str] | None = None,
 ) -> None:
     """Add W&B logger config to pytorch_config.yaml.
 
@@ -683,8 +742,12 @@ def _inject_wandb_logger(
 
 
 def _build_sa_notes(
-    *, detector: str, conversion_array: list[int], epochs: int,
-    lr: float, batch_size: int,
+    *,
+    detector: str,
+    conversion_array: list[int],
+    epochs: int,
+    lr: float,
+    batch_size: int,
 ) -> str:
     """Build the auto-declared champion ``notes`` string for the SA path.
 
@@ -735,16 +798,13 @@ def _train_sa_finetune(
 
     _ensure_default_net_type_hrnet(config_path)
     _validate_sa_conversion_table(config_path)
-    _validate_sa_model_available(
-        dlclibrary.get_available_models("superanimal_topviewmouse")
-    )
-    detector = _resolve_sa_detector(
-        dlclibrary.get_available_detectors("superanimal_topviewmouse")
-    )
+    _validate_sa_model_available(dlclibrary.get_available_models("superanimal_topviewmouse"))
+    detector = _resolve_sa_detector(dlclibrary.get_available_detectors("superanimal_topviewmouse"))
     print(f"  Resolved SA detector: {detector}")
 
     update_progress(s3, "Training (SA): build_weight_init")
     from deeplabcut.modelzoo.weight_initialization import build_weight_init
+
     weight_init = build_weight_init(
         cfg=str(config_path),
         super_animal="superanimal_topviewmouse",
@@ -782,7 +842,8 @@ def _train_sa_finetune(
         _check_sa_input_size(latest)
         _apply_sa_augmentation_patch(latest, epochs=epochs)
         _inject_wandb_logger(
-            latest, f"SA-finetune-{epochs}ep",
+            latest,
+            f"SA-finetune-{epochs}ep",
             tags=["sa-finetune", "hrnet-w32", "memory-replay"],
         )
     else:
@@ -821,6 +882,110 @@ def _train_sa_finetune(
     return config_path
 
 
+def _upload_eval_results_json(s3, work: Path, config_path: Path, epochs: int) -> None:
+    """Parse DLC's evaluation CSV and upload structured JSON to S3.
+
+    Reads the CombinedEvaluation-results.csv (or per-snapshot CSV) written
+    by ``deeplabcut.evaluate_network()`` and uploads a structured JSON to
+    ``s3://hm2p-derivatives/dlc-retrain/_eval_results.json`` so the frontend
+    can display training metrics without running inference.
+    """
+    import yaml
+
+    with open(config_path) as f:
+        cfg = yaml.safe_load(f)
+    train_frac = cfg.get("TrainingFraction", [0.8])[0]
+
+    # Find eval CSV — check multiple locations
+    eval_csv = None
+    for candidate in sorted(work.rglob("*-results.csv")):
+        if "CombinedEvaluation" not in candidate.name:
+            eval_csv = candidate
+            break
+    if eval_csv is None:
+        for candidate in sorted(work.rglob("CombinedEvaluation-results.csv")):
+            eval_csv = candidate
+            break
+    if eval_csv is None:
+        print("  WARNING: no evaluation CSV found — skipping _eval_results.json upload")
+        return
+
+    import pandas as pd
+
+    df = pd.read_csv(eval_csv)
+    if df.empty:
+        print(f"  WARNING: {eval_csv.name} is empty")
+        return
+
+    # Take the last row (latest snapshot)
+    row = df.iloc[-1]
+    best_epoch = int(row.get("Training epochs", epochs))
+
+    # Load champion info
+    try:
+        champ_obj = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key="dlc-champion.json")
+        champ = json.loads(champ_obj["Body"].read())
+        champ_id = champ.get("champion_id", "unknown")
+    except Exception:
+        champ_id = "unknown"
+
+    # Load previous eval for comparison
+    prev = {}
+    try:
+        prev_obj = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key="dlc-retrain/_eval_results.json")
+        prev_eval = json.loads(prev_obj["Body"].read())
+        prev = {
+            "champion_id": prev_eval.get("champion_id", ""),
+            "train_rmse": prev_eval.get("train", {}).get("rmse"),
+            "train_mAP": prev_eval.get("train", {}).get("mAP"),
+            "n_labeled_frames": prev_eval.get("n_labeled_frames"),
+            "training_fraction": prev_eval.get("training_fraction"),
+        }
+    except Exception:
+        pass
+
+    # Count labeled frames
+    n_frames = 0
+    for h5 in work.rglob("CollectedData_*.h5"):
+        try:
+            n_frames += len(pd.read_hdf(h5))
+        except Exception:
+            pass
+
+    eval_results = {
+        "champion_id": champ_id,
+        "training_fraction": float(train_frac),
+        "shuffle": 1,
+        "best_epoch": best_epoch,
+        "total_epochs": epochs,
+        "n_labeled_frames": n_frames,
+        "train": {
+            "rmse": float(row.get("train rmse", 0)),
+            "rmse_pcutoff": float(row.get("train rmse_pcutoff", 0)),
+            "mAP": float(row.get("train mAP", 0)),
+            "mAR": float(row.get("train mAR", 0)),
+        },
+        "test": {
+            "rmse": float(row.get("test rmse", 0)),
+            "rmse_pcutoff": float(row.get("test rmse_pcutoff", 0)),
+            "mAP": float(row.get("test mAP", 0)),
+            "mAR": float(row.get("test mAR", 0)),
+        },
+        "previous_champion": prev,
+    }
+
+    s3.put_object(
+        Bucket=DERIVATIVES_BUCKET,
+        Key="dlc-retrain/_eval_results.json",
+        Body=json.dumps(eval_results, indent=2),
+        ContentType="application/json",
+    )
+    print(
+        f"  Uploaded _eval_results.json: train RMSE={eval_results['train']['rmse']:.2f}, "
+        f"test mAP={eval_results['test']['mAP']:.1f}"
+    )
+
+
 def _upload_model_artifacts(s3, work: Path) -> None:
     """Upload trained model weights + eval CSVs to S3.
 
@@ -850,7 +1015,9 @@ def _upload_model_artifacts(s3, work: Path) -> None:
         # when multiple training runs upload to the same prefix.
         print("  Cleaning old snapshots from S3...")
         _paginator = s3.get_paginator("list_objects_v2")
-        for _page in _paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/iteration-0/"):
+        for _page in _paginator.paginate(
+            Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/iteration-0/"
+        ):
             for _obj in _page.get("Contents", []):
                 if "snapshot" in _obj["Key"]:
                     s3.delete_object(Bucket=DERIVATIVES_BUCKET, Key=_obj["Key"])
@@ -866,16 +1033,22 @@ def _upload_model_artifacts(s3, work: Path) -> None:
         notes_path = work / "_sa_finetune_notes.txt"
         if notes_path.exists():
             s3.upload_file(
-                str(notes_path), DERIVATIVES_BUCKET,
+                str(notes_path),
+                DERIVATIVES_BUCKET,
                 f"{RETRAIN_PREFIX}/models/_sa_finetune_notes.txt",
             )
         return
     print("  WARNING: no model directory found")
 
 
-def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
-          sa_finetune: bool = False,
-          bodyparts: list[str] | None = None) -> Path:
+def train(
+    s3,
+    maxiters: int = 50000,
+    epochs: int = 400,
+    batch_size: int = 8,
+    sa_finetune: bool = False,
+    bodyparts: list[str] | None = None,
+) -> Path:
     """Download labels from S3, fine-tune DLC, upload model weights.
 
     Parameters
@@ -910,10 +1083,15 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
     # Download labeled data + config
     print("Downloading labeled data from S3...")
     subprocess.run(
-        ["aws", "s3", "sync",
-         f"s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/",
-         str(work),
-         "--exclude", "_*"],
+        [
+            "aws",
+            "s3",
+            "sync",
+            f"s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/",
+            str(work),
+            "--exclude",
+            "_*",
+        ],
         check=True,
     )
 
@@ -948,6 +1126,32 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
     print(f"Epochs: {epochs}")
     print(f"Mode: {'SA fine-tune (memory replay)' if sa_finetune else 'ImageNet HRNet'}")
 
+    # Remove fully-unlabeled frames from the WORK COPY of CollectedData.
+    # These are frames with PNGs but no labels — DLC would interpret them
+    # as "all bodyparts absent", hurting training. The original data on
+    # S3 / local disk is NOT modified.
+    import pandas as pd
+
+    for h5 in sorted(work.rglob("CollectedData_*.h5")):
+        try:
+            df = pd.read_hdf(h5)
+            before = len(df)
+            # A row is unlabeled if ALL coordinate columns are NaN
+            coord_cols = [c for c in df.columns if c[-1] in ("x", "y")]
+            if coord_cols:
+                all_nan = df[coord_cols].isna().all(axis=1)
+                n_drop = int(all_nan.sum())
+                if n_drop > 0:
+                    df = df[~all_nan]
+                    df.to_hdf(h5, key="df_with_missing", mode="w")
+                    df.to_csv(h5.with_suffix(".csv"))
+                    print(
+                        f"  Filtered {h5.parent.name}: {before} → {len(df)} "
+                        f"(removed {n_drop} unlabeled frames)"
+                    )
+        except Exception as exc:
+            print(f"  WARNING: failed to filter {h5.name}: {exc}")
+
     # Delete any stale dlc-models* dirs to ensure a clean shuffle build.
     # Done here once for both paths.
     for old_dir_name in ("dlc-models-pytorch", "dlc-models", "training-datasets"):
@@ -958,12 +1162,17 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
 
     if sa_finetune:
         _train_sa_finetune(
-            s3, work, config_path, epochs=epochs, batch_size=batch_size,
+            s3,
+            work,
+            config_path,
+            epochs=epochs,
+            batch_size=batch_size,
         )
         # SA path runs train_network internally; the shared post-training
         # block (evaluation + uploads) follows below.
         update_progress(s3, "Training (SA): evaluating")
         deeplabcut.evaluate_network(str(config_path), plotting=False)
+        _upload_eval_results_json(s3, work, config_path, epochs=epochs)
         update_progress(s3, "Training (SA): per-bodypart RMSE")
         _compute_per_bodypart_rmse(s3, work, config_path)
         _push_bodypart_rmse_to_wandb(work)
@@ -1035,9 +1244,9 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
             aug = pcfg["data"]["train"]
             if "affine" not in aug:
                 aug["affine"] = {}
-            aug["affine"]["rotation"] = 45          # ±45° (was ±180° — too extreme)
-            aug["affine"]["scaling"] = [0.7, 1.4]   # ±30-40% (was 0.25-2.5x)
-            aug["affine"]["translation"] = 30       # pixels
+            aug["affine"]["rotation"] = 45  # ±45° (was ±180° — too extreme)
+            aug["affine"]["scaling"] = [0.7, 1.4]  # ±30-40% (was 0.25-2.5x)
+            aug["affine"]["translation"] = 30  # pixels
             aug["affine"]["p"] = 0.7
             # Brightness/contrast jitter: the IR filter leaks some 450nm
             # visible light and the IR illumination decays ~5-10% over a
@@ -1053,7 +1262,7 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
             aug["horizontal_flip"] = {"p": 0.5}
             aug["vertical_flip"] = {"p": 0.5}
             # Noise: moderate
-            aug["gaussian_noise"] = 15.0            # was 30 — too much
+            aug["gaussian_noise"] = 15.0  # was 30 — too much
             aug["motion_blur"] = True
             # No hue/saturation jitter — images are grayscale (IR overhead camera)
             print(
@@ -1065,7 +1274,8 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
             yaml.dump(pcfg, f)
         print(f"  Config updated: {pcfg_path.name}")
         _inject_wandb_logger(
-            pcfg_path, f"ImageNet-HRNet-{epochs}ep",
+            pcfg_path,
+            f"ImageNet-HRNet-{epochs}ep",
             tags=["imagenet", "hrnet-w32"],
         )
 
@@ -1084,6 +1294,7 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
     # Evaluate and compute per-bodypart metrics
     print("Evaluating network...")
     deeplabcut.evaluate_network(str(config_path), plotting=False)
+    _upload_eval_results_json(s3, work, config_path, epochs=epochs)
     update_progress(s3, "Training: evaluation complete")
 
     # Per-bodypart RMSE from DLC evaluation predictions.
@@ -1108,10 +1319,16 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
     print("Computing per-bodypart RMSE...")
     try:
         import subprocess as _sp
+
         _r = _sp.run(
-            [sys.executable, "scripts/compute_bodypart_rmse.py",
-             "--pose-prefix", FINETUNED_PREFIX],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                "scripts/compute_bodypart_rmse.py",
+                "--pose-prefix",
+                FINETUNED_PREFIX,
+            ],
+            capture_output=True,
+            text=True,
         )
         print(_r.stdout[-500:] if _r.stdout else "  (no output)")
         if _r.returncode != 0:
@@ -1132,7 +1349,9 @@ def train(s3, maxiters: int = 50000, epochs: int = 400, batch_size: int = 8,
                     key = f"{RETRAIN_PREFIX}/models/{rel}"
                     s3.upload_file(str(f), DERIVATIVES_BUCKET, key)
             n_files = sum(1 for _ in dlc_train_dir.rglob("*") if _.is_file())
-            print(f"  Uploaded {n_files} files to s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/")
+            print(
+                f"  Uploaded {n_files} files to s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/"
+            )
             break
     else:
         print("  WARNING: no model directory found")
@@ -1195,11 +1414,13 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
         for row in csv.DictReader(f):
             eid = row["exp_id"]
             parts = eid.split("_")
-            sessions.append({
-                "exp_id": eid,
-                "sub": f"sub-{parts[-1]}",
-                "ses": f"ses-{parts[0]}T{parts[1]}{parts[2]}{parts[3]}",
-            })
+            sessions.append(
+                {
+                    "exp_id": eid,
+                    "sub": f"sub-{parts[-1]}",
+                    "ses": f"ses-{parts[0]}T{parts[1]}{parts[2]}{parts[3]}",
+                }
+            )
 
     total = len(sessions)
     completed: list[str] = []
@@ -1227,8 +1448,11 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
 
         # Progress: session starting
         update_progress(
-            s3, f"Inference {i}/{total}: starting {sub}/{ses_id}",
-            completed=len(completed), failed=len(failed), total=total,
+            s3,
+            f"Inference {i}/{total}: starting {sub}/{ses_id}",
+            completed=len(completed),
+            failed=len(failed),
+            total=total,
             current_session=exp_id,
         )
 
@@ -1254,10 +1478,21 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
             # Subsample to 30fps
             sub_path = work / f"{video.stem}_30fps.mp4"
             ffmpeg_result = subprocess.run(
-                ["ffmpeg", "-y", "-i", str(video),
-                 "-r", "30",
-                 "-c:v", "libx264", "-preset", "fast", "-crf", "18",
-                 str(sub_path)],
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    str(video),
+                    "-r",
+                    "30",
+                    "-c:v",
+                    "libx264",
+                    "-preset",
+                    "fast",
+                    "-crf",
+                    "18",
+                    str(sub_path),
+                ],
                 capture_output=True,
             )
             if sub_path.exists() and sub_path.stat().st_size > 1000:
@@ -1303,23 +1538,29 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
 
                 # Progress: session done
                 update_progress(
-                    s3, f"Inference {i}/{total}: done {sub}/{ses_id}",
-                    completed=len(completed), failed=len(failed), total=total,
-                    current_session=exp_id, stage="inference_done",
+                    s3,
+                    f"Inference {i}/{total}: done {sub}/{ses_id}",
+                    completed=len(completed),
+                    failed=len(failed),
+                    total=total,
+                    current_session=exp_id,
+                    stage="inference_done",
                 )
             else:
                 print("  No output files")
                 failed.append(exp_id)
 
         except Exception as e:
-            error_records.append({
-                "session": exp_id,
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-                "traceback": traceback.format_exc(),
-                "stage": "inference",
-                "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
-            })
+            error_records.append(
+                {
+                    "session": exp_id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "traceback": traceback.format_exc(),
+                    "stage": "inference",
+                    "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                }
+            )
             print(f"  ERROR [{type(e).__name__}]: {e}")
             print(traceback.format_exc())
             failed.append(exp_id)
@@ -1327,9 +1568,13 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
             shutil.rmtree(work, ignore_errors=True)
 
     update_progress(
-        s3, "Inference complete",
-        completed=len(completed), failed=len(failed), total=total,
-        completed_sessions=completed, failed_sessions=failed,
+        s3,
+        "Inference complete",
+        completed=len(completed),
+        failed=len(failed),
+        total=total,
+        completed_sessions=completed,
+        failed_sessions=failed,
     )
     print(f"\nDone: {len(completed)}/{total} completed, {len(failed)} failed")
 
@@ -1408,8 +1653,7 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
 
     notes_lines = [
         "Auto-declared by run_dlc_retrain.py.",
-        f"Sessions promoted: {len(sessions_to_promote)}; "
-        f"failed: {len(failed)}; total: {total}.",
+        f"Sessions promoted: {len(sessions_to_promote)}; failed: {len(failed)}; total: {total}.",
     ]
     # If the SA-finetune training path stashed a notes file on S3,
     # prepend its contents (init source, conversion array, etc.).
@@ -1429,6 +1673,7 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent))  # noqa
         from declare_dlc_champion import declare_champion  # noqa
+
         champion_manifest = declare_champion(
             model_name=model_name,
             architecture=architecture,
@@ -1492,13 +1737,17 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
     # --- Step 3: Verify promotion — champion's file exists in pose/ ---
     print("\n=== Verifying promotion ===")
     from hm2p.pose.select import select_champion_h5_s3
+
     verification_failures: list[str] = []
     for ses in sessions_to_promote:
         sub, ses_id = ses["sub"], ses["ses"]
         pose_prefix = f"pose/{sub}/{ses_id}/"
         try:
             verified_key = select_champion_h5_s3(
-                s3, DERIVATIVES_BUCKET, pose_prefix, champion_id,
+                s3,
+                DERIVATIVES_BUCKET,
+                pose_prefix,
+                champion_id,
             )
             print(f"  {sub}/{ses_id}: verified ({Path(verified_key).name})")
         except Exception as e:
@@ -1511,17 +1760,22 @@ def infer(s3, config_path: Path, skip_failed: bool = False) -> None:
         )
 
     update_progress(
-        s3, "Promoted to pose/",
-        completed=len(completed), total=total,
-        promoted=len(sessions_to_promote), failed=len(failed),
+        s3,
+        "Promoted to pose/",
+        completed=len(completed),
+        total=total,
+        promoted=len(sessions_to_promote),
+        failed=len(failed),
         failed_sessions=failed,
         champion_id=champion_id,
     )
     print("Promotion complete.")
 
     update_progress(
-        s3, "Inference + promotion complete. Launching CPU instance for downstream + render.",
-        completed=len(completed), total=total,
+        s3,
+        "Inference + promotion complete. Launching CPU instance for downstream + render.",
+        completed=len(completed),
+        total=total,
         champion_id=champion_id,
     )
 
@@ -1544,37 +1798,45 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--train-only", action="store_true")
     parser.add_argument("--infer-only", action="store_true")
     parser.add_argument(
-        "--eval-only", action="store_true",
+        "--eval-only",
+        action="store_true",
         help="Download model weights from S3, run evaluate_network + "
-             "per-bodypart RMSE, upload results. No training or inference.",
+        "per-bodypart RMSE, upload results. No training or inference.",
     )
     parser.add_argument(
-        "--maxiters", type=int, default=50000,
-        help="Legacy TF iterations (ignored by PyTorch; ignored under "
-             "--sa-finetune)",
+        "--maxiters",
+        type=int,
+        default=50000,
+        help="Legacy TF iterations (ignored by PyTorch; ignored under --sa-finetune)",
     )
     parser.add_argument(
-        "--epochs", type=int, default=None,
+        "--epochs",
+        type=int,
+        default=None,
         help="Training epochs (DLC 3.0 PyTorch). Default depends on the "
-             "training path: 400 for ImageNet HRNet, 120 for --sa-finetune.",
+        "training path: 400 for ImageNet HRNet, 120 for --sa-finetune.",
     )
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument(
-        "--sa-finetune", action="store_true",
+        "--sa-finetune",
+        action="store_true",
         help="Use SuperAnimal-TopViewMouse memory-replay fine-tune instead of "
-             "the legacy ImageNet HRNet path. Per Ye et al. 2024, "
-             "doi:10.1038/s41467-024-48792-2.",
+        "the legacy ImageNet HRNet path. Per Ye et al. 2024, "
+        "doi:10.1038/s41467-024-48792-2.",
     )
     parser.add_argument(
-        "--skip-failed", action="store_true",
+        "--skip-failed",
+        action="store_true",
         help="Promote completed sessions even if some inference sessions failed. "
-             "By default auto-promotion is skipped if any session fails.",
+        "By default auto-promotion is skipped if any session fails.",
     )
     parser.add_argument(
-        "--bodyparts", type=str, default=None,
+        "--bodyparts",
+        type=str,
+        default=None,
         help="Override bodyparts for training (comma-separated). "
-             "E.g. --bodyparts left_ear,right_ear for ears-only experiment. "
-             "Labels are NOT modified — DLC ignores unlisted bodyparts.",
+        "E.g. --bodyparts left_ear,right_ear for ears-only experiment. "
+        "Labels are NOT modified — DLC ignores unlisted bodyparts.",
     )
     return parser
 
@@ -1607,15 +1869,21 @@ def main() -> None:
 
         print("Downloading project from S3 for evaluation...")
         subprocess.run(
-            ["aws", "s3", "sync",
-             f"s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/",
-             str(work),
-             "--exclude", "_*"],
+            [
+                "aws",
+                "s3",
+                "sync",
+                f"s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/",
+                str(work),
+                "--exclude",
+                "_*",
+            ],
             check=True,
         )
         config_path = work / "config.yaml"
 
         import yaml
+
         with open(config_path) as f:
             cfg = yaml.safe_load(f)
         cfg["project_path"] = str(work)
@@ -1624,12 +1892,10 @@ def main() -> None:
 
         # Download model weights into dlc-models-pytorch/
         print("Downloading model weights...")
-        resp = s3.list_objects_v2(
-            Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/"
-        )
+        resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/")
         for obj in resp.get("Contents", []):
             key = obj["Key"]
-            rel = key[len(f"{RETRAIN_PREFIX}/models/"):]
+            rel = key[len(f"{RETRAIN_PREFIX}/models/") :]
             if rel.startswith("_") or not rel:
                 continue
             dest = work / "dlc-models-pytorch" / rel
@@ -1637,11 +1903,10 @@ def main() -> None:
             s3.download_file(DERIVATIVES_BUCKET, key, str(dest))
         print("  Model weights downloaded")
 
-        # Run per-bodypart RMSE by inference on labeled frames directly.
-        # evaluate_network requires training-datasets/ metadata which may
-        # not be on S3 from older training runs. Direct inference avoids this.
-        print("Computing per-bodypart RMSE via direct inference on labeled frames...")
-        _compute_per_bodypart_rmse_direct(s3, work, config_path)
+        # Run per-bodypart RMSE. The function tries DLC evaluation H5
+        # first, then falls back to direct inference on labeled PNGs.
+        print("Computing per-bodypart RMSE...")
+        _compute_per_bodypart_rmse(s3, work, config_path)
         print("Evaluation complete.")
         return
 
@@ -1652,8 +1917,11 @@ def main() -> None:
     if do_train:
         bp_override = args.bodyparts.split(",") if args.bodyparts else None
         config_path = train(
-            s3, maxiters=args.maxiters, epochs=epochs,
-            batch_size=args.batch_size, sa_finetune=args.sa_finetune,
+            s3,
+            maxiters=args.maxiters,
+            epochs=epochs,
+            batch_size=args.batch_size,
+            sa_finetune=args.sa_finetune,
             bodyparts=bp_override,
         )
 
@@ -1669,10 +1937,12 @@ def main() -> None:
             print("Downloading model weights from S3...")
             paginator = s3.get_paginator("list_objects_v2")
             n_model = 0
-            for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/"):
+            for page in paginator.paginate(
+                Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/"
+            ):
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
-                    rel = key[len(f"{RETRAIN_PREFIX}/models/"):]
+                    rel = key[len(f"{RETRAIN_PREFIX}/models/") :]
                     if not rel or rel.startswith("_"):
                         continue
                     dest = work / "dlc-models-pytorch" / rel
@@ -1687,10 +1957,12 @@ def main() -> None:
             # Download training-datasets (needed by analyze_videos for shuffle metadata)
             print("Downloading training-datasets metadata...")
             n_td = 0
-            for page in paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/training-datasets/"):
+            for page in paginator.paginate(
+                Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/training-datasets/"
+            ):
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
-                    rel = key[len(f"{RETRAIN_PREFIX}/"):]
+                    rel = key[len(f"{RETRAIN_PREFIX}/") :]
                     dest = work / rel
                     dest.parent.mkdir(parents=True, exist_ok=True)
                     s3.download_file(DERIVATIVES_BUCKET, key, str(dest))
@@ -1699,6 +1971,7 @@ def main() -> None:
 
             # Fix project_path in config
             import yaml
+
             with open(config_path) as f:
                 cfg = yaml.safe_load(f)
             cfg["project_path"] = str(work)
