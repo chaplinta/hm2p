@@ -1,16 +1,16 @@
 SuperAnimalConversionTables:
   superanimal_topviewmouse:
-    nose_tip: nose
-    left_ear: left_ear
-    right_ear: right_ear
     head_midpoint: head_midpoint
-    neck: neck
+    left_ear: left_ear
     mid_back: mid_back
     mouse_center: mouse_center
+    neck: neck
+    nose_tip: nose
+    right_ear: right_ear
     tail_base: tail_base
 Task: hm2p-retrain
 TrainingFraction:
-- 0.90
+- 0.9
 alphavalue: 0.7
 batch_size: 8
 bodyparts:
@@ -68,8 +68,58 @@ snapshotindex: -1
 start: 0
 stop: 1
 video_sets:
-  /private/tmp/sub-1114353_ses-20210823T165950/20210823_17_00_04_1114353_maze-rose_overhead.camera-cropped.mp4:
-    crop: 0, 832, 0, 608
+  /videos/20210823_17_00_04_1114353_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20210920_11_09_41_1114356_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20210923_15_05_27_1114356_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20210924_16_09_26_1114356_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20211028_10_22_43_1114356_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20211028_11_25_53_1115465_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20211029_13_50_14_1115465_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20211102_15_11_38_1115465_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20211203_15_10_31_1115464_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20211216_14_36_47_1115816_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20220408_15_02_02_1116663_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20220411_16_45_16_1116663_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20220531_11_06_17_1117217_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20220601_13_53_29_1117217_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20220608_15_27_36_1117217_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20220608_16_22_10_1116994_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20220802_15_06_57_1117646_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20220804_11_22_03_1117646_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20220804_13_52_06_1117646_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20221003_14_36_59_1118020_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20221004_10_43_03_1118023_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20221010_11_43_39_1118018_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20221018_10_56_20_1117788_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20221115_13_27_52_1118213_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20221116_14_31_17_1118320_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
+  /videos/20221117_13_20_37_1118317_maze-rose_overhead.camera-cropped.mp4:
+    crop: 0, 1280, 0, 1024
 x1: 0
 x2: 640
 y1: 277
