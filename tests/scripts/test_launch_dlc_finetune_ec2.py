@@ -77,7 +77,7 @@ class TestArgparse:
 
 class TestResolveEpochs:
     def test_sa_default(self):
-        assert launcher._resolve_epochs(None, sa_finetune=True) == 120
+        assert launcher._resolve_epochs(None, sa_finetune=True) == 200
 
     def test_imagenet_default(self):
         assert launcher._resolve_epochs(None, sa_finetune=False) == 400
@@ -170,7 +170,7 @@ class TestLaunchInstance:
         bdm = kwargs["BlockDeviceMappings"]
         assert bdm[0]["Ebs"]["VolumeSize"] == 120
         # Instance type unchanged.
-        assert kwargs["InstanceType"] == "g4dn.xlarge"
+        assert kwargs["InstanceType"] == "g4dn.2xlarge"
 
     def test_disk_size_100gb_default(self, monkeypatch):
         ec2, s3 = _make_mock_clients()
@@ -197,16 +197,16 @@ class TestLaunchInstance:
         assert "--sa-finetune" in kwargs["UserData"]
 
     def test_instance_type_unchanged_under_sa(self, monkeypatch):
-        """g4dn.xlarge stays the default per architect open-question #1."""
+        """g4dn.2xlarge stays the default per architect open-question #1."""
         ec2, s3 = _make_mock_clients()
         _patched_clients(monkeypatch, ec2, s3)
         launcher.launch(maxiters=0, sa_finetune=True)
         kwargs = ec2.run_instances.call_args.kwargs
-        assert kwargs["InstanceType"] == "g4dn.xlarge"
+        assert kwargs["InstanceType"] == "g4dn.2xlarge"
 
     def test_module_constants(self):
         # Confirm INSTANCE_TYPE constant unchanged.
-        assert launcher.INSTANCE_TYPE == "g4dn.xlarge"
+        assert launcher.INSTANCE_TYPE == "g4dn.2xlarge"
 
 
 # ---------------------------------------------------------------------------

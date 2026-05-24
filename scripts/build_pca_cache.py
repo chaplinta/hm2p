@@ -234,11 +234,18 @@ def main() -> None:
                         help="Process only this session (partial match).")
     parser.add_argument("--primary-only", action="store_true",
                         help="Only process primary, non-excluded sessions.")
+    parser.add_argument("--thumb-size", type=int, default=None,
+                        help="Thumbnail size in pixels (default 64).")
     parser.add_argument("--force", action="store_true",
                         help="Rebuild cache even if it exists.")
     parser.add_argument("--plot", action="store_true",
                         help="Save variance + PC1 vs PC2 plots per session.")
     args = parser.parse_args()
+
+    if args.thumb_size is not None:
+        global THUMB_SIZE
+        THUMB_SIZE = args.thumb_size
+        log.info("Thumbnail size: %d×%d", THUMB_SIZE, THUMB_SIZE)
 
     s3 = boto3.client("s3", region_name=REGION)
     sessions = get_sessions()

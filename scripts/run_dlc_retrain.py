@@ -121,7 +121,14 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
     bodyparts = cfg.get("bodyparts", [])
 
     # ── Load ground-truth labels ────────────────────────────────────────
-    gt_files = sorted(work.rglob("CollectedData_*.h5"))
+    # Bounded search under labeled-data/ only, filtering out nested
+    # duplicates (depth > 2 under labeled-data/).
+    _ld_root = work / "labeled-data"
+    gt_files = [
+        h5
+        for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
+        if len(h5.relative_to(_ld_root).parts) == 2
+    ] if _ld_root.exists() else []
     if not gt_files:
         print("  No ground-truth files found for per-bodypart RMSE")
         return
@@ -395,8 +402,13 @@ def _run_inference_on_labeled_frames(
         print("  deeplabcut not available for direct inference")
         return None, None
 
-    # Collect all labeled frame PNGs
-    gt_files = sorted(work.rglob("CollectedData_*.h5"))
+    # Collect all labeled frame PNGs (bounded search under labeled-data/).
+    _ld_root = work / "labeled-data"
+    gt_files = [
+        h5
+        for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
+        if len(h5.relative_to(_ld_root).parts) == 2
+    ] if _ld_root.exists() else []
     frame_dirs = {gf.parent for gf in gt_files}
     all_frames = []
     for fd in frame_dirs:
@@ -954,9 +966,16 @@ def _upload_eval_results_json(s3, work: Path, config_path: Path, epochs: int) ->
     except Exception:
         pass
 
-    # Count labeled frames
+    # Count labeled frames (bounded search under labeled-data/ only,
+    # filtering out nested duplicates).
     n_frames = 0
-    for h5 in work.rglob("CollectedData_*.h5"):
+    _ld_root = work / "labeled-data"
+    _cd_files = [
+        h5
+        for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
+        if len(h5.relative_to(_ld_root).parts) == 2
+    ] if _ld_root.exists() else []
+    for h5 in _cd_files:
         try:
             n_frames += len(pd.read_hdf(h5))
         except Exception:
@@ -1016,21 +1035,23 @@ def _upload_model_artifacts(s3, work: Path) -> None:
                 s3.upload_file(str(f), DERIVATIVES_BUCKET, key)
                 n_td += 1
         print(f"  Uploaded {n_td} training-dataset files")
+
+    # Nuke the ENTIRE models/ prefix on S3 before uploading fresh.
+    # Prevents stale snapshots / architecture mismatches from previous runs.
+    print("  Deleting entire models/ prefix from S3...")
+    _paginator = s3.get_paginator("list_objects_v2")
+    for _page in _paginator.paginate(
+        Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/"
+    ):
+        for _obj in _page.get("Contents", []):
+            s3.delete_object(Bucket=DERIVATIVES_BUCKET, Key=_obj["Key"])
+    print("  Done.")
+
     for model_dir_name in ("dlc-models-pytorch", "dlc-models"):
         dlc_train_dir = work / model_dir_name
         if not dlc_train_dir.exists():
             continue
         print(f"  Found {model_dir_name}/")
-        # Delete old snapshots on S3 to prevent model architecture mismatches
-        # when multiple training runs upload to the same prefix.
-        print("  Cleaning old snapshots from S3...")
-        _paginator = s3.get_paginator("list_objects_v2")
-        for _page in _paginator.paginate(
-            Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/iteration-0/"
-        ):
-            for _obj in _page.get("Contents", []):
-                if "snapshot" in _obj["Key"]:
-                    s3.delete_object(Bucket=DERIVATIVES_BUCKET, Key=_obj["Key"])
         n_files = 0
         for f in dlc_train_dir.rglob("*"):
             if f.is_file():
@@ -1039,6 +1060,25 @@ def _upload_model_artifacts(s3, work: Path) -> None:
                 s3.upload_file(str(f), DERIVATIVES_BUCKET, key)
                 n_files += 1
         print(f"  Uploaded {n_files} files to s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/")
+
+        # Upload eval CSVs with flat keys to prevent nested directory issues.
+        # Search only known DLC output directories for eval CSVs.
+        _eval_uploaded = 0
+        for _eval_search_dir in [
+            work / "evaluation-results",
+            work / "evaluation-results-pytorch",
+            dlc_train_dir,
+        ]:
+            if not _eval_search_dir.exists():
+                continue
+            for _eval_csv in _eval_search_dir.rglob("*results*.csv"):
+                _eval_key = f"{RETRAIN_PREFIX}/models/eval/{_eval_csv.name}"
+                s3.upload_file(str(_eval_csv), DERIVATIVES_BUCKET, _eval_key)
+                _eval_uploaded += 1
+                print(f"  Uploaded eval: eval/{_eval_csv.name}")
+        if _eval_uploaded == 0:
+            print("  No evaluation result CSVs found")
+
         # Upload SA-finetune notes if present (consumed by declare_champion).
         notes_path = work / "_sa_finetune_notes.txt"
         if notes_path.exists():
@@ -1088,22 +1128,50 @@ def train(
     import deeplabcut
 
     work = Path("/tmp/dlc-retrain")
+    # Clean local work dir to prevent stale artifacts from a previous
+    # run on the same EC2 instance contaminating the new training.
+    shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True, exist_ok=True)
 
-    # Download labeled data + config
-    print("Downloading labeled data from S3...")
-    subprocess.run(
-        [
-            "aws",
-            "s3",
-            "sync",
-            f"s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/",
-            str(work),
-            "--exclude",
-            "_*",
-        ],
-        check=True,
+    # Delete stale training-datasets and model dirs from S3 so DLC
+    # builds a fresh dataset from the current labels instead of reusing
+    # a cached shuffle from a previous run.
+    print("Cleaning stale training artifacts from S3...")
+    _paginator = s3.get_paginator("list_objects_v2")
+    for _stale_prefix in [
+        f"{RETRAIN_PREFIX}/training-datasets/",
+        f"{RETRAIN_PREFIX}/models/",  # ALL models, not just iteration-0
+    ]:
+        for _page in _paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=_stale_prefix):
+            for _obj in _page.get("Contents", []):
+                s3.delete_object(Bucket=DERIVATIVES_BUCKET, Key=_obj["Key"])
+    print("  Done.")
+
+    # Download ONLY config.yaml and labeled-data/ from S3 (not models/,
+    # training-datasets/, or any other artifacts that could contaminate
+    # the fresh training run).
+    print("Downloading config.yaml and labeled-data from S3...")
+    s3.download_file(
+        DERIVATIVES_BUCKET,
+        f"{RETRAIN_PREFIX}/config.yaml",
+        str(work / "config.yaml"),
     )
+    _ld_prefix = f"{RETRAIN_PREFIX}/labeled-data/"
+    _ld_paginator = s3.get_paginator("list_objects_v2")
+    _n_ld = 0
+    for _ld_page in _ld_paginator.paginate(
+        Bucket=DERIVATIVES_BUCKET, Prefix=_ld_prefix
+    ):
+        for _ld_obj in _ld_page.get("Contents", []):
+            _ld_key = _ld_obj["Key"]
+            _ld_rel = _ld_key[len(f"{RETRAIN_PREFIX}/"):]
+            if not _ld_rel or _ld_rel.startswith("_"):
+                continue
+            _ld_dest = work / _ld_rel
+            _ld_dest.parent.mkdir(parents=True, exist_ok=True)
+            s3.download_file(DERIVATIVES_BUCKET, _ld_key, str(_ld_dest))
+            _n_ld += 1
+    print(f"  Downloaded config.yaml + {_n_ld} labeled-data files")
 
     # Signal GPU watchdog that processing is starting.
     Path("/tmp/gpu_processing_active").touch()
@@ -1142,7 +1210,13 @@ def train(
     # S3 / local disk is NOT modified.
     import pandas as pd
 
-    for h5 in sorted(work.rglob("CollectedData_*.h5")):
+    _ld_root = work / "labeled-data"
+    _cd_train = [
+        h5
+        for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
+        if len(h5.relative_to(_ld_root).parts) == 2
+    ] if _ld_root.exists() else []
+    for h5 in _cd_train:
         try:
             df = pd.read_hdf(h5)
             before = len(df)
@@ -1192,6 +1266,9 @@ def train(
         return config_path
 
     update_progress(s3, "Training: creating dataset")
+
+    # Ensure HRNet-W32 is the default net type before creating the dataset.
+    _ensure_default_net_type_hrnet(config_path)
 
     # Create training dataset (default ResNet50 config — we override below).
     print("Creating training dataset...")
@@ -1312,59 +1389,9 @@ def train(
     _compute_per_bodypart_rmse(s3, work, config_path)
     _push_bodypart_rmse_to_wandb(work)
 
-    # Upload evaluation results (per-bodypart RMSE).
-    # DLC may write these in evaluation-results/ or inside the model dir.
-    eval_uploaded = 0
-    for search_dir in [work / "evaluation-results", work]:
-        for csv_file in search_dir.rglob("*results*.csv"):
-            rel = csv_file.relative_to(work)
-            key = f"{RETRAIN_PREFIX}/models/{rel}"
-            s3.upload_file(str(csv_file), DERIVATIVES_BUCKET, key)
-            eval_uploaded += 1
-            print(f"  Uploaded eval: {rel}")
-    if eval_uploaded == 0:
-        print("  No evaluation result CSVs found")
-
-    # Compute per-bodypart RMSE from predictions vs labels
-    print("Computing per-bodypart RMSE...")
-    try:
-        import subprocess as _sp
-
-        _r = _sp.run(
-            [
-                sys.executable,
-                "scripts/compute_bodypart_rmse.py",
-                "--pose-prefix",
-                FINETUNED_PREFIX,
-            ],
-            capture_output=True,
-            text=True,
-        )
-        print(_r.stdout[-500:] if _r.stdout else "  (no output)")
-        if _r.returncode != 0:
-            print(f"  Per-bodypart RMSE failed: {_r.stderr[-300:]}")
-    except Exception as e:
-        print(f"  Per-bodypart RMSE failed: {e}")
-
-    # Upload model weights via boto3 (aws CLI may not be available)
-    print("Uploading model weights to S3...")
-    # DLC 3.0 PyTorch uses dlc-models-pytorch; legacy uses dlc-models
-    for model_dir_name in ("dlc-models-pytorch", "dlc-models"):
-        dlc_train_dir = work / model_dir_name
-        if dlc_train_dir.exists():
-            print(f"  Found {model_dir_name}/")
-            for f in dlc_train_dir.rglob("*"):
-                if f.is_file():
-                    rel = f.relative_to(dlc_train_dir)
-                    key = f"{RETRAIN_PREFIX}/models/{rel}"
-                    s3.upload_file(str(f), DERIVATIVES_BUCKET, key)
-            n_files = sum(1 for _ in dlc_train_dir.rglob("*") if _.is_file())
-            print(
-                f"  Uploaded {n_files} files to s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/models/"
-            )
-            break
-    else:
-        print("  WARNING: no model directory found")
+    # Upload model weights, eval CSVs, and training metadata via the
+    # shared upload function (nuke-and-replace on S3).
+    _upload_model_artifacts(s3, work)
 
     update_progress(s3, "Training complete", maxiters=maxiters)
     return config_path
@@ -1875,21 +1902,35 @@ def main() -> None:
         import deeplabcut
 
         work = Path("/tmp/dlc-retrain")
+        # Clean local work dir to prevent stale artifacts.
+        shutil.rmtree(work, ignore_errors=True)
         work.mkdir(parents=True, exist_ok=True)
 
-        print("Downloading project from S3 for evaluation...")
-        subprocess.run(
-            [
-                "aws",
-                "s3",
-                "sync",
-                f"s3://{DERIVATIVES_BUCKET}/{RETRAIN_PREFIX}/",
-                str(work),
-                "--exclude",
-                "_*",
-            ],
-            check=True,
+        print("Downloading config.yaml and labeled-data from S3 for evaluation...")
+        # Download config.yaml
+        s3.download_file(
+            DERIVATIVES_BUCKET,
+            f"{RETRAIN_PREFIX}/config.yaml",
+            str(work / "config.yaml"),
         )
+        # Download labeled-data/**/*
+        _eval_ld_prefix = f"{RETRAIN_PREFIX}/labeled-data/"
+        _eval_paginator = s3.get_paginator("list_objects_v2")
+        _n_eval_ld = 0
+        for _eval_page in _eval_paginator.paginate(
+            Bucket=DERIVATIVES_BUCKET, Prefix=_eval_ld_prefix
+        ):
+            for _eval_obj in _eval_page.get("Contents", []):
+                _eval_key = _eval_obj["Key"]
+                _eval_rel = _eval_key[len(f"{RETRAIN_PREFIX}/"):]
+                if not _eval_rel or _eval_rel.startswith("_"):
+                    continue
+                _eval_dest = work / _eval_rel
+                _eval_dest.parent.mkdir(parents=True, exist_ok=True)
+                s3.download_file(DERIVATIVES_BUCKET, _eval_key, str(_eval_dest))
+                _n_eval_ld += 1
+        print(f"  Downloaded config.yaml + {_n_eval_ld} labeled-data files")
+
         config_path = work / "config.yaml"
 
         import yaml
@@ -1900,18 +1941,26 @@ def main() -> None:
         with open(config_path, "w") as f:
             yaml.dump(cfg, f)
 
-        # Download model weights into dlc-models-pytorch/
+        # Download model weights into dlc-models-pytorch/ (skip nested
+        # models/models/ keys and internal _-prefixed files).
         print("Downloading model weights...")
-        resp = s3.list_objects_v2(Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/")
-        for obj in resp.get("Contents", []):
-            key = obj["Key"]
-            rel = key[len(f"{RETRAIN_PREFIX}/models/") :]
-            if rel.startswith("_") or not rel:
-                continue
-            dest = work / "dlc-models-pytorch" / rel
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            s3.download_file(DERIVATIVES_BUCKET, key, str(dest))
-        print("  Model weights downloaded")
+        _n_eval_model = 0
+        for _eval_m_page in _eval_paginator.paginate(
+            Bucket=DERIVATIVES_BUCKET, Prefix=f"{RETRAIN_PREFIX}/models/"
+        ):
+            for _eval_m_obj in _eval_m_page.get("Contents", []):
+                _eval_m_key = _eval_m_obj["Key"]
+                _eval_m_rel = _eval_m_key[len(f"{RETRAIN_PREFIX}/models/"):]
+                if not _eval_m_rel or _eval_m_rel.startswith("_"):
+                    continue
+                # Skip nested models/models/ keys
+                if _eval_m_rel.startswith("models/"):
+                    continue
+                _eval_m_dest = work / "dlc-models-pytorch" / _eval_m_rel
+                _eval_m_dest.parent.mkdir(parents=True, exist_ok=True)
+                s3.download_file(DERIVATIVES_BUCKET, _eval_m_key, str(_eval_m_dest))
+                _n_eval_model += 1
+        print(f"  Downloaded {_n_eval_model} model files")
 
         # Run per-bodypart RMSE. The function tries DLC evaluation H5
         # first, then falls back to direct inference on labeled PNGs.
@@ -1939,6 +1988,8 @@ def main() -> None:
         if config_path is None:
             # Download config + model weights from S3 (training was done in a previous run)
             work = Path("/tmp/dlc-retrain")
+            # Clean local work dir to prevent stale artifacts.
+            shutil.rmtree(work, ignore_errors=True)
             work.mkdir(parents=True, exist_ok=True)
             config_path = work / "config.yaml"
             s3.download_file(DERIVATIVES_BUCKET, f"{RETRAIN_PREFIX}/config.yaml", str(config_path))
@@ -1953,7 +2004,7 @@ def main() -> None:
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
                     rel = key[len(f"{RETRAIN_PREFIX}/models/") :]
-                    if not rel or rel.startswith("_"):
+                    if not rel or rel.startswith("_") or rel.startswith("models/"):
                         continue
                     dest = work / "dlc-models-pytorch" / rel
                     dest.parent.mkdir(parents=True, exist_ok=True)

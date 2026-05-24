@@ -256,11 +256,21 @@ st.header("Champion Model")
 
 champ = _load_champion_info()
 if champ:
+    # Show promoted_at with time if available, fall back to training_date
+    _promoted = champ.get("promoted_at", champ.get("training_date", "?"))
+    if "T" in str(_promoted):
+        try:
+            from datetime import datetime, timezone, timedelta
+            _dt = datetime.fromisoformat(str(_promoted).replace("Z", "+00:00"))
+            _perth = _dt.astimezone(timezone(timedelta(hours=8)))
+            _promoted = _perth.strftime("%Y-%m-%d %H:%M AWST")
+        except Exception:
+            _promoted = str(_promoted)[:19]
     st.info(
         f"**Champion:** {champ.get('champion_id', '?')}  \n"
         f"Architecture: {champ.get('architecture', '?')} | "
         f"Snapshot: {champ.get('snapshot', '?')} | "
-        f"Date: {champ.get('training_date', '?')}"
+        f"Promoted: {_promoted}"
     )
 else:
     st.info(

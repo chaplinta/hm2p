@@ -967,15 +967,33 @@ with st.expander("How pose-based selection works"):
 with st.expander("How image-clustering selection works"):
     st.markdown(
         "Per session:\n"
-        "1. Extract 64×64 grayscale thumbnail every 100 frames\n"
-        "2. PCA to 50 dims → k-means (k=30) clusters\n"
-        "3. Check which clusters existing labels cover\n"
-        "4. Score clusters by (coverage gap) × (model uncertainty)\n"
-        "5. Select from under-represented clusters\n"
-        "6. Pixel dedup against existing frames before extraction\n\n"
-        "Slower (downloads videos) but catches visually distinct frames "
-        "that pose-based selection misses."
+        "1. Load PCA cache (thumbnails every 100 frames, PCA-reduced)\n"
+        "2. k-means with k=30 on all cached frames (defines appearance space)\n"
+        "3. Assign existing labeled frames to nearest cluster centroid\n"
+        "4. Select new frames from unoccupied clusters (closest to centroid)\n"
+        "5. Stop when existing + new = target per session\n\n"
+        "Uses PCA cache for clustering (fast), downloads video only for "
+        "PNG extraction."
     )
+
+st.divider()
+st.subheader("Check for duplicate labels")
+st.markdown(
+    "Clusters all video frames (via PCA cache) into k groups, then checks "
+    "if any labeled frames share a cluster. If two labeled frames are in "
+    "the same cluster out of 100, they occupy the same region of appearance "
+    "space and one is probably redundant. No duplicates at k=100 means "
+    "the labeled set is diverse."
+)
+st.code(
+    "# Check for duplicates (k=100 clusters)\n"
+    "uv run python scripts/find_duplicate_labels.py --clusters 100\n\n"
+    "# Check a single session\n"
+    "uv run python scripts/find_duplicate_labels.py --clusters 100 "
+    "--session 20210823_16_59_50_1114353\n\n"
+    "# Side-by-side images saved to retrain_frames/_duplicates/",
+    language="bash",
+)
 
 st.markdown("---")
 

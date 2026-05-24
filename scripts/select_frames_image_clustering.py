@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Select training frames based on image appearance clustering.
 
-For each session:
-1. Load PCA cache (or extract thumbnails from video + run PCA).
+Requires a PCA cache built by ``build_pca_cache.py``. For each session:
+1. Load PCA cache (sampled frames already in PCA space).
 2. Count existing labeled frames for this session.
 3. Compute n_new = max(0, target - n_existing).
-4. k-means with k = n_existing + n_new clusters.
-5. Project existing labeled frames into PCA space to find occupied clusters.
+4. k-means with k = target clusters on all cached frames.
+5. Assign existing labeled frames to nearest cluster centroid.
 6. Select one frame from each unoccupied cluster.
 
 Usage:
@@ -177,65 +177,8 @@ def load_pca_cache(sub: str, ses: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
-# Thumbnail extraction
-# ---------------------------------------------------------------------------
-
-THUMB_SIZE = 64  # pixels per side for clustering thumbnails
-THUMB_STRIDE = 100  # extract one thumbnail every N frames (~1 s at 100 fps)
-
-
-def extract_thumbnails(
-    video_path: str,
-    stride: int = THUMB_STRIDE,
-    thumb_size: int = THUMB_SIZE,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Extract grayscale thumbnails at regular frame intervals.
-
-    Parameters
-    ----------
-    video_path : str
-        Path to the video file.
-    stride : int
-        Extract one frame every ``stride`` frames.
-    thumb_size : int
-        Thumbnail edge length in pixels (square).
-
-    Returns
-    -------
-    tuple[np.ndarray, np.ndarray]
-        ``(features, frame_indices)`` where ``features`` has shape
-        ``(N, thumb_size * thumb_size)`` (float32, mean-subtracted per frame)
-        and ``frame_indices`` is ``(N,)`` int64.
-    """
-    cap = cv2.VideoCapture(video_path)
-    if not cap.isOpened():
-        raise RuntimeError(f"Cannot open video: {video_path}")
-
-    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    indices = list(range(0, total, stride))
-
-    features: list[np.ndarray] = []
-    frame_indices: list[int] = []
-
-    for idx in indices:
-        cap.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ret, frame = cap.read()
-        if not ret:
-            continue
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        thumb = cv2.resize(gray, (thumb_size, thumb_size), interpolation=cv2.INTER_AREA)
-        vec = thumb.astype(np.float32).ravel()
-        vec -= vec.mean()
-        features.append(vec)
-        frame_indices.append(idx)
-
-    cap.release()
-
-    if not features:
-        empty_feat = np.empty((0, thumb_size * thumb_size), dtype=np.float32)
-        return empty_feat, np.empty(0, dtype=np.int64)
-
-    return np.stack(features, axis=0), np.array(frame_indices, dtype=np.int64)
+# Thumbnail stride used by PCA cache (for nearest-frame matching)
+THUMB_STRIDE = 100
 
 
 # ---------------------------------------------------------------------------
@@ -788,43 +731,25 @@ def process_session(
             "selected_indices": [],
         }
 
-    # Try PCA cache first
+    # Load PCA cache (required — run build_pca_cache.py first)
     pca_cache = load_pca_cache(sub, ses)
+    if pca_cache is None:
+        log.error("  No PCA cache for %s. Run: uv run python scripts/build_pca_cache.py", exp_id)
+        return {
+            "exp_id": exp_id, "sub": sub, "ses": ses,
+            "n_selected": 0, "n_existing": n_existing,
+            "selected_indices": [],
+        }
+
+    log.info("  PCA cache: %d frames, %d PCs. existing=%d, need=%d",
+             pca_cache["data_pca"].shape[0], pca_cache["data_pca"].shape[1],
+             n_existing, n_new)
+    data_pca = pca_cache["data_pca"]
+    frame_indices = pca_cache["frame_indices"]
     video_path = None
 
     with tempfile.TemporaryDirectory(prefix=f"hm2p-{session_tag}-") as tmp_str:
         tmp = Path(tmp_str)
-
-        if pca_cache is not None:
-            log.info("  PCA cache: %d frames, %d PCs. existing=%d, need=%d",
-                     pca_cache["data_pca"].shape[0], pca_cache["data_pca"].shape[1],
-                     n_existing, n_new)
-            data_pca = pca_cache["data_pca"]
-            frame_indices = pca_cache["frame_indices"]
-        else:
-            log.info("  No PCA cache — downloading video...")
-            video_path = download_video_from_s3(s3, sub, ses, tmp)
-            if video_path is None:
-                log.warning("  No video on S3 for %s, skipping.", exp_id)
-                return {
-                    "exp_id": exp_id, "sub": sub, "ses": ses,
-                    "n_selected": 0, "n_existing": n_existing,
-                    "selected_indices": [],
-                }
-            log.info("  Extracting thumbnails (stride=%d)...", THUMB_STRIDE)
-            features, frame_indices = extract_thumbnails(str(video_path), stride=THUMB_STRIDE)
-            log.info("  %d thumbnails. Running PCA + clustering...", len(features))
-            if len(features) < 2:
-                log.warning("  Too few frames for %s, skipping.", exp_id)
-                return {
-                    "exp_id": exp_id, "sub": sub, "ses": ses,
-                    "n_selected": 0, "n_existing": n_existing,
-                    "selected_indices": [],
-                }
-            from sklearn.decomposition import PCA as SkPCA
-            actual_pca = min(50, len(features), features.shape[1])
-            pca = SkPCA(n_components=actual_pca, random_state=42)
-            data_pca = pca.fit_transform(features)
 
         # k = existing + n_new, select from unoccupied clusters
         selected = cluster_and_select(
