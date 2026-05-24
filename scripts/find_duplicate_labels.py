@@ -597,17 +597,24 @@ def main() -> None:
                     print(f"    cluster group: [{frames_str}]")
             print()
 
-    # Summary
-    total_labeled = sum(r["n_labeled"] for r in results)
-    total_pairs = sum(r["n_duplicate_pairs"] for r in results)
+    # Summary table
+    print(f"\n{'=' * 62}")
+    print(f"  {'Session':<45s} {'Frames':>6s} {'Dups':>6s}")
+    print(f"  {'-' * 45} {'-' * 6} {'-' * 6}")
+    total_labeled = 0
+    total_pairs = 0
+    for r in results:
+        exp = r["exp_id"][:44]
+        n_l = r["n_labeled"]
+        n_d = r["n_duplicate_pairs"]
+        total_labeled += n_l
+        total_pairs += n_d
+        dup_str = str(n_d) if n_d > 0 else "-"
+        print(f"  {exp:<45s} {n_l:>6d} {dup_str:>6s}")
+    print(f"  {'-' * 45} {'-' * 6} {'-' * 6}")
+    print(f"  {'TOTAL':<45s} {total_labeled:>6d} {total_pairs:>6d}")
     sessions_with_dups = sum(1 for r in results if r["n_duplicate_pairs"] > 0)
-
-    print(f"{'=' * 62}")
-    print(
-        f"  Total labeled: {total_labeled}   "
-        f"Total duplicate pairs: {total_pairs}   "
-        f"Sessions with duplicates: {sessions_with_dups}/{len(results)}"
-    )
+    print(f"\n  Sessions with duplicates: {sessions_with_dups}/{len(results)}")
     if total_pairs > 0:
         print(f"  Side-by-side images saved to: {OUTPUT_DIR}/")
     print(f"{'=' * 62}\n")
