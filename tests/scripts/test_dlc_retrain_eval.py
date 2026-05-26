@@ -118,7 +118,7 @@ class TestIndexToFrameId:
 
 
 class TestMatchIndicesByFilename:
-    def test_matching_frames_returns_gt_indices(self):
+    def test_matching_frames_returns_gt_pred_pairs(self):
         gt = _make_dlc_df(
             "scorer_gt", ["bp1"],
             {"bp1": [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)]},
@@ -138,9 +138,13 @@ class TestMatchIndicesByFilename:
         )
         matched = rdr._match_indices_by_filename(gt, pred)
         assert len(matched) == 2
-        # Matched indices should be from gt
-        assert matched[0] == ("labeled-data", "clip1", "frame_001.png")
-        assert matched[1] == ("labeled-data", "clip2", "frame_003.png")
+        # Each entry is a (gt_idx, pred_idx) pair
+        gt_idx_0, pred_idx_0 = matched[0]
+        gt_idx_1, pred_idx_1 = matched[1]
+        assert gt_idx_0 == ("labeled-data", "clip1", "frame_001.png")
+        assert pred_idx_0 == ("different-path", "x", "frame_001.png")
+        assert gt_idx_1 == ("labeled-data", "clip2", "frame_003.png")
+        assert pred_idx_1 == ("different-path", "y", "frame_003.png")
 
     def test_no_matches_returns_empty(self):
         gt = _make_dlc_df(
@@ -169,7 +173,9 @@ class TestMatchIndicesByFilename:
         )
         matched = rdr._match_indices_by_filename(gt, pred)
         assert len(matched) == 1
-        assert matched[0] == "frame_002.png"
+        gt_idx, pred_idx = matched[0]
+        assert gt_idx == "frame_002.png"
+        assert pred_idx == "frame_002.png"
 
     def test_string_indices_matched_by_stem(self):
         """Paths with different directories but same filename stem match."""
@@ -185,6 +191,33 @@ class TestMatchIndicesByFilename:
         )
         matched = rdr._match_indices_by_filename(gt, pred)
         assert len(matched) == 1
+        gt_idx, pred_idx = matched[0]
+        assert gt_idx == "/path/a/frame_001.png"
+        assert pred_idx == "/path/b/frame_001.png"
+
+    def test_gt_tuple_pred_string_cross_format_match(self):
+        """GT tuples matched against pred string paths (DLC 3.x format)."""
+        gt = _make_dlc_df(
+            "s", ["bp1"],
+            {"bp1": [(1.0, 1.0), (2.0, 2.0)]},
+            index=[
+                ("labeled-data", "clip1", "frame_001.png"),
+                ("labeled-data", "clip1", "frame_002.png"),
+            ],
+        )
+        pred = _make_dlc_df(
+            "s", ["bp1"],
+            {"bp1": [(10.0, 10.0), (20.0, 20.0)]},
+            index=[
+                "/tmp/dlc-retrain/labeled-data/clip1/frame_001.png",
+                "/tmp/dlc-retrain/labeled-data/clip1/frame_002.png",
+            ],
+        )
+        matched = rdr._match_indices_by_filename(gt, pred)
+        assert len(matched) == 2
+        gt_idx_0, pred_idx_0 = matched[0]
+        assert gt_idx_0 == ("labeled-data", "clip1", "frame_001.png")
+        assert pred_idx_0 == "/tmp/dlc-retrain/labeled-data/clip1/frame_001.png"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -546,6 +579,81 @@ class TestComputePerBodypartRmse:
         result = json.loads((work / "_per_bodypart_eval.json").read_text())
         expected_std = float(np.std([5.0, 13.0]))
         assert result["bodyparts"]["bp1"]["std"] == pytest.approx(expected_std, abs=0.01)
+
+    def test_cross_format_gt_tuple_pred_string(self, tmp_path):
+        """GT with tuple indices matches pred with string path indices.
+
+        DLC 3.x evaluate_network stores predictions with full file path
+        indices (strings), while GT CollectedData uses tuple indices like
+        ``('labeled-data', 'clip_name', 'frame_000123.png')``. The
+        function must fall back to filename-stem matching and correctly
+        look up each row using its own DataFrame's index format.
+        """
+        bodyparts = ["bp1"]
+        gt_index = [
+            ("labeled-data", "clip1", "frame_001.png"),
+            ("labeled-data", "clip1", "frame_002.png"),
+        ]
+        pred_index = [
+            "/tmp/dlc-retrain/labeled-data/clip1/frame_001.png",
+            "/tmp/dlc-retrain/labeled-data/clip1/frame_002.png",
+        ]
+
+        work = tmp_path / "dlc-retrain"
+        work.mkdir()
+        cfg_path = work / "config.yaml"
+        cfg_path.write_text(yaml.dump({
+            "bodyparts": bodyparts,
+            "project_path": str(work),
+        }))
+
+        # Ground-truth with tuple indices
+        gt_dir = work / "labeled-data" / "clip1"
+        gt_dir.mkdir(parents=True)
+        gt_df = _make_dlc_df(
+            "scorer_gt", bodyparts,
+            {"bp1": [(0.0, 0.0), (0.0, 0.0)]},
+            index=gt_index,
+        )
+        gt_df.to_hdf(gt_dir / "CollectedData_scorer_gt.h5", key="df_with_missing")
+
+        # Predictions with string path indices (DLC 3.x format)
+        eval_dir = work / "evaluation-results-pytorch" / "iteration-0" / "test"
+        eval_dir.mkdir(parents=True)
+        pred_df = _make_dlc_df(
+            "DLC_scorer", bodyparts,
+            {"bp1": [(3.0, 4.0), (3.0, 4.0)]},
+            index=pred_index,
+        )
+        pred_df.to_hdf(eval_dir / "DLC_scorer.h5", key="df_with_missing")
+
+        s3 = MagicMock()
+        rdr._compute_per_bodypart_rmse(s3, work, cfg_path)
+
+        result_path = work / "_per_bodypart_eval.json"
+        assert result_path.exists(), "Cross-format matching must produce output"
+
+        result = json.loads(result_path.read_text())
+        assert result["bodyparts"]["bp1"]["rmse"] == pytest.approx(5.0, abs=0.01)
+        assert result["bodyparts"]["bp1"]["n"] == 2
+        assert len(result["per_frame"]) == 2
+
+    def test_pck_15_present_in_output(self, tmp_path):
+        """PCK@15 must be included in the output JSON for the frontend."""
+        work, cfg = _setup_rmse_project(
+            tmp_path,
+            bodyparts=["bp1"],
+            gt_coords={"bp1": [(0.0, 0.0), (0.0, 0.0)]},
+            pred_coords={"bp1": [(0.0, 7.0), (0.0, 7.0)]},
+        )
+        s3 = MagicMock()
+        rdr._compute_per_bodypart_rmse(s3, work, cfg)
+
+        result = json.loads((work / "_per_bodypart_eval.json").read_text())
+        bp = result["bodyparts"]["bp1"]
+        assert "pck_15" in bp, "pck_15 must be present in output"
+        # Error = 7.0, which is <= 15, so PCK@15 should be 100%
+        assert bp["pck_15"] == pytest.approx(100.0)
 
 
 # ═══════════════════════════════════════════════════════════════════════

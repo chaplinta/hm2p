@@ -224,14 +224,28 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
     per_bp_errors: dict[str, list[float]] = {bp: [] for bp in bodyparts}
     per_frame: list[dict] = []
 
+    # Build a list of (gt_idx, pred_idx) pairs. When indices match
+    # directly, gt_idx == pred_idx. When they don't (common in DLC 3.x
+    # where GT uses tuples but predictions use file paths), we fall back
+    # to filename-stem matching which returns explicit pairs.
     common = gt.index.intersection(pred.index)
-    if len(common) == 0:
+    if len(common) > 0:
+        # Direct match — same index in both DataFrames.
+        matched_pairs: list[tuple] = [(idx, idx) for idx in common]
+    else:
+        # Log actual index formats for debugging.
+        gt_sample = list(gt.index[:3])
+        pred_sample = list(pred.index[:3])
+        print(f"  DEBUG: GT index format (first 3): {gt_sample}")
+        print(f"  DEBUG: GT index types: {[type(i).__name__ for i in gt_sample]}")
+        print(f"  DEBUG: Pred index format (first 3): {pred_sample}")
+        print(f"  DEBUG: Pred index types: {[type(i).__name__ for i in pred_sample]}")
         print("  WARNING: no common indices between GT and predictions")
         # Try matching by last path component (frame filename)
-        common = _match_indices_by_filename(gt, pred)
+        matched_pairs = _match_indices_by_filename(gt, pred)
 
-    for row_i, idx in enumerate(common):
-        frame_id = _index_to_frame_id(idx)
+    for row_i, (gt_idx, pred_idx) in enumerate(matched_pairs):
+        frame_id = _index_to_frame_id(gt_idx)
         split = split_map.get(row_i, "unknown")
         # If split_map uses original integer indices, also try matching
         if split == "unknown" and row_i in split_map:
@@ -245,12 +259,17 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
         # indexing rather than a single key lookup.  Wrapping in a list
         # forces pandas to treat the tuple as one label; .iloc[0] then
         # extracts the scalar from the resulting single-element Series.
-        _tuple_idx = isinstance(idx, tuple)
+        _gt_is_tuple = isinstance(gt_idx, tuple)
+        _pred_is_tuple = isinstance(pred_idx, tuple)
 
         for bp in bodyparts:
             try:
-                gx_val = gt.loc[[idx], (gt_scorer, bp, "x")].iloc[0] if _tuple_idx else gt.loc[idx, (gt_scorer, bp, "x")]
-                gy_val = gt.loc[[idx], (gt_scorer, bp, "y")].iloc[0] if _tuple_idx else gt.loc[idx, (gt_scorer, bp, "y")]
+                if _gt_is_tuple:
+                    gx_val = gt.loc[[gt_idx], (gt_scorer, bp, "x")].iloc[0]
+                    gy_val = gt.loc[[gt_idx], (gt_scorer, bp, "y")].iloc[0]
+                else:
+                    gx_val = gt.loc[gt_idx, (gt_scorer, bp, "x")]
+                    gy_val = gt.loc[gt_idx, (gt_scorer, bp, "y")]
                 gx = float(gx_val)
                 gy = float(gy_val)
             except (KeyError, ValueError):
@@ -259,8 +278,12 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
                 continue
 
             try:
-                px_val = pred.loc[[idx], (pred_scorer, bp, "x")].iloc[0] if _tuple_idx else pred.loc[idx, (pred_scorer, bp, "x")]
-                py_val = pred.loc[[idx], (pred_scorer, bp, "y")].iloc[0] if _tuple_idx else pred.loc[idx, (pred_scorer, bp, "y")]
+                if _pred_is_tuple:
+                    px_val = pred.loc[[pred_idx], (pred_scorer, bp, "x")].iloc[0]
+                    py_val = pred.loc[[pred_idx], (pred_scorer, bp, "y")].iloc[0]
+                else:
+                    px_val = pred.loc[pred_idx, (pred_scorer, bp, "x")]
+                    py_val = pred.loc[pred_idx, (pred_scorer, bp, "y")]
                 px = float(px_val)
                 py = float(py_val)
             except (KeyError, ValueError):
@@ -307,6 +330,7 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
                 "n": len(errs),
                 "pck_5": float((arr <= 5).mean() * 100),
                 "pck_10": float((arr <= 10).mean() * 100),
+                "pck_15": float((arr <= 15).mean() * 100),
                 "pck_20": float((arr <= 20).mean() * 100),
             }
         else:
@@ -353,10 +377,26 @@ def _index_to_frame_id(idx: object) -> str:
 def _match_indices_by_filename(
     gt: "pd.DataFrame",
     pred: "pd.DataFrame",
-) -> list:
+) -> list[tuple]:
     """Match GT and prediction rows by frame filename when indices differ.
 
-    Returns a list of GT index values that have a filename match in pred.
+    DLC ground-truth and evaluation-prediction DataFrames often have
+    incompatible index formats:
+
+    - GT: tuples like ``('labeled-data', 'clip_name', 'frame_000123.png')``
+    - Pred (DLC 3.x): full paths like
+      ``'/tmp/dlc-retrain/labeled-data/clip_name/frame_000123.png'``
+      or relative paths, or tuples with different prefixes
+
+    This function extracts the filename stem (e.g. ``frame_000123``) from
+    each index entry and matches by that stem.
+
+    Returns
+    -------
+    list[tuple]
+        A list of ``(gt_index, pred_index)`` pairs. Each pair contains the
+        original index values from the respective DataFrames, so the caller
+        can look up the correct row in each.
     """
 
     def _extract_stem(idx: object) -> str:
@@ -366,12 +406,12 @@ def _match_indices_by_filename(
             s = str(idx)
         return Path(s).stem
 
-    pred_stems = {_extract_stem(idx): idx for idx in pred.index}
-    matched = []
+    pred_stems: dict[str, object] = {_extract_stem(idx): idx for idx in pred.index}
+    matched: list[tuple] = []
     for gt_idx in gt.index:
         stem = _extract_stem(gt_idx)
         if stem in pred_stems:
-            matched.append(gt_idx)
+            matched.append((gt_idx, pred_stems[stem]))
     print(f"  Filename-matched {len(matched)} frames")
     return matched
 
