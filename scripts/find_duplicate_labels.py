@@ -371,6 +371,7 @@ def process_session(
     session_info: dict[str, str],
     n_clusters: int,
     tmp_dir: Path,
+    csv_writer: Any = None,
 ) -> dict[str, Any]:
     """Find duplicate labeled frames for one session.
 
@@ -384,6 +385,8 @@ def process_session(
         Number of k-means clusters.
     tmp_dir : Path
         Temporary directory for video downloads.
+    csv_writer : csv.DictWriter or None
+        Writer for the duplicates CSV.
 
     Returns
     -------
@@ -493,10 +496,23 @@ def process_session(
         k,
     )
 
-    # Step 8: For each duplicate pair, stitch side-by-side and save
+    # Build video-index → label-index (0-based) map
+    sorted_labeled = sorted(labeled_indices)
+    label_idx_map = {vi: li for li, vi in enumerate(sorted_labeled)}
+
+    # Write CSV + stitch side-by-side images
     session_tag = f"{sub}_{ses}"
-    for group in duplicate_groups:
+    for cluster_id, group in enumerate(duplicate_groups):
         for f1, f2 in combinations(group, 2):
+            if csv_writer is not None:
+                csv_writer.writerow({
+                    "session": exp_id,
+                    "frame_1_video_idx": f1,
+                    "frame_2_video_idx": f2,
+                    "frame_1_label_idx": label_idx_map.get(f1, -1),
+                    "frame_2_label_idx": label_idx_map.get(f2, -1),
+                    "cluster_id": cluster_id,
+                })
             img1 = extract_full_frame(video_path, f1)
             img2 = extract_full_frame(video_path, f2)
             if img1 is None or img2 is None:
@@ -566,6 +582,16 @@ def main() -> None:
         shutil.rmtree(OUTPUT_DIR)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    # CSV for flagged pairs
+    csv_path = OUTPUT_DIR / "_duplicates.csv"
+    csv_file = open(csv_path, "w", newline="")
+    csv_writer = csv.DictWriter(
+        csv_file,
+        fieldnames=["session", "frame_1_video_idx", "frame_2_video_idx",
+                     "frame_1_label_idx", "frame_2_label_idx", "cluster_id"],
+    )
+    csv_writer.writeheader()
+
     print(f"\n{'=' * 62}")
     print("  Duplicate label detection (PCA + k-means)")
     print(f"  Sessions: {len(all_sessions)}   Clusters: {args.clusters}")
@@ -583,6 +609,7 @@ def main() -> None:
                 session_info=sess,
                 n_clusters=args.clusters,
                 tmp_dir=tmp_dir,
+                csv_writer=csv_writer,
             )
             results.append(result)
 
@@ -615,7 +642,9 @@ def main() -> None:
     print(f"  {'TOTAL':<45s} {total_labeled:>6d} {total_pairs:>6d}")
     sessions_with_dups = sum(1 for r in results if r["n_duplicate_pairs"] > 0)
     print(f"\n  Sessions with duplicates: {sessions_with_dups}/{len(results)}")
+    csv_file.close()
     if total_pairs > 0:
+        print(f"  CSV: {csv_path}")
         print(f"  Side-by-side images saved to: {OUTPUT_DIR}/")
     print(f"{'=' * 62}\n")
 
