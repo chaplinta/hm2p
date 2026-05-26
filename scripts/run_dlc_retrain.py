@@ -34,15 +34,20 @@ import argparse
 import csv
 import datetime
 import json
+import logging
+import pickle
 import shutil
 import subprocess
 import sys
 import traceback
 import urllib.request
+from itertools import combinations
 from pathlib import Path
 
 import boto3
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 REGION = "ap-southeast-2"
 DERIVATIVES_BUCKET = "hm2p-derivatives"
@@ -124,11 +129,15 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
     # Bounded search under labeled-data/ only, filtering out nested
     # duplicates (depth > 2 under labeled-data/).
     _ld_root = work / "labeled-data"
-    gt_files = [
-        h5
-        for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
-        if len(h5.relative_to(_ld_root).parts) == 2
-    ] if _ld_root.exists() else []
+    gt_files = (
+        [
+            h5
+            for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
+            if len(h5.relative_to(_ld_root).parts) == 2
+        ]
+        if _ld_root.exists()
+        else []
+    )
     if not gt_files:
         print("  No ground-truth files found for per-bodypart RMSE")
         return
@@ -444,11 +453,15 @@ def _run_inference_on_labeled_frames(
 
     # Collect all labeled frame PNGs (bounded search under labeled-data/).
     _ld_root = work / "labeled-data"
-    gt_files = [
-        h5
-        for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
-        if len(h5.relative_to(_ld_root).parts) == 2
-    ] if _ld_root.exists() else []
+    gt_files = (
+        [
+            h5
+            for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
+            if len(h5.relative_to(_ld_root).parts) == 2
+        ]
+        if _ld_root.exists()
+        else []
+    )
     frame_dirs = {gf.parent for gf in gt_files}
     all_frames = []
     for fd in frame_dirs:
@@ -833,6 +846,8 @@ def _train_sa_finetune(
     *,
     epochs: int,
     batch_size: int,
+    split_clusters: int = 12,
+    n_test_sessions: int = 3,
 ) -> Path:
     """SuperAnimal memory-replay fine-tune (Ye et al. 2024).
 
@@ -893,6 +908,15 @@ def _train_sa_finetune(
         sa_shuffle = int(raw_shuffle)
     print(f"  SA shuffle index: {sa_shuffle} (raw: {type(raw_shuffle).__name__})")
 
+    # Overwrite DLC's random split with session-level stratified holdout.
+    metadata_csv = Path(__file__).resolve().parent.parent / "metadata" / "experiments.csv"
+    _create_stratified_split(
+        work,
+        metadata_csv,
+        n_clusters=split_clusters,
+        n_test_sessions=n_test_sessions,
+    )
+
     # Locate the new shuffle's pytorch_config.yaml and apply the
     # augmentation patch. The 256x256 input-size check is a soft
     # warning per pitfall #1.
@@ -942,6 +966,384 @@ def _train_sa_finetune(
     (work / "_sa_finetune_notes.txt").write_text(notes_text)
     print(f"  Notes stashed: {notes_text!r}")
     return config_path
+
+
+# ---------------------------------------------------------------------------
+# Stratified session-level train/test split
+# ---------------------------------------------------------------------------
+
+
+def _clip_dir_to_exp_id(
+    clip_dir_name: str,
+    exp_ids: list[str],
+) -> str | None:
+    """Map a labeled-data clip directory name to its experiments.csv ``exp_id``.
+
+    Clip directory names have timestamps offset by a few seconds from the
+    experiment start time, but share the same date (``YYYYMMDD``) and animal
+    ID (last underscore-delimited token). When date + animal are ambiguous
+    (multiple sessions on the same day for one animal), the closest time
+    match is used.
+
+    Parameters
+    ----------
+    clip_dir_name
+        Clip directory name, e.g.
+        ``20220804_11_22_03_1117646_maze-rose_overhead.camera-cropped``.
+        Only the first 5 underscore-delimited tokens are used (timestamp +
+        animal ID).
+    exp_ids
+        All ``exp_id`` strings from experiments.csv, each in format
+        ``YYYYMMDD_HH_MM_SS_animalid``.
+
+    Returns
+    -------
+    str or None
+        The matching ``exp_id``, or None if no match is found.
+    """
+    parts = clip_dir_name.split("_")
+    if len(parts) < 5:
+        return None
+    clip_date = parts[0]
+    clip_animal = parts[4]
+    # Parse clip time as total seconds for distance comparison.
+    try:
+        clip_seconds = int(parts[1]) * 3600 + int(parts[2]) * 60 + int(parts[3])
+    except ValueError:
+        return None
+
+    best_exp_id: str | None = None
+    best_distance = float("inf")
+    for eid in exp_ids:
+        e_parts = eid.split("_")
+        if len(e_parts) < 5:
+            continue
+        if e_parts[0] != clip_date or e_parts[4] != clip_animal:
+            continue
+        try:
+            exp_seconds = int(e_parts[1]) * 3600 + int(e_parts[2]) * 60 + int(e_parts[3])
+        except ValueError:
+            continue
+        dist = abs(clip_seconds - exp_seconds)
+        if dist < best_distance:
+            best_distance = dist
+            best_exp_id = eid
+
+    # Sanity check: reject if the best match is more than 60 seconds away.
+    if best_distance > 60:
+        return None
+    return best_exp_id
+
+
+def _create_stratified_split(
+    work: Path,
+    metadata_csv: Path,
+    *,
+    n_clusters: int = 12,
+    n_test_sessions: int = 3,
+) -> bool:
+    """Overwrite DLC's random train/test split with a session-level holdout.
+
+    Selects ``n_test_sessions`` primary non-excluded sessions whose combined
+    pose-cluster distribution best matches the overall dataset (minimising
+    KL divergence). All frames from these sessions become the test set;
+    all others become the train set. This eliminates train/test leakage
+    from temporal correlation within sessions.
+
+    Called after ``deeplabcut.create_training_dataset()`` to overwrite
+    the ``Documentation_data-*.pickle`` file it produced.
+
+    Parameters
+    ----------
+    work
+        DLC project working directory (contains ``labeled-data/``,
+        ``training-datasets/``, ``config.yaml``).
+    metadata_csv
+        Path to ``metadata/experiments.csv``.
+    n_clusters
+        Number of k-means clusters for pose-space grouping.
+    n_test_sessions
+        Number of primary non-excluded sessions to hold out as test.
+
+    Returns
+    -------
+    bool
+        True if the split was successfully overwritten, False if the
+        function fell back (caller should use DLC's random split).
+
+    References
+    ----------
+    Glazner et al. 2025. "Find the Leak, Fix the Split." arXiv:2511.13944.
+    Ye et al. 2024. "SuperAnimal pretrained pose estimation models."
+    Nature Communications 15:5165. doi:10.1038/s41467-024-48792-2.
+    """
+    import pandas as pd
+    from scipy.special import rel_entr
+    from sklearn.cluster import KMeans
+
+    # ── Step 0: Load experiments.csv and identify primary non-excluded sessions ──
+    if not metadata_csv.exists():
+        print(f"  WARNING: {metadata_csv} not found — skipping stratified split")
+        return False
+
+    exp_rows: dict[str, dict[str, str]] = {}
+    with open(metadata_csv) as f:
+        for row in csv.DictReader(f):
+            exp_rows[row["exp_id"]] = row
+    all_exp_ids = list(exp_rows.keys())
+
+    primary_non_excluded: set[str] = set()
+    for eid, row in exp_rows.items():
+        if (
+            str(row.get("primary_exp", "0")).strip() == "1"
+            and str(row.get("exclude", "0")).strip() == "0"
+        ):
+            primary_non_excluded.add(eid)
+
+    if len(primary_non_excluded) < n_test_sessions:
+        print(
+            f"  WARNING: only {len(primary_non_excluded)} primary non-excluded sessions "
+            f"(need {n_test_sessions}) — skipping stratified split"
+        )
+        return False
+
+    # ── Step 1: Load all CollectedData H5 files ─────────────────────────────
+    ld_root = work / "labeled-data"
+    if not ld_root.exists():
+        print("  WARNING: no labeled-data/ directory — skipping stratified split")
+        return False
+
+    gt_files = [
+        h5
+        for h5 in sorted(ld_root.rglob("CollectedData_*.h5"))
+        if len(h5.relative_to(ld_root).parts) == 2
+    ]
+    if not gt_files:
+        print("  WARNING: no CollectedData H5 files — skipping stratified split")
+        return False
+
+    # Map each clip directory to its exp_id.
+    clip_to_exp: dict[str, str | None] = {}
+    for gf in gt_files:
+        clip_name = gf.parent.name
+        clip_to_exp[clip_name] = _clip_dir_to_exp_id(clip_name, all_exp_ids)
+
+    # Load frames per clip, tracking which session each frame belongs to.
+    frames_list: list[pd.DataFrame] = []
+    frame_session_ids: list[str | None] = []  # exp_id for each frame
+    frame_clip_names: list[str] = []  # clip dir name for each frame
+
+    for gf in gt_files:
+        clip_name = gf.parent.name
+        exp_id = clip_to_exp.get(clip_name)
+        try:
+            df = pd.read_hdf(gf)
+        except Exception:
+            continue
+        frames_list.append(df)
+        frame_session_ids.extend([exp_id] * len(df))
+        frame_clip_names.extend([clip_name] * len(df))
+
+    if not frames_list:
+        print("  WARNING: could not load any CollectedData — skipping stratified split")
+        return False
+
+    all_frames = pd.concat(frames_list, ignore_index=False)
+    n_total = len(all_frames)
+    print(f"  Stratified split: {n_total} total labeled frames across {len(gt_files)} clips")
+
+    # ── Step 2: Extract (x, y) coordinate features ──────────────────────────
+    scorer = all_frames.columns.get_level_values(0)[0]
+    bodyparts = all_frames.columns.get_level_values(1).unique().tolist()
+
+    # Build feature matrix: (N, B*2) where B is number of bodyparts.
+    coords: list[np.ndarray] = []
+    for bp in bodyparts:
+        try:
+            x = all_frames[(scorer, bp, "x")].values.astype(float)
+            y = all_frames[(scorer, bp, "y")].values.astype(float)
+        except KeyError:
+            x = np.full(n_total, np.nan)
+            y = np.full(n_total, np.nan)
+        coords.extend([x, y])
+
+    feature_matrix = np.column_stack(coords)  # (N, B*2)
+
+    # Handle NaNs: fill with per-column (per-bodypart-coordinate) mean.
+    col_means = np.nanmean(feature_matrix, axis=0)
+    for j in range(feature_matrix.shape[1]):
+        nan_mask = np.isnan(feature_matrix[:, j])
+        if nan_mask.any():
+            fill_val = col_means[j] if np.isfinite(col_means[j]) else 0.0
+            feature_matrix[nan_mask, j] = fill_val
+
+    # ── Step 3: k-means clustering ──────────────────────────────────────────
+    try:
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+        cluster_labels = kmeans.fit_predict(feature_matrix)
+    except Exception as e:
+        print(f"  WARNING: k-means failed ({e}) — skipping stratified split")
+        return False
+
+    # ── Step 4: Compute per-session cluster distributions ───────────────────
+    session_ids_array = np.array(frame_session_ids, dtype=object)
+    unique_sessions = sorted(set(s for s in frame_session_ids if s is not None))
+
+    # Overall cluster distribution (target).
+    overall_counts = np.bincount(cluster_labels, minlength=n_clusters).astype(float)
+    overall_dist = overall_counts / overall_counts.sum()
+
+    # Per-session cluster distributions.
+    session_cluster_counts: dict[str, np.ndarray] = {}
+    session_frame_indices: dict[str, list[int]] = {}
+    for sid in unique_sessions:
+        mask = session_ids_array == sid
+        indices = np.where(mask)[0]
+        session_frame_indices[sid] = indices.tolist()
+        counts = np.bincount(cluster_labels[mask], minlength=n_clusters).astype(float)
+        session_cluster_counts[sid] = counts
+
+    # ── Step 5: Select test sessions via KL divergence minimisation ─────────
+    # Candidates: primary non-excluded sessions that have labeled data.
+    candidates = sorted(primary_non_excluded & set(unique_sessions))
+
+    if len(candidates) < n_test_sessions:
+        print(
+            f"  WARNING: only {len(candidates)} primary non-excluded sessions have "
+            f"labeled data (need {n_test_sessions}) — skipping stratified split"
+        )
+        return False
+
+    eps = 1e-10  # Epsilon to avoid log(0) in KL divergence.
+    best_combo: tuple[str, ...] | None = None
+    best_kl = float("inf")
+
+    for combo in combinations(candidates, n_test_sessions):
+        # Aggregate cluster counts for this combination.
+        combo_counts = np.zeros(n_clusters, dtype=float)
+        for sid in combo:
+            combo_counts += session_cluster_counts[sid]
+        combo_total = combo_counts.sum()
+        if combo_total == 0:
+            continue
+        combo_dist = combo_counts / combo_total
+
+        # KL divergence: D_KL(combo_dist || overall_dist).
+        kl = float(np.sum(rel_entr(combo_dist + eps, overall_dist + eps)))
+
+        if kl < best_kl:
+            best_kl = kl
+            best_combo = combo
+
+    if best_combo is None:
+        print("  WARNING: no valid test session combination found — skipping stratified split")
+        return False
+
+    # ── Step 5b: Verify all clusters covered in test set ────────────────────
+    test_cluster_counts = np.zeros(n_clusters, dtype=float)
+    for sid in best_combo:
+        test_cluster_counts += session_cluster_counts[sid]
+
+    uncovered = np.where(test_cluster_counts == 0)[0]
+    if len(uncovered) > 0:
+        print(
+            f"  WARNING: test set does not cover clusters {uncovered.tolist()}. "
+            f"Searching for a combo with full coverage..."
+        )
+        # Try all combos ranked by KL, pick the first with full coverage.
+        kl_combos: list[tuple[float, tuple[str, ...]]] = []
+        for combo in combinations(candidates, n_test_sessions):
+            combo_counts = np.zeros(n_clusters, dtype=float)
+            for sid in combo:
+                combo_counts += session_cluster_counts[sid]
+            if (combo_counts == 0).any() or combo_counts.sum() == 0:
+                continue
+            combo_dist = combo_counts / combo_counts.sum()
+            kl = float(np.sum(rel_entr(combo_dist + eps, overall_dist + eps)))
+            kl_combos.append((kl, combo))
+
+        if kl_combos:
+            kl_combos.sort(key=lambda x: x[0])
+            best_kl, best_combo = kl_combos[0]
+            test_cluster_counts = np.zeros(n_clusters, dtype=float)
+            for sid in best_combo:
+                test_cluster_counts += session_cluster_counts[sid]
+            print(f"  Found combo with full coverage: KL={best_kl:.4f}")
+        else:
+            print("  No combo with full cluster coverage — proceeding with best KL combo")
+
+    # ── Step 6: Build train/test index arrays ───────────────────────────────
+    test_sessions = set(best_combo)
+    test_indices: list[int] = []
+    train_indices: list[int] = []
+
+    for i in range(n_total):
+        sid = frame_session_ids[i]
+        if sid in test_sessions:
+            test_indices.append(i)
+        else:
+            train_indices.append(i)
+
+    train_idx = np.array(train_indices, dtype=int)
+    test_idx = np.array(test_indices, dtype=int)
+
+    # ── Step 7: Overwrite the Documentation_data pickle ─────────────────────
+    doc_pickles = sorted(work.rglob("Documentation_data-*.pickle"))
+    if not doc_pickles:
+        print("  WARNING: no Documentation_data pickle found — skipping stratified split")
+        return False
+
+    pickle_path = doc_pickles[-1]
+    try:
+        with open(pickle_path, "rb") as f:
+            meta = pickle.load(f)
+    except Exception as e:
+        print(f"  WARNING: could not read pickle ({e}) — skipping stratified split")
+        return False
+
+    # Pickle format: [data, trainIndices, testIndices, trainFraction]
+    # Preserve data (meta[0]) and trainFraction (meta[3] if present).
+    if len(meta) >= 4:
+        new_meta = [meta[0], train_idx, test_idx, meta[3]]
+    elif len(meta) >= 3:
+        new_meta = [meta[0], train_idx, test_idx]
+    else:
+        print(f"  WARNING: unexpected pickle format (len={len(meta)}) — skipping stratified split")
+        return False
+
+    with open(pickle_path, "wb") as f:
+        pickle.dump(new_meta, f, pickle.HIGHEST_PROTOCOL)
+
+    # ── Step 8: Print diagnostics ───────────────────────────────────────────
+    print("\n  === Stratified split diagnostics ===")
+    print(f"  Test sessions ({n_test_sessions}): {list(best_combo)}")
+    print(f"  KL divergence (test vs overall): {best_kl:.6f}")
+    print(f"  Train frames: {len(train_indices)}, Test frames: {len(test_indices)}")
+    train_pct = len(train_indices) / n_total
+    test_pct = len(test_indices) / n_total
+    print(f"  Train/Test ratio: {train_pct:.1%} / {test_pct:.1%}")
+
+    print(f"\n  Per-cluster frame counts (k={n_clusters}):")
+    print(f"  {'Cluster':>8s} {'Train':>6s} {'Test':>6s} {'Total':>6s} {'Test%':>6s}")
+    for k in range(n_clusters):
+        train_k = int(np.sum(cluster_labels[train_idx] == k))
+        test_k = int(np.sum(cluster_labels[test_idx] == k))
+        total_k = train_k + test_k
+        pct = f"{test_k / total_k * 100:.1f}" if total_k > 0 else "n/a"
+        print(f"  {k:>8d} {train_k:>6d} {test_k:>6d} {total_k:>6d} {pct:>6s}")
+
+    print("\n  Per-session membership:")
+    for sid in unique_sessions:
+        n_frames = len(session_frame_indices.get(sid, []))
+        role = "TEST" if sid in test_sessions else "train"
+        is_primary = sid in primary_non_excluded
+        label = f"{'primary' if is_primary else 'secondary/excluded'}"
+        print(f"    {sid:<35s}  {n_frames:>4d} frames  {role:<5s}  ({label})")
+
+    print(f"  Pickle overwritten: {pickle_path.name}")
+    print("  === End stratified split ===\n")
+
+    return True
 
 
 def _upload_eval_results_json(s3, work: Path, config_path: Path, epochs: int) -> None:
@@ -1010,11 +1412,15 @@ def _upload_eval_results_json(s3, work: Path, config_path: Path, epochs: int) ->
     # filtering out nested duplicates).
     n_frames = 0
     _ld_root = work / "labeled-data"
-    _cd_files = [
-        h5
-        for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
-        if len(h5.relative_to(_ld_root).parts) == 2
-    ] if _ld_root.exists() else []
+    _cd_files = (
+        [
+            h5
+            for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
+            if len(h5.relative_to(_ld_root).parts) == 2
+        ]
+        if _ld_root.exists()
+        else []
+    )
     for h5 in _cd_files:
         try:
             n_frames += len(pd.read_hdf(h5))
@@ -1138,6 +1544,8 @@ def train(
     batch_size: int = 8,
     sa_finetune: bool = False,
     bodyparts: list[str] | None = None,
+    split_clusters: int = 12,
+    n_test_sessions: int = 3,
 ) -> Path:
     """Download labels from S3, fine-tune DLC, upload model weights.
 
@@ -1164,6 +1572,10 @@ def train(
         bodyparts are trained. Labels for other bodyparts remain in
         CollectedData but are ignored by DLC during training.
         E.g. ``["left_ear", "right_ear"]`` for ears-only experiment.
+    split_clusters
+        Number of k-means clusters for the stratified train/test split.
+    n_test_sessions
+        Number of primary non-excluded sessions to hold out as the test set.
     """
     import deeplabcut
 
@@ -1199,12 +1611,10 @@ def train(
     _ld_prefix = f"{RETRAIN_PREFIX}/labeled-data/"
     _ld_paginator = s3.get_paginator("list_objects_v2")
     _n_ld = 0
-    for _ld_page in _ld_paginator.paginate(
-        Bucket=DERIVATIVES_BUCKET, Prefix=_ld_prefix
-    ):
+    for _ld_page in _ld_paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=_ld_prefix):
         for _ld_obj in _ld_page.get("Contents", []):
             _ld_key = _ld_obj["Key"]
-            _ld_rel = _ld_key[len(f"{RETRAIN_PREFIX}/"):]
+            _ld_rel = _ld_key[len(f"{RETRAIN_PREFIX}/") :]
             if not _ld_rel or _ld_rel.startswith("_"):
                 continue
             _ld_dest = work / _ld_rel
@@ -1251,11 +1661,15 @@ def train(
     import pandas as pd
 
     _ld_root = work / "labeled-data"
-    _cd_train = [
-        h5
-        for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
-        if len(h5.relative_to(_ld_root).parts) == 2
-    ] if _ld_root.exists() else []
+    _cd_train = (
+        [
+            h5
+            for h5 in sorted(_ld_root.rglob("CollectedData_*.h5"))
+            if len(h5.relative_to(_ld_root).parts) == 2
+        ]
+        if _ld_root.exists()
+        else []
+    )
     for h5 in _cd_train:
         try:
             df = pd.read_hdf(h5)
@@ -1291,6 +1705,8 @@ def train(
             config_path,
             epochs=epochs,
             batch_size=batch_size,
+            split_clusters=split_clusters,
+            n_test_sessions=n_test_sessions,
         )
         # SA path runs train_network internally; the shared post-training
         # block (evaluation + uploads) follows below.
@@ -1313,6 +1729,16 @@ def train(
     # Create training dataset (default ResNet50 config — we override below).
     print("Creating training dataset...")
     deeplabcut.create_training_dataset(str(config_path))
+
+    # Overwrite DLC's random split with session-level stratified holdout.
+    metadata_csv = Path(__file__).resolve().parent.parent / "metadata" / "experiments.csv"
+    _create_stratified_split(
+        work,
+        metadata_csv,
+        n_clusters=split_clusters,
+        n_test_sessions=n_test_sessions,
+    )
+
     update_progress(s3, "Training: dataset created")
 
     # Override config: switch to HRNet-W32 backbone (ImageNet pretrained
@@ -1915,6 +2341,22 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "E.g. --bodyparts left_ear,right_ear for ears-only experiment. "
         "Labels are NOT modified — DLC ignores unlisted bodyparts.",
     )
+    parser.add_argument(
+        "--split-clusters",
+        type=int,
+        default=12,
+        help="Number of k-means clusters for the stratified train/test split "
+        "(default 12). Frames are grouped into pose archetypes; the test "
+        "set is selected to cover all clusters proportionally.",
+    )
+    parser.add_argument(
+        "--n-test-sessions",
+        type=int,
+        default=3,
+        help="Number of primary non-excluded sessions to hold out as the "
+        "test set (default 3). Selected by minimising KL divergence of "
+        "pose-cluster distribution vs the overall dataset.",
+    )
     return parser
 
 
@@ -1962,7 +2404,7 @@ def main() -> None:
         ):
             for _eval_obj in _eval_page.get("Contents", []):
                 _eval_key = _eval_obj["Key"]
-                _eval_rel = _eval_key[len(f"{RETRAIN_PREFIX}/"):]
+                _eval_rel = _eval_key[len(f"{RETRAIN_PREFIX}/") :]
                 if not _eval_rel or _eval_rel.startswith("_"):
                     continue
                 _eval_dest = work / _eval_rel
@@ -1990,7 +2432,7 @@ def main() -> None:
         ):
             for _eval_m_obj in _eval_m_page.get("Contents", []):
                 _eval_m_key = _eval_m_obj["Key"]
-                _eval_m_rel = _eval_m_key[len(f"{RETRAIN_PREFIX}/models/"):]
+                _eval_m_rel = _eval_m_key[len(f"{RETRAIN_PREFIX}/models/") :]
                 if not _eval_m_rel or _eval_m_rel.startswith("_"):
                     continue
                 # Skip nested models/models/ keys
@@ -2022,6 +2464,8 @@ def main() -> None:
             batch_size=args.batch_size,
             sa_finetune=args.sa_finetune,
             bodyparts=bp_override,
+            split_clusters=args.split_clusters,
+            n_test_sessions=args.n_test_sessions,
         )
 
     if do_infer:
