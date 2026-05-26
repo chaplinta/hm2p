@@ -48,7 +48,7 @@ _UNTESTED_PAGES = [
     "stability_page",
     "stats_page",
     "suite2p_page",
-    "sync_page",
+    "sync_report_page",
     "timeline_page",
     "trace_compare_page",
     "zdrift_page",

@@ -64,11 +64,35 @@ from frontend.data import (  # noqa: E402
     parse_session_id,
 )
 
-# Restore original streamlit module so other test files aren't affected.
+# Restore original streamlit so other test files aren't affected.
 if _orig_st is not None:
     sys.modules["streamlit"] = _orig_st
 else:
     sys.modules.pop("streamlit", None)
+
+# Save the mock-imported frontend.data module so that patch("frontend.data.X")
+# calls within this file resolve correctly, then remove it from sys.modules so
+# that OTHER test files get a fresh (real-streamlit) import of frontend.data.
+_mock_data_module = sys.modules.pop("frontend.data", None)
+
+
+@pytest.fixture(autouse=True)
+def _register_mock_data_module():
+    """Temporarily register the mock-imported frontend.data in sys.modules.
+
+    This is needed so that ``unittest.mock.patch("frontend.data.X")`` can
+    resolve the target during each test in this file.  The module is removed
+    afterwards so other test files importing ``frontend.data`` get the real
+    (non-mock) version.
+    """
+    prev = sys.modules.get("frontend.data")
+    sys.modules["frontend.data"] = _mock_data_module
+    yield
+    # Restore whatever was there before (or remove if nothing was).
+    if prev is not None:
+        sys.modules["frontend.data"] = prev
+    else:
+        sys.modules.pop("frontend.data", None)
 
 
 # ===================================================================

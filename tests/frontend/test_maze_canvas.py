@@ -901,16 +901,13 @@ class TestRenderMazeCanvas:
         from frontend.components.maze_canvas import render_maze_canvas
 
         payload = self._make_payload()
-        mock_components_v1 = MagicMock()
+        mock_html = MagicMock()
 
-        with patch.dict("sys.modules", {
-            "streamlit.components": MagicMock(),
-            "streamlit.components.v1": mock_components_v1,
-        }):
+        with patch("streamlit.components.v1.html", mock_html):
             render_maze_canvas(payload, height=780)
 
-        mock_components_v1.html.assert_called_once()
-        html_arg = mock_components_v1.html.call_args[0][0]
+        mock_html.assert_called_once()
+        html_arg = mock_html.call_args[0][0]
         assert "<canvas" in html_arg
 
 

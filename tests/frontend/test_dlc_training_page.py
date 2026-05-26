@@ -38,6 +38,11 @@ _st_mock.plotly_chart = MagicMock()
 _st_mock.json = MagicMock()
 _st_mock.number_input = MagicMock(return_value=20)
 _st_mock.dataframe = MagicMock()
+# Save originals so we can restore them after loading the page module.
+_orig_st_dtrain = sys.modules.get("streamlit")
+_orig_frontend_dtrain = sys.modules.get("frontend")
+_orig_fdata_dtrain = sys.modules.get("frontend.data")
+
 sys.modules["streamlit"] = _st_mock
 
 
@@ -73,6 +78,22 @@ def _load_page_functions() -> types.ModuleType:
 
 # Load the module once and grab references to functions.
 _page_mod = _load_page_functions()
+
+# Restore sys.modules so other test files aren't contaminated.
+if _orig_st_dtrain is not None:
+    sys.modules["streamlit"] = _orig_st_dtrain
+else:
+    sys.modules.pop("streamlit", None)
+
+if _orig_frontend_dtrain is not None:
+    sys.modules["frontend"] = _orig_frontend_dtrain
+else:
+    sys.modules.pop("frontend", None)
+
+if _orig_fdata_dtrain is not None:
+    sys.modules["frontend.data"] = _orig_fdata_dtrain
+else:
+    sys.modules.pop("frontend.data", None)
 
 
 # ═══════════════════════════════════════════════════════════════════════

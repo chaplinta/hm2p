@@ -57,7 +57,7 @@ class TestPipelineStagesConsistency:
     def test_known_stages_present(self):
         """All expected pipeline stages should exist."""
         expected = {
-            "ingest", "ca_extraction", "dlc_training", "pose", "pose_finetuned",
+            "ingest", "ca_extraction", "dlc_training", "pose",
             "kinematics", "calcium", "sync", "analysis", "kpms", "cascade",
         }
         assert set(self.stages.keys()) == expected
