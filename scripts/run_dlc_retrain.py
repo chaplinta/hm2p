@@ -284,6 +284,19 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
             pred.columns = pd.MultiIndex.from_tuples(pred.columns)
         print(f"  Collapsed to {pred.columns.nlevels}-level, {len(pred.columns)} columns")
 
+    # Rename SA bodypart names to match GT labels (e.g. "nose" → "nose_tip")
+    _SA_BP_ALIASES = {"nose": "nose_tip"}
+    if pred.columns.nlevels == 3:
+        renamed = []
+        for col in pred.columns:
+            scorer, bp, coord = col
+            bp = _SA_BP_ALIASES.get(bp, bp)
+            renamed.append((scorer, bp, coord))
+        pred.columns = pd.MultiIndex.from_tuples(renamed)
+        aliased = [f"{k}→{v}" for k, v in _SA_BP_ALIASES.items()
+                   if any(k == c[1] for c in pred.columns) or True]
+        print(f"  Applied bodypart aliases: {_SA_BP_ALIASES}")
+
     # ── Compute per-frame errors ────────────────────────────────────────
     per_bp_errors: dict[str, list[float]] = {bp: [] for bp in bodyparts}
     per_frame: list[dict] = []
