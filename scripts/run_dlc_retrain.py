@@ -919,7 +919,7 @@ def _train_sa_finetune(
     epochs: int,
     batch_size: int,
     split_clusters: int = 12,
-    n_test_sessions: int = 3,
+    n_test_sessions: int = 4,
     run_name: str | None = None,
 ) -> Path:
     """SuperAnimal memory-replay fine-tune (Ye et al. 2024).
@@ -1113,7 +1113,7 @@ def _create_stratified_split(
     metadata_csv: Path,
     *,
     n_clusters: int = 12,
-    n_test_sessions: int = 3,
+    n_test_sessions: int = 4,
 ) -> bool:
     """Overwrite DLC's random train/test split with a session-level holdout.
 
@@ -1618,7 +1618,7 @@ def train(
     sa_finetune: bool = False,
     bodyparts: list[str] | None = None,
     split_clusters: int = 12,
-    n_test_sessions: int = 3,
+    n_test_sessions: int = 4,
     run_name: str | None = None,
 ) -> Path:
     """Download labels from S3, fine-tune DLC, upload model weights.
@@ -2435,9 +2435,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--n-test-sessions",
         type=int,
-        default=3,
+        default=4,
         help="Number of primary non-excluded sessions to hold out as the "
-        "test set (default 3). Selected by minimising KL divergence of "
+        "test set (default 4). Selected by minimising KL divergence of "
         "pose-cluster distribution vs the overall dataset.",
     )
     return parser
