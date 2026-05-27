@@ -399,8 +399,12 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
         errs = per_bp_errors[bp]
         if errs:
             arr = np.array(errs)
+            # Trimmed RMSE: exclude top 5% errors (detector failures)
+            trim_n = max(1, int(len(arr) * 0.95))
+            arr_trimmed = np.sort(arr)[:trim_n]
             result["bodyparts"][bp] = {
                 "rmse": float(np.sqrt(np.mean(arr**2))),
+                "rmse_trimmed95": float(np.sqrt(np.mean(arr_trimmed**2))),
                 "mean_error": float(np.mean(arr)),
                 "median_error": float(np.median(arr)),
                 "std": float(np.std(arr)),
@@ -419,8 +423,8 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
         d = result["bodyparts"][bp]
         if d["rmse"] is not None:
             print(
-                f"    {bp:<16s}  RMSE={d['rmse']:6.2f}  median={d['median_error']:6.2f}  "
-                f"PCK@10={d['pck_10']:5.1f}%  n={d['n']}"
+                f"    {bp:<16s}  RMSE={d['rmse']:6.2f}  trimmed={d['rmse_trimmed95']:5.2f}  "
+                f"median={d['median_error']:5.2f}  PCK@10={d['pck_10']:5.1f}%  n={d['n']}"
             )
         else:
             print(f"    {bp:<16s}  (no data)")
