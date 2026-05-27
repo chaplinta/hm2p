@@ -284,22 +284,31 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
             pred.columns = pd.MultiIndex.from_tuples(pred.columns)
         print(f"  Collapsed to {pred.columns.nlevels}-level, {len(pred.columns)} columns")
 
-    # Rename SA bodypart names to match GT labels (e.g. "nose" → "nose_tip")
-    _SA_BP_ALIASES = {"nose": "nose_tip"}
-    if pred.columns.nlevels == 3:
-        renamed = []
-        for col in pred.columns:
-            scorer, bp, coord = col
-            bp = _SA_BP_ALIASES.get(bp, bp)
-            renamed.append((scorer, bp, coord))
-        pred.columns = pd.MultiIndex.from_tuples(renamed)
-        aliased = [f"{k}→{v}" for k, v in _SA_BP_ALIASES.items()
-                   if any(k == c[1] for c in pred.columns) or True]
-        print(f"  Applied bodypart aliases: {_SA_BP_ALIASES}")
+    # Build a mapping from GT bodypart names to prediction bodypart names.
+    # The SA model may use different names (e.g. "nose" vs "nose_tip").
+    # Instead of renaming columns, we look up predictions using the pred name.
+    _GT_TO_PRED_BP: dict[str, str] = {}
+    pred_bp_names = set(pred.columns.get_level_values(
+        2 if pred.columns.nlevels == 4 else 1
+    ).unique())
+    for bp in bodyparts:
+        if bp in pred_bp_names:
+            _GT_TO_PRED_BP[bp] = bp
+        elif bp == "nose_tip" and "nose" in pred_bp_names:
+            _GT_TO_PRED_BP[bp] = "nose"
+        elif bp == "nose" and "nose_tip" in pred_bp_names:
+            _GT_TO_PRED_BP[bp] = "nose_tip"
+        else:
+            _GT_TO_PRED_BP[bp] = bp  # will KeyError if truly missing
+    aliased = {k: v for k, v in _GT_TO_PRED_BP.items() if k != v}
+    if aliased:
+        print(f"  Bodypart aliases (GT→pred): {aliased}")
 
     # ── Compute per-frame errors ────────────────────────────────────────
     per_bp_errors: dict[str, list[float]] = {bp: [] for bp in bodyparts}
+    per_bp_confidences: dict[str, list[float]] = {bp: [] for bp in bodyparts}
     per_frame: list[dict] = []
+    PCUTOFF = 0.6  # confidence threshold for filtered metrics
 
     # Build a list of (gt_idx, pred_idx) pairs. When indices match
     # directly, gt_idx == pred_idx. When they don't (common in DLC 3.x
@@ -354,15 +363,24 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
             if np.isnan(gx) or np.isnan(gy):
                 continue
 
+            pred_bp = _GT_TO_PRED_BP.get(bp, bp)
             try:
                 if _pred_is_tuple:
-                    px_val = pred.loc[[pred_idx], (pred_scorer, bp, "x")].iloc[0]
-                    py_val = pred.loc[[pred_idx], (pred_scorer, bp, "y")].iloc[0]
+                    px_val = pred.loc[[pred_idx], (pred_scorer, pred_bp, "x")].iloc[0]
+                    py_val = pred.loc[[pred_idx], (pred_scorer, pred_bp, "y")].iloc[0]
                 else:
-                    px_val = pred.loc[pred_idx, (pred_scorer, bp, "x")]
-                    py_val = pred.loc[pred_idx, (pred_scorer, bp, "y")]
+                    px_val = pred.loc[pred_idx, (pred_scorer, pred_bp, "x")]
+                    py_val = pred.loc[pred_idx, (pred_scorer, pred_bp, "y")]
                 px = float(px_val)
                 py = float(py_val)
+                # Extract likelihood
+                try:
+                    if _pred_is_tuple:
+                        lk = float(pred.loc[[pred_idx], (pred_scorer, pred_bp, "likelihood")].iloc[0])
+                    else:
+                        lk = float(pred.loc[pred_idx, (pred_scorer, pred_bp, "likelihood")])
+                except (KeyError, ValueError):
+                    lk = 1.0  # assume confident if no likelihood column
             except (KeyError, ValueError):
                 continue
             if np.isnan(px) or np.isnan(py):
@@ -370,6 +388,7 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
 
             err = float(np.sqrt((gx - px) ** 2 + (gy - py) ** 2))
             per_bp_errors[bp].append(err)
+            per_bp_confidences[bp].append(lk)
             frame_errors[bp] = round(err, 2)
             frame_gt[bp] = [round(gx, 1), round(gy, 1)]
             frame_pred[bp] = [round(px, 1), round(py, 1)]
@@ -397,34 +416,54 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
     }
     for bp in bodyparts:
         errs = per_bp_errors[bp]
+        confs = per_bp_confidences[bp]
         if errs:
             arr = np.array(errs)
-            # Trimmed RMSE: exclude top 5% errors (detector failures)
+            conf_arr = np.array(confs)
+            # Trimmed RMSE: exclude top 5% errors
             trim_n = max(1, int(len(arr) * 0.95))
             arr_trimmed = np.sort(arr)[:trim_n]
-            result["bodyparts"][bp] = {
+            # Filtered metrics: only predictions above pcutoff confidence
+            above_cutoff = conf_arr >= PCUTOFF
+            arr_filtered = arr[above_cutoff]
+            bp_result = {
                 "rmse": float(np.sqrt(np.mean(arr**2))),
                 "rmse_trimmed95": float(np.sqrt(np.mean(arr_trimmed**2))),
                 "mean_error": float(np.mean(arr)),
                 "median_error": float(np.median(arr)),
+                "p95_error": float(np.percentile(arr, 95)),
+                "max_error": float(np.max(arr)),
                 "std": float(np.std(arr)),
                 "n": len(errs),
                 "pck_5": float((arr <= 5).mean() * 100),
                 "pck_10": float((arr <= 10).mean() * 100),
                 "pck_15": float((arr <= 15).mean() * 100),
                 "pck_20": float((arr <= 20).mean() * 100),
+                "pcutoff": PCUTOFF,
             }
+            # Filtered metrics (confidence > pcutoff)
+            bp_result["pct_above_cutoff"] = float(above_cutoff.mean() * 100)
+            if len(arr_filtered) > 0:
+                bp_result["n_filtered"] = int(above_cutoff.sum())
+                bp_result["rmse_filtered"] = float(np.sqrt(np.mean(arr_filtered**2)))
+                bp_result["median_filtered"] = float(np.median(arr_filtered))
+                bp_result["p95_filtered"] = float(np.percentile(arr_filtered, 95))
+                bp_result["pck_10_filtered"] = float((arr_filtered <= 10).mean() * 100)
+            else:
+                bp_result["n_filtered"] = 0
+            result["bodyparts"][bp] = bp_result
         else:
             result["bodyparts"][bp] = {"rmse": None, "n": 0}
 
     # Print summary
-    print("\n  Per-bodypart RMSE (from DLC evaluation predictions):")
+    print(f"\n  Per-bodypart RMSE (pcutoff={PCUTOFF}):")
     for bp in bodyparts:
         d = result["bodyparts"][bp]
         if d["rmse"] is not None:
+            filt = f"filt_median={d.get('median_filtered', 0):5.2f}" if d.get("n_filtered", 0) > 0 else "filt=N/A"
             print(
-                f"    {bp:<16s}  RMSE={d['rmse']:6.2f}  trimmed={d['rmse_trimmed95']:5.2f}  "
-                f"median={d['median_error']:5.2f}  PCK@10={d['pck_10']:5.1f}%  n={d['n']}"
+                f"    {bp:<16s}  median={d['median_error']:5.2f}  p95={d['p95_error']:6.2f}  "
+                f"max={d['max_error']:7.1f}  PCK@10={d['pck_10']:5.1f}%  {filt}  n={d['n']}"
             )
         else:
             print(f"    {bp:<16s}  (no data)")

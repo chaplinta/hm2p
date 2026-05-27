@@ -716,7 +716,7 @@ class TestSplitCLIArgs:
     def test_n_test_sessions_default(self):
         parser = rdr._build_arg_parser()
         args = parser.parse_args([])
-        assert args.n_test_sessions == 3
+        assert args.n_test_sessions == 4
 
     def test_n_test_sessions_custom(self):
         parser = rdr._build_arg_parser()

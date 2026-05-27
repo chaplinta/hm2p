@@ -72,20 +72,24 @@ def load_pose_from_s3(s3, sub: str, ses: str) -> pd.DataFrame | None:
     return df
 
 
-# HD-critical keypoints get higher weight in confidence scoring.
-# Ears are the primary HD signal and most often occluded by the headstage.
-KEYPOINT_WEIGHTS: dict[str, float] = {
-    "nose_tip": 2.0,
-    "nose": 2.0,
-    "left_ear": 3.0,
-    "right_ear": 3.0,
-    "head_midpoint": 2.0,
-    "implant_base_rear": 2.0,  # legacy alias
+# Default keypoint weights — uniform (1.0 for all).
+# Override with --bodypart-weights to target specific bodyparts.
+DEFAULT_KEYPOINT_WEIGHTS: dict[str, float] = {
+    "nose_tip": 1.0,
+    "nose": 1.0,
+    "left_ear": 1.0,
+    "right_ear": 1.0,
+    "head_midpoint": 1.0,
+    "implant_base_rear": 1.0,  # legacy alias
     "neck": 1.0,
     "mid_back": 1.0,
     "mouse_center": 1.0,
     "tail_base": 1.0,
 }
+
+# Active weights — set from CLI or defaults. Module-level so score_frames
+# can access without threading the argument through every function.
+KEYPOINT_WEIGHTS: dict[str, float] = dict(DEFAULT_KEYPOINT_WEIGHTS)
 
 
 def score_frames(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, list[str]]:
@@ -370,7 +374,22 @@ def main():
                         help="Show selection without extracting frames")
     parser.add_argument("--label", action="store_true",
                         help="Extract frames AND open napari for each session")
+    parser.add_argument(
+        "--bodypart-weights", type=str, default=None,
+        help="Override bodypart weights for scoring (comma-separated bp:weight). "
+        "E.g. --bodypart-weights nose_tip:3,left_ear:2. "
+        "Unspecified bodyparts default to 1.0.",
+    )
     args = parser.parse_args()
+
+    # Apply bodypart weight overrides
+    global KEYPOINT_WEIGHTS
+    if args.bodypart_weights:
+        KEYPOINT_WEIGHTS = dict(DEFAULT_KEYPOINT_WEIGHTS)
+        for item in args.bodypart_weights.split(","):
+            bp, w = item.strip().split(":")
+            KEYPOINT_WEIGHTS[bp.strip()] = float(w.strip())
+        print(f"  Bodypart weights: {KEYPOINT_WEIGHTS}")
 
     s3 = boto3.client("s3", region_name=REGION)
     sessions = get_sessions()
