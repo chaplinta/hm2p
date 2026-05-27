@@ -228,6 +228,61 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
         return
 
     pred_scorer = pred.columns.get_level_values(0)[0]
+    print(f"  Pred columns nlevels={pred.columns.nlevels}, scorer={pred_scorer}")
+    print(f"  Pred columns (first 6): {list(pred.columns[:6])}")
+    print(f"  GT columns nlevels={gt.columns.nlevels}, scorer={gt_scorer}")
+
+    # Handle multi-animal format (4 levels) — collapse to 3 levels by
+    # picking the best individual per frame.
+    if pred.columns.nlevels == 4:
+        print("  Collapsing 4-level multi-animal predictions to 3-level...")
+        individuals = pred.columns.get_level_values(1).unique().tolist()
+        pred_bps = pred.columns.get_level_values(2).unique().tolist()
+        coords = pred.columns.get_level_values(3).unique().tolist()
+        # Pick individual with highest mean likelihood per frame
+        if len(individuals) == 1:
+            ind = individuals[0]
+        else:
+            import contextlib
+            lik_stack = []
+            for ind in individuals:
+                lik_vals = []
+                for bp in bodyparts:
+                    with contextlib.suppress(KeyError):
+                        lik_vals.append(pred[(pred_scorer, ind, bp, "likelihood")].values)
+                if lik_vals:
+                    lik_stack.append(np.nanmean(np.column_stack(lik_vals), axis=1))
+                else:
+                    lik_stack.append(np.zeros(len(pred)))
+            best_ind_idx = np.argmax(np.column_stack(lik_stack), axis=1)
+            ind = None  # will pick per-frame below
+
+        if len(individuals) == 1:
+            # Simple: just drop the individuals level
+            new_cols = {}
+            for bp in pred_bps:
+                for coord in coords:
+                    try:
+                        new_cols[(pred_scorer, bp, coord)] = pred[(pred_scorer, individuals[0], bp, coord)].values
+                    except KeyError:
+                        pass
+            pred = pd.DataFrame(new_cols, index=pred.index)
+            pred.columns = pd.MultiIndex.from_tuples(pred.columns)
+        else:
+            # Per-frame best individual
+            new_data = {}
+            for bp in pred_bps:
+                for coord in coords:
+                    vals = np.empty(len(pred))
+                    for fi in range(len(pred)):
+                        try:
+                            vals[fi] = pred.iloc[fi][(pred_scorer, individuals[best_ind_idx[fi]], bp, coord)]
+                        except (KeyError, IndexError):
+                            vals[fi] = np.nan
+                    new_data[(pred_scorer, bp, coord)] = vals
+            pred = pd.DataFrame(new_data, index=pred.index)
+            pred.columns = pd.MultiIndex.from_tuples(pred.columns)
+        print(f"  Collapsed to {pred.columns.nlevels}-level, {len(pred.columns)} columns")
 
     # ── Compute per-frame errors ────────────────────────────────────────
     per_bp_errors: dict[str, list[float]] = {bp: [] for bp in bodyparts}
