@@ -62,6 +62,7 @@ def build_user_data(
     sa_finetune: bool = False,
     eval_only: bool = False,
     bodyparts: str | None = None,
+    run_name: str | None = None,
 ) -> str:
     """Build the EC2 user-data script.
 
@@ -116,6 +117,9 @@ def build_user_data(
         mode_flag = f"{mode_flag} --bodyparts {bodyparts}"
         mode_label = f"{mode_label} [bodyparts: {bodyparts}]"
         mode = f"{mode}+bp-{bodyparts.replace(',', '-')}"
+
+    if run_name:
+        mode_flag = f"{mode_flag} --run-name {run_name}"
 
     cost_launch = format_cost_record_launch(
         DERIVATIVES_BUCKET,
@@ -255,6 +259,7 @@ def launch(
     sa_finetune: bool = False,
     eval_only: bool = False,
     bodyparts: str | None = None,
+    run_name: str | None = None,
 ) -> None:
     """Launch the retraining instance.
 
@@ -306,6 +311,7 @@ def launch(
         eval_only=eval_only,
         sa_finetune=sa_finetune,
         bodyparts=bodyparts,
+        run_name=run_name,
     )
 
     if dry_run:
@@ -476,6 +482,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Override bodyparts (comma-separated). "
         "E.g. --bodyparts left_ear,right_ear for ears-only.",
     )
+    parser.add_argument(
+        "--run-name", type=str, default=None,
+        help="W&B run name. Default: YYMMDD. Add suffix for what's being "
+        "tested (e.g. 260527-stratified). Append -2 for same-day reruns.",
+    )
     return parser
 
 
@@ -510,6 +521,7 @@ def main() -> None:
             sa_finetune=args.sa_finetune,
             eval_only=args.eval_only,
             bodyparts=args.bodyparts,
+            run_name=args.run_name,
         )
 
 

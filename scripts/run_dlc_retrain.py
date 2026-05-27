@@ -848,6 +848,7 @@ def _train_sa_finetune(
     batch_size: int,
     split_clusters: int = 12,
     n_test_sessions: int = 3,
+    run_name: str | None = None,
 ) -> Path:
     """SuperAnimal memory-replay fine-tune (Ye et al. 2024).
 
@@ -929,7 +930,7 @@ def _train_sa_finetune(
         _apply_sa_augmentation_patch(latest, epochs=epochs)
         _inject_wandb_logger(
             latest,
-            f"SA-finetune-{epochs}ep",
+            run_name or _default_run_name(),
             tags=["sa-finetune", "hrnet-w32", "memory-replay"],
         )
     else:
@@ -1546,6 +1547,7 @@ def train(
     bodyparts: list[str] | None = None,
     split_clusters: int = 12,
     n_test_sessions: int = 3,
+    run_name: str | None = None,
 ) -> Path:
     """Download labels from S3, fine-tune DLC, upload model weights.
 
@@ -1707,6 +1709,7 @@ def train(
             batch_size=batch_size,
             split_clusters=split_clusters,
             n_test_sessions=n_test_sessions,
+            run_name=run_name,
         )
         # SA path runs train_network internally; the shared post-training
         # block (evaluation + uploads) follows below.
@@ -1828,7 +1831,7 @@ def train(
         print(f"  Config updated: {pcfg_path.name}")
         _inject_wandb_logger(
             pcfg_path,
-            f"ImageNet-HRNet-{epochs}ep",
+            run_name or _default_run_name(),
             tags=["imagenet", "hrnet-w32"],
         )
 
@@ -2342,6 +2345,14 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "Labels are NOT modified — DLC ignores unlisted bodyparts.",
     )
     parser.add_argument(
+        "--run-name",
+        type=str,
+        default=None,
+        help="W&B run name. Default: YYMMDD (e.g. 260527). Add a suffix "
+        "for what's being tested (e.g. 260527-stratified). Append -2 etc "
+        "for multiple runs on the same day.",
+    )
+    parser.add_argument(
         "--split-clusters",
         type=int,
         default=12,
@@ -2358,6 +2369,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "pose-cluster distribution vs the overall dataset.",
     )
     return parser
+
+
+def _default_run_name() -> str:
+    """Generate default W&B run name: YYMMDD (e.g. 260527)."""
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%y%m%d")
 
 
 def resolve_epochs(epochs: int | None, *, sa_finetune: bool) -> int:
@@ -2466,6 +2482,7 @@ def main() -> None:
             bodyparts=bp_override,
             split_clusters=args.split_clusters,
             n_test_sessions=args.n_test_sessions,
+            run_name=args.run_name,
         )
 
     if do_infer:
