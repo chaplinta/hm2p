@@ -45,6 +45,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 LABELED_DIR = REPO_ROOT / "sourcedata/trackers/dlc/hm2p-retrain-tristan-2026-03-20/labeled-data"
 OUTPUT_DIR = REPO_ROOT / "retrain_frames" / "_similar_labels"
 METADATA_PATH = REPO_ROOT / "metadata" / "experiments.csv"
+PCA_CACHE_DIR = REPO_ROOT / "metadata" / "pca_cache"
 
 # Bodyparts to compare (exclude head_midpoint -- rigidly attached to skull)
 COMPARE_BODYPARTS = [
@@ -285,6 +286,75 @@ def compute_all_pairwise_distances(
 
 
 # ---------------------------------------------------------------------------
+# Image-based pairwise distance (PCA space)
+# ---------------------------------------------------------------------------
+
+
+def compute_image_pairwise_distances(
+    clip_dir: Path,
+    frame_indices: list[int],
+    sub: str,
+    ses: str,
+) -> list[tuple[int, int, float]]:
+    """Compute pairwise Euclidean distances in PCA space for labeled frames.
+
+    Loads the PCA model from cache, extracts thumbnails from labeled-data
+    PNGs, projects into PCA space, and computes all pairwise distances.
+
+    Returns
+    -------
+    list[tuple[int, int, float]]
+        ``(frame_i, frame_j, distance)`` for every valid pair.
+    """
+    import math
+    import pickle
+
+    # Load PCA model
+    cache_file = PCA_CACHE_DIR / f"{sub}_{ses}.npz"
+    pca_file = cache_file.with_suffix(".pca.pkl")
+    if not pca_file.exists():
+        log.warning("  No PCA model for %s/%s — cannot compute image distances", sub, ses)
+        return []
+
+    with open(pca_file, "rb") as f:
+        pca_model = pickle.load(f)
+
+    thumb_size = int(math.sqrt(pca_model.n_features_in_))
+
+    # Extract thumbnails and project into PCA space
+    features: list[np.ndarray] = []
+    valid_indices: list[int] = []
+
+    for fi in sorted(frame_indices):
+        png = clip_dir / f"frame_{fi:06d}.png"
+        if not png.exists():
+            continue
+        img = cv2.imread(str(png))
+        if img is None:
+            continue
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        thumb = cv2.resize(gray, (thumb_size, thumb_size),
+                           interpolation=cv2.INTER_NEAREST)
+        vec = thumb.astype(np.float64).ravel()
+        features.append(vec)
+        valid_indices.append(fi)
+
+    if len(features) < 2:
+        return []
+
+    feature_matrix = np.stack(features)
+    projected = pca_model.transform(feature_matrix)
+
+    # Compute all pairwise distances in PCA space
+    results: list[tuple[int, int, float]] = []
+    for i, j in combinations(range(len(valid_indices)), 2):
+        dist = float(np.linalg.norm(projected[i] - projected[j]))
+        results.append((valid_indices[i], valid_indices[j], dist))
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Video download from S3
 # ---------------------------------------------------------------------------
 
@@ -408,6 +478,7 @@ def process_session(
     max_dist: float,
     csv_writer: csv.DictWriter,
     dry_run: bool = False,
+    mode: str = "labels",
 ) -> tuple[dict[str, Any], list[float]]:
     """Find similar labeled frames for one session.
 
@@ -447,7 +518,8 @@ def process_session(
         log.warning("  No labeled-data directory found for %s.", exp_id)
         return result, all_distances
 
-    # Step 2: Load poses
+    # Step 2: Load poses (needed for both modes — label mode uses them
+    # directly, image mode uses frame_indices)
     pose_result = load_poses(clip_dir)
     if pose_result is None:
         log.warning("  No valid labeled frames for %s.", exp_id)
@@ -466,8 +538,13 @@ def process_session(
         clip_dir.name,
     )
 
-    # Step 3: Compute all pairwise Procrustes distances
-    pairwise = compute_all_pairwise_distances(poses, frame_indices)
+    # Step 3: Compute pairwise distances
+    if mode == "image":
+        pairwise = compute_image_pairwise_distances(
+            clip_dir, frame_indices, sub, ses,
+        )
+    else:
+        pairwise = compute_all_pairwise_distances(poses, frame_indices)
     all_distances = [d for _, _, d in pairwise]
 
     # Step 4: Flag pairs below threshold
@@ -544,6 +621,14 @@ def main() -> None:
         help="Print table and histogram only — no video download or images.",
     )
     parser.add_argument(
+        "--mode",
+        type=str,
+        choices=["labels", "image"],
+        default="labels",
+        help="Distance metric: 'labels' = raw bodypart coordinates (default), "
+        "'image' = PCA-projected thumbnail distance (requires PCA cache).",
+    )
+    parser.add_argument(
         "--delete",
         action="store_true",
         help="Delete duplicate frames (keep one per group, delete the rest). "
@@ -569,9 +654,11 @@ def main() -> None:
     csv_path = OUTPUT_DIR / "_flagged.csv"
     csv_fieldnames = ["session", "frame_1", "frame_2", "mean_displacement_px"]
 
+    mode_desc = "raw label coordinates" if args.mode == "labels" else "PCA image similarity"
+    units = "px" if args.mode == "labels" else "PCA dist"
     print(f"\n{'=' * 62}")
-    print("  Similar label detection (Procrustes-aligned pose comparison)")
-    print(f"  Sessions: {len(all_sessions)}   Max distance: {args.max_dist:.1f} px")
+    print(f"  Similar frame detection ({mode_desc})")
+    print(f"  Sessions: {len(all_sessions)}   Max distance: {args.max_dist:.1f} {units}")
     print(f"{'=' * 62}\n")
 
     results: list[dict[str, Any]] = []
@@ -588,6 +675,7 @@ def main() -> None:
                 max_dist=args.max_dist,
                 csv_writer=csv_writer,
                 dry_run=args.dry_run,
+                mode=args.mode,
             )
             results.append(result)
             global_distances.extend(distances)
