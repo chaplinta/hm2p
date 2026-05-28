@@ -792,6 +792,52 @@ if bp_eval:
             "Median and P95 are more informative than RMSE when outliers "
             "are present (detector failures on a few frames)."
         )
+
+        # Overall metrics (all bodyparts pooled)
+        with st.expander("Overall metrics (all bodyparts pooled)"):
+            all_errs = []
+            for bp in active_bps:
+                all_errs.extend([bp_info[bp].get("median_error", 0)] * bp_info[bp]["n"])
+            # Recompute from per_frame data for accuracy
+            per_frame_data = bp_eval.get("per_frame", [])
+            if per_frame_data:
+                flat_errs = []
+                for pf in per_frame_data:
+                    flat_errs.extend(pf.get("errors", {}).values())
+                if flat_errs:
+                    flat_arr = _np.array(flat_errs)
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Median", f"{_np.median(flat_arr):.2f} px")
+                    col2.metric("P95", f"{_np.percentile(flat_arr, 95):.1f} px")
+                    col3.metric("Max", f"{_np.max(flat_arr):.0f} px")
+                    col4.metric("n", f"{len(flat_arr)}")
+
+        # Per-session breakdown
+        per_frame_data = bp_eval.get("per_frame", [])
+        if per_frame_data and per_frame_data[0].get("session"):
+            with st.expander("Per-session breakdown"):
+                from collections import defaultdict
+                session_errors = defaultdict(list)
+                for pf in per_frame_data:
+                    sess = pf.get("session", "unknown")
+                    errs = list(pf.get("errors", {}).values())
+                    session_errors[sess].extend(errs)
+
+                sess_rows = []
+                for sess in sorted(session_errors.keys()):
+                    errs = _np.array(session_errors[sess])
+                    sess_rows.append({
+                        "Session": sess[:45],
+                        "Median (px)": f"{_np.median(errs):.2f}",
+                        "P95 (px)": f"{_np.percentile(errs, 95):.1f}",
+                        "Max (px)": f"{_np.max(errs):.0f}",
+                        "PCK@10": f"{(errs <= 10).mean() * 100:.1f}%",
+                        "n": len(errs),
+                    })
+                st.dataframe(
+                    _pd.DataFrame(sess_rows).set_index("Session"),
+                    use_container_width=True,
+                )
     else:
         st.info("No per-bodypart data available in the evaluation JSON.")
 else:

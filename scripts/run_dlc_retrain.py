@@ -332,6 +332,11 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
 
     for row_i, (gt_idx, pred_idx) in enumerate(matched_pairs):
         frame_id = _index_to_frame_id(gt_idx)
+        # Extract session/clip name from GT index
+        if isinstance(gt_idx, tuple) and len(gt_idx) >= 2:
+            clip_name = str(gt_idx[1])
+        else:
+            clip_name = "unknown"
         split = split_map.get(row_i, "unknown")
         # If split_map uses original integer indices, also try matching
         if split == "unknown" and row_i in split_map:
@@ -397,6 +402,7 @@ def _compute_per_bodypart_rmse(s3, work: Path, config_path: Path) -> None:
             per_frame.append(
                 {
                     "frame_id": frame_id,
+                    "session": clip_name,
                     "split": split,
                     "errors": frame_errors,
                     "gt": frame_gt,
