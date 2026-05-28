@@ -689,62 +689,108 @@ if bp_eval:
     active_bps = [bp for bp in BODYPARTS if bp_info.get(bp, {}).get("rmse") is not None]
 
     if active_bps:
-        # RMSE bar chart
-        means = [bp_info[bp]["rmse"] for bp in active_bps]
-        stds = [bp_info[bp].get("std", 0) for bp in active_bps]
-        counts = [bp_info[bp]["n"] for bp in active_bps]
+        # Summary table
+        pcutoff = bp_info[active_bps[0]].get("pcutoff", 0.6)
+        st.markdown(f"**Confidence threshold (pcutoff):** {pcutoff}")
 
+        import pandas as _pd
+
+        rows = []
+        for bp in active_bps:
+            info = bp_info[bp]
+            rows.append({
+                "Bodypart": bp,
+                "Median (px)": f"{info.get('median_error', 0):.2f}",
+                "P95 (px)": f"{info.get('p95_error', 0):.1f}",
+                "Max (px)": f"{info.get('max_error', 0):.0f}",
+                "PCK@10": f"{info.get('pck_10', 0):.1f}%",
+                "% Above Cutoff": f"{info.get('pct_above_cutoff', 0):.1f}%",
+                "Median (filtered)": f"{info.get('median_filtered', 0):.2f}" if info.get("n_filtered", 0) > 0 else "—",
+                "P95 (filtered)": f"{info.get('p95_filtered', 0):.1f}" if info.get("n_filtered", 0) > 0 else "—",
+                "n": info["n"],
+            })
+        st.dataframe(_pd.DataFrame(rows).set_index("Bodypart"), use_container_width=True)
+
+        # Median + P95 bar chart (grouped)
         fig_rmse = go.Figure()
         fig_rmse.add_trace(
             go.Bar(
                 x=active_bps,
-                y=means,
-                error_y=dict(type="data", array=stds, visible=True),
+                y=[bp_info[bp].get("median_error", 0) for bp in active_bps],
                 marker_color=[BP_COLORS.get(bp, "#888") for bp in active_bps],
-                text=[f"{m:.1f}px (n={n})" for m, n in zip(means, counts)],
-                textposition="outside",
+                name="Median error",
+            )
+        )
+        fig_rmse.add_trace(
+            go.Bar(
+                x=active_bps,
+                y=[bp_info[bp].get("p95_error", 0) for bp in active_bps],
+                marker_color=[BP_COLORS.get(bp, "#888") for bp in active_bps],
+                opacity=0.4,
+                name="95th percentile",
             )
         )
         fig_rmse.update_layout(
             xaxis_title="Bodypart",
-            yaxis_title="RMSE (pixels)",
+            yaxis_title="Error (pixels)",
             height=350,
             margin=dict(l=40, r=20, t=20, b=40),
+            barmode="overlay",
         )
         st.plotly_chart(fig_rmse, use_container_width=True)
 
-        # PCK curves
-        _thresholds = [5, 10, 15, 20]
-        fig_pck = go.Figure()
-        for bp in active_bps:
-            info = bp_info[bp]
-            pck_vals = [info.get(f"pck_{t}", 0) for t in _thresholds]
-            fig_pck.add_trace(
-                go.Scatter(
-                    x=[str(t) for t in _thresholds],
-                    y=pck_vals,
-                    mode="lines+markers",
-                    name=bp,
-                    line=dict(color=BP_COLORS.get(bp, "#888")),
-                )
+        # Confidence: % above cutoff per bodypart
+        fig_conf = go.Figure()
+        fig_conf.add_trace(
+            go.Bar(
+                x=active_bps,
+                y=[bp_info[bp].get("pct_above_cutoff", 0) for bp in active_bps],
+                marker_color=[BP_COLORS.get(bp, "#888") for bp in active_bps],
+                text=[f"{bp_info[bp].get('pct_above_cutoff', 0):.1f}%" for bp in active_bps],
+                textposition="outside",
             )
-        fig_pck.update_layout(
-            xaxis_title="Threshold (pixels)",
-            yaxis_title="PCK (%)",
-            yaxis_range=[0, 105],
-            height=350,
-            margin=dict(l=40, r=20, t=20, b=40),
-            legend=dict(orientation="h", y=-0.2),
         )
-        st.plotly_chart(fig_pck, use_container_width=True)
+        fig_conf.update_layout(
+            xaxis_title="Bodypart",
+            yaxis_title=f"% Predictions Above pcutoff={pcutoff}",
+            yaxis_range=[0, 105],
+            height=300,
+            margin=dict(l=40, r=20, t=20, b=40),
+        )
+        st.plotly_chart(fig_conf, use_container_width=True)
+
+        # PCK curves
+        with st.expander("PCK curves"):
+            _thresholds = [5, 10, 15, 20]
+            fig_pck = go.Figure()
+            for bp in active_bps:
+                info = bp_info[bp]
+                pck_vals = [info.get(f"pck_{t}", 0) for t in _thresholds]
+                fig_pck.add_trace(
+                    go.Scatter(
+                        x=[str(t) for t in _thresholds],
+                        y=pck_vals,
+                        mode="lines+markers",
+                        name=bp,
+                        line=dict(color=BP_COLORS.get(bp, "#888")),
+                    )
+                )
+            fig_pck.update_layout(
+                xaxis_title="Threshold (pixels)",
+                yaxis_title="PCK (%)",
+                yaxis_range=[0, 105],
+                height=350,
+                margin=dict(l=40, r=20, t=20, b=40),
+                legend=dict(orientation="h", y=-0.2),
+            )
+            st.plotly_chart(fig_pck, use_container_width=True)
 
         st.caption(
             f"From {bp_eval.get('n_total_matched', '?')} matched "
             f"frame-bodypart pairs. "
-            "Computed by `_compute_per_bodypart_rmse` in "
-            "`scripts/run_dlc_retrain.py`. "
-            "RMSE = root mean square pixel error vs ground truth labels. "
-            "PCK = percentage of predictions within N pixels of the label."
+            f"Filtered metrics use predictions with likelihood > {pcutoff}. "
+            "Median and P95 are more informative than RMSE when outliers "
+            "are present (detector failures on a few frames)."
         )
     else:
         st.info("No per-bodypart data available in the evaluation JSON.")
