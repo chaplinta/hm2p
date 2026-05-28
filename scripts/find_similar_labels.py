@@ -542,6 +542,13 @@ def main() -> None:
         action="store_true",
         help="Print table and histogram only — no video download or images.",
     )
+    parser.add_argument(
+        "--delete",
+        action="store_true",
+        help="Delete duplicate frames (keep one per group, delete the rest). "
+        "Removes PNGs, labels from CollectedData, and metadata entries. "
+        "Requires confirmation.",
+    )
     args = parser.parse_args()
 
     all_sessions = get_sessions()
@@ -606,10 +613,151 @@ def main() -> None:
     print()
     if total_similar > 0:
         print(f"  Flagged pairs saved to: {csv_path}")
-        print(f"  Side-by-side images saved to: {OUTPUT_DIR}/")
+        if not args.dry_run:
+            print(f"  Side-by-side images saved to: {OUTPUT_DIR}/")
     else:
         print("  No similar pairs found.")
     print(f"{'=' * 62}\n")
+
+    # --delete: remove duplicate frames
+    if args.delete and total_similar > 0:
+        # Build per-session groups: for each session, collect all frames
+        # that appear in a similar pair. Use a graph approach: if A~B and
+        # A~C, then {A, B, C} is one group — keep A (lowest index), delete B and C.
+        import pandas as _pd
+        from collections import defaultdict
+
+        flagged_df = _pd.read_csv(csv_path)
+        to_delete_by_session: dict[str, set[int]] = defaultdict(set)
+
+        for sess_name, group in flagged_df.groupby("session"):
+            # Build adjacency: union-find to group connected frames
+            all_frames_in_pairs: set[int] = set()
+            edges: list[tuple[int, int]] = []
+            for _, row in group.iterrows():
+                f1, f2 = int(row["frame_1"]), int(row["frame_2"])
+                all_frames_in_pairs.add(f1)
+                all_frames_in_pairs.add(f2)
+                edges.append((f1, f2))
+
+            # Simple union-find
+            parent: dict[int, int] = {f: f for f in all_frames_in_pairs}
+
+            def find(x: int) -> int:
+                while parent[x] != x:
+                    parent[x] = parent[parent[x]]
+                    x = parent[x]
+                return x
+
+            def union(a: int, b: int) -> None:
+                ra, rb = find(a), find(b)
+                if ra != rb:
+                    parent[rb] = ra
+
+            for f1, f2 in edges:
+                union(f1, f2)
+
+            # Group by root
+            groups: dict[int, list[int]] = defaultdict(list)
+            for f in all_frames_in_pairs:
+                groups[find(f)].append(f)
+
+            # For each group, keep the lowest frame index, delete the rest
+            for members in groups.values():
+                keep = min(members)
+                for f in members:
+                    if f != keep:
+                        to_delete_by_session[str(sess_name)].add(f)
+
+        total_to_delete = sum(len(v) for v in to_delete_by_session.values())
+
+        print(f"\n{'!' * 62}")
+        print(f"  WARNING: About to DELETE {total_to_delete} frames across "
+              f"{len(to_delete_by_session)} sessions.")
+        print(f"  This removes PNGs, labels from CollectedData, and metadata.")
+        print(f"  For each group of similar frames, the lowest frame index is kept.")
+        print(f"{'!' * 62}")
+        for sess, frames in sorted(to_delete_by_session.items()):
+            print(f"  {sess[:45]}: delete {sorted(frames)}")
+        print()
+
+        confirm = input("  Type 'yes' to confirm deletion: ").strip().lower()
+        if confirm != "yes":
+            print("  Aborted.")
+            return
+
+        # Perform deletion
+        deleted_total = 0
+        for sess_name, del_frames in sorted(to_delete_by_session.items()):
+            # Find clip dir and retrain dir
+            clip_dir = None
+            for ld in LABELED_DIR.iterdir():
+                if not ld.is_dir():
+                    continue
+                # Match by session name components
+                if sess_name.split("_")[0] in ld.name and sess_name.split("_")[-1] in ld.name:
+                    clip_dir = ld
+                    break
+
+            if clip_dir is None:
+                log.warning("  Could not find labeled-data dir for %s", sess_name)
+                continue
+
+            # Find matching retrain_frames dir and metadata
+            import re as _re
+            m = _re.search(r"(\d{8}).*?(\d{7})", clip_dir.name)
+            if not m:
+                continue
+            date, animal = m.group(1), m.group(2)
+            rf_dir = None
+            meta_path = None
+            for rd in Path(REPO_ROOT / "retrain_frames").iterdir():
+                if rd.is_dir() and animal in rd.name and date in rd.name:
+                    rf_dir = rd
+                    meta_path = Path(REPO_ROOT / "metadata" / "retrain_frames" / f"{rd.name}.json")
+                    break
+
+            # Delete PNGs
+            for fi in sorted(del_frames):
+                png_ld = clip_dir / f"frame_{fi:06d}.png"
+                if png_ld.exists():
+                    os.unlink(str(png_ld))
+                if rf_dir:
+                    png_rf = rf_dir / f"frame_{fi:06d}.png"
+                    if png_rf.exists():
+                        os.unlink(str(png_rf))
+
+            # Remove from CollectedData
+            for h5 in clip_dir.glob("CollectedData_*.h5"):
+                try:
+                    df = pd.read_hdf(h5)
+                    before = len(df)
+                    to_drop = [
+                        idx for idx in df.index
+                        if any(f"frame_{fi:06d}" in str(idx) for fi in del_frames)
+                    ]
+                    if to_drop:
+                        df = df.drop(to_drop)
+                        df.to_hdf(h5, key="df_with_missing", mode="w")
+                        df.to_csv(h5.with_suffix(".csv"))
+                        log.info("  %s: CollectedData %d -> %d", sess_name[:30], before, len(df))
+                except Exception as exc:
+                    log.warning("  Failed to update CollectedData for %s: %s", sess_name, exc)
+
+            # Update metadata JSON
+            if meta_path and meta_path.exists():
+                import json as _json
+                data = _json.loads(meta_path.read_text())
+                data["frame_indices"] = [
+                    i for i in data.get("frame_indices", []) if i not in del_frames
+                ]
+                data["n_frames"] = len(data["frame_indices"])
+                meta_path.write_text(_json.dumps(data, indent=2))
+
+            deleted_total += len(del_frames)
+            print(f"  Deleted {len(del_frames)} frames from {sess_name[:45]}")
+
+        print(f"\n  Total deleted: {deleted_total} frames")
 
 
 if __name__ == "__main__":

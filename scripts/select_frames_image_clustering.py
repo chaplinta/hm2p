@@ -191,36 +191,36 @@ def cluster_and_select(
     frame_indices: np.ndarray,
     existing_frame_indices: set[int],
     n_target: int,
-    thumb_stride: int = THUMB_STRIDE,
+    pca_model: object | None = None,
+    clip_dir: "Path | None" = None,
 ) -> list[int]:
-    """k=n_target clusters. Existing frames claim clusters. Select from the rest.
+    """k=n_target clusters. Existing frames projected into PCA space and
+    assigned to clusters. Select from unoccupied clusters.
 
     Algorithm:
-    1. k-means with k = n_target (always).
-    2. For each existing labeled frame, find nearest sampled frame and
-       assign it to that frame's cluster → cluster is "occupied".
+    1. k-means with k = n_target on all cached frames.
+    2. For each existing labeled frame, extract its thumbnail from the
+       labeled-data PNG, project into PCA space, assign to nearest
+       cluster centroid → cluster is "occupied".
     3. Pick one new frame from each unoccupied cluster (closest to centroid).
-    4. If still short of n_target, pick from clusters sorted by fewest
-       existing occupants.
-    5. Stop when existing + new = n_target.
+    4. Stop when existing + new = n_target.
 
     Parameters
     ----------
     data_pca : np.ndarray, shape (N, D)
-        PCA-transformed thumbnail features.
+        PCA-transformed thumbnail features (from PCA cache).
     frame_indices : np.ndarray, shape (N,)
         Video frame index for each sampled thumbnail.
     existing_frame_indices : set[int]
         Frame indices already labeled.
     n_target : int
         Desired total (existing + new) per session.
-    thumb_stride : int
-        Stride used during thumbnail sampling.
-
-    Returns
-    -------
-    list[int]
-        New frame indices to extract.
+    pca_model : sklearn PCA or None
+        PCA model to project existing frame thumbnails. Required for
+        accurate cluster assignment.
+    clip_dir : Path or None
+        Path to labeled-data clip directory containing existing PNGs.
+        Used to extract thumbnails for PCA projection.
     """
     from sklearn.cluster import KMeans
 
@@ -237,23 +237,53 @@ def cluster_and_select(
     km = KMeans(n_clusters=k, n_init=10, random_state=42)
     labels = km.fit_predict(data_pca)
 
-    # Assign existing frames to clusters via nearest sampled frame.
-    fi_array = frame_indices.astype(np.int64)
+    # Assign existing frames to clusters by projecting their actual
+    # thumbnails into PCA space and predicting cluster assignment.
     cluster_occupancy: dict[int, int] = {c: 0 for c in range(k)}
-    for ef in existing_frame_indices:
-        dists = np.abs(fi_array - ef)
-        nearest_idx = int(np.argmin(dists))
-        if dists[nearest_idx] <= thumb_stride * 2:
-            cluster_occupancy[int(labels[nearest_idx])] += 1
 
-    # Sort clusters: empty first, then by fewest occupants.
-    clusters_by_need = sorted(range(k), key=lambda c: cluster_occupancy[c])
+    if pca_model is not None and clip_dir is not None:
+        import cv2
+        import math
 
+        thumb_size = int(math.sqrt(pca_model.n_features_in_))
+        for ef in existing_frame_indices:
+            png_path = clip_dir / f"frame_{ef:06d}.png"
+            if not png_path.exists():
+                continue
+            img = cv2.imread(str(png_path))
+            if img is None:
+                continue
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            thumb = cv2.resize(gray, (thumb_size, thumb_size),
+                               interpolation=cv2.INTER_NEAREST)
+            vec = thumb.astype(np.float64).ravel().reshape(1, -1)
+            vec_pca = pca_model.transform(vec)
+            cluster_id = int(km.predict(vec_pca)[0])
+            cluster_occupancy[cluster_id] += 1
+        log.info("  Projected %d existing frames into PCA space for cluster assignment",
+                 sum(cluster_occupancy.values()))
+    else:
+        # Fallback: nearest cached frame index (less accurate)
+        log.warning("  No PCA model or clip_dir — falling back to nearest-index matching")
+        fi_array = frame_indices.astype(np.int64)
+        for ef in existing_frame_indices:
+            dists = np.abs(fi_array - ef)
+            nearest_idx = int(np.argmin(dists))
+            if dists[nearest_idx] <= THUMB_STRIDE * 2:
+                cluster_occupancy[int(labels[nearest_idx])] += 1
+
+    n_occupied = sum(1 for v in cluster_occupancy.values() if v > 0)
+    n_empty = k - n_occupied
+    log.info("  k=%d clusters: %d occupied, %d empty, need %d new frames",
+             k, n_occupied, n_empty, n_new)
+
+    # Select from unoccupied clusters only.
+    empty_clusters = [c for c in range(k) if cluster_occupancy[c] == 0]
     selected: list[int] = []
-    for c in clusters_by_need:
+
+    for c in empty_clusters:
         if len(selected) >= n_new:
             break
-        # Pick frame closest to centroid that isn't already labeled
         mask = labels == c
         c_pca = data_pca[mask]
         c_frames = frame_indices[mask]
@@ -264,6 +294,31 @@ def cluster_and_select(
             if fi not in existing_frame_indices and fi not in selected:
                 selected.append(fi)
                 break
+
+    # Fallback: if not enough empty clusters, pick from least-occupied.
+    if len(selected) < n_new:
+        occupied_by_need = sorted(
+            [c for c in range(k) if cluster_occupancy[c] > 0],
+            key=lambda c: cluster_occupancy[c],
+        )
+        n_fallback = 0
+        for c in occupied_by_need:
+            if len(selected) >= n_new:
+                break
+            mask = labels == c
+            c_pca = data_pca[mask]
+            c_frames = frame_indices[mask]
+            centroid = km.cluster_centers_[c]
+            order = np.argsort(np.linalg.norm(c_pca - centroid, axis=1))
+            for idx in order:
+                fi = int(c_frames[idx])
+                if fi not in existing_frame_indices and fi not in selected:
+                    selected.append(fi)
+                    n_fallback += 1
+                    break
+        if n_fallback > 0:
+            log.info("  %d from empty clusters, %d from occupied (fallback)",
+                     len(selected) - n_fallback, n_fallback)
 
     return selected
 
@@ -751,12 +806,18 @@ def process_session(
     with tempfile.TemporaryDirectory(prefix=f"hm2p-{session_tag}-") as tmp_str:
         tmp = Path(tmp_str)
 
-        # k = existing + n_new, select from unoccupied clusters
+        # Find labeled-data clip dir for PCA projection of existing frames
+        clip_dir = find_labeled_data_dir(sub, ses)
+
+        # k = n_target, project existing frames into PCA space, select
+        # from unoccupied clusters
         selected = cluster_and_select(
             data_pca=data_pca,
             frame_indices=frame_indices,
             existing_frame_indices=existing,
             n_target=n_target,
+            pca_model=pca_cache.get("pca"),
+            clip_dir=clip_dir,
         )
 
         if not selected:
