@@ -1704,14 +1704,16 @@ def train(
     shutil.rmtree(work, ignore_errors=True)
     work.mkdir(parents=True, exist_ok=True)
 
-    # Delete stale training-datasets and model dirs from S3 so DLC
-    # builds a fresh dataset from the current labels instead of reusing
-    # a cached shuffle from a previous run.
-    print("Cleaning stale training artifacts from S3...")
+    # Delete stale training-datasets from S3 so DLC builds a fresh
+    # dataset from the current labels instead of reusing a cached shuffle.
+    # NOTE: models/ is NOT deleted here — it is nuke-and-replaced by
+    # _upload_model_artifacts() AFTER training succeeds. This way, if
+    # training crashes before uploading, the previous model weights
+    # survive on S3 and --infer-only still works.
+    print("Cleaning stale training-datasets from S3...")
     _paginator = s3.get_paginator("list_objects_v2")
     for _stale_prefix in [
         f"{RETRAIN_PREFIX}/training-datasets/",
-        f"{RETRAIN_PREFIX}/models/",  # ALL models, not just iteration-0
     ]:
         for _page in _paginator.paginate(Bucket=DERIVATIVES_BUCKET, Prefix=_stale_prefix):
             for _obj in _page.get("Contents", []):

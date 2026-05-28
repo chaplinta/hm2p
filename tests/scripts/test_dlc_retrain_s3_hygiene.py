@@ -124,13 +124,18 @@ class TestS3CleanupScope:
     The fix must delete the ENTIRE ``models/`` prefix.
     """
 
-    def test_train_deletes_entire_models_prefix(self, tmp_path, monkeypatch):
-        """All keys under models/ are deleted during train() setup."""
+    def test_train_does_not_delete_models_prefix(self, tmp_path, monkeypatch):
+        """train() setup deletes training-datasets/ but NOT models/.
+
+        Model weights are preserved on S3 during training setup so that
+        if training crashes before uploading, --infer-only still works
+        with the previous model. models/ is only nuked by
+        _upload_model_artifacts() at upload time (nuke-and-replace).
+        """
         models_keys = [
             {"Key": "dlc-retrain/models/iteration-0/snapshot-100.pt"},
             {"Key": "dlc-retrain/models/iteration-1/snapshot-200.pt"},
             {"Key": "dlc-retrain/models/evaluation-results/eval.csv"},
-            {"Key": "dlc-retrain/models/models/nested/weights.pt"},
         ]
         td_keys = [
             {"Key": "dlc-retrain/training-datasets/some_file.pickle"},
@@ -142,11 +147,9 @@ class TestS3CleanupScope:
             "dlc-retrain/labeled-data/": [[]],
         })
 
-        # Mock deeplabcut to avoid real training
         dlc_mock = MagicMock()
         monkeypatch.setitem(sys.modules, "deeplabcut", dlc_mock)
 
-        # Patch shutil.rmtree and Path.mkdir to use tmp_path
         work = tmp_path / "dlc-retrain"
         work.mkdir(parents=True, exist_ok=True)
         cfg_path = work / "config.yaml"
@@ -157,9 +160,6 @@ class TestS3CleanupScope:
             "TrainingFraction": [0.8],
         }))
 
-        # We need to intercept the train() call early — after S3 cleanup
-        # but before DLC training. We do this by making deeplabcut.create_training_dataset
-        # raise to short-circuit after cleanup.
         dlc_mock.create_training_dataset.side_effect = RuntimeError("stop-after-cleanup")
 
         with (
@@ -167,21 +167,21 @@ class TestS3CleanupScope:
             patch("run_dlc_retrain.shutil") as shutil_mock,
         ):
             shutil_mock.rmtree = MagicMock()
-            # Patch the hard-coded /tmp/dlc-retrain to use our tmp_path
             with patch("run_dlc_retrain.Path") as MockPath:
                 MockPath.side_effect = lambda *a, **k: Path(*a, **k)
                 MockPath.return_value = work
-                # Just call train and catch the short-circuit error
                 try:
                     rdr.train(s3, sa_finetune=False, epochs=10)
                 except (RuntimeError, Exception):
                     pass
 
         deleted = _collect_delete_keys(s3)
-        # ALL model keys must have been deleted
+        # training-datasets should be deleted
+        assert "dlc-retrain/training-datasets/some_file.pickle" in deleted
+        # models should NOT be deleted by train() setup
         for key_obj in models_keys:
-            assert key_obj["Key"] in deleted, (
-                f"Key {key_obj['Key']} was not deleted"
+            assert key_obj["Key"] not in deleted, (
+                f"Key {key_obj['Key']} should NOT be deleted during train() setup"
             )
 
     def test_upload_model_artifacts_nukes_entire_models_prefix(self, tmp_path):
