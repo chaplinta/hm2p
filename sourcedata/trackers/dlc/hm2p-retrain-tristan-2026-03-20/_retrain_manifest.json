@@ -1,6 +1,6 @@
 {
   "20210823_17_00_04_1114353_maze-rose_overhead.camera-cropped": {
-    "n_frames": 53,
+    "n_frames": 50,
     "has_csv": true,
     "has_h5": true
   },
@@ -60,7 +60,7 @@
     "has_h5": true
   },
   "20220531_11_06_17_1117217_maze-rose_overhead.camera-cropped": {
-    "n_frames": 38,
+    "n_frames": 40,
     "has_csv": true,
     "has_h5": true
   },
