@@ -1832,6 +1832,10 @@ def train(
         )
         # SA path runs train_network internally; the shared post-training
         # block (evaluation + uploads) follows below.
+        # Remove GPU watchdog flag — everything from here is CPU-only
+        # (evaluate, per-bodypart RMSE, upload). The watchdog would kill
+        # the instance after 30 min of 0% GPU utilization otherwise.
+        Path("/tmp/gpu_processing_active").unlink(missing_ok=True)
         update_progress(s3, "Training (SA): evaluating")
         deeplabcut.evaluate_network(str(config_path), plotting=False)
         _upload_eval_results_json(s3, work, config_path, epochs=epochs)
@@ -1965,6 +1969,9 @@ def train(
         saveiters=5000,
     )
     update_progress(s3, f"Training: network trained ({epochs} epochs)")
+
+    # Remove GPU watchdog flag — everything from here is CPU-only.
+    Path("/tmp/gpu_processing_active").unlink(missing_ok=True)
 
     # Evaluate and compute per-bodypart metrics
     print("Evaluating network...")
