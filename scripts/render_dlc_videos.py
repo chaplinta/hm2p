@@ -541,6 +541,7 @@ def render_session(
                      "-f", "rawvideo", "-pix_fmt", "bgr24",
                      "-s", f"{OUTPUT_WIDTH}x{OUTPUT_HEIGHT}", "-r", str(OUTPUT_FPS),
                      "-i", "pipe:0", "-c:v", "libx264", "-crf", "23",
+                     "-pix_fmt", "yuv420p",
                      "-preset", "medium", "-movflags", "+faststart", str(out_path)],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.DEVNULL,
@@ -548,7 +549,7 @@ def render_session(
                 )
                 pipes[m] = (out_path, ffproc, None)
             else:
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+                fourcc = cv2.VideoWriter_fourcc(*"avc1")
                 writer = cv2.VideoWriter(
                     str(out_path), fourcc, OUTPUT_FPS,
                     (OUTPUT_WIDTH, OUTPUT_HEIGHT),
