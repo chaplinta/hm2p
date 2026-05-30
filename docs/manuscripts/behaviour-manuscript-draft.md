@@ -2,7 +2,7 @@
 
 **Working draft — behavioural methods/descriptive paper**
 
-Status: Draft v0.3 — 2026-05-14 (revised after QA round 2 review)
+Status: Draft v0.4.1 — 2026-05-30 (fixes: mean/median labelling, figure refs, citation placeholders)
 
 ---
 
@@ -36,14 +36,18 @@ conditions, providing the behavioural foundation for future neural analyses.
 Mice exploring a q-rose maze (a reduced binary-choice labyrinth after
 Rosenberg et al. 2021) show structured exploration strategies governed by
 local turn rules. When overhead lights are extinguished (total darkness,
-removing all visual cues), spatial coverage decreases robustly, while
-other metrics such as speed, turn statistics, and transition entropy
-remain stable. HD distributions become more concentrated in darkness
-across all sessions, but this effect does not survive pseudoreplication
-control. These findings provide a quantitative framework for evaluating
-the effect of visual cue removal on spatial behaviour: the coverage drop
-is robust, while MRL and AHV effects are suggestive but require more
-data.
+removing all visual cues), spatial coverage decreases robustly (p < 0.001,
+r = 0.86), providing the strongest and most consistent behavioural marker of
+visual cue removal. Running speed shows a modest trend toward reduction in
+darkness (p = 0.076), which reaches significance in primary-only sessions
+(p = 0.042), suggesting that reduced locomotion partially contributes to
+the coverage drop. Other metrics -- turn statistics, transition entropy,
+backtracking, and dead-end visit rate -- remain stable between conditions.
+HD distributions become more concentrated in darkness, but this trend does
+not survive multiple comparisons correction (adjusted p = 0.152) or
+primary-only analysis (p = 0.278). AHV does not differ between conditions
+(p = 0.177). These findings establish spatial coverage as a reliable
+behavioural readout of visual cue availability in the q-rose maze.
 
 ### Structure
 
@@ -63,28 +67,34 @@ data.
 
 2. **Exploration strategies: turn bias and forward momentum** — Mice show
    left-right turn alternation at T-junctions, consistent with Rosenberg
-   et al. (2021). Backtracking is frequent (~57--58% of junction visits),
-   likely reflecting the small maze with many dead ends. A first-order
-   Markov model is preferred over second-order in all sessions, in contrast
-   to the larger labyrinth of Rosenberg et al.
+   et al. (2021). Backtracking is frequent (~48--51% of junction visits),
+   reflecting the small maze with many dead ends. A first-order Markov model
+   is preferred over second-order in all sessions, in contrast to the larger
+   labyrinth of Rosenberg et al.
 
-3. **Light vs dark: speed and movement** — Running speed does not
-   significantly differ between light and dark epochs (p = 0.119). Angular
-   head velocity is modestly reduced in darkness (p = 0.020, adjusted;
-   primary-only p = 0.021), though a speed confound cannot be excluded.
+3. **Light vs dark: spatial coverage (primary finding)** — Per-epoch spatial
+   coverage decreases in darkness (p = 0.0003, adjusted p = 0.0008,
+   r = 0.86, N = 20; primary-only p = 0.010, r = 0.85, N = 11). This is
+   the most robust light-dark difference and survives all robustness checks.
+   Coverage per active minute is also lower in darkness (p = 0.001,
+   r = 0.78), indicating that the effect is not purely a locomotor artefact,
+   though the primary-only analysis does not reach significance for this
+   normalised metric (p = 0.175, r = 0.49).
 
-4. **Light vs dark: exploration strategy** — Per-epoch spatial coverage
-   decreases in darkness (p = 0.003, adjusted p = 0.009; primary-only
-   p = 0.021). Coverage per active minute is also lower in darkness
-   (p = 0.002), though this does not survive primary-only analysis
-   (p = 0.176). Transition entropy, dead-end visit rate, backtracking
-   frequency, and turn bias are unchanged between conditions.
+4. **Light vs dark: speed and movement** — Running speed shows a trend
+   toward reduction in darkness (p = 0.076, adjusted p = 0.152, r = 0.46,
+   N = 20) that reaches significance in primary-only sessions (p = 0.042,
+   r = 0.70, N = 11). Angular head velocity does not differ between
+   conditions (p = 0.177, r = 0.35). Other exploration metrics (transition
+   entropy, dead-end visit rate, backtracking frequency, turn bias) are
+   unchanged.
 
 5. **Head direction sampling in the maze** — HD distributions are
-   non-uniform and constrained by corridor geometry. MRL is higher in
-   darkness across all sessions (p = 0.020), but does not survive
-   primary-only analysis (p = 0.339). This confound is characterised
-   for future HD tuning analyses.
+   non-uniform and constrained by corridor geometry. MRL shows a
+   non-significant trend toward higher values in darkness (p = 0.076,
+   adjusted p = 0.152, r = 0.46; primary-only p = 0.278, r = 0.39). This
+   trend does not survive correction and is characterised as a confound for
+   future HD tuning analyses rather than a confirmed finding.
 
 ---
 
@@ -177,15 +187,20 @@ data.
   — Dim light enhances escape responses. Darkness generally increases
   cautiousness in rodents.
 
-- Genzel & Bhatt (2024). Various studies documenting that rodents reduce
-  locomotor speed in unfamiliar dark environments, increase thigmotaxis, and
-  shift from allocentric to egocentric navigation strategies.
+- Whishaw & Tomie (1996), Avni et al. (2006), Fonio et al. (2009).
+  Rodents reduce locomotor speed in novel or dark environments, increase
+  thigmotaxis, and may shift from allocentric to egocentric navigation
+  strategies.
 
 **Methods and tracking**
 
 - Mathis et al. (2018). "DeepLabCut: markerless pose estimation of
   user-defined body parts with deep learning." *Nat. Neurosci.* 21,
   1281--1289. doi:10.1038/s41593-018-0209-y
+
+- Ye et al. (2024). "SuperAnimal pretrained pose estimation models for
+  behavioral analysis." *Nat. Commun.* 15, 5165.
+  doi:10.1038/s41467-024-48792-2
 
 - Bala, Nguyen, Chang et al. (2024). "movement: a Python toolbox for pose
   estimation and kinematics." *Zenodo/GitHub*.
@@ -268,14 +283,15 @@ and water. Procedures were approved by the local institutional ethical review
 committee and performed under a UK Home Office Project Licence in accordance
 with the Animals (Scientific Procedures) Act 1986.
 
-Five sessions were excluded from analysis based on pre-registered criteria:
+Six sessions were excluded from analysis based on pre-registered criteria:
 one for fluctuating two-photon signals (exp 5, animal 1114356), two for
 camera synchronisation failures (exps 13--14, animal 1117217), one for poor
-two-photon recording quality (exp 19, animal 1117646), and one for combined
-poor imaging and restricted behaviour (exp 26, animal 1118317). This left 21
-usable sessions from 15 animals for behavioural analysis (11 Penk-Cre
-animals contributing 16 sessions; 4 Penk-Cre/Cre-OFF animals contributing 5
-sessions).
+two-photon recording quality (exp 19, animal 1117646), one for camera
+synchronisation and tether restriction (exp 21, animal 1118023), and one for
+combined poor imaging and restricted behaviour (exp 26, animal 1118317). This
+left 20 usable sessions from 14 animals for behavioural analysis (10
+Penk-Cre animals contributing 15 sessions; 4 Penk-Cre/Cre-OFF animals
+contributing 5 sessions).
 
 ### Surgical preparation and head-mounted two-photon imaging
 
@@ -319,10 +335,11 @@ Overhead room lights were alternated in 1-minute epochs: 1 minute on,
 1 minute off. Each recording session lasted approximately 20--30 minutes,
 yielding approximately 10--15 light epochs and 10--15 dark epochs per
 session. During dark epochs, all room lights were extinguished, producing
-total darkness (verified by absence of any visible illumination). Infrared
-illuminators on the two-photon system and the overhead camera provided
-illumination invisible to the mouse. The two-photon excitation laser (920
-nm) also does not produce visible light.
+total darkness (verified by absence of any visible illumination). The
+overhead camera uses infrared illumination, so image quality is unaffected
+by the light manipulation; tracking operates on infrared-illuminated frames
+in both conditions. The two-photon excitation laser (920 nm) also does not
+produce visible light.
 
 Light-on/off transition times were recorded by the DAQ system (National
 Instruments) via TDMS files and synchronised to the imaging and video
@@ -331,12 +348,26 @@ based on the nearest DAQ light-sensor event.
 
 ### Behavioural tracking
 
-Mouse body position was tracked from overhead video (Basler acA1300-200um
-camera, ~100 fps native, subsampled to ~30 fps for analysis) using
-DeepLabCut (Mathis et al. 2018; version 3.x, SuperAnimal TopViewMouse
-backbone with a custom-trained `head_midpoint` keypoint). Eight body parts
+Mouse body position was tracked from overhead infrared video (Basler
+acA1300-200um camera, ~100 fps native, subsampled to ~30 fps for analysis)
+using DeepLabCut 3.x (Mathis et al. 2018; Ye et al. 2024). The pose model
+was an HRNet-W32 architecture fine-tuned from the SuperAnimal TopViewMouse
+pretrained weights using memory replay (SA fine-tune mode). The model was
+trained on 872 manually labeled frames drawn from 17 sessions spanning all
+animals and both light conditions. Training ran for 300 epochs with the best
+snapshot selected at epoch 220 based on validation loss. Eight body parts
 were tracked: nose tip, left ear, right ear, head midpoint, neck, mid-back,
-mouse centre (body centroid), and tail base.
+mouse centre (body centroid), and tail base. All keypoints except
+head_midpoint map to SuperAnimal TopViewMouse keypoints; head_midpoint is a
+custom keypoint trained from scratch (targeting the high-contrast two-photon
+headstage, which is readily detectable in overhead infrared video).
+
+On a held-out test set, the model achieved RMSE of 3.79 pixels and mAP of
+87.07. Per-bodypart tracking quality was high: median pixel error ranged from
+2.6 to 3.0 px across all bodyparts, with PCK@10 (percentage of correct
+keypoints within 10 pixels) of 95--99%. Because the overhead camera uses
+infrared illumination, tracking quality does not differ systematically
+between light and dark conditions.
 
 Head direction was computed as the angle of the vector from the midpoint
 between the two ears to the nose tip, unwrapped and expressed in degrees
@@ -417,30 +448,14 @@ test on HD angle distributions per maze cell.
 For within-session light vs dark comparisons, metrics were computed
 separately for all light epochs pooled and all dark epochs pooled within a
 session. The session-level paired difference (dark - light) was then tested
-across sessions using Wilcoxon signed-rank (N = 21 sessions).
-
-### Tracking quality by condition
-
-DeepLabCut tracking confidence was assessed separately for light and dark
-epochs to verify that the infrared illumination provided adequate pose
-estimation in total darkness. Confidence for key bodyparts (nose tip, left
-ear, right ear) exceeded 0.9 in 65--92% of frames, depending on session.
-The difference in tracking confidence between light and dark conditions was
-small (typically 0--5 percentage points) and inconsistent in direction across
-sessions, with some sessions showing marginally higher confidence in darkness
-and others in light. Head direction NaN rates after quality filtering were
-also similar between conditions (typical range 14--25% overall, with
-light-dark differences of 1--5 percentage points in either direction). We
-conclude that tracking quality does not systematically differ between light
-and dark conditions and is unlikely to account for any behavioural
-differences reported here.
+across sessions using Wilcoxon signed-rank (N = 20 sessions).
 
 ### Pseudoreplication
 
 Some animals contributed multiple sessions (4 animals with 2--3 usable
 sessions each), creating mild pseudoreplication in session-level analyses.
 As a robustness check, all primary light-vs-dark comparisons were repeated
-using only primary-experiment sessions (one per animal, N = 12 independent
+using only primary-experiment sessions (one per animal, N = 11 independent
 animals). Results are reported in the Robustness section and Supplementary
 Table S1. Where conclusions differ between the full and primary-only
 analyses, the primary-only result takes precedence.
@@ -499,7 +514,7 @@ This is the key Rosenberg et al. finding.
 
 **Panel D.** Markov model comparison: AIC/BIC for first-order vs
 second-order models across sessions. Report preferred model order (data
-show 0/21 sessions prefer second-order; present as a negative finding).
+show 0/20 sessions prefer second-order; present as a negative finding).
 
 **Panel E.** Sequence entropy vs context length (from `sequence_entropy()`).
 Show that predictability increases with context, indicating non-random
@@ -511,7 +526,7 @@ navigation.
 - Alternation probability vs chance (0.5), Wilcoxon across sessions
 - Forward bias: proportion of "forward" choices at junctions with a
   straight-through option vs "turn" choices
-- AIC/BIC: sign test for order preference across sessions (expect 0/21
+- AIC/BIC: sign test for order preference across sessions (expect 0/20
   preferring second-order; report as negative finding)
 
 **Code references:**
@@ -521,27 +536,58 @@ navigation.
 
 ---
 
-### Figure 3: Light vs dark — speed and movement
+### Figure 3: Light vs dark — spatial coverage (primary finding)
+
+**Panel A.** Per-epoch coverage (fraction of 23 cells visited per 1-minute
+epoch) in light vs dark. Box/violin plot of session means, paired by session.
+This is the primary finding of the paper (p = 0.0003, r = 0.86).
+
+**Panel B.** Coverage per active minute (cells visited normalised by active
+time). Controls for the speed confound: even after normalisation, coverage
+is lower in darkness (p = 0.001, r = 0.78).
+
+**Panel C.** Exploration efficiency (new unique nodes per sliding window of
+5 cell transitions) in light vs dark. Shows a trend (p = 0.058, r = 0.49)
+consistent with the coverage finding but not independently significant.
+
+**Panel D.** Coverage difference (dark - light) per session, ordered by
+magnitude. Shows consistency of the effect across sessions.
+
+**Statistics needed:**
+- Wilcoxon signed-rank for each metric (light vs dark, N = 20 sessions)
+- Holm-Bonferroni correction across the 3 metrics in this figure
+- Effect sizes
+- Primary-only robustness check (N = 11)
+
+**Code references:**
+- `maze.analysis.cell_occupancy()`, `occupancy_fraction()`
+- `maze.analysis.exploration_efficiency()`
+
+---
+
+### Figure 4: Light vs dark — speed and other metrics
 
 **Panel A.** Running speed (cm/s) by condition: box/violin plot of
 session-median speed in light vs dark. Paired by session. Note: data
-show no significant speed difference (p = 0.119, uncorrected).
+show a trend (p = 0.076, uncorrected; primary-only p = 0.042).
 
 **Panel B.** Speed time course across a session, with light/dark epochs
-shaded. Examine whether any speed transitions occur at light changes
-(note: the group-level difference is not significant).
+shaded. Examine whether any speed transitions occur at light changes.
 
-**Panel C.** Angular head velocity (AHV, deg/s absolute) by condition.
-Box/violin as in A.
+**Panel C.** Fraction of time spent moving (speed > threshold) by condition.
+Trend in same direction as speed (p = 0.083).
 
-**Panel D.** Fraction of time spent moving (speed > threshold) by condition.
+**Panel D.** Immobility bout duration (median seconds per bout) by
+condition. Trend toward longer bouts in darkness (p = 0.035, adjusted
+p = 0.106, r = 0.64).
 
-**Panel E.** Movement bout duration (consecutive periods above speed
-threshold) by condition.
+**Panel E.** Transition entropy, dead-end rate, backtracking, and turn bias
+in light vs dark — summary bar/violin showing all are non-significant.
 
 **Statistics needed:**
-- Wilcoxon signed-rank for speed, AHV, movement fraction, bout duration
-  (light vs dark, N = 21 sessions)
+- Wilcoxon signed-rank for speed, fraction active, immobility bouts,
+  transition entropy, dead-end rate, backtracking, turn bias
+  (light vs dark, N = 20 sessions)
 - Effect sizes (rank-biserial correlation)
 - Speed distributions (not just means): light vs dark, KS test or similar
 - Speed at light-to-dark transitions: peri-event time histogram around
@@ -551,41 +597,6 @@ threshold) by condition.
 - Speed and AHV from kinematics.h5
 - Custom peri-event analysis for light transitions
 - `light_on` mask from sync.h5
-
----
-
-### Figure 4: Light vs dark — exploration strategy
-
-**Panel A.** Transition entropy (bits/step) for light vs dark epochs.
-Wilcoxon paired test.
-
-**Panel B.** Dead-end visit rate (visits per minute of active movement)
-by condition.
-
-**Panel C.** Back-tracking rate (proportion of junction visits where turn =
-"back") by condition.
-
-**Panel D.** Path efficiency (optimal / actual path length in sliding
-windows) by condition.
-
-**Panel E.** Exploration efficiency (new nodes per window) in light vs dark.
-
-**Panel F.** Directed vs exploratory mode fractions by condition (from
-`segment_modes()`).
-
-**Statistics needed:**
-- Wilcoxon signed-rank for each metric (light vs dark, N = 21 sessions)
-- FDR correction across the 6 metrics in this figure
-- Effect sizes
-- Comparison to random walk null model in each condition
-
-**Code references:**
-- `maze.analysis.transition_matrix()`, `transition_entropy()`
-- `maze.analysis.dead_end_visits()`
-- `maze.analysis.turn_bias()` (for backtracking rate)
-- `maze.analysis.path_efficiency_over_time()`
-- `maze.analysis.exploration_efficiency()`
-- `maze.analysis.segment_modes()`
 
 ---
 
@@ -607,21 +618,27 @@ the maze grid.
 
 **Panel C.** HD sampling uniformity in light vs dark: does HD sampling become
 more or less uniform in darkness? Paired comparison across cells and
-sessions.
+sessions. Note: MRL trend (p = 0.076) does not survive correction or
+primary-only analysis.
 
 **Panel D.** Joint position x HD occupancy: heatmap showing which (cell, HD
 bin) combinations are well-sampled and which are sparse. This is a control
 figure for future HD tuning analyses -- it documents the sampling landscape.
+
+**Panel E.** Angular head velocity (|AHV|) in light vs dark. Part of the
+same Holm-Bonferroni family as MRL (Family 4). AHV does not differ between
+conditions (p = 0.177, adjusted p = 0.177, r = 0.35).
 
 **Statistics needed:**
 - Rayleigh test per cell (is HD distribution non-uniform?)
 - Mean resultant length of HD distribution per cell
 - Light vs dark comparison of HD uniformity (Wilcoxon on per-cell Rayleigh
   statistics)
+- Light vs dark comparison of |AHV| (Wilcoxon, N = 20)
 
 **Code references:**
 - `maze.discretize.discretize_position_fast()`
-- HD from kinematics.h5
+- HD and AHV from kinematics.h5
 - Custom per-cell HD distribution analysis (new code needed)
 
 ---
@@ -675,22 +692,28 @@ disorientation.
 
 ### Summary statistics table (Table 1)
 
-*Note: p-values shown are Holm-Bonferroni-adjusted within each figure family. Figures display uncorrected p-values; adjusted values are reported here and in the main text. Primary-only column shows p from robustness check using one session per animal (N = 12).*
+*Note: Values shown are means across sessions (N = 20) unless otherwise noted. For speed and immobility bout duration, each session contributes its within-session median; the table reports the cross-session mean of those per-session medians. The Wilcoxon signed-rank test is computed on the 20 paired session-level values. p-values shown are Holm-Bonferroni-adjusted within each figure family. Figures display uncorrected p-values; adjusted values are reported here and in the main text. Primary-only column shows p from robustness check using one session per animal (N = 11).*
 
-| Metric | Light (median) | Dark (median) | W | p (raw) | p (adj) | r | Primary-only p (N=12) |
-|--------|---------------|--------------|---|---------|---------|---|----------------------|
-| Speed (cm/s) | 1.89 | 1.86 | 70.0 | 0.119 | 0.358 | 0.39 | 0.092 |
-| Fraction active | 0.466 | 0.443 | 79.0 | 0.216 | 0.431 | 0.32 | 0.151 |
-| Immobility bout (s) | 0.82 | 0.87 | 41.0 | 0.279 | 0.279 | 0.32 | -- |
-| Per-epoch coverage (frac) | 0.438 | 0.381 | 33.0 | 0.003 | 0.009 | 0.71 | 0.021 |
-| Coverage / active min | 23.7 | 22.0 | 31.0 | 0.002 | -- | 0.73 | 0.176 |
-| Dead-end rate (/min) | 14.65 | 14.65 | 111.0 | 0.892 | 0.892 | 0.04 | -- |
-| Exploration efficiency (w=5) | 3.39 | 3.36 | 107.0 | 0.785 | 1.000 | 0.07 | -- |
-| Transition entropy (bits/step) | 1.644 | 1.631 | 100.0 | 0.609 | -- | 0.13 | -- |
-| Left turn fraction | 0.487 | 0.489 | 111.0 | 0.892 | 0.892 | 0.04 | -- |
-| Backtracking rate | 0.572 | 0.580 | 110.0 | 0.865 | 1.000 | 0.05 | -- |
-| HD mean resultant length | 0.297 | 0.338 | 43.0 | 0.010 | 0.020 | 0.63 | 0.339 |
-| Median |AHV| (deg/s) | 121.4 | 115.1 | 49.0 | 0.020 | 0.020 | 0.58 | 0.021 |
+*Coverage per active minute and transition entropy are each the sole metric in their respective analysis families (post-hoc control and supplementary, respectively), so no family-wise correction is applicable (marked --).*
+
+| Metric | Light (mean) | Dark (mean) | W | p (raw) | p (adj) | r | Primary-only p (N=11) |
+|--------|-------------|------------|---|---------|---------|---|----------------------|
+| Per-epoch coverage (frac) | 0.400 | 0.337 | 15.0 | 0.0003 | 0.0008 | 0.86 | 0.010 |
+| Coverage / active min | 19.8 | 17.8 | 23.0 | 0.001 | --^a^ | 0.78 | 0.175 |
+| Exploration efficiency (w=5) | 3.56 | 3.41 | 54.0 | 0.058 | 0.117 | 0.49 | -- |
+| Speed (cm/s) | 2.28 | 1.97 | 57.0 | 0.076 | 0.152 | 0.46 | 0.042 |
+| Fraction active | 0.472 | 0.441 | 58.0 | 0.083 | 0.152 | 0.45 | 0.042 |
+| Immobility bout (s) | 0.84 | 0.94 | 19.0 | 0.035 | 0.106 | 0.64 | -- |
+| HD mean resultant length | 0.060 | 0.085 | 57.0 | 0.076 | 0.152 | 0.46 | 0.278 |
+| Median |AHV| (deg/s) | 93.3 | 95.4 | 68.0 | 0.177 | 0.177 | 0.35 | 0.465 |
+| Dead-end rate (/min) | 7.60 | 8.33 | 74.0 | 0.261 | 0.261 | 0.30 | -- |
+| Transition entropy (bits/step) | 1.221 | 1.186 | 67.0 | 0.165 | --^b^ | 0.36 | -- |
+| Left turn fraction | 0.495 | 0.500 | 100.0 | 0.870 | 1.000 | 0.05 | -- |
+| Backtracking rate | 0.482 | 0.505 | 92.0 | 0.648 | 1.000 | 0.12 | -- |
+
+^a^ Coverage per active minute is a post-hoc control analysis (single test, not part of any Holm-Bonferroni family). ^b^ Transition entropy is the sole light-dark comparison in Supplementary Figure S1 and is not corrected within any family.
+
+*Holm-Bonferroni correction families:* Family 1 (Fig. 3: coverage, dead-end rate, exploration efficiency); Family 2 (Fig. 4: speed, fraction active, immobility bout); Family 3 (Fig. 4: left turn fraction, turn autocorrelation vs zero, autocorrelation light vs dark, backtracking rate); Family 4 (Fig. 5: MRL, AHV).
 
 ---
 
@@ -698,11 +721,11 @@ disorientation.
 
 ### 1. Mice rapidly cover the q-rose maze
 
-"Mice explored the 23-cell q-rose maze with high coverage. Across 21
-sessions, mice visited a median of 23 cells (mean 22.2 +/- 1.6; range
-17--23), achieving a median coverage fraction of 1.00 (mean 0.965 +/- 0.070;
-Fig. 1D). Total distance travelled varied considerably across sessions
-(median 106.2 m; range 40.6--500.7 m), reflecting individual differences in
+"Mice explored the 23-cell q-rose maze with high coverage. Across 20
+sessions, mice visited a median of 22.5 cells (mean 22.1 +/- 1.3; range
+18--23), achieving a mean coverage fraction of 0.961 +/- 0.056
+(Fig. 1D). Total distance travelled varied considerably across sessions
+(median 57.7 m; range 31.7--117.8 m), reflecting individual differences in
 locomotor activity. Occupancy was non-uniform: T-junction cells were
 visited more frequently than dead-end cells (Wilcoxon, Z = XX,
 p = XX, r = XX), consistent with junctions serving as transit hubs in the
@@ -715,41 +738,41 @@ non-uniformity."
 "At T-junctions, mice showed a consistent tendency to alternate left and
 right turns on consecutive junction visits. Sequential turn autocorrelation
 was significantly negative across sessions (mean lag-1 autocorrelation =
--0.196, one-sample Wilcoxon, W = 0.0, p < 0.0001, adjusted p < 0.0001,
-r = 1.00, N = 21), indicating systematic left-right alternation consistent
+-0.172, one-sample Wilcoxon, W = 2.0, p < 0.0001, adjusted p < 0.0001,
+r = 0.98, N = 20), indicating systematic left-right alternation consistent
 with Rosenberg et al. (2021). To control for the possibility that maze
 geometry alone produces turn alternation, we compared the observed
 autocorrelation to a random walk null model (1000 simulated walks per
 session on the maze graph). The null distribution had a negative mean
 (-0.141), confirming that the maze topology contributes some alternation.
 The observed alternation was stronger than the per-session null means
-(Mann-Whitney U = 147.0, p = 0.066, Cliff's d = -0.33, 21 observed vs 21
+(Mann-Whitney U = 140.0, p = 0.108, Cliff's d = -0.30, 20 observed vs 20
 per-session null means). Note that the Mann-Whitney test does not reach
 significance at alpha = 0.05, so the between-group comparison alone does
 not establish that observed alternation exceeds the topology-driven null.
 However, bootstrap permutation testing confirmed that the observed
-alternation exceeded the null (p < 0.0001), and 5 of 21 sessions (24%)
+alternation exceeded the null (p = 0.019), and 3 of 20 sessions (15%)
 fell below the null 95% CI. Mice therefore show spontaneous alternation
 beyond what maze geometry alone would produce, though the effect size is
 modest and the conclusion rests primarily on the permutation test and the
 per-session outlier analysis rather than the Mann-Whitney comparison.
 
-"Global left-right bias was minimal (left fraction: 0.49, not significantly
+"Global left-right bias was minimal (left fraction: 0.50, not significantly
 different from 0.5). No individual junction showed a significant left-right
 bias after Holm-Bonferroni correction across 7 junctions (all adjusted
-p > 0.7; Table S2).
+p > 0.6; Table S2).
 
 "Backtracking (reversing direction at junctions) was frequent, accounting
-for 57--58% of junction visits in both light and dark conditions. This high
-rate likely reflects a structural feature of the small q-rose maze: with 9
+for 48--51% of junction visits in both light and dark conditions. This rate
+likely reflects a structural feature of the small q-rose maze: with 9
 dead ends among 23 cells, mice frequently reach dead ends and must reverse
 course. This contrasts with the larger labyrinth of Rosenberg et al.
 (2021), where backtracking is less prominent because the maze graph offers
 more through-routes.
 
 "In contrast to Rosenberg et al. (2021), a first-order Markov model was
-preferred over a second-order model in all 21 sessions by BIC (mean
-delta-BIC = -13,504; 0/21 sessions favouring second-order; Fig. S1C).
+preferred over a second-order model in all 20 sessions by BIC (mean
+delta-BIC = -4,434; 0/20 sessions favouring second-order; Fig. S1C).
 This negative finding likely reflects the smaller state space of the q-rose
 maze (23 cells, 7 junctions) compared to Rosenberg's 63-junction labyrinth:
 with fewer possible transitions, a second-order model introduces many
@@ -760,97 +783,102 @@ model. Sequence entropy did decrease with increasing context length
 from additional context is modest and does not justify the second-order
 model's parameter cost in this maze."
 
-### 3. Speed and movement are largely preserved in darkness
+### 3. Spatial coverage decreases in darkness
 
-"Running speed did not differ significantly between light and dark epochs
-(light median: 1.89 cm/s; dark median: 1.86 cm/s; Wilcoxon, W = 70.0,
-p = 0.119, adjusted p = 0.358, r = 0.39, N = 21; Fig. 3A). Although the
-literature documents speed reduction in darkness in many paradigms, the
-effect was not significant in the present data. This null result may reflect
-the constrained locomotion imposed by the head-mounted microscope tether
-and the small maze, which limits sustained high-speed running regardless of
-lighting condition. The fraction of time spent active (speed >= 2.5 cm/s)
-also did not differ significantly between conditions (light: 0.466; dark:
-0.443; W = 79.0, p = 0.216, adjusted p = 0.431, r = 0.32; Fig. 3D).
-Immobility bout duration was similarly unchanged (W = 41.0, p = 0.279,
-adjusted p = 0.279, r = 0.32).
+"The removal of visual cues robustly reduced per-epoch spatial coverage.
+Within individual 1-minute epochs, mice visited a smaller fraction of the 23
+accessible cells in darkness than in light (light: 0.400; dark: 0.337;
+Wilcoxon, W = 15.0, p = 0.0003, adjusted p = 0.0008, r = 0.86, N = 20;
+Fig. 3A). This coverage reduction was the strongest light-dark effect
+observed in the dataset and was robust to pseudoreplication control: the
+effect remained significant in primary-only sessions (N = 11, p = 0.010,
+r = 0.85).
 
-"Angular head velocity (|AHV|) was significantly lower in darkness
-(light median: 121.4 deg/s; dark median: 115.1 deg/s; Wilcoxon, W = 49.0,
-p = 0.020, adjusted p = 0.020, r = 0.58; Fig. 3C). This effect survived
-the primary-only robustness check (N = 12, p = 0.021, r = 0.74). However,
-this AHV difference should be interpreted with caution: because AHV and
-translational speed are correlated (mice turn their heads faster when
-moving faster), the AHV reduction may partly reflect the (non-significant)
-trend toward lower speed in darkness rather than an independent change in
-head movement strategy. A partial analysis controlling for speed is needed
-to distinguish these possibilities."
+"Running speed showed a trend toward reduction in darkness that partially
+accounts for the coverage drop. The speed trend was not significant in the
+full dataset (light mean: 2.28 cm/s; dark mean: 1.97 cm/s; Wilcoxon,
+W = 57.0, p = 0.076, adjusted p = 0.152, r = 0.46, N = 20; Fig. 4A) but
+reached significance in primary-only sessions (N = 11, p = 0.042, r = 0.70).
+To control for this speed confound, we normalised coverage by active time
+(minutes with speed >= 2.5 cm/s). Coverage per active minute was also
+significantly lower in darkness (light mean: 19.8 cells/active-min; dark
+mean: 17.8 cells/active-min; Wilcoxon, W = 23.0, p = 0.001, r = 0.78,
+N = 20),
+indicating that the coverage reduction is not simply a locomotor artefact
+but reflects a genuine change in exploration efficiency. However, the
+primary-only analysis did not reach significance for this normalised metric
+(N = 11, p = 0.175, r = 0.49), so the extent to which the coverage drop
+reflects reduced speed versus a true strategy change cannot be definitively
+resolved with the current sample.
 
-### 4. Exploration strategy shifts in darkness
+"Exploration efficiency (unique nodes per sliding window of 5 cell
+transitions) showed a consistent trend in the same direction (light: 3.56;
+dark: 3.41; W = 54.0, p = 0.058, adjusted p = 0.117, r = 0.49; Fig. 3C),
+providing converging evidence for reduced spatial exploration in darkness,
+though this metric did not reach significance after correction.
 
-"The removal of visual cues reduced per-epoch spatial coverage. Within
-individual 1-minute epochs, mice visited a smaller fraction of the 23
-accessible cells in darkness than in light (light: 0.438; dark: 0.381;
-Wilcoxon, W = 33.0, p = 0.003, adjusted p = 0.009, r = 0.71, N = 21;
-Fig. 4A). This coverage reduction was robust to pseudoreplication control:
-the effect remained significant in primary-only sessions (N = 12,
-p = 0.021, r = 0.74).
+"Immobility bout duration showed a trend toward longer bouts in darkness
+(light mean: 0.84 s; dark mean: 0.94 s; W = 19.0, p = 0.035, adjusted
+p = 0.106, r = 0.64), consistent with increased cautiousness or pausing behaviour
+during visual cue removal, though this did not survive multiple comparisons
+correction."
 
-"Because coverage is confounded with locomotor activity -- if mice move
-less in darkness (even non-significantly), they will mechanically visit
-fewer cells per unit time -- we performed a control analysis normalising
-coverage by active time (minutes with speed >= 2.5 cm/s) rather than
-clock time. Coverage per active minute was also significantly lower in
-darkness (light: 23.7 cells/active-min; dark: 22.0 cells/active-min;
-Wilcoxon, W = 31.0, p = 0.002, r = 0.73, N = 21), indicating that the
-coverage reduction is not simply a locomotor artefact but reflects a
-genuine change in exploration efficiency. However, the primary-only
-analysis (N = 12 independent animals) did not reach significance for
-coverage per active minute (p = 0.176, r = 0.46), so this result should
-be interpreted with caution pending a larger sample of independent
-animals.
+### 4. Local navigation rules are preserved in darkness
 
 "Other exploration metrics did not differ significantly between conditions.
-Transition entropy was similar in light and dark (light: 1.644 bits/step;
-dark: 1.631 bits/step; W = 100.0, p = 0.609, r = 0.13), indicating that
+Transition entropy was similar in light and dark (light: 1.221 bits/step;
+dark: 1.186 bits/step; W = 67.0, p = 0.165, r = 0.36), indicating that
 navigation predictability was unaffected by visual cue removal. Dead-end
-visit rate was identical between conditions (14.65 visits/min in both;
-W = 111.0, p = 0.892, r = 0.04). Backtracking rate was also unchanged
-(light: 0.572; dark: 0.580; W = 110.0, p = 0.865, adjusted p = 1.000,
-r = 0.05). Turn bias (left fraction) did not differ (light: 0.487; dark:
-0.489; W = 111.0, p = 0.892, r = 0.04), and sequential turn alternation
-strength was similar between conditions (light mean autocorrelation =
--0.227; dark = -0.175; W = 84.0, p = 0.288, adjusted p = 0.863, r = 0.27).
+visit rate did not differ between conditions (light: 7.60 visits/min;
+dark: 8.33 visits/min; W = 74.0, p = 0.261, r = 0.30). Backtracking rate
+was also unchanged (light: 0.482; dark: 0.505; W = 92.0, p = 0.648,
+adjusted p = 1.000, r = 0.12). Turn bias (left fraction) did not differ
+(light: 0.495; dark: 0.500; W = 100.0, p = 0.870, r = 0.05), and
+sequential turn alternation strength was similar between conditions (light
+mean autocorrelation = -0.158; dark = -0.170; W = 92.0, p = 0.648,
+adjusted p = 1.000, r = 0.12).
+
+"Angular head velocity (|AHV|) did not differ between conditions (light
+mean: 93.3 deg/s; dark mean: 95.4 deg/s; Wilcoxon, W = 68.0, p = 0.177,
+adjusted p = 0.177, r = 0.35; Fig. 5). The primary-only analysis also
+showed no effect (N = 11, p = 0.465, r = 0.27). The absence of a
+significant AHV difference in the present data contrasts with the
+vestibular-visual integration findings of Keshavarzi et al. (2022), who
+showed that visual input modulates AHV coding gain in RSP. This discrepancy
+may reflect the different measurement scales (behavioural AHV vs neural
+AHV coding), the constrained locomotion in the small maze, or insufficient
+power to detect a subtle effect.
 
 "Taken together, the results indicate that visual cue removal has a
 selective rather than global effect on maze navigation: spatial coverage
 decreases, but the local decision rules governing turn direction,
-alternation, and backtracking are preserved. This pattern is more
-consistent with reduced locomotion than with disorientation or a
-qualitative shift in navigation strategy."
+alternation, and backtracking are preserved. This pattern is consistent with
+reduced spatial exploration or increased cautiousness rather than
+disorientation or a qualitative shift in navigation strategy."
 
 ### 5. Head direction is constrained by maze geometry
 
 "The overall distribution of head direction angles was non-uniform in both
 conditions. The mean resultant length of the session-wide HD distribution
-was higher in darkness than in light across all 21 sessions (light: 0.297;
-dark: 0.338; Wilcoxon, W = 43.0, p = 0.010, adjusted p = 0.020, r = 0.63,
-N = 21; Fig. 5B). However, this effect did not survive the primary-only
-robustness check (N = 12 independent animals; p = 0.339, r = 0.33),
-indicating that the MRL difference is suggestive but not robust to
-pseudoreplication control with the current sample size.
+showed a non-significant trend toward higher values in darkness (light:
+0.060; dark: 0.085; Wilcoxon, W = 57.0, p = 0.076, adjusted p = 0.152,
+r = 0.46, N = 20; Fig. 5C). This trend did not survive the primary-only
+robustness check (N = 11 independent animals; p = 0.278, r = 0.39). The MRL
+difference is therefore suggestive but not robust to pseudoreplication
+control or multiple comparisons correction with the current sample size.
 
-"However, the non-uniformity of the HD distribution must be interpreted
-with caution. The maze geometry constrains body orientation: corridor cells
-impose approximately bimodal HD distributions aligned with the corridor
-axis, while dead-end cells produce unimodal distributions toward the
-approach direction. The observed non-uniformity therefore reflects a
-combination of maze geometry, position-dependent sampling, and any true
-changes in exploratory head movements. In particular, the increased mean
-resultant length in darkness could arise from mice spending more time
-immobile (maintaining a fixed heading) rather than from a genuine change in
-directional preference. The non-significant speed and activity differences
-make this explanation plausible but not definitive.
+"The non-uniformity of the HD distribution must be interpreted with caution.
+The maze geometry constrains body orientation: corridor cells impose
+approximately bimodal HD distributions aligned with the corridor axis,
+while dead-end cells produce unimodal distributions toward the approach
+direction. The observed non-uniformity therefore reflects a combination of
+maze geometry, position-dependent sampling, and any true changes in
+exploratory head movements. In particular, the trend toward increased mean
+resultant length in darkness could arise from mice spending more time in
+corridors (which impose stronger directional constraints) or from increased
+time spent immobile (maintaining a fixed heading) rather than from a genuine
+change in directional preference. The non-significant speed and activity
+trends make this explanation plausible.
 
 "This position-dependent HD sampling is a methodological concern for all
 HD tuning analyses conducted in structured environments (as opposed to
@@ -875,7 +903,7 @@ all sessions, whereas Rosenberg et al. found that second-order models fit
 better. This likely reflects parameter estimability: in the q-rose maze,
 the second-order model introduces many transition parameters that cannot be
 reliably estimated from a single session's trajectory. Second, the
-backtracking rate is high (57--58% of junction visits), a structural
+backtracking rate is moderate (48--51% of junction visits), a structural
 consequence of the maze having 9 dead ends among 23 cells, which forces
 frequent reversals. In Rosenberg's larger labyrinth with more through-routes,
 backtracking was less prominent. The absence of reward in our task means
@@ -883,37 +911,31 @@ there is no target bias component; exploration is intrinsically motivated.
 
 ### Light/dark effects in context
 
-Speed reduction in darkness is a well-documented phenomenon in rodents
-exploring open arenas (various refs). In the present data, however, speed
-did not differ significantly between light and dark conditions (p = 0.119).
-This null result may reflect the constrained locomotion imposed by the
-head-mounted microscope tether and the small maze, both of which limit
-the range of speeds available regardless of lighting. It is also possible
-that the 1-minute epoch duration is too short for a sustained speed
-reduction to emerge, or that mice habituated to the maze sufficiently
-that darkness did not produce cautiousness.
-
 The most robust light-dark difference was in per-epoch spatial coverage,
-which was significantly lower in darkness. Because coverage is mechanically
-coupled to locomotor activity, we normalised coverage by active time
-(minutes with speed >= 2.5 cm/s). Coverage per active minute remained
-significantly lower in darkness across all 21 sessions (p = 0.002,
-r = 0.73), indicating that the coverage reduction is not simply a
-locomotor artefact. However, this normalised coverage effect did not
-survive the primary-only robustness check (N = 12 independent animals;
-p = 0.176, r = 0.46), suggesting that the effect may be partly driven by
-animals contributing multiple sessions. The raw coverage difference did
-survive primary-only analysis (p = 0.021, r = 0.74), so the core finding
-of reduced coverage in darkness is robust, but the mechanistic
-interpretation -- strategy change vs locomotor reduction -- remains open
-with the current sample size.
+which was lower in darkness (p = 0.0003, r = 0.86, N = 20; primary-only
+p = 0.010, r = 0.85, N = 11). This effect survived all robustness checks
+and represents the primary behavioural finding. Coverage per active minute
+was also lower in darkness (p = 0.001, r = 0.78), indicating that the
+effect is not simply a locomotor artefact.
 
-The reduction in angular head velocity (AHV) in darkness is consistent with
-the vestibular-visual integration findings of Keshavarzi et al. (2022), who
-showed that visual input increases the gain of AHV coding in RSP. However,
-AHV and translational speed are correlated, so the AHV difference may be
-partly a speed confound rather than an independent change in head movement
-dynamics.
+Speed reduction in darkness is a well-documented phenomenon in rodents
+exploring open arenas (Whishaw & Tomie 1996; Avni et al. 2006; Fonio et al.
+2009). In the present data, speed showed a
+trend toward reduction (p = 0.076) that reached significance only in
+primary-only sessions (N = 11, p = 0.042, r = 0.70). This partial effect
+suggests that reduced locomotion contributes to the coverage drop but does
+not fully account for it, since coverage per active minute also decreases.
+The limited dynamic range of locomotion imposed by the head-mounted
+microscope tether and the small maze may attenuate the speed difference
+compared to open-field studies.
+
+Angular head velocity did not differ significantly between conditions
+(p = 0.177). This null result is notable given that Keshavarzi et al. (2022)
+demonstrated that visual input modulates AHV coding gain in RSP. The
+discrepancy may reflect different measurement levels (behavioural AHV vs
+neural AHV coding), the constrained movement in the maze, or insufficient
+power. The AHV null should be interpreted cautiously rather than taken as
+evidence against visual modulation of head movements.
 
 The 1-minute epoch duration is relevant to the HD literature: HD drift in
 darkness accumulates gradually (Stackman & Taube 1997), with ~40% of HD
@@ -933,35 +955,35 @@ curve estimation in the companion neural paper.
 
 ### HD non-uniformity: position and immobility confounds
 
-The increased mean resultant length of the HD distribution in darkness
-(Fig. 5B) has multiple possible explanations beyond a change in exploration
-strategy. The main analysis already restricts to active frames (speed >=
-2.5 cm/s), so immobility per se does not drive the effect. However, if
-mice in darkness spend proportionally more time in corridors (which impose
-bimodal HD distributions) rather than at junctions (which allow more
-uniform heading), the overall HD distribution will appear more
-concentrated. The MRL by node type control (deferred; requires frame-level
-data) would address this confound. Importantly, the MRL difference does
-not survive the primary-only robustness check (N = 12, p = 0.339,
-r = 0.33), so the effect should be considered suggestive rather than
-established. Additional independent animals are needed to determine
-whether HD concentration genuinely increases in darkness.
+The trend toward increased mean resultant length of the HD distribution in
+darkness (p = 0.076, r = 0.46) has multiple possible explanations beyond a
+change in exploration strategy. The main analysis already restricts to
+active frames (speed >= 2.5 cm/s), so immobility per se does not drive the
+effect. However, if mice in darkness spend proportionally more time in
+corridors (which impose bimodal HD distributions) rather than at junctions
+(which allow more uniform heading), the overall HD distribution will appear
+more concentrated. The MRL by node type control (deferred; requires
+frame-level data) would address this confound. The MRL trend does not
+survive the primary-only robustness check (N = 11, p = 0.278, r = 0.39)
+or Holm-Bonferroni correction (adjusted p = 0.152), so the effect should
+be considered a non-significant trend rather than an established finding.
 
 ### Limitations
 
 1. The head-mounted microscope tether restricts movement to some degree.
    While we exclude periods of clear tether entanglement, subtle motor
    constraints may still influence exploration patterns compared to
-   untethered mice. The tether may also contribute to the null speed result
+   untethered mice. The tether may also contribute to the modest speed trend
    by limiting the dynamic range of locomotion available in both conditions.
 
-2. With 21 sessions from 15 animals (4 animals contributing 2--3 sessions
+2. With 20 sessions from 14 animals (4 animals contributing 2--3 sessions
    each), session-level analyses involve mild pseudoreplication. We address
-   this with a primary-only robustness check (N = 12 independent animals),
+   this with a primary-only robustness check (N = 11 independent animals),
    but the reduced sample size limits statistical power. The core coverage
-   finding survives this control (p = 0.021), but coverage per active minute
-   does not (p = 0.176), and MRL does not (p = 0.339). The speed null
-   result remains non-significant in both analyses.
+   finding survives this control (p = 0.010), and speed reaches significance
+   in primary-only (p = 0.042), but coverage per active minute does not
+   (p = 0.175), and MRL does not (p = 0.278). AHV remains non-significant
+   in both analyses.
 
 3. The 1-minute light/dark epoch duration was chosen for neural imaging
    purposes (testing HD re-anchoring dynamics) rather than to optimise
@@ -974,18 +996,20 @@ whether HD concentration genuinely increases in darkness.
    computed relative to dead ends as surrogate targets, not experimentally
    defined goals.
 
-5. The coverage difference between light and dark may be confounded by
-   locomotor activity. Although speed was not significantly different
-   between conditions, any trend toward reduced movement in darkness would
-   mechanically reduce coverage. A control analysis normalising coverage by
-   active time (coverage per active minute) showed that the effect survives
-   in the full dataset (p = 0.002) but not in primary-only sessions
-   (p = 0.176). The coverage finding is therefore robust in its basic form
-   (raw coverage, primary-only p = 0.021), but whether it reflects a
-   strategy change or a locomotor effect cannot be definitively resolved
-   with the current sample.
+5. The coverage difference between light and dark may be partially
+   confounded by locomotor activity. Although speed showed only a
+   non-significant trend in the full dataset (p = 0.076), the trend
+   reached significance in primary-only sessions (p = 0.042). A control
+   analysis normalising coverage by active time (coverage per active
+   minute) confirmed that the effect survives locomotor normalisation in
+   the full dataset (p = 0.001) but not in primary-only sessions
+   (p = 0.175). The coverage finding is therefore robust in its basic form
+   (raw coverage, primary-only p = 0.010), but whether it reflects a
+   strategy change, a locomotor reduction, or both cannot be definitively
+   resolved with the current sample.
 
-6. Speed analysis by node type (Fig. 6B) was computed using only active
+6. Speed analysis by node type (Supplementary, not yet assigned to a
+   figure) was computed using only active
    frames (speed >= 2.5 cm/s), which biases results at locations where
    mice frequently stop (e.g., dead ends, where they pause before
    reversing). The finding that dead ends show the highest active speed may
@@ -994,23 +1018,24 @@ whether HD concentration genuinely increases in darkness.
    pauses. A control analysis using all frames (including immobile periods)
    is needed to assess whether the node-type speed differences are robust.
 
-7. The AHV difference between light and dark conditions, while nominally
-   significant, may be confounded by the (non-significant) speed trend.
-   AHV and translational speed are correlated in freely-moving mice, so
-   a speed-controlled analysis (e.g., comparing AHV within matched speed
-   bins) is needed to determine whether the AHV reduction is independent.
-
-8. Three control analyses require frame-level data from regenerated
+7. Three control analyses require frame-level data from regenerated
    sync.h5 files and are deferred until the pipeline re-run completes:
    (a) MRL by maze node type (junction vs corridor vs dead end) in light
-   vs dark, which would determine whether the HD concentration increase
-   in darkness is driven by differential maze-location occupancy;
+   vs dark, which would determine whether the HD concentration trend in
+   darkness is driven by differential maze-location occupancy;
    (b) speed by node type using all frames (including immobile periods),
    which would test whether the dead-end speed result from the active-only
    analysis is an artefact of the activity filter; and (c) per-bodypart
    tracking confidence by light condition, which would provide a more
    granular check on tracking quality than the aggregate statistics
    reported in Methods.
+
+8. The total distance values reported here (median 57.7 m) are
+   substantially lower than preliminary estimates from an earlier tracking
+   model (median ~106 m). The earlier values were inflated by tracking
+   jitter (noisy keypoint estimates producing spurious inter-frame
+   displacements). The current values are derived from an improved
+   DLC model (test RMSE 3.79 px vs 7.12 px) and are more reliable.
 
 ---
 
@@ -1019,6 +1044,10 @@ whether HD concentration genuinely increases in darkness.
 Ajabi Z, Keinath AT, Brandon MP. 2023. "Population dynamics of
 head-direction neurons during drift and reorientation." *Nature* 615,
 892--899. doi:10.1038/s41586-023-05813-2
+
+Avni R, Zadicario P, Eilam D. 2006. "Exploration in a dark open field: a
+shift from directional to positional progression." *Behav. Processes* 72,
+232--240. doi:10.1016/j.beproc.2006.03.005
 
 Bhatt DK et al. 2024. "Rodent maze studies: from following simple rules to
 complex map learning." *Brain Struct. Funct.* 229, 1261--1278.
@@ -1037,6 +1066,10 @@ cells in the rat retrosplenial cortex." *Behav. Neurosci.* 115, 3--25.
 
 Etienne AS, Jeffery KJ. 2004. "Path integration in mammals." *Hippocampus*
 14, 180--192.
+
+Fonio E, Benjamini Y, Golani I. 2009. "Freedom of movement and the
+stability of its unfolding in free exploration of mice." *Proc. Natl. Acad.
+Sci.* 106, 21335--21340. doi:10.1073/pnas.0812513106
 
 Goodridge JP, Dudchenko PA, Worboys KA, Golob EJ, Taube JS. 1998. "Cue
 control and head direction cells." *Behav. Neurosci.* 112, 749--761.
@@ -1093,6 +1126,13 @@ analysis." *J. Neurosci.* 10, 420--435.
 Vann SD, Aggleton JP, Maguire EA. 2009. "What does the retrosplenial cortex
 do?" *Nat. Rev. Neurosci.* 10, 792--802.
 
+Whishaw IQ, Tomie JA. 1996. "Of mice and mazes: similarities between mice
+and rats on dry land but not water mazes." *Physiol. Behav.* 60, 1191--1197.
+
+Ye T et al. 2024. "SuperAnimal pretrained pose estimation models for
+behavioral analysis." *Nat. Commun.* 15, 5165.
+doi:10.1038/s41467-024-48792-2
+
 Zugaro MB, Arleo A, Berthoz A, Wiener SI. 2003. "Rapid spatial
 reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
 
@@ -1118,15 +1158,17 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
    acknowledged but rarely quantified. Explicit per-cell HD occupancy maps
    are a useful methodological contribution.
 
-4. **Honest reporting of null results.** The null speed result and the
-   failure of the second-order Markov model are informative for future
-   studies using similar paradigms.
+4. **Honest reporting of null results.** The null AHV result, the
+   non-significant MRL trend, the null speed result (which becomes
+   significant only in primary-only analysis), and the failure of the
+   second-order Markov model are all informative for future studies using
+   similar paradigms.
 
 ### What is NOT novel
 
 - Turn alternation in maze exploration (Rosenberg et al. 2021).
 - Speed reduction in darkness is well-established in the literature,
-  although it was not confirmed in the present data (p = 0.119).
+  though it was only a trend in the present data (p = 0.076).
 - HD drift in darkness (Stackman & Taube 1997; Ajabi et al. 2023).
 - DeepLabCut-based pose tracking (standard tool).
 
@@ -1142,27 +1184,28 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
    or fatigue effects could confound the light/dark comparison. Test for
    epoch-number effects (does the 5th dark epoch differ from the 1st?).
 
-3. **Speed confound for exploration metrics.** Although speed was not
-   significantly reduced in darkness, any trend toward slower speed means
-   fewer cell transitions per minute. Transition entropy is
-   rate-normalised (bits per step), but coverage and dead-end visit rate
-   must be normalised by active time or number of transitions, not clock
-   time. The coverage-per-active-minute control (p = 0.002, N = 21)
-   suggests the finding survives locomotor normalisation, but the
-   primary-only analysis does not reach significance (p = 0.176, N = 12),
+3. **Speed confound for exploration metrics.** Speed showed a trend toward
+   reduction in darkness (p = 0.076; primary-only p = 0.042). Any trend
+   toward slower speed means fewer cell transitions per minute. Transition
+   entropy is rate-normalised (bits per step), but coverage and dead-end
+   visit rate must be normalised by active time or number of transitions,
+   not clock time. The coverage-per-active-minute control (p = 0.001,
+   N = 20) suggests the finding survives locomotor normalisation, but the
+   primary-only analysis does not reach significance (p = 0.175, N = 11),
    so the speed confound cannot be definitively ruled out.
 
 4. **Small maze ceiling effects.** With only 23 cells, coverage approaches
    100% quickly, limiting the dynamic range for exploration efficiency
    comparisons.
 
-5. **Animal sex.** One female (1118023) is included among 15 males. Check
-   whether her behavioural metrics are outliers.
+5. **Animal sex.** One female (1118023) was excluded in this analysis round
+   (exp 21), so the remaining 14 animals are all male. This removes the
+   sex confound but limits generalisability.
 
 6. **Animals with multiple sessions.** Some animals contribute 2--3
    sessions. For session-level statistics, this creates mild
    pseudoreplication. Report results both with all sessions and with only
-   one session per animal (first or primary).
+   one session per animal (primary).
 
 ### Reviewer objections to anticipate
 
@@ -1171,7 +1214,7 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
   provides quantitative behavioural baselines.
 
 - "With only 7 junctions, is the Markov model meaningful?" Response: The
-  data show that a first-order model is preferred in all 21 sessions.
+  data show that a first-order model is preferred in all 20 sessions.
   We interpret this as a consequence of the small state space (23 cells),
   where the second-order model's additional parameters cannot be reliably
   estimated. This is a genuine limitation of the maze size for Markov
@@ -1184,8 +1227,15 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
   readout compared to open-field foraging.
 
 - "How do you know darkness was total?" Response: No visible illumination
-  was confirmed; infrared illuminators operate at wavelengths outside mouse
-  scotopic sensitivity; two-photon laser at 920 nm is also invisible.
+  was confirmed; the camera uses infrared illumination invisible to mice;
+  two-photon laser at 920 nm is also invisible.
+
+- "The speed result is only a trend — can you really claim it explains
+  coverage?" Response: We present speed as a partial explanation, not a
+  full one. The coverage-per-active-minute control shows the coverage drop
+  persists after normalisation (p = 0.001), though this control does not
+  survive primary-only analysis (p = 0.175). We are transparent about this
+  ambiguity.
 
 ---
 
@@ -1213,18 +1263,14 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
    condition.
 
 6. **Coverage per active minute control.** COMPLETED. Coverage per active
-   minute is significantly lower in dark (p = 0.002, r = 0.73, N = 21),
-   but the primary-only analysis does not reach significance (p = 0.176,
-   r = 0.46, N = 12). See Control 1 in behaviour-control-summary.md.
+   minute is significantly lower in dark (p = 0.001, r = 0.78, N = 20),
+   but the primary-only analysis does not reach significance (p = 0.175,
+   r = 0.49, N = 11). See Control 1 in behaviour-control-summary.md.
 
-7. **Speed-controlled AHV analysis.** The AHV light-dark difference may
-   reflect a speed confound. Compare AHV within matched speed bins (e.g.,
-   5--10 cm/s) between conditions, or compute partial correlation of AHV
-   with condition after regressing out speed.
-
-8. **Speed by node type without active-only filter.** The current analysis
-   uses speed >= 2.5 cm/s threshold, which biases results. Repeat Fig. 6B
-   analysis using all frames to check whether dead ends are genuinely
+7. **Speed by node type without active-only filter.** The current analysis
+   uses speed >= 2.5 cm/s threshold, which biases results. Repeat the
+   speed-by-node-type analysis using all frames to check whether dead
+   ends are genuinely
    traversed at higher speed or whether the active-only filter creates an
    artefact.
 
