@@ -1,6 +1,6 @@
 # Behavioural Control Analyses — Summary
 
-Generated from 21 usable sessions (15 animals). 12 primary sessions.
+Generated from 20 usable sessions (14 animals). 11 primary sessions.
 
 Seven control analyses addressing potential confounds in the main behavioural manuscript results. All tests non-parametric.
 
@@ -12,9 +12,9 @@ Seven control analyses addressing potential confounds in the main behavioural ma
 
 **Method:** Coverage per active minute = (epoch_coverage * 23) / frac_active. Approximation from per-session summaries.
 
-- Light: 21.89 cells/active-min (median 23.71)
-- Dark: 20.03 cells/active-min (median 22.01)
-- W = 31.0, p = 0.0022, r = 0.732, N = 21
+- Light: 19.76 cells/active-min (median 20.77)
+- Dark: 17.77 cells/active-min (median 19.17)
+- W = 23.0, p = 0.0012, r = 0.781, N = 20
 
 **Interpretation:** Coverage per active minute is significantly different between light and dark even after controlling for locomotion time. The main coverage result is not simply a speed artefact.
 
@@ -38,8 +38,8 @@ _This control requires frame-level HD and position data from sync.h5 files. Cann
 
 | Metric | Light | Dark | Test | p_adj |
 | ------ | ----- | ---- | ---- | ----- |
-| MRL (active only) | 0.297 | 0.338 | W = 43.0, p = 0.0101, r = 0.628, N = 21 | 0.0203 |
-| Median |AHV| (active only) | 121.4 | 115.1 | W = 49.0, p = 0.0195, r = 0.576, N = 21 | 0.0203 |
+| MRL (active only) | 0.060 | 0.085 | W = 57.0, p = 0.0759, r = 0.457, N = 20 | 0.1517 |
+| Median |AHV| (active only) | 93.3 | 95.4 | W = 68.0, p = 0.1769, r = 0.352, N = 20 | 0.1769 |
 
 ---
 
@@ -52,9 +52,9 @@ _This control requires frame-level HD and position data from sync.h5 files. Cann
 _This control requires frame-level speed and position data from sync.h5 files. Cannot be computed from per-session summaries. When sync.h5 files are regenerated, re-run this script._
 
 Active-only reference from Figure 6:
-- Junction: 14.95 cm/s
-- Corridor: 17.87 cm/s
-- Dead end: 26.32 cm/s
+- Junction: 8.21 cm/s
+- Corridor: 9.00 cm/s
+- Dead end: 8.13 cm/s
 
 ---
 
@@ -62,14 +62,14 @@ Active-only reference from Figure 6:
 
 **Question:** Is the observed turn alternation (negative lag-1 autocorrelation) stronger than expected from a random walk on the maze graph? This controls for maze geometry constraining turn sequences.
 
-- Observed: mean = -0.196, median = -0.171, SD = 0.102 (N = 21)
-- Null: mean = -0.141, median = -0.141, SD = 0.060 (N = 21000 simulations)
-- Null 95% CI: [-0.260, -0.021]
-- Mann-Whitney (21 observed vs 21 per-session null means): U = 147.0, p = 0.0663, d = -0.333
-- Bootstrap permutation p (one-sided, H1: observed < null): <0.0001
-- Sessions outside null 95% CI: 5 below, 0 above (23.8%)
+- Observed: mean = -0.172, median = -0.175, SD = 0.095 (N = 20)
+- Null: mean = -0.141, median = -0.141, SD = 0.068 (N = 20000 simulations)
+- Null 95% CI: [-0.274, -0.007]
+- Mann-Whitney (20 observed vs 20 per-session null means): U = 140.0, p = 0.1075, d = -0.300
+- Bootstrap permutation p (one-sided, H1: observed < null): 0.0192
+- Sessions outside null 95% CI: 3 below, 1 above (20.0%)
 
-**Note:** The null distribution itself has a negative mean (-0.141), indicating that maze geometry alone produces some degree of turn alternation. The question is whether the observed alternation (-0.196) exceeds this geometry-driven baseline.
+**Note:** The null distribution itself has a negative mean (-0.141), indicating that maze geometry alone produces some degree of turn alternation. The question is whether the observed alternation (-0.172) exceeds this geometry-driven baseline.
 
 **Interpretation:** Observed alternation is significantly stronger than the random walk null (permutation p < 0.05). While maze geometry contributes some alternation, mice show additional spontaneous alternation beyond what the graph structure would produce.
 
@@ -87,20 +87,20 @@ _This control requires per-bodypart raw positions from kinematics.h5 files. Thes
 
 ## Control 7: Primary-Only Analysis
 
-**Sessions:** 12 sessions from 12 animals (one per animal).
+**Sessions:** 11 sessions from 11 animals (one per animal).
 
 Re-runs key comparisons using only primary_exp=True sessions to control for pseudoreplication from animals with multiple sessions.
 
 | Metric | N | Light | Dark | Test |
 | ------ | - | ----- | ---- | ---- |
-| Epoch coverage | 12 | 0.439 | 0.390 | W = 10.0, p = 0.0210, r = 0.744, N = 12 |
-| Coverage / active min | 12 | 19.96 | 18.89 | W = 21.0, p = 0.1763, r = 0.462, N = 12 |
-| MRL (active) | 12 | 0.302 | 0.329 | W = 26.0, p = 0.3394, r = 0.333, N = 12 |
-| Median |AHV| (deg/s) | 12 | 116.2 | 111.2 | W = 10.0, p = 0.0210, r = 0.744, N = 12 |
-| Median speed (cm/s) | 12 | 2.79 | 2.46 | W = 17.0, p = 0.0923, r = 0.564, N = 12 |
-| Fraction active | 12 | 0.507 | 0.479 | W = 20.0, p = 0.1514, r = 0.487, N = 12 |
+| Epoch coverage | 11 | 0.402 | 0.346 | W = 5.0, p = 0.0098, r = 0.848, N = 11 |
+| Coverage / active min | 11 | 18.06 | 16.90 | W = 17.0, p = 0.1748, r = 0.485, N = 11 |
+| MRL (active) | 11 | 0.064 | 0.084 | W = 20.0, p = 0.2783, r = 0.394, N = 11 |
+| Median |AHV| (deg/s) | 11 | 94.4 | 95.9 | W = 24.0, p = 0.4648, r = 0.273, N = 11 |
+| Median speed (cm/s) | 11 | 2.69 | 2.25 | W = 10.0, p = 0.0420, r = 0.697, N = 11 |
+| Fraction active | 11 | 0.513 | 0.474 | W = 10.0, p = 0.0420, r = 0.697, N = 11 |
 
-Turn autocorrelation vs 0 (primary only): mean = -0.179, W = 0.0, p = 0.0005, r = 1.000, N = 12
+Turn autocorrelation vs 0 (primary only): mean = -0.140, W = 2.0, p = 0.0029, r = 0.939, N = 11
 
 ---
 
@@ -108,12 +108,12 @@ Turn autocorrelation vs 0 (primary only): mean = -0.179, W = 0.0, p = 0.0005, r 
 
 | Control | Status | Key finding |
 | ------- | ------ | ----------- |
-| 1. Coverage per active min | computed | p = 0.0022, r = 0.732 |
+| 1. Coverage per active min | computed | p = 0.0012, r = 0.781 |
 | 2. MRL by node type | requires_frame_data | Deferred |
-| 3. MRL/AHV active only | verified | Already active-only; MRL p = 0.0101 |
+| 3. MRL/AHV active only | verified | Already active-only; MRL p = 0.0759 |
 | 4. Speed by node type (all) | requires_frame_data | Deferred |
-| 5. Random walk null | computed | Permutation p = <0.0001, d = -0.333 |
+| 5. Random walk null | computed | Permutation p = 0.0192, d = -0.300 |
 | 6. Bodypart tracking quality | requires_frame_data | Deferred |
-| 7. Primary-only | computed | Coverage p = 0.0210, r = 0.744 |
+| 7. Primary-only | computed | Coverage p = 0.0098, r = 0.848 |
 
 

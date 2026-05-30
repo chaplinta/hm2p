@@ -1,23 +1,23 @@
 {
   "cross_session": {
     "dataset": {
-      "n_usable_sessions": 21,
-      "n_primary_sessions": 12,
-      "n_animals": 15
+      "n_usable_sessions": 20,
+      "n_primary_sessions": 11,
+      "n_animals": 14
     },
     "control_1": {
       "description": "Unique cells visited per active minute (speed >= 2.5 cm/s). Approximated from per-epoch coverage and active fraction. Controls for the speed confound: if normalised coverage is still lower in dark, the finding stands independent of reduced locomotion.",
       "method": "coverage_frac * 23 / frac_active (approximation from summaries)",
-      "n": 21,
-      "mean_light": 21.886228802876488,
-      "mean_dark": 20.025923270831747,
-      "median_light": 23.714831573655104,
-      "median_dark": 22.01251137397634,
+      "n": 20,
+      "mean_light": 19.76264714485053,
+      "mean_dark": 17.769433935623958,
+      "median_light": 20.766249507878733,
+      "median_dark": 19.16997580882338,
       "test": {
-        "stat": 31.0,
-        "p": 0.0021514892578125,
-        "r": 0.7316017316017316,
-        "n": 21,
+        "stat": 23.0,
+        "p": 0.001209259033203125,
+        "r": 0.780952380952381,
+        "n": 20,
         "test": "wilcoxon_signed_rank"
       }
     },
@@ -30,36 +30,36 @@
       "description": "MRL and median |AHV| using only active frames (speed >= 2.5 cm/s). Controls for immobility driving HD non-uniformity. NOTE: The main analysis ALREADY restricts to active frames (mask_hd_light = valid & light_on & active & hd_finite). These values are identical to the Figure 5 results.",
       "already_active_only": true,
       "mrl": {
-        "n": 21,
-        "mean_light": 0.2966859651179852,
-        "mean_dark": 0.33796896650918756,
-        "median_light": 0.2903176907676313,
-        "median_dark": 0.3569272956822708,
+        "n": 20,
+        "mean_light": 0.05995620109054996,
+        "mean_dark": 0.0848905104592064,
+        "median_light": 0.05390869452910343,
+        "median_dark": 0.06597979974344689,
         "test": {
-          "stat": 43.0,
-          "p": 0.010125160217285156,
-          "r": 0.6277056277056277,
-          "n": 21,
+          "stat": 57.0,
+          "p": 0.0758514404296875,
+          "r": 0.4571428571428572,
+          "n": 20,
           "test": "wilcoxon_signed_rank"
         }
       },
       "ahv": {
-        "n": 21,
-        "mean_light": 121.37933458600726,
-        "mean_dark": 115.05576160975865,
-        "median_light": 120.42620468139648,
-        "median_dark": 114.32706451416016,
+        "n": 20,
+        "mean_light": 93.29022026062012,
+        "mean_dark": 95.37659912109375,
+        "median_light": 92.39339828491211,
+        "median_dark": 92.25177955627441,
         "test": {
-          "stat": 49.0,
-          "p": 0.01947307586669922,
-          "r": 0.5757575757575757,
-          "n": 21,
+          "stat": 68.0,
+          "p": 0.17685317993164062,
+          "r": 0.35238095238095235,
+          "n": 20,
           "test": "wilcoxon_signed_rank"
         }
       },
       "holm_bonferroni_adjusted_p": {
-        "mrl": 0.020250320434570312,
-        "ahv": 0.020250320434570312
+        "mrl": 0.151702880859375,
+        "ahv": 0.17685317993164062
       }
     },
     "control_4": {
@@ -67,71 +67,71 @@
       "status": "requires_frame_data",
       "note": "This control requires frame-level speed and position data from sync.h5 files. Cannot be computed from per-session summaries. When sync.h5 files are regenerated, re-run this script.",
       "active_only_reference": {
-        "mean_junction": 14.94618622881287,
-        "mean_corridor": 17.87271766121401,
-        "mean_dead_end": 26.319764779084938,
+        "mean_junction": 8.21097006515554,
+        "mean_corridor": 9.004987016860065,
+        "mean_dead_end": 8.126060716839985,
         "friedman": {
-          "stat": 14.952380952380963,
-          "p": 0.0005664110672210443,
-          "n": 21
+          "stat": 15.700000000000017,
+          "p": 0.00038975196825275134,
+          "n": 20
         },
         "posthoc_junc_vs_corr": {
-          "stat": 11.0,
-          "p": 5.245208740234375e-05,
-          "r": 0.9047619047619048,
-          "n": 21,
+          "stat": 21.0,
+          "p": 0.000850677490234375,
+          "r": 0.8,
+          "n": 20,
           "test": "wilcoxon_signed_rank"
         },
         "posthoc_junc_vs_de": {
-          "stat": 17.0,
-          "p": 0.00019741058349609375,
-          "r": 0.8528138528138528,
-          "n": 21,
+          "stat": 64.0,
+          "p": 0.13272666931152344,
+          "r": 0.3904761904761904,
+          "n": 20,
           "test": "wilcoxon_signed_rank"
         },
         "posthoc_corr_vs_de": {
-          "stat": 34.0,
-          "p": 0.0032787322998046875,
-          "r": 0.7056277056277056,
-          "n": 21,
+          "stat": 27.0,
+          "p": 0.0023250579833984375,
+          "r": 0.7428571428571429,
+          "n": 20,
           "test": "wilcoxon_signed_rank"
         },
         "posthoc_adjusted_p": {
-          "junc_vs_corr": 0.00015735626220703125,
-          "junc_vs_de": 0.0003948211669921875,
-          "corr_vs_de": 0.0032787322998046875
+          "junc_vs_corr": 0.002552032470703125,
+          "junc_vs_de": 0.13272666931152344,
+          "corr_vs_de": 0.004650115966796875
         }
       }
     },
     "control_5": {
-      "n_observed": 21,
-      "n_null_session_means": 21,
-      "n_null_total": 21000,
+      "n_observed": 20,
+      "n_null_session_means": 20,
+      "n_null_total": 20000,
       "n_simulations_per_session": 1000,
-      "observed_mean": -0.19596228440876706,
-      "observed_median": -0.1714285714285714,
-      "observed_sd": 0.10179025558151009,
-      "null_session_mean": -0.14051587318241462,
-      "null_mean": -0.1405158731824146,
-      "null_median": -0.14056382632831238,
-      "null_sd": 0.05971624715490257,
-      "null_pct_2_5": -0.26003393128882907,
-      "null_pct_97_5": -0.021413736817610083,
+      "observed_mean": -0.1722792490805341,
+      "observed_median": -0.17457518382320608,
+      "observed_sd": 0.09460853937778854,
+      "null_session_mean": -0.14118184398696618,
+      "null_mean": -0.14118184398696618,
+      "null_median": -0.1412250744265559,
+      "null_sd": 0.06770533480211625,
+      "null_pct_2_5": -0.27356296537832997,
+      "null_pct_97_5": -0.006935556088147561,
       "test_observed_vs_null": {
-        "U": 147.0,
-        "p": 0.06630309624589314,
-        "cliff_d": -0.3333333333333333,
-        "n1": 21,
-        "n2": 21,
+        "U": 140.0,
+        "p": 0.10751135969600566,
+        "cliff_d": -0.3,
+        "n1": 20,
+        "n2": 20,
         "test": "mann_whitney_u"
       },
-      "permutation_p_onesided": 0.0,
-      "permutation_p_twosided": 0.0,
-      "permutation_p_onesided_fmt": "<0.0001",
-      "permutation_p_twosided_fmt": "<0.0001",
-      "n_observed_below_null_ci": 5,
-      "n_observed_above_null_ci": 0,
-      "frac_observed_outside_null_ci": 0.23809523809523808,
+      "permutation_p_onesided": 0.0192,
+      "permutation_p_twosided": 0.0192,
+      "permutation_p_onesided_fmt": "0.0192",
+      "permutation_p_twosided_fmt": "0.0192",
+      "n_observed_below_null_ci": 3,
+      "n_observed_above_null_ci": 1,
+      "frac_observed_outside_null_ci": 0.2,
       "description": "Random walk null model for sequential turn alternation. Simulates 1000 random walks per session on the maze graph and compares the observed lag-1 turn autocorrelation to the null. If observed alternation is significantly more negative than the null, it reflects a genuine behavioural strategy, not a maze geometry artefact."
     },
     "control_6": {
@@ -141,88 +141,88 @@
     },
     "control_7": {
       "description": "Key comparisons re-run using only primary_exp=True sessions (one session per animal). Controls for pseudoreplication from animals with multiple sessions.",
-      "n_sessions": 12,
-      "n_animals": 12,
+      "n_sessions": 11,
+      "n_animals": 11,
       "epoch_coverage": {
-        "n": 12,
-        "mean_light": 0.4388888888888889,
-        "mean_dark": 0.3903985507246377,
+        "n": 11,
+        "mean_light": 0.40210803689064556,
+        "mean_dark": 0.3463628762541806,
         "test": {
-          "stat": 10.0,
-          "p": 0.02099609375,
-          "r": 0.7435897435897436,
-          "n": 12,
+          "stat": 5.0,
+          "p": 0.009765625,
+          "r": 0.8484848484848485,
+          "n": 11,
           "test": "wilcoxon_signed_rank"
         }
       },
       "coverage_per_active_min": {
-        "n": 12,
-        "mean_light": 19.957533802529316,
-        "mean_dark": 18.891446145107214,
+        "n": 11,
+        "mean_light": 18.0566592774329,
+        "mean_dark": 16.89934108934783,
         "test": {
-          "stat": 21.0,
-          "p": 0.17626953125,
-          "r": 0.46153846153846156,
-          "n": 12,
+          "stat": 17.0,
+          "p": 0.1748046875,
+          "r": 0.48484848484848486,
+          "n": 11,
           "test": "wilcoxon_signed_rank"
         }
       },
       "mrl": {
-        "n": 12,
-        "mean_light": 0.3023371492846354,
-        "mean_dark": 0.3286637054741432,
+        "n": 11,
+        "mean_light": 0.06430042000954289,
+        "mean_dark": 0.08389898736695009,
         "test": {
-          "stat": 26.0,
-          "p": 0.33935546875,
-          "r": 0.33333333333333337,
-          "n": 12,
+          "stat": 20.0,
+          "p": 0.2783203125,
+          "r": 0.3939393939393939,
+          "n": 11,
           "test": "wilcoxon_signed_rank"
         }
       },
       "ahv": {
-        "n": 12,
-        "mean_light": 116.17395814259847,
-        "mean_dark": 111.21810531616211,
+        "n": 11,
+        "mean_light": 94.39002123746005,
+        "mean_dark": 95.90902051058683,
         "test": {
-          "stat": 10.0,
-          "p": 0.02099609375,
-          "r": 0.7435897435897436,
-          "n": 12,
+          "stat": 24.0,
+          "p": 0.46484375,
+          "r": 0.2727272727272727,
+          "n": 11,
           "test": "wilcoxon_signed_rank"
         }
       },
       "speed": {
-        "n": 12,
-        "mean_light": 2.787617256244024,
-        "mean_dark": 2.4557725936174393,
+        "n": 11,
+        "mean_light": 2.6938635381785305,
+        "mean_dark": 2.246626604687084,
         "test": {
-          "stat": 17.0,
-          "p": 0.09228515625,
-          "r": 0.5641025641025641,
-          "n": 12,
+          "stat": 10.0,
+          "p": 0.0419921875,
+          "r": 0.696969696969697,
+          "n": 11,
           "test": "wilcoxon_signed_rank"
         }
       },
       "frac_active": {
-        "n": 12,
-        "mean_light": 0.5066427698160184,
-        "mean_dark": 0.4792742825893486,
+        "n": 11,
+        "mean_light": 0.5133264698750395,
+        "mean_dark": 0.47439938324951886,
         "test": {
-          "stat": 20.0,
-          "p": 0.1513671875,
-          "r": 0.4871794871794872,
-          "n": 12,
+          "stat": 10.0,
+          "p": 0.0419921875,
+          "r": 0.696969696969697,
+          "n": 11,
           "test": "wilcoxon_signed_rank"
         }
       },
       "turn_autocorr_vs_zero": {
-        "n": 12,
-        "mean": -0.17947814740739443,
+        "n": 11,
+        "mean": -0.1400758443840542,
         "test": {
-          "stat": 0.0,
-          "p": 0.00048828125,
-          "r": 1.0,
-          "n": 12,
+          "stat": 2.0,
+          "p": 0.0029296875,
+          "r": 0.9393939393939394,
+          "n": 11,
           "test": "wilcoxon_one_sample"
         }
       }
