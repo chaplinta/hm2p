@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import textwrap
 from pathlib import Path
 
@@ -46,9 +45,7 @@ ROOT_VOLUME_GB = 80
 
 def get_sg_id() -> str:
     ec2 = boto3.client("ec2", region_name=REGION)
-    resp = ec2.describe_security_groups(
-        Filters=[{"Name": "group-name", "Values": [SG_NAME]}]
-    )
+    resp = ec2.describe_security_groups(Filters=[{"Name": "group-name", "Values": [SG_NAME]}])
     groups = resp["SecurityGroups"]
     if not groups:
         raise RuntimeError(f"Security group '{SG_NAME}' not found")
@@ -68,6 +65,24 @@ def build_user_data() -> str:
         # Do NOT use set -e — we want to capture errors and upload logs.
         set -uxo pipefail
         exec > >(tee /var/log/kpms-setup.log) 2>&1
+
+        # ── Trap: always upload logs before shutdown ──────────────────────
+        # Ensures logs reach S3 even if the script crashes unexpectedly
+        # (e.g. git clone fails, Docker daemon doesn't start, OOM, etc.).
+        S3_PREFIX=s3://hm2p-derivatives/kinematics
+        upload_logs_and_shutdown() {
+            echo "=== Uploading logs before shutdown $(date) ==="
+            # If no status file was written, write a generic failure
+            if [ ! -f /tmp/kpms_status.json ]; then
+                echo '{"status":"failed","error":"script exited before completion"}' \
+                    > /tmp/kpms_status.json
+            fi
+            aws s3 cp /tmp/kpms_status.json "$S3_PREFIX/kpms_status.json" || true
+            aws s3 cp /var/log/kpms-setup.log "$S3_PREFIX/kpms-setup.log" || true
+            echo "=== Shutting down $(date) ==="
+            shutdown -h now
+        }
+        trap upload_logs_and_shutdown EXIT
 
         echo "=== keypoint-MoSeq setup starting $(date) ==="
         export DEBIAN_FRONTEND=noninteractive
@@ -90,9 +105,6 @@ def build_user_data() -> str:
         if [ $BUILD_EXIT -ne 0 ]; then
             echo "=== Docker build FAILED (exit $BUILD_EXIT) $(date) ==="
             echo '{"status": "failed", "error": "docker build failed"}' > /tmp/kpms_status.json
-            aws s3 cp /tmp/kpms_status.json s3://hm2p-derivatives/kinematics/kpms_status.json
-            aws s3 cp /var/log/kpms-setup.log s3://hm2p-derivatives/kinematics/kpms-setup.log
-            shutdown -h now
             exit 1
         fi
 
@@ -113,7 +125,8 @@ def build_user_data() -> str:
             --project-dir /data/project \\
             --output-dir /data/output \\
             --skip-existing \\
-            --bodyparts nose left_ear right_ear neck mid_back mouse_center mid_backend mid_backend2 \\
+            --bodyparts nose left_ear right_ear neck \\
+                mid_back mouse_center mid_backend mid_backend2 \\
             --kappa 1000000 \\
             --num-pcs 10 \\
             --num-iters 50
@@ -121,19 +134,14 @@ def build_user_data() -> str:
 
         if [ $RUN_EXIT -ne 0 ]; then
             echo "=== keypoint-MoSeq FAILED (exit $RUN_EXIT) $(date) ==="
-            echo "{\\\"status\\\": \\\"failed\\\", \\\"error\\\": \\\"docker run exit $RUN_EXIT\\\"}" > /tmp/kpms_status.json
+            printf '{"status":"failed","error":"docker run exit %d"}' \
+                "$RUN_EXIT" > /tmp/kpms_status.json
         else
             echo "=== keypoint-MoSeq complete $(date) ==="
             echo '{"status": "complete"}' > /tmp/kpms_status.json
         fi
 
-        # ── Upload status + logs ─────────────────────────────────────────
-        aws s3 cp /tmp/kpms_status.json s3://hm2p-derivatives/kinematics/kpms_status.json
-        aws s3 cp /var/log/kpms-setup.log s3://hm2p-derivatives/kinematics/kpms-setup.log
-
-        # ── Self-terminate ───────────────────────────────────────────────
-        echo "=== Shutting down $(date) ==="
-        shutdown -h now
+        # The EXIT trap handles log upload and shutdown.
     """)
 
 
@@ -177,22 +185,26 @@ def launch_instance(dry_run: bool = False) -> dict | None:
         MaxCount=1,
         UserData=user_data,
         IamInstanceProfile={"Name": INSTANCE_PROFILE_NAME},
-        BlockDeviceMappings=[{
-            "DeviceName": "/dev/sda1",
-            "Ebs": {
-                "VolumeSize": ROOT_VOLUME_GB,
-                "VolumeType": "gp3",
-                "DeleteOnTermination": True,
-            },
-        }],
+        BlockDeviceMappings=[
+            {
+                "DeviceName": "/dev/sda1",
+                "Ebs": {
+                    "VolumeSize": ROOT_VOLUME_GB,
+                    "VolumeType": "gp3",
+                    "DeleteOnTermination": True,
+                },
+            }
+        ],
         InstanceInitiatedShutdownBehavior="terminate",
-        TagSpecifications=[{
-            "ResourceType": "instance",
-            "Tags": [
-                TAG_PROJECT,
-                {"Key": "Name", "Value": "hm2p-kpms"},
-            ],
-        }],
+        TagSpecifications=[
+            {
+                "ResourceType": "instance",
+                "Tags": [
+                    TAG_PROJECT,
+                    {"Key": "Name", "Value": "hm2p-kpms"},
+                ],
+            }
+        ],
     )
 
     instance_id = resp["Instances"][0]["InstanceId"]
@@ -260,8 +272,7 @@ def check_status() -> None:
             Prefix="kinematics/",
         )
         npz_files = [
-            obj["Key"] for obj in resp.get("Contents", [])
-            if obj["Key"].endswith("syllables.npz")
+            obj["Key"] for obj in resp.get("Contents", []) if obj["Key"].endswith("syllables.npz")
         ]
         print(f"Syllable .npz files on S3: {len(npz_files)}")
     except Exception:

@@ -23,15 +23,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-import io
 import json
 import logging
+import os
 import sys
 import tempfile
-from datetime import datetime
 from pathlib import Path
-
-import os
 
 # Force JAX to CPU-only (avoids noisy CUDA errors on CPU instances)
 os.environ["JAX_PLATFORMS"] = "cpu"
@@ -48,8 +45,10 @@ log = logging.getLogger("kpms")
 
 # ── S3 helpers ──────────────────────────────────────────────────────────────
 
+
 def get_s3_client(region: str = "ap-southeast-2"):
     import boto3
+
     return boto3.client("s3", region_name=region)
 
 
@@ -105,18 +104,19 @@ def convert_madlc_to_single(h5_path: Path, bodyparts: list[str]) -> Path:
 
     # For each frame, pick the individual with highest mean likelihood
     # across the target bodyparts (vectorized)
-    log.info("  Selecting best individual per frame (%d frames, %d individuals)...",
-             n_frames, len(individuals))
+    log.info(
+        "  Selecting best individual per frame (%d frames, %d individuals)...",
+        n_frames,
+        len(individuals),
+    )
 
     # Build (n_frames, n_individuals) likelihood matrix
     ind_scores = np.full((n_frames, len(individuals)), -1.0)
     for j, ind in enumerate(individuals):
         lk_cols = []
         for bp in use_bps:
-            try:
+            if (scorer, ind, bp, "likelihood") in df.columns:
                 lk_cols.append(df[(scorer, ind, bp, "likelihood")].values)
-            except KeyError:
-                pass
         if lk_cols:
             # Mean likelihood across bodyparts per frame
             ind_scores[:, j] = np.nanmean(np.column_stack(lk_cols), axis=1)
@@ -136,10 +136,8 @@ def convert_madlc_to_single(h5_path: Path, bodyparts: list[str]) -> Path:
             # Stack all individuals' values for this bp+coord: (n_frames, n_individuals)
             all_vals = np.full((n_frames, len(individuals)), np.nan)
             for j, ind in enumerate(individuals):
-                try:
+                if (scorer, ind, bp, coord) in df.columns:
                     all_vals[:, j] = df[(scorer, ind, bp, coord)].values
-                except KeyError:
-                    pass
             # Gather from best individual per frame
             new_data[:, col_idx] = all_vals[np.arange(n_frames), best_ind_idx]
             col_idx += 1
@@ -170,6 +168,7 @@ def parse_session_id(exp_id: str) -> tuple[str, str]:
 
 # ── keypoint-MoSeq wrapper ─────────────────────────────────────────────────
 
+
 def fit_kpms(
     dlc_files: dict[str, Path],
     project_dir: Path,
@@ -192,12 +191,13 @@ def fit_kpms(
         Dict of session_id → {"syllable_id": (N,) int16,
                                "syllable_prob": (N, S) float32}
     """
+    import shutil
+
     import keypoint_moseq as kpms
 
     # Clean project dir contents to avoid "directory already exists" error
     # from kpms.  We clear contents rather than rmtree because the dir may be
     # a Docker bind-mount (rmtree on a mount point raises EBUSY).
-    import shutil
     if project_dir.exists():
         for child in project_dir.iterdir():
             if child.is_dir():
@@ -206,12 +206,46 @@ def fit_kpms(
                 child.unlink()
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Setup project ──────────────────────────────────────────────────────
-    log.info("Setting up kpms project (bodyparts=%s)...", bodyparts)
+    # ── Load DLC data first to discover all bodyparts ────────────────────
+    # We must load data BEFORE setup_project so we know the full bodypart
+    # list.  kpms.format_data asserts len(bodyparts) == coordinates.shape[K],
+    # so config `bodyparts` must list ALL keypoints from the file, while
+    # `use_bodyparts` selects our desired subset.
+    import tempfile
+
+    link_dir = Path(tempfile.mkdtemp(prefix="kpms_links_"))
+    for sid, h5_path in dlc_files.items():
+        # kpms uses the filename (minus extension) as session key
+        link = link_dir / f"{sid}.h5"
+        link.symlink_to(h5_path.resolve())
+
+    log.info("Loading %d DLC files via load_keypoints...", len(dlc_files))
+    coordinates, confidences, all_bodyparts = kpms.load_keypoints(
+        str(link_dir),
+        "deeplabcut",
+    )
+    log.info("Loaded %d bodyparts from DLC files: %s", len(all_bodyparts), all_bodyparts)
+    log.info("Sessions loaded: %s", list(coordinates.keys()))
+
+    # Validate that all requested bodyparts exist in the loaded data
+    missing_bps = [bp for bp in bodyparts if bp not in all_bodyparts]
+    if missing_bps:
+        raise ValueError(
+            f"Requested bodyparts not found in DLC files: {missing_bps}. "
+            f"Available: {all_bodyparts}"
+        )
+    log.info(
+        "Using %d/%d bodyparts for fitting: %s", len(bodyparts), len(all_bodyparts), bodyparts
+    )
+
+    # ── Setup project with the FULL bodypart list ─────────────────────────
+    # bodyparts = all keypoints in the data (must match coordinates dim K)
+    # use_bodyparts = our selected subset for AR-HMM fitting
+    log.info("Setting up kpms project...")
     kpms.setup_project(
         project_dir=str(project_dir),
         deeplabcut_config=None,
-        bodyparts=bodyparts,
+        bodyparts=all_bodyparts,
         use_bodyparts=bodyparts,
         overwrite=True,
     )
@@ -220,8 +254,9 @@ def fit_kpms(
     # skeleton and anterior/posterior that cause load_config to crash.
     kpms.update_config(
         str(project_dir),
-        anterior_bodyparts=[bodyparts[0]],     # e.g. "nose"
-        posterior_bodyparts=[bodyparts[-1]],    # e.g. "mid_backend2"
+        anterior_bodyparts=[bodyparts[0]],  # e.g. "nose"
+        posterior_bodyparts=[bodyparts[-1]],  # e.g. "mid_backend2"
+        bodyparts=all_bodyparts,
         use_bodyparts=bodyparts,
         skeleton=[],
     )
@@ -230,35 +265,20 @@ def fit_kpms(
     def config():
         return kpms.load_config(str(project_dir))
 
-    # ── Load DLC data (kpms 0.6+ API) ─────────────────────────────────────
-    # load_keypoints expects individual file paths — build a temporary dir
-    # with symlinks so we can point it at a directory pattern.
-    import tempfile
-    link_dir = Path(tempfile.mkdtemp(prefix="kpms_links_"))
-    for sid, h5_path in dlc_files.items():
-        # kpms uses the filename (minus extension) as session key
-        link = link_dir / f"{sid}.h5"
-        link.symlink_to(h5_path.resolve())
-
-    log.info("Loading %d DLC files via load_keypoints...", len(dlc_files))
-    coordinates, confidences, _bodyparts = kpms.load_keypoints(
-        str(link_dir), "deeplabcut",
-    )
-    log.info("Loaded bodyparts: %s", _bodyparts)
-    log.info("Sessions loaded: %s", list(coordinates.keys()))
-
     # ── Format data ──────────────────────────────────────────────────────────
-    log.info("Formatting data...")
+    log.info(
+        "Formatting data (all_bodyparts=%d, use_bodyparts=%d)...",
+        len(all_bodyparts),
+        len(bodyparts),
+    )
     cfg = config()
-    log.info("Config keys: %s", list(cfg.keys()))
+    log.info("Config bodyparts: %s", cfg.get("bodyparts"))
+    log.info("Config use_bodyparts: %s", cfg.get("use_bodyparts"))
     log.info("anterior_bodyparts: %s", cfg.get("anterior_bodyparts"))
     log.info("posterior_bodyparts: %s", cfg.get("posterior_bodyparts"))
-    log.info("anterior_idxs: %s", cfg.get("anterior_idxs"))
-    log.info("posterior_idxs: %s", cfg.get("posterior_idxs"))
-    log.info("use_bodyparts: %s", cfg.get("use_bodyparts"))
-    log.info("bodyparts: %s", cfg.get("bodyparts"))
     data, metadata = kpms.format_data(coordinates, confidences, **cfg)
-    log.info("data type: %s, keys: %s", type(data).__name__, list(data.keys()) if isinstance(data, dict) else "N/A")
+    data_keys = list(data.keys()) if isinstance(data, dict) else "N/A"
+    log.info("data type: %s, keys: %s", type(data).__name__, data_keys)
 
     # noise_calibration is interactive (requires video frames for a Jupyter
     # widget) — skip it on headless EC2.  The default noise prior works fine
@@ -271,8 +291,11 @@ def fit_kpms(
     log.info("Fitting PCA (num_pcs=%d)...", num_pcs)
     kpms.update_config(str(project_dir), num_pcs=num_pcs)
     cfg = config()
-    log.info("anterior_idxs: %s, posterior_idxs: %s",
-             cfg.get("anterior_idxs"), cfg.get("posterior_idxs"))
+    log.info(
+        "anterior_idxs: %s, posterior_idxs: %s",
+        cfg.get("anterior_idxs"),
+        cfg.get("posterior_idxs"),
+    )
 
     pca = kpms.fit_pca(
         data["Y"],
@@ -308,10 +331,16 @@ def fit_kpms(
 
     # ── Extract results ────────────────────────────────────────────────────
     log.info("Extracting results for model_name=%s...", model_name)
-    log.info("model type: %s, keys: %s", type(model).__name__,
-             list(model.keys()) if isinstance(model, dict) else "N/A")
+    log.info(
+        "model type: %s, keys: %s",
+        type(model).__name__,
+        list(model.keys()) if isinstance(model, dict) else "N/A",
+    )
     results = kpms.extract_results(
-        model, metadata, str(project_dir), model_name=model_name,
+        model,
+        metadata,
+        str(project_dir),
+        model_name=model_name,
     )
 
     # Clean up symlinks
@@ -336,7 +365,9 @@ def fit_kpms(
             }
             log.info(
                 "  %s: %d frames, %d unique syllables",
-                session_id, len(syllable_id), len(np.unique(syllable_id)),
+                session_id,
+                len(syllable_id),
+                len(np.unique(syllable_id)),
             )
         else:
             log.warning("  %s: not in results (skipped by kpms?)", session_id)
@@ -346,39 +377,58 @@ def fit_kpms(
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run keypoint-MoSeq syllable discovery on DLC outputs."
     )
     parser.add_argument(
-        "--dlc-dir", type=Path, default=None,
+        "--dlc-dir",
+        type=Path,
+        default=None,
         help="Local directory containing DLC .h5 files.",
     )
     parser.add_argument(
-        "--project-dir", type=Path, default=Path("/tmp/kpms_project"),
+        "--project-dir",
+        type=Path,
+        default=Path("/tmp/kpms_project"),
         help="Working directory for kpms config/checkpoints.",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=None,
+        "--output-dir",
+        type=Path,
+        default=None,
         help="Local directory to write syllable .npz files.",
     )
     parser.add_argument(
-        "--s3-bucket", type=str, default="hm2p-derivatives",
+        "--s3-bucket",
+        type=str,
+        default="hm2p-derivatives",
         help="S3 bucket for derivatives.",
     )
     parser.add_argument(
-        "--all-sessions", action="store_true",
+        "--all-sessions",
+        action="store_true",
         help="Process all sessions from metadata/experiments.csv via S3.",
     )
     parser.add_argument(
-        "--sessions", nargs="*", default=None,
+        "--sessions",
+        nargs="*",
+        default=None,
         help="Specific session exp_ids to process.",
     )
     parser.add_argument(
-        "--bodyparts", nargs="*",
+        "--bodyparts",
+        nargs="*",
         default=[
-            "nose", "left_ear", "right_ear", "neck",
-            "mid_back", "mouse_center", "mid_backend", "mid_backend2",
+            "nose",
+            "left_ear",
+            "right_ear",
+            "neck",
+            "mid_back",
+            "mouse_center",
+            "mid_backend",
+            "mid_backend2",
         ],
         help="Body parts to use for fitting (kpms recommends 5-10, no tail).",
     )
@@ -386,7 +436,8 @@ def main():
     parser.add_argument("--num-pcs", type=int, default=10)
     parser.add_argument("--num-iters", type=int, default=50)
     parser.add_argument(
-        "--skip-existing", action="store_true",
+        "--skip-existing",
+        action="store_true",
         help="Skip sessions that already have syllable output on S3.",
     )
 
@@ -439,12 +490,13 @@ def main():
             pose_prefix = f"pose/{sub}/{ses}/"
             try:
                 resp = s3.list_objects_v2(
-                    Bucket=args.s3_bucket, Prefix=pose_prefix,
+                    Bucket=args.s3_bucket,
+                    Prefix=pose_prefix,
                 )
                 h5_keys = [
-                    obj["Key"] for obj in resp.get("Contents", [])
-                    if obj["Key"].endswith(".h5")
-                    and not obj["Key"].endswith("_single.h5")
+                    obj["Key"]
+                    for obj in resp.get("Contents", [])
+                    if obj["Key"].endswith(".h5") and not obj["Key"].endswith("_single.h5")
                 ]
             except Exception:
                 log.warning("No pose data for %s", exp_id)
@@ -539,8 +591,11 @@ def main():
         },
     }
 
-    log.info("Summary: %d sessions, %d unique syllables across all sessions",
-             summary["n_sessions"], summary["n_unique_syllables"])
+    log.info(
+        "Summary: %d sessions, %d unique syllables across all sessions",
+        summary["n_sessions"],
+        summary["n_unique_syllables"],
+    )
 
     # Save summary
     if args.output_dir:
