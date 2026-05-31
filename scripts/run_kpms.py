@@ -286,6 +286,15 @@ def fit_kpms(
     data_keys = list(data.keys()) if isinstance(data, dict) else "N/A"
     log.info("data type: %s, keys: %s", type(data).__name__, data_keys)
 
+    # Cast data arrays to float64 — kpms/JAX requires x64 precision but
+    # DLC pose data and format_data output are float32.
+    import jax.numpy as jnp
+    if isinstance(data, dict):
+        for k, v in data.items():
+            if hasattr(v, "dtype") and v.dtype == np.float32:
+                data[k] = np.asarray(v, dtype=np.float64)
+                log.info("  Cast data['%s'] from float32 to float64", k)
+
     # noise_calibration is interactive (requires video frames for a Jupyter
     # widget) — skip it on headless EC2.  The default noise prior works fine
     # for DLC data with confidence scores.
