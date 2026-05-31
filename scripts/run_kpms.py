@@ -21,6 +21,12 @@ Reference:
 
 from __future__ import annotations
 
+# JAX must be configured for 64-bit precision BEFORE any jax/kpms import.
+# kpms internally uses float64 but DLC pose data is float32 — JAX raises
+# ValueError if x64 mode is not enabled.
+import jax
+jax.config.update("jax_enable_x64", True)
+
 import argparse
 import csv
 import json
