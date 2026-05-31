@@ -2,7 +2,7 @@
 
 **Working draft — behavioural methods/descriptive paper**
 
-Status: Draft v0.6 — 2026-05-31 (integrates Tier-2 hypothesis results: H6 central-cell finding, H8 first-epoch adaptation, H10 cell-type Markov, H5/H9 supplementary nulls)
+Status: Draft v0.6.1 — 2026-05-31 (QA fixes: JSD ratio 3.5x→3.9x, cell (3,3) delta correction, Fig. S1C→2D, Holm-Bonferroni family footnotes, named all 6 significant cells)
 
 ---
 
@@ -50,7 +50,7 @@ darkness, but dead-end coverage is unchanged (p = 0.26), indicating that
 mice maintain visits to terminal destinations while consolidating onto fewer
 connecting routes. The visited subgraph diameter contracts (6.35 to 5.57
 cells, p = 0.002), transition matrices diverge between conditions (JSD =
-0.068, 3.5x permutation null, p < 0.001), and revisitation of
+0.068, 3.9x permutation null, p < 0.001), and revisitation of
 already-covered cells increases (p = 0.011). This dissociation between
 preserved local navigation rules and altered global route selection suggests
 that turn decisions and route planning draw on different information sources,
@@ -126,7 +126,7 @@ availability in the q-rose maze.
    N = 23), and among corridor cells, eccentricity correlates with coverage
    change (rho = 0.87, p = 0.012, N = 7). The visited subgraph diameter
    contracts (6.35 to 5.57 cells, p = 0.002, r = 0.80), transition matrices
-   diverge between conditions (JSD = 0.068, 3.5x permutation null,
+   diverge between conditions (JSD = 0.068, 3.9x permutation null,
    p < 0.001), and revisitation increases (p = 0.011, r = 0.64).
 
 3c. **Route stereotypy is established after a single dark epoch** — The
@@ -645,7 +645,7 @@ already-covered cells.
 **Panel D.** Jensen-Shannon divergence between light and dark transition
 matrices. Histogram of observed per-session JSD values with the
 permutation null distribution overlaid (1000 permutations). Observed mean
-JSD = 0.068 vs null mean = 0.018 (3.5x). Demonstrates that routing
+JSD = 0.068 vs null mean = 0.018 (3.9x). Demonstrates that routing
 patterns change between conditions despite preserved transition entropy.
 
 **Panel E.** Per-cell coverage heatmap on maze grid. Colour-code each of
@@ -962,9 +962,9 @@ stereotypy narrative but requires a larger dataset to confirm.
 | Type-level JSD | -- | -- | -- | <0.001^d^ | -- | -- | -- |
 | P(C\|C,J) | 0.796 | 0.771 | -- | 0.027 | 0.107 | 0.56 | -- |
 
-^a^ Coverage per active minute is a post-hoc control analysis (single test, not part of any Holm-Bonferroni family). ^b^ Transition entropy is the sole light-dark comparison in Supplementary Figure S1 and is not corrected within any family. ^c^ Holm-Bonferroni corrected within Family 5 (corridor, junction, dead-end coverage; Fig. 4). ^d^ Permutation test (1000 permutations); observed mean JSD = 0.068 vs null mean = 0.018 (cell-level) or 0.0081 vs 0.0031 (type-level). ^e^ Spearman correlation across all 23 cells: distance from maze centre (3,2) vs visit fraction delta (dark - light); single test on all cells. ^f^ Holm-Bonferroni corrected within Family 6 (first-vs-rest, slope, early-vs-late; Fig. 5). ^g^ Wilcoxon one-sample on delta-BIC values; 20/20 sessions prefer second-order at cell-type level (Fig. S5).
+^a^ Coverage per active minute is a post-hoc control analysis (single test, not part of any Holm-Bonferroni family). ^b^ Transition entropy is the sole light-dark comparison in Supplementary Figure S1 and is not corrected within any family. ^c^ Holm-Bonferroni corrected within Family 5 (corridor, junction, dead-end coverage; Fig. 4). ^d^ Permutation test (1000 permutations); observed mean JSD = 0.068 vs null mean = 0.018 (cell-level) or 0.0081 vs 0.0031 (type-level). ^e^ Spearman correlation across all 23 cells: distance from maze centre (3,2) vs visit fraction delta (dark - light); single test on all cells. ^f^ Holm-Bonferroni corrected within Family 6 (first-vs-rest, slope, early-vs-late; Fig. 5). ^g^ Wilcoxon one-sample on delta-BIC values; 20/20 sessions prefer second-order at cell-type level (Fig. S5). ^h^ Holm-Bonferroni corrected across 3 planned tests within H5 (coverage ratio, speed ratio, recovery). ^i^ Holm-Bonferroni corrected across 4 transition probabilities within the cell-type Markov analysis.
 
-*Holm-Bonferroni correction families:* Family 1 (Fig. 3: coverage, dead-end rate, exploration efficiency); Family 2 (Fig. 6: speed, fraction active, immobility bout); Family 3 (Fig. 6: left turn fraction, turn autocorrelation vs zero, autocorrelation light vs dark, backtracking rate); Family 4 (Fig. 7: MRL, AHV); Family 5 (Fig. 4: corridor coverage, junction coverage, dead-end coverage); Family 6 (Fig. 5/epoch adaptation: first-vs-rest, slope test, early-vs-late).
+*Holm-Bonferroni correction families:* Family 1 (Fig. 3: coverage, dead-end rate, exploration efficiency); Family 2 (Fig. 6: speed, fraction active, immobility bout); Family 3 (Fig. 6: left turn fraction, turn autocorrelation vs zero, autocorrelation light vs dark, backtracking rate); Family 4 (Fig. 7: MRL, AHV); Family 5 (Fig. 4: corridor coverage, junction coverage, dead-end coverage); Family 6 (Fig. 5/epoch adaptation: first-vs-rest, slope test, early-vs-late); Family 7 (H5: coverage ratio, speed ratio, recovery); Family 8 (cell-type Markov: 4 transition probabilities).
 
 ---
 
@@ -1023,7 +1023,7 @@ more through-routes.
 
 "In contrast to Rosenberg et al. (2021), a first-order Markov model was
 preferred over a second-order model in all 20 sessions by BIC (mean
-delta-BIC = -4,434; 0/20 sessions favouring second-order; Fig. S1C).
+delta-BIC = -4,434; 0/20 sessions favouring second-order; Fig. 2D).
 This negative finding likely reflects the smaller state space of the q-rose
 maze (23 cells, 7 junctions) compared to Rosenberg's 63-junction labyrinth:
 with fewer possible transitions, a second-order model introduces many
@@ -1118,7 +1118,7 @@ r = 0.49), converging with the revisitation finding.
 "To test whether routing patterns themselves changed, we computed the
 Jensen-Shannon divergence (JSD) between the light-epoch and dark-epoch
 first-order transition matrices for each session (Fig. 4D). The observed
-mean JSD (0.068) was 3.5 times larger than the permutation null
+mean JSD (0.068) was 3.9 times larger than the permutation null
 distribution obtained by shuffling epoch labels within sessions (null mean:
 0.018; 1000 permutations; p < 0.001). However, no individual transition
 (edge) survived Holm-Bonferroni correction across the 44 edges tested
@@ -1132,12 +1132,14 @@ matrix changes in its pattern but not in its predictability.
 concentrated at specific maze locations, we computed the per-cell change in
 visit fraction between light and dark epochs across all 23 cells (Fig. 4E).
 Six cells showed significant visit reductions after Holm-Bonferroni
-correction across 23 cells (adjusted p < 0.05): the central T-junction
-(3,2) (delta = -0.147, adjusted p = 0.006, r = 0.93), an adjacent corridor
-(3,3) (delta = -0.133, adjusted p = 0.006, r = 0.96), and four other
-backbone cells including corridor (4,2) (delta = -0.150, adjusted p = 0.014,
-r = 0.87) and T-junction (5,2) (delta = -0.106, adjusted p = 0.036,
-r = 0.80). In contrast, no dead-end cell showed a significant change.
+correction across 23 cells (adjusted p < 0.05):
+(1,0) (adjusted p = 0.045, r = 0.77),
+(2,2) (adjusted p = 0.040, r = 0.82),
+(3,2) (adjusted p = 0.006, r = 0.93),
+(3,3) (adjusted p = 0.006, r = 0.96),
+(4,2) (adjusted p = 0.014, r = 0.87),
+and (5,2) (adjusted p = 0.036, r = 0.80).
+In contrast, no dead-end cell showed a significant change.
 The magnitude of the visit reduction correlated with distance from the maze
 centre (Spearman rho = 0.75, p < 0.0001, N = 23): cells closer to the
 centre of the maze lost more visits than peripheral cells (Fig. 4F). Among
