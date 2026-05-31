@@ -3001,6 +3001,357 @@ def test_c6(session_results: list[dict]) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Route-dropping null model for H6 central-cell simplification
+# ---------------------------------------------------------------------------
+
+
+def compute_route_dropping_per_session(
+    data: dict,
+    maze: RoseMaze,
+) -> dict | None:
+    """Build light/dark transition count matrices for one session.
+
+    Returns raw edge counts (not probabilities) for use in the
+    route-dropping null model.  Returns None if either condition has
+    too few transitions (< 10).
+    """
+    x_maze = data["x_maze"].astype(np.float64)
+    y_maze = data["y_maze"].astype(np.float64)
+    light_on = data["light_on"].astype(bool)
+    bad_behav = data["bad_behav"].astype(bool)
+
+    valid = ~bad_behav & np.isfinite(x_maze) & np.isfinite(y_maze)
+    cell_indices = discretize_position_fast(x_maze, y_maze, maze)
+    cell_indices[~valid] = -1
+
+    n_cells = maze.n_cells
+
+    # Build cell sequences for light and dark
+    ci_light = cell_indices.copy()
+    ci_light[~(valid & light_on)] = -1
+    cs_light, _ = cell_sequence(ci_light)
+
+    ci_dark = cell_indices.copy()
+    ci_dark[~(valid & ~light_on)] = -1
+    cs_dark, _ = cell_sequence(ci_dark)
+
+    if len(cs_light) < 10 or len(cs_dark) < 10:
+        return None
+
+    # Raw transition counts (not row-normalised)
+    tc_light = np.zeros((n_cells, n_cells), dtype=np.float64)
+    for k in range(len(cs_light) - 1):
+        a, b = cs_light[k], cs_light[k + 1]
+        if 0 <= a < n_cells and 0 <= b < n_cells:
+            tc_light[a, b] += 1
+
+    tc_dark = np.zeros((n_cells, n_cells), dtype=np.float64)
+    for k in range(len(cs_dark) - 1):
+        a, b = cs_dark[k], cs_dark[k + 1]
+        if 0 <= a < n_cells and 0 <= b < n_cells:
+            tc_dark[a, b] += 1
+
+    return {
+        "tc_light": tc_light,
+        "tc_dark": tc_dark,
+    }
+
+
+def _stationary_distribution(count_matrix: np.ndarray) -> np.ndarray:
+    """Compute stationary distribution from a transition count matrix.
+
+    Row-normalises the count matrix to a stochastic matrix, then solves
+    pi @ P = pi via the left-eigenvector of P.  If the chain is not
+    ergodic, falls back to the empirical row-sum distribution.
+
+    Args:
+        count_matrix: (N, N) non-negative count matrix.
+
+    Returns:
+        (N,) probability vector summing to 1.
+    """
+    n = count_matrix.shape[0]
+    row_sums = count_matrix.sum(axis=1)
+
+    # Fall back to empirical distribution if too sparse
+    total = row_sums.sum()
+    if total == 0:
+        return np.ones(n) / n
+
+    # Row-normalise to transition probability matrix
+    P = count_matrix.copy()
+    for i in range(n):
+        if row_sums[i] > 0:
+            P[i] /= row_sums[i]
+        else:
+            # Absorbing state: self-loop so P remains stochastic
+            P[i, i] = 1.0
+
+    # Left eigenvector: pi @ P = pi  =>  P^T @ pi = pi
+    try:
+        eigenvalues, eigenvectors = np.linalg.eig(P.T)
+        # Find eigenvector for eigenvalue closest to 1
+        idx = np.argmin(np.abs(eigenvalues - 1.0))
+        pi = np.real(eigenvectors[:, idx])
+        # Ensure non-negative and normalise
+        pi = np.abs(pi)
+        pi_sum = pi.sum()
+        if pi_sum > 0:
+            pi /= pi_sum
+            return pi
+    except np.linalg.LinAlgError:
+        pass
+
+    # Fallback: empirical visit distribution (proportional to row sums)
+    return row_sums / total
+
+
+def _per_cell_visit_fraction(count_matrix: np.ndarray) -> np.ndarray:
+    """Compute per-cell visit fraction from a transition count matrix.
+
+    Uses the stationary distribution of the corresponding Markov chain
+    as the expected fraction of time spent in each cell.
+
+    Args:
+        count_matrix: (N, N) non-negative count matrix.
+
+    Returns:
+        (N,) visit fraction vector summing to 1.
+    """
+    return _stationary_distribution(count_matrix)
+
+
+def test_route_dropping_null(
+    session_results: list[dict | None],
+    maze: RoseMaze,
+    n_permutations: int = 1000,
+    seed: int = 42,
+) -> dict:
+    """Route-dropping null model for H6 central-cell simplification.
+
+    Tests whether the correlation between distance-from-center and
+    visit-rate loss in darkness is an inevitable graph-topological
+    consequence of removing edges, or reflects an active navigational
+    strategy.
+
+    For each session, the light transition count matrix is taken as the
+    "full" route set.  K edges are randomly removed (K = number of edges
+    lost between light and dark), and the resulting per-cell visit
+    distribution change is correlated with distance-from-center.  This
+    is repeated n_permutations times to build a null distribution.
+
+    The observed distance-from-center correlation (from the actual
+    light-to-dark change) is compared to this null distribution.
+
+    Args:
+        session_results: list of per-session dicts from
+            compute_route_dropping_per_session (may contain None).
+        maze: RoseMaze instance.
+        n_permutations: number of random edge-dropping iterations.
+        seed: random seed for reproducibility.
+
+    Returns:
+        dict with observed_mean_rho, null_mean_rho, null_95_pct,
+        permutation_p, n_permutations, n_sessions_used, interpretation,
+        and per_session details.
+    """
+    rng = np.random.default_rng(seed)
+    n_cells = maze.n_cells
+
+    # Distance from center (cell with minimum eccentricity)
+    eccentricities = np.array([int(np.max(maze.dist[i])) for i in range(n_cells)])
+    center_idx = int(np.argmin(eccentricities))
+    distances_from_center = maze.dist[center_idx].astype(float)
+
+    # Collect per-session observed correlations and null distributions
+    per_session_observed_rho: list[float] = []
+    per_session_null_rhos: list[np.ndarray] = []
+    per_session_details: list[dict] = []
+
+    for sr in session_results:
+        if sr is None:
+            continue
+
+        tc_light = sr["tc_light"]
+        tc_dark = sr["tc_dark"]
+
+        # Identify non-zero edges (directed) in each condition
+        light_edges = set(zip(*np.nonzero(tc_light)))
+        dark_edges = set(zip(*np.nonzero(tc_dark)))
+
+        n_light_edges = len(light_edges)
+        n_dark_edges = len(dark_edges)
+        K = n_light_edges - n_dark_edges
+
+        if K <= 0:
+            # Dark has same or more edges — no route dropping occurred
+            per_session_details.append({
+                "n_light_edges": n_light_edges,
+                "n_dark_edges": n_dark_edges,
+                "K": int(K),
+                "skipped": True,
+                "reason": "K <= 0 (dark has same or more edges)",
+            })
+            continue
+
+        # Observed: per-cell visit fraction change (dark - light)
+        visit_frac_light = _per_cell_visit_fraction(tc_light)
+        visit_frac_dark = _per_cell_visit_fraction(tc_dark)
+        observed_delta = visit_frac_dark - visit_frac_light
+
+        # Observed correlation with distance-from-center
+        obs_corr = sp_stats.spearmanr(distances_from_center, observed_delta)
+        observed_rho = float(obs_corr.statistic) if np.isfinite(obs_corr.statistic) else 0.0
+
+        # Null distribution: randomly drop K edges from light matrix
+        light_edge_list = list(light_edges)
+        null_rhos = np.zeros(n_permutations)
+
+        for perm_i in range(n_permutations):
+            # Sample K edges to remove (without replacement)
+            drop_indices = rng.choice(len(light_edge_list), size=K, replace=False)
+            edges_to_drop = {light_edge_list[idx] for idx in drop_indices}
+
+            # Create reduced count matrix
+            tc_reduced = tc_light.copy()
+            for (i, j) in edges_to_drop:
+                tc_reduced[i, j] = 0.0
+
+            # Compute per-cell visit fraction from reduced matrix
+            visit_frac_reduced = _per_cell_visit_fraction(tc_reduced)
+            null_delta = visit_frac_reduced - visit_frac_light
+
+            # Correlation with distance-from-center
+            null_corr = sp_stats.spearmanr(distances_from_center, null_delta)
+            null_rhos[perm_i] = (
+                float(null_corr.statistic)
+                if np.isfinite(null_corr.statistic)
+                else 0.0
+            )
+
+        per_session_observed_rho.append(observed_rho)
+        per_session_null_rhos.append(null_rhos)
+        per_session_details.append({
+            "n_light_edges": n_light_edges,
+            "n_dark_edges": n_dark_edges,
+            "K": int(K),
+            "observed_rho": observed_rho,
+            "null_mean_rho": float(np.mean(null_rhos)),
+            "null_95_pct": float(np.percentile(null_rhos, 95)),
+            "null_5_pct": float(np.percentile(null_rhos, 5)),
+            "session_p": float(np.mean(np.abs(null_rhos) >= np.abs(observed_rho))),
+            "skipped": False,
+        })
+
+    n_sessions_used = len(per_session_observed_rho)
+
+    if n_sessions_used == 0:
+        return {
+            "observed_mean_rho": None,
+            "null_mean_rho": None,
+            "null_95_pct": None,
+            "permutation_p": None,
+            "n_permutations": n_permutations,
+            "n_sessions_used": 0,
+            "interpretation": "insufficient_data",
+            "per_session": per_session_details,
+        }
+
+    # Cross-session aggregation
+    # For each permutation, average the null rho across sessions
+    observed_mean_rho = float(np.mean(per_session_observed_rho))
+
+    # Build cross-session null distribution: mean rho across sessions
+    # per_session_null_rhos is a list of arrays, each (n_permutations,)
+    null_stack = np.array(per_session_null_rhos)  # (S, n_permutations)
+    null_mean_per_perm = null_stack.mean(axis=0)  # (n_permutations,)
+
+    null_mean_rho = float(np.mean(null_mean_per_perm))
+    null_95_pct = float(np.percentile(null_mean_per_perm, 95))
+    null_5_pct = float(np.percentile(null_mean_per_perm, 5))
+
+    # Two-sided permutation p-value: proportion of null permutations
+    # where |mean_rho_null| >= |observed_mean_rho|
+    permutation_p = float(
+        np.mean(np.abs(null_mean_per_perm) >= np.abs(observed_mean_rho))
+    )
+
+    # Interpretation: if the observed correlation is more extreme than
+    # 95% of the null, the pattern is NOT explained by random route
+    # dropping — it reflects an active navigational strategy.
+    if permutation_p < 0.05:
+        interpretation = "active_strategy"
+    else:
+        interpretation = "topology_artefact"
+
+    return {
+        "observed_mean_rho": observed_mean_rho,
+        "null_mean_rho": null_mean_rho,
+        "null_95_pct": null_95_pct,
+        "null_5_pct": null_5_pct,
+        "permutation_p": permutation_p,
+        "n_permutations": n_permutations,
+        "n_sessions_used": n_sessions_used,
+        "observed_per_session_rhos": per_session_observed_rho,
+        "center_cell": list(maze.cell_list[center_idx]),
+        "interpretation": interpretation,
+        "per_session": per_session_details,
+    }
+
+
+def _print_route_dropping_summary(stats: dict) -> None:
+    """Print route-dropping null model results."""
+    print("\n--- Route-dropping null model (H6 topology control) ---")
+    n_used = stats["n_sessions_used"]
+    print(f"  Sessions used: {n_used}")
+
+    if n_used == 0:
+        print("  No sessions with K > 0 (dark has same or more edges than light)")
+        return
+
+    obs = stats["observed_mean_rho"]
+    null_m = stats["null_mean_rho"]
+    null_95 = stats["null_95_pct"]
+    null_5 = stats["null_5_pct"]
+    perm_p = stats["permutation_p"]
+    interp = stats["interpretation"]
+
+    print(f"  Observed mean rho (dist-from-center): {obs:.4f}")
+    print(f"  Null mean rho:                        {null_m:.4f}")
+    print(f"  Null 95th percentile:                 {null_95:.4f}")
+    print(f"  Null 5th percentile:                  {null_5:.4f}")
+    print(f"  Permutation p-value (two-sided):      {perm_p:.4f}")
+    print(f"  N permutations:                       {stats['n_permutations']}")
+
+    if interp == "active_strategy":
+        print(
+            "  Interpretation: ACTIVE STRATEGY -- observed central-cell "
+            "simplification exceeds what random route removal predicts"
+        )
+    else:
+        print(
+            "  Interpretation: TOPOLOGY ARTEFACT -- observed pattern is "
+            "consistent with random route removal from the maze graph"
+        )
+
+    # Per-session summary
+    details = [d for d in stats.get("per_session", []) if not d.get("skipped")]
+    if details:
+        print(f"\n  Per-session (N={len(details)} with K > 0):")
+        for i, d in enumerate(details):
+            print(
+                f"    Session {i + 1}: K={d['K']} edges dropped, "
+                f"obs_rho={d['observed_rho']:.3f}, "
+                f"null_mean={d['null_mean_rho']:.3f}, "
+                f"p={d['session_p']:.3f}"
+            )
+
+    skipped = [d for d in stats.get("per_session", []) if d.get("skipped")]
+    if skipped:
+        print(f"  Skipped sessions: {len(skipped)} (K <= 0)")
+
+
+# ---------------------------------------------------------------------------
 # Extras print summaries
 # ---------------------------------------------------------------------------
 
@@ -3229,6 +3580,7 @@ def main_extras() -> None:
     h3_results: list[dict] = []
     h4_results: list[dict] = []
     c6_results: list[dict] = []
+    route_drop_results: list[dict | None] = []
     primary_flags: list[bool] = []
     session_ids: list[str] = []
 
@@ -3305,6 +3657,16 @@ def main_extras() -> None:
         else:
             print("  C6: no pose data")
 
+        # Route-dropping null model (for H6 topology control)
+        rrd = compute_route_dropping_per_session(data, MAZE)
+        route_drop_results.append(rrd)
+        if rrd is not None:
+            n_le = int(np.count_nonzero(rrd["tc_light"]))
+            n_de = int(np.count_nonzero(rrd["tc_dark"]))
+            print(f"  Route-drop: light_edges={n_le}, dark_edges={n_de}, K={n_le - n_de}")
+        else:
+            print("  Route-drop: SKIPPED (insufficient transitions)")
+
     # ===================================================================
     # Cross-session hypothesis tests
     # ===================================================================
@@ -3319,6 +3681,7 @@ def main_extras() -> None:
     h3_primary_stats = test_h3_primary(h3_results, primary_flags)
     h4_primary_stats = test_h4_primary(h4_results, primary_flags)
     c6_stats = test_c6(c6_results)
+    route_drop_stats = test_route_dropping_null(route_drop_results, MAZE)
 
     # Print summaries
     _print_extra_a_summary(a_stats)
@@ -3327,6 +3690,7 @@ def main_extras() -> None:
     _print_extra_d_summary(d_stats)
     _print_primary_robustness_summary(h3_primary_stats, h4_primary_stats)
     _print_c6_summary(c6_stats)
+    _print_route_dropping_summary(route_drop_stats)
 
     # ===================================================================
     # Save results
@@ -3340,7 +3704,8 @@ def main_extras() -> None:
                 "Extra behaviour analyses: peri-transition speed (A), "
                 "first epoch coverage (B), normalised entropy (C), "
                 "dwell time per cell type (D), H3/H4 primary-only robustness, "
-                "and DLC tracking confidence by light condition (C6)."
+                "DLC tracking confidence by light condition (C6), "
+                "and route-dropping null model for H6 topology control."
             ),
         },
         "A_peri_lightoff_speed": a_stats,
@@ -3350,6 +3715,7 @@ def main_extras() -> None:
         "H3_primary_only": h3_primary_stats,
         "H4_primary_only": h4_primary_stats,
         "C6_tracking_confidence": c6_stats,
+        "route_dropping_null": route_drop_stats,
     }
 
     output_ser = _make_serializable(output)
