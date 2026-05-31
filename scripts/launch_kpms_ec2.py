@@ -161,12 +161,9 @@ def launch_instance(dry_run: bool = False) -> dict | None:
                     )
                     return None
 
-    # Need IAM instance profile for S3 access
-    try:
-        get_instance_profile_arn()
-    except Exception:
-        print("ERROR: Instance profile 'hm2p-ec2-role' not found. Create it first.")
-        sys.exit(1)
+    # IAM instance profile validation skipped — the profile is passed
+    # by name to run_instances and EC2 validates it at launch time.
+    # The IAM API call fails from devcontainers with restricted networking.
 
     user_data = build_user_data()
 

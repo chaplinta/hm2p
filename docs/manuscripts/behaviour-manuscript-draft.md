@@ -2,7 +2,7 @@
 
 **Working draft — behavioural methods/descriptive paper**
 
-Status: Draft v0.5 — 2026-05-31 (adds H1-H4 hypothesis results: route stereotypy section, updated Discussion)
+Status: Draft v0.6 — 2026-05-31 (integrates Tier-2 hypothesis results: H6 central-cell finding, H8 first-epoch adaptation, H10 cell-type Markov, H5/H9 supplementary nulls)
 
 ---
 
@@ -57,12 +57,27 @@ that turn decisions and route planning draw on different information sources,
 with route selection depending on a spatial representation that degrades
 without visual cues.
 
+The spatial structure of the coverage reduction is not uniform across the
+maze. Cells closer to the maze centre show the largest visit reductions
+(distance-from-centre correlation: Spearman rho = 0.75, p < 0.0001, N = 23),
+inverting the expected pattern of peripheral abandonment. Central backbone
+corridors and junctions lose the most visits, while peripheral dead ends are
+maintained -- deepening the route stereotypy interpretation.
+
+The coverage reduction occurs as a single-trial adaptation: the first dark
+epoch has substantially higher coverage than all subsequent dark epochs
+(0.57 vs 0.30; Wilcoxon, p = 0.0001, r = 0.89, N = 20), after which dark
+coverage stabilises. There is no gradual improvement or worsening across
+later dark epochs (slope p = 0.81). This pattern indicates that mice adjust
+their exploration strategy after their first experience of darkness in the
+session and then maintain this adjusted strategy for the remainder.
+
 HD distributions become more concentrated in darkness, but this trend does
 not survive multiple comparisons correction (adjusted p = 0.152) or
 primary-only analysis (p = 0.278). AHV does not differ between conditions
-(p = 0.177). These findings establish spatial coverage and route stereotypy
-as reliable behavioural readouts of visual cue availability in the q-rose
-maze.
+(p = 0.177). These findings establish spatial coverage, route stereotypy,
+and first-epoch adaptation as reliable behavioural readouts of visual cue
+availability in the q-rose maze.
 
 ### Structure
 
@@ -74,7 +89,7 @@ maze.
 | Discussion | Comparison to Rosenberg, route stereotypy, implications for HD/navigation studies | ~800 |
 | Supplementary | Controls, additional metrics, individual animal data | as needed |
 
-### Six main results
+### Seven main results
 
 1. **Maze structure and exploration coverage** — Mice explore the 23-cell
    q-rose maze with high coverage (typically >90% of cells visited), with
@@ -96,18 +111,33 @@ maze.
    though the primary-only analysis does not reach significance for this
    normalised metric (p = 0.175, r = 0.49).
 
-3b. **The coverage drop reflects route stereotypy** — Speed and coverage
-   are strongly correlated (Spearman rho = 0.76, p < 0.0001), but speed
-   does not fully account for the coverage reduction: coverage per
-   transition shows a trend toward reduced exploration efficiency per
-   decision (light 0.398 vs dark 0.355, p = 0.076, r = 0.46). Corridor
-   coverage drops most strongly (p < 0.00001, r = 0.97), junction coverage
-   drops moderately (p = 0.001, r = 0.82), but dead-end coverage is
-   unchanged (p = 0.26). Mice maintain visits to terminal destinations
-   while consolidating onto fewer connecting routes. The visited subgraph
-   diameter contracts (6.35 to 5.57 cells, p = 0.002, r = 0.80), transition
-   matrices diverge between conditions (JSD = 0.068, 3.5x permutation null,
+3b. **The coverage drop reflects route stereotypy concentrated at central
+   maze locations** — Speed and coverage are strongly correlated (Spearman
+   rho = 0.76, p < 0.0001), but speed does not fully account for the
+   coverage reduction: coverage per transition shows a trend toward reduced
+   exploration efficiency per decision (light 0.398 vs dark 0.355,
+   p = 0.076, r = 0.46). Corridor coverage drops most strongly
+   (p < 0.00001, r = 0.97), junction coverage drops moderately (p = 0.001,
+   r = 0.82), but dead-end coverage is unchanged (p = 0.26). Mice maintain
+   visits to terminal destinations while consolidating onto fewer connecting
+   routes. Per-cell analysis reveals that this consolidation is
+   topographically structured: cells closer to the maze centre show the
+   largest visit reductions (distance-from-centre: rho = 0.75, p < 0.0001,
+   N = 23), and among corridor cells, eccentricity correlates with coverage
+   change (rho = 0.87, p = 0.012, N = 7). The visited subgraph diameter
+   contracts (6.35 to 5.57 cells, p = 0.002, r = 0.80), transition matrices
+   diverge between conditions (JSD = 0.068, 3.5x permutation null,
    p < 0.001), and revisitation increases (p = 0.011, r = 0.64).
+
+3c. **Route stereotypy is established after a single dark epoch** — The
+   first dark epoch in each session has substantially higher coverage than
+   all subsequent dark epochs (0.57 vs 0.30; Wilcoxon, p = 0.0001, r = 0.89,
+   N = 20). After the first dark epoch, coverage is stable across subsequent
+   dark epochs (slope test: p = 0.81). Light-epoch coverage shows a gradual
+   decline over the session (p = 0.011), consistent with general
+   habituation, but there is no corresponding trend in dark epochs beyond
+   the first. The mouse adapts after its first experience of darkness, then
+   maintains that adjusted strategy.
 
 4. **Light vs dark: speed and movement** — Running speed shows a trend
    toward reduction in darkness (p = 0.076, adjusted p = 0.152, r = 0.46,
@@ -618,6 +648,18 @@ permutation null distribution overlaid (1000 permutations). Observed mean
 JSD = 0.068 vs null mean = 0.018 (3.5x). Demonstrates that routing
 patterns change between conditions despite preserved transition entropy.
 
+**Panel E.** Per-cell coverage heatmap on maze grid. Colour-code each of
+the 23 cells by the mean visit fraction delta (dark - light). Central
+backbone cells (especially (3,2), (4,2), (3,3)) show the largest reductions
+(darkest colours); peripheral dead ends show near-zero change. Six cells
+survive Holm-Bonferroni correction across 23 cells.
+
+**Panel F.** Scatter plot: distance from maze centre (cell (3,2)) vs visit
+fraction delta for all 23 cells, coloured by node type (junction, corridor,
+dead end). Spearman rho = 0.75 (p < 0.0001, N = 23). Shows that the
+coverage reduction is concentrated at central maze locations, inverting
+the expected peripheral-abandonment pattern.
+
 **Statistics needed:**
 - Spearman correlation of speed-diff vs coverage-diff (H1)
 - Wilcoxon signed-rank for coverage by cell type in light vs dark,
@@ -627,6 +669,10 @@ patterns change between conditions despite preserved transition entropy.
 - Wilcoxon signed-rank for visited subgraph diameter (H3)
 - Wilcoxon signed-rank for revisitation index (H4)
 - Permutation test for JSD (1000 permutations, H2)
+- Per-cell Wilcoxon signed-rank (N = 20 sessions per cell),
+  Holm-Bonferroni corrected across 23 cells (H6)
+- Spearman: distance from centre vs delta (N = 23 cells) (H6)
+- Spearman: eccentricity vs delta for corridor cells (N = 7, descriptive) (H6)
 - Effect sizes (rank-biserial) for all tests
 
 **Code references:**
@@ -635,10 +681,47 @@ patterns change between conditions despite preserved transition entropy.
 - Revisitation index: custom (total transitions / unique cells)
 - JSD: `scipy.spatial.distance.jensenshannon` on transition matrices
 - Permutation null: shuffle light/dark epoch labels within session
+- Per-cell visit fraction: custom per-cell epoch-level analysis
+- Distance from centre: `maze.topology` shortest-path distances
 
 ---
 
-### Figure 5: Light vs dark — speed and other metrics
+### Figure 5: Epoch adaptation — single-trial strategy adjustment
+
+**Panel A.** Dark-epoch coverage as a function of epoch number within each
+session. Individual sessions as thin lines, session-mean as thick line.
+No systematic trend is apparent after the first epoch (slope test: p = 0.81).
+
+**Panel B.** First dark epoch vs subsequent dark epochs. Paired comparison
+within each session (first: 0.57; subsequent mean: 0.30; Wilcoxon,
+p = 0.0001, adjusted p = 0.0004, r = 0.89, N = 20). The discontinuity
+between epoch 1 and epoch 2 is the dominant feature of the data.
+
+**Panel C.** Light-epoch coverage as a function of epoch number. Gradual
+decline over the session (slope test: p = 0.011), consistent with general
+exploration habituation. Contrast with dark epochs, which show a step
+change rather than a gradual decline.
+
+**Panel D.** Speed across dark epochs. No systematic trend (p = 0.86,
+N = 14), ruling out a locomotor explanation for the first-epoch effect.
+
+**Statistics needed:**
+- Wilcoxon signed-rank: first dark epoch coverage vs mean of subsequent
+  dark epochs (N = 20 sessions), Holm-Bonferroni corrected within Family 6
+- Wilcoxon one-sample: within-session Spearman rho of epoch number vs
+  dark coverage, testing whether median slope differs from zero (N = 20)
+- Wilcoxon one-sample: light-epoch slope control (N = 20)
+- Wilcoxon one-sample: speed-epoch slope control (N = 14)
+- Effect sizes (rank-biserial) for all tests
+
+**Code references:**
+- Epoch-level coverage: `maze.analysis.cell_occupancy()` per epoch
+- Epoch numbering from sync.h5 light_on transitions
+- Speed per epoch from kinematics.h5
+
+---
+
+### Figure 6: Light vs dark — speed and other metrics
 
 **Panel A.** Running speed (cm/s) by condition: box/violin plot of
 session-median speed in light vs dark. Paired by session. Note: data
@@ -673,7 +756,7 @@ in light vs dark — summary bar/violin showing all are non-significant.
 
 ---
 
-### Figure 6: Head direction sampling in the maze
+### Figure 7: Head direction sampling in the maze
 
 **Panel A.** Per-cell HD distribution: polar histogram of HD angles when the
 mouse occupies each of the 23 cells. Show that corridor cells have
@@ -683,7 +766,7 @@ junction cells have more uniform distributions.
 preferred directions generated for layout purposes. This panel must be
 replaced with real HD distributions computed from actual sessions before
 submission.
-<!-- TODO(DS-agent): Replace Figure 5A with real per-cell HD distributions. Requires frame-level HD + position from sync.h5. Compute HD histogram per maze cell, pooled across sessions. -->
+<!-- TODO(DS-agent): Replace Figure 7A with real per-cell HD distributions. Requires frame-level HD + position from sync.h5. Compute HD histogram per maze cell, pooled across sessions. -->
 
 **Panel B.** HD sampling non-uniformity index (Rayleigh test statistic or
 resultant vector length of the HD distribution) per cell, colour-coded on
@@ -749,17 +832,91 @@ walk with forward bias.
 
 ---
 
-### Supplementary Figure S3: Within-dark-epoch dynamics
+### Supplementary Figure S3: Within-dark-epoch temporal dynamics (H5)
 
-**Panel A.** Speed in early (0--30s) vs late (30--60s) dark epochs.
+**Panel A.** Cumulative unique cell curves (5-second bins) for light and
+dark epochs, averaged across sessions (mean +/- SEM). Light and dark curves
+diverge only modestly; the coverage ratio (second half / first half) trends
+lower in dark than light (p = 0.064, adjusted p = 0.192, r = 0.48, N = 20)
+but does not reach significance. The speed ratio does not differ between
+conditions (p = 0.87), indicating that within-epoch slowing does not account
+for the trend.
 
-**Panel B.** Transition entropy in early vs late dark epochs.
+**Panel B.** Speed in early (0--30s) vs late (30--60s) dark epochs.
 
-**Panel C.** Backtracking rate in early vs late dark epochs.
+**Panel C.** Transition entropy in early vs late dark epochs.
+
+**Panel D.** Backtracking rate in early vs late dark epochs.
 
 Rationale: Tests whether behaviour degrades within individual dark epochs,
 which would be expected if path integration drift causes progressive spatial
-disorientation.
+disorientation. The current data are inconclusive: a non-significant trend
+toward gradual coverage reduction exists but cannot distinguish between
+gradual representational degradation (H5a) and an immediate strategy switch
+(H5b). Lights-on recovery data were insufficient to compute a recovery
+statistic (N = 0 usable pairs). This analysis should be revisited with
+longer recording sessions.
+
+---
+
+### Supplementary Figure S4: Individual differences in darkness sensitivity (H9)
+
+**Panel A.** Per-animal scatter plot: mean coverage in light vs mean
+coverage in dark. Animals classified as darkness-resistant (coverage drop
+< 1 cell equivalent; N = 5), intermediate (N = 7), or darkness-sensitive
+(coverage drop > 3 cells; N = 2). Lines connect each animal's light and
+dark means.
+
+**Panel B.** Coverage sensitivity vs speed sensitivity per animal (Spearman
+rho = 0.74, p = 0.002, N = 14). Animals that slow down more in darkness
+also lose more coverage, consistent with the session-level speed-coverage
+coupling (H1).
+
+**Panel C.** Coverage sensitivity by cell type (Penk+ vs non-Penk). All
+4 non-Penk animals fall in the intermediate range. Both darkness-sensitive
+animals and 3 of 5 darkness-resistant animals are Penk+. No cell-type
+effect is apparent (individual variation dominates group variation), but
+N = 4 non-Penk precludes strong conclusions.
+
+Rationale: Documents the range of individual differences in darkness
+sensitivity. The neural bridge analysis (correlating behavioural darkness
+sensitivity with HD tuning stability) is deferred until the neural analysis
+pipeline produces per-animal HD stability scores. Note: N = 14 animals is
+small for individual-differences analyses; these results are descriptive
+and should not be over-interpreted.
+
+---
+
+### Supplementary Figure S5: Cell-type Markov model (H10)
+
+**Panel A.** Model order comparison at the cell-type level (3 states:
+junction, corridor, dead-end). A second-order model is preferred over
+first-order in all 20 sessions (mean delta-BIC = 103.2, Wilcoxon,
+p < 0.001). This contrasts with the cell-level analysis (Section 2), where
+first-order was always preferred. The maze's topology creates second-order
+structure when transitions are collapsed to cell types: knowing both the
+current cell type and the previous cell type (e.g., corridor preceded by
+junction) provides additional predictive information about the next cell
+type.
+
+**Panel B.** Cell-type transition divergence between light and dark. The
+Jensen-Shannon divergence of cell-type transition matrices is significant
+(observed mean JSD = 0.0081 vs permutation null mean = 0.0031, permutation
+p < 0.001). Specific second-order transition P(corridor | corridor,
+junction) shows a trend toward reduction in darkness (light: 0.796; dark:
+0.771; p = 0.027, adjusted p = 0.107, r = 0.56, N = 20), consistent with
+fewer corridor-corridor sequences on the backbone. Other specific
+transitions (P(dead-end | junction, corridor), P(junction | dead-end,
+corridor)) did not differ significantly between conditions after correction.
+
+Rationale: This analysis tests whether route stereotypy has structure at
+the level of maze topology (cell types) in addition to specific cell
+identities. The second-order preference at the type level, combined with
+the first-order preference at the cell level, suggests that the maze's
+topological constraints impose sequential dependencies that are only
+apparent when individual cell identities are collapsed. The trending
+reduction in backbone traversal probability is consistent with the route
+stereotypy narrative but requires a larger dataset to confirm.
 
 ---
 
@@ -791,10 +948,23 @@ disorientation.
 | Revisitation index | 3.39 | 3.88 | -- | 0.011 | -- | 0.64 | -- |
 | JSD (transition matrix) | -- | -- | -- | <0.001^d^ | -- | -- | -- |
 | Coverage / transition | 0.398 | 0.355 | -- | 0.076 | -- | 0.46 | -- |
+| Distance-from-centre x delta | -- | -- | -- | <0.0001^e^ | -- | rho=0.75 | -- |
+| *Epoch adaptation metrics (Fig. 5)* | | | | | | | |
+| First dark epoch cov. (frac) | -- | 0.567 | -- | 0.0001 | 0.0004^f^ | 0.89 | -- |
+| Subsequent dark epoch cov. (frac) | -- | 0.303 | -- | -- | -- | -- | -- |
+| Dark cov. slope (rho vs epoch) | -- | -- | -- | 0.81 | 0.81 | 0.06 | -- |
+| Light cov. slope (rho vs epoch) | -- | -- | -- | 0.011 | -- | -- | -- |
+| *Within-epoch dynamics (Fig. S3)* | | | | | | | |
+| Coverage ratio (2nd/1st half) | 0.282 | 0.207 | -- | 0.064 | 0.192 | 0.48 | -- |
+| Speed ratio (2nd/1st half) | 0.948 | 0.945 | -- | 0.87 | 1.0 | 0.05 | -- |
+| *Cell-type Markov (Fig. S5)* | | | | | | | |
+| 2nd-order preferred (N sessions) | -- | -- | -- | <0.001^g^ | -- | -- | -- |
+| Type-level JSD | -- | -- | -- | <0.001^d^ | -- | -- | -- |
+| P(C\|C,J) | 0.796 | 0.771 | -- | 0.027 | 0.107 | 0.56 | -- |
 
-^a^ Coverage per active minute is a post-hoc control analysis (single test, not part of any Holm-Bonferroni family). ^b^ Transition entropy is the sole light-dark comparison in Supplementary Figure S1 and is not corrected within any family. ^c^ Holm-Bonferroni corrected within Family 5 (corridor, junction, dead-end coverage). ^d^ Permutation test (1000 permutations); observed mean JSD = 0.068 vs null mean = 0.018.
+^a^ Coverage per active minute is a post-hoc control analysis (single test, not part of any Holm-Bonferroni family). ^b^ Transition entropy is the sole light-dark comparison in Supplementary Figure S1 and is not corrected within any family. ^c^ Holm-Bonferroni corrected within Family 5 (corridor, junction, dead-end coverage; Fig. 4). ^d^ Permutation test (1000 permutations); observed mean JSD = 0.068 vs null mean = 0.018 (cell-level) or 0.0081 vs 0.0031 (type-level). ^e^ Spearman correlation across all 23 cells: distance from maze centre (3,2) vs visit fraction delta (dark - light); single test on all cells. ^f^ Holm-Bonferroni corrected within Family 6 (first-vs-rest, slope, early-vs-late; Fig. 5). ^g^ Wilcoxon one-sample on delta-BIC values; 20/20 sessions prefer second-order at cell-type level (Fig. S5).
 
-*Holm-Bonferroni correction families:* Family 1 (Fig. 3: coverage, dead-end rate, exploration efficiency); Family 2 (Fig. 5: speed, fraction active, immobility bout); Family 3 (Fig. 5: left turn fraction, turn autocorrelation vs zero, autocorrelation light vs dark, backtracking rate); Family 4 (Fig. 6: MRL, AHV); Family 5 (Fig. 4: corridor coverage, junction coverage, dead-end coverage).
+*Holm-Bonferroni correction families:* Family 1 (Fig. 3: coverage, dead-end rate, exploration efficiency); Family 2 (Fig. 6: speed, fraction active, immobility bout); Family 3 (Fig. 6: left turn fraction, turn autocorrelation vs zero, autocorrelation light vs dark, backtracking rate); Family 4 (Fig. 7: MRL, AHV); Family 5 (Fig. 4: corridor coverage, junction coverage, dead-end coverage); Family 6 (Fig. 5/epoch adaptation: first-vs-rest, slope test, early-vs-late).
 
 ---
 
@@ -878,7 +1048,7 @@ r = 0.85).
 "Running speed showed a trend toward reduction in darkness that partially
 accounts for the coverage drop. The speed trend was not significant in the
 full dataset (light mean: 2.28 cm/s; dark mean: 1.97 cm/s; Wilcoxon,
-W = 57.0, p = 0.076, adjusted p = 0.152, r = 0.46, N = 20; Fig. 5A) but
+W = 57.0, p = 0.076, adjusted p = 0.152, r = 0.46, N = 20; Fig. 6A) but
 reached significance in primary-only sessions (N = 11, p = 0.042, r = 0.70).
 To control for this speed confound, we normalised coverage by active time
 (minutes with speed >= 2.5 cm/s). Coverage per active minute was also
@@ -958,12 +1128,74 @@ result resolves an apparent paradox: transition entropy is preserved between
 conditions (Section 4), yet the actual routes used differ. The transition
 matrix changes in its pattern but not in its predictability.
 
+"To determine whether the coverage reduction was spatially uniform or
+concentrated at specific maze locations, we computed the per-cell change in
+visit fraction between light and dark epochs across all 23 cells (Fig. 4E).
+Six cells showed significant visit reductions after Holm-Bonferroni
+correction across 23 cells (adjusted p < 0.05): the central T-junction
+(3,2) (delta = -0.147, adjusted p = 0.006, r = 0.93), an adjacent corridor
+(3,3) (delta = -0.133, adjusted p = 0.006, r = 0.96), and four other
+backbone cells including corridor (4,2) (delta = -0.150, adjusted p = 0.014,
+r = 0.87) and T-junction (5,2) (delta = -0.106, adjusted p = 0.036,
+r = 0.80). In contrast, no dead-end cell showed a significant change.
+The magnitude of the visit reduction correlated with distance from the maze
+centre (Spearman rho = 0.75, p < 0.0001, N = 23): cells closer to the
+centre of the maze lost more visits than peripheral cells (Fig. 4F). Among
+corridor cells specifically, eccentricity (maximum shortest-path distance
+to any other cell in the graph) correlated with coverage change (rho = 0.87,
+p = 0.012, N = 7), though this correlation should be treated as descriptive
+given the small sample. This pattern inverts the expectation from classical
+range contraction studies, where peripheral locations are abandoned first
+(Avni et al. 2006; Fonio et al. 2009). Instead, mice in darkness
+selectively reduce visits to the central backbone of the maze while
+maintaining visits to peripheral dead ends, consistent with a simplification
+of the route network at its most connected hub.
+
 "Taken together, these results indicate that the coverage reduction in
-darkness reflects a reorganisation of the mouse's route network rather than
-a simple global slowdown. Mice continue to visit dead-end destinations at
-unchanged rates but travel between them via fewer, more repetitive routes.
-This route stereotypy is accompanied by increased revisitation and a
-distributed but significant change in routing patterns."
+darkness reflects a spatially structured reorganisation of the mouse's
+route network rather than a simple global slowdown. Mice continue to visit
+dead-end destinations at unchanged rates but travel between them via fewer,
+more repetitive routes, with the largest reductions at central backbone
+locations. This route stereotypy is accompanied by increased revisitation
+and a distributed but significant change in routing patterns."
+
+### 3c. Route stereotypy is established after a single dark epoch
+
+"The route stereotypy finding raises a question about temporal dynamics:
+does the coverage reduction develop gradually across repeated dark epochs
+(suggesting learning or progressive disorientation), or is it established
+rapidly?
+
+"We examined dark-epoch coverage as a function of epoch number within each
+session. There was no gradual trend in dark-epoch coverage across the
+session: the median within-session Spearman correlation between epoch number
+and coverage was not different from zero (median rho = -0.056, Wilcoxon,
+p = 0.81, r = 0.06, N = 20), and early dark epochs (first third) did not
+differ from late dark epochs (last third) in their coverage deficit relative
+to the preceding light epoch (p = 0.39, r = 0.22, N = 20; Fig. 5A). Speed
+likewise showed no trend across dark epochs (median speed-epoch rho = 0.075,
+p = 0.86, N = 14 sessions with sufficient epoch count), ruling out a
+locomotor fatigue explanation.
+
+"However, the first dark epoch in each session showed dramatically higher
+coverage than all subsequent dark epochs (first: 0.57; subsequent mean:
+0.30; Wilcoxon, p = 0.0001, adjusted p = 0.0004, r = 0.89, N = 20;
+Fig. 5B). After the first dark epoch, dark coverage was constant across
+all remaining dark epochs. Light-epoch coverage showed a gradual decline
+over the session (median rho = -0.21, Wilcoxon, p = 0.011, N = 20),
+consistent with general exploration habituation, but no corresponding
+trend was present in dark epochs beyond the first.
+
+"This pattern indicates that route stereotypy is not a gradual adaptation
+but is established after a single experience of darkness. The first dark
+epoch, during which the mouse encounters the loss of visual cues for the
+first time in the session, produces near-normal coverage, suggesting that
+the mouse initially navigates using a spatial representation inherited from
+the preceding light epoch. By the second dark epoch, coverage has dropped
+to its sustained low level, implying that the mouse has adjusted its
+exploration strategy in response to the first dark experience. This is
+consistent with single-trial learning -- the mouse detects that darkness
+degrades navigation and rapidly adopts a more conservative route network."
 
 ### 4. Local navigation rules are preserved in darkness
 
@@ -982,7 +1214,7 @@ adjusted p = 1.000, r = 0.12).
 
 "Angular head velocity (|AHV|) did not differ between conditions (light
 mean: 93.3 deg/s; dark mean: 95.4 deg/s; Wilcoxon, W = 68.0, p = 0.177,
-adjusted p = 0.177, r = 0.35; Fig. 6E). The primary-only analysis also
+adjusted p = 0.177, r = 0.35; Fig. 7E). The primary-only analysis also
 showed no effect (N = 11, p = 0.465, r = 0.27). The absence of a
 significant AHV difference in the present data contrasts with the
 vestibular-visual integration findings of Keshavarzi et al. (2022), who
@@ -1005,7 +1237,7 @@ decisions and global route selection draw on different information sources."
 conditions. The mean resultant length of the session-wide HD distribution
 showed a non-significant trend toward higher values in darkness (light:
 0.060; dark: 0.085; Wilcoxon, W = 57.0, p = 0.076, adjusted p = 0.152,
-r = 0.46, N = 20; Fig. 6C). This trend did not survive the primary-only
+r = 0.46, N = 20; Fig. 7C). This trend did not survive the primary-only
 robustness check (N = 11 independent animals; p = 0.278, r = 0.39). The MRL
 difference is therefore suggestive but not robust to pseudoreplication
 control or multiple comparisons correction with the current sample size.
@@ -1027,7 +1259,7 @@ trends make this explanation plausible.
 HD tuning analyses conducted in structured environments (as opposed to
 open fields). Apparent neural HD selectivity could partially reflect
 position-dependent sampling rather than true directional tuning. We
-provide per-cell HD occupancy maps (Fig. 6D) to enable occupancy-corrected
+provide per-cell HD occupancy maps (Fig. 7D) to enable occupancy-corrected
 tuning curve estimation in future neural analyses."
 
 ---
@@ -1104,6 +1336,30 @@ be supported by egocentric strategies that operate without visual landmarks,
 while route selection across the maze graph may depend on a spatial
 representation that degrades without visual cues.
 
+The per-cell analysis reveals that the coverage reduction is
+topographically structured: cells closer to the maze centre show the
+largest visit reductions (rho = 0.75, p < 0.0001), with the central
+T-junction (3,2) and adjacent backbone cells showing the most significant
+drops. This inverts the classical range contraction pattern (Avni et al.
+2006; Fonio et al. 2009), in which peripheral locations are abandoned
+first. In the q-rose maze, peripheral dead ends are maintained while the
+central backbone is simplified. This pattern is consistent with the route
+stereotypy interpretation: the central backbone serves as a transit hub
+connecting multiple branches, so when the mouse restricts its route
+network, the hub cells that served alternative routes are the ones most
+affected. The remaining routes still reach the same dead-end destinations,
+but via fewer central transit points. A supplementary analysis using
+cell-type Markov models (collapsing the 23 individual cells to 3 types:
+junction, corridor, dead-end) revealed that second-order models are
+preferred at this level (mean delta-BIC = 103; 20/20 sessions), in
+contrast to the first-order preference at the individual-cell level.
+This indicates that the maze topology imposes sequential constraints on
+transitions between cell types that are diluted across 23 individual
+states. The probability of sustained backbone traversal (P(corridor |
+corridor, junction)) showed a trend toward reduction in darkness
+(p = 0.027, adjusted p = 0.107), consistent with fewer extended backbone
+traversals, though this did not survive correction.
+
 The speed-coverage correlation (rho = 0.76) is substantial, and reduced
 locomotion undoubtedly contributes to the coverage drop. We do not claim
 that route stereotypy is independent of speed. Rather, the cell-type
@@ -1124,13 +1380,62 @@ but a shift to a different, equally structured routing pattern --
 consistent with consolidation onto a subset of familiar routes rather than
 disorientation.
 
+### Single-trial adaptation to darkness
+
+The temporal dynamics of the coverage reduction provide additional
+constraint on its mechanism. The first dark epoch in each session produces
+near-normal coverage (0.57 vs 0.40 in light), while all subsequent dark
+epochs stabilise at a lower level (0.30; first vs rest: p = 0.0001,
+r = 0.89). There is no gradual improvement or worsening across later dark
+epochs (slope p = 0.81), and speed does not change across dark epochs
+(p = 0.86), ruling out locomotor fatigue. Light-epoch coverage does decline
+gradually over the session (p = 0.011), consistent with general exploration
+habituation, but the dark-epoch pattern is qualitatively different: a step
+change rather than a gradual decline.
+
+This single-trial adaptation is noteworthy for several reasons. First, it
+suggests that the mouse navigates the first dark epoch using a spatial
+representation carried over from the preceding light epoch, which has not
+yet degraded sufficiently to alter behaviour. By the second dark epoch, the
+mouse has learned that darkness degrades its navigation and adopts a more
+conservative strategy. This is consistent with the timescale of HD drift
+in darkness: Stackman & Taube (1997) showed that HD preferred directions
+drift over 1--3 minutes in darkness, and Ajabi et al. (2023) demonstrated
+coherent population drift on similar timescales. The first 60-second dark
+epoch may therefore be short enough that the inherited representation
+remains usable, but the mouse detects accumulated error and adjusts for
+subsequent epochs.
+
+Second, the single-trial nature of the adaptation argues against a purely
+reflexive anxiogenic response to darkness. If the coverage reduction
+reflected an immediate anxiety response to darkness onset (as in the
+light-dark box paradigm; Bourin & Hascoet 2003), it should be present from
+the first dark epoch. The fact that the first dark epoch produces
+near-normal exploration indicates that the mouse is not immediately
+cautious in darkness; rather, it discovers through experience that its
+navigation is degraded and adjusts accordingly. However, we cannot exclude
+the possibility that the mouse has some initial caution that is offset by
+novelty-driven exploration during the first dark epoch, with the net
+result being near-normal coverage.
+
+Third, the within-dark-epoch dynamics were inconclusive. The coverage ratio
+(second half / first half of each dark epoch) showed a non-significant
+trend toward lower values in dark than light epochs (p = 0.064, adjusted
+p = 0.192), and the speed ratio did not differ (p = 0.87). These data
+cannot distinguish between gradual representational degradation within each
+dark epoch and an immediate strategy switch at lights-off. Longer dark
+epochs or higher temporal resolution would be needed to resolve this
+question. The lights-on recovery analysis was not feasible due to
+insufficient data (N = 0 usable epoch pairs with initial light coverage
+data).
+
 ### HD sampling confound for neural analyses
 
 The non-uniform HD sampling in maze corridors is a methodological concern
 for all HD tuning analyses conducted in structured environments (as opposed
 to open fields). This has been acknowledged in the literature (Muir et al.
 2022; Jacob et al. 2017) but is rarely quantified explicitly. Our per-cell
-HD occupancy maps (Fig. 6D) provide the basis for occupancy-corrected tuning
+HD occupancy maps (Fig. 7D) provide the basis for occupancy-corrected tuning
 curve estimation in the companion neural paper.
 
 ### HD non-uniformity: position and immobility confounds
@@ -1225,6 +1530,33 @@ be considered a non-significant trend rather than an established finding.
    displacements). The current values are derived from an improved
    DLC model (test RMSE 3.79 px vs 7.12 px) and are more reliable.
 
+10. The per-cell analysis (H6) involves 23 simultaneous Wilcoxon tests
+    corrected with Holm-Bonferroni. The eccentricity correlation among
+    corridor cells (rho = 0.87, p = 0.012, N = 7) should be treated as
+    descriptive given the small sample: with N = 7, Spearman requires
+    rho > 0.79 for significance at alpha = 0.05 (two-tailed), and the
+    correlation is not robust to removal of any single point.
+
+11. The first-epoch finding (H8) is robust (p = 0.0001, r = 0.89) but its
+    interpretation depends on the assumption that the first dark epoch is
+    comparable to subsequent ones in all respects except novelty. An
+    alternative explanation is that the first dark epoch benefits from
+    residual spatial memory that degrades with time, not with darkness per
+    se. However, the absence of a gradual decline across subsequent dark
+    epochs (slope p = 0.81) argues against progressive degradation.
+
+12. Individual differences in darkness sensitivity (H9) are documented but
+    should be interpreted cautiously given the small sample (N = 14 animals,
+    with 4 non-Penk). The classification into sensitivity groups (resistant/
+    intermediate/sensitive) is descriptive and arbitrary. No cell-type
+    effect was apparent, but this contrast is underpowered (N = 10 vs N = 4).
+
+13. The within-epoch temporal dynamics analysis (H5) was inconclusive. The
+    coverage ratio trend (p = 0.064) does not survive correction (adjusted
+    p = 0.192) and the lights-on recovery control could not be computed.
+    This question requires either longer dark epochs or higher temporal
+    resolution to resolve.
+
 ---
 
 ## References
@@ -1244,6 +1576,9 @@ doi:10.1007/s00429-024-02771-x
 Bicknell BA, van der Goes M-SH et al. 2024. "Coordinated head direction
 representations in mouse anterodorsal thalamic nucleus and retrosplenial
 cortex." *eLife* 13, e82952. doi:10.7554/eLife.82952
+
+Bourin M, Hascoet M. 2003. "The mouse light/dark box test." *Eur. J.
+Pharmacol.* 463, 55--65. doi:10.1016/S0014-2999(03)01274-3
 
 Chen LL, Lin LH, Green EJ, Barnes CA, McNaughton BL. 1994. "Head-direction
 cells in the rat posterior cortex. I. Anatomical distribution and behavioral
@@ -1300,6 +1635,10 @@ Rosenberg M, Zhang T, Perona P, Meister M. 2021. "Mice in a labyrinth show
 rapid learning, sudden insight, and efficient exploration." *eLife* 10,
 e66175. doi:10.7554/eLife.66175
 
+Schmitzer-Torbert N, Redish AD. 2002. "Development of path stereotypy in a
+single day in rats on a multiple-T maze." *Behav. Neurosci.* 116,
+1058--1070. doi:10.1037/0735-7044.116.6.1058
+
 Stackman RW, Taube JS. 1997. "Firing properties of head direction cells in
 the rat anterior thalamic nucleus: dependence on behavioral factors."
 *J. Neurosci.* 17, 9020--9037.
@@ -1339,23 +1678,39 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
    path diversity -- is qualitatively distinct and suggests a dissociation
    between local decision rules and global route planning.
 
-2. **The q-rose maze under light/dark alternation is a new paradigm.** The
+2. **Central backbone simplification inverts classical range contraction.**
+   The per-cell analysis shows that cells closest to the maze centre lose
+   the most visits in darkness (rho = 0.75, p < 0.0001), the opposite of
+   the peripheral abandonment predicted by classical range contraction
+   (Avni et al. 2006). This structural specificity strengthens the route
+   stereotypy interpretation: the mouse simplifies the hub of its route
+   network, not its periphery.
+
+3. **Single-trial adaptation to darkness.** The first dark epoch produces
+   near-normal coverage; all subsequent dark epochs show the reduced-coverage
+   pattern (first vs rest: p = 0.0001, r = 0.89). This single-trial
+   learning dynamic has not been characterised in maze navigation, and it
+   constrains the mechanism: the coverage reduction is not a reflexive
+   response to darkness onset but a learned adjustment after the first
+   experience of navigating without visual cues.
+
+4. **The q-rose maze under light/dark alternation is a new paradigm.** The
    original Rosenberg maze used fixed lighting. No prior study has combined
    a binary-choice labyrinth with total darkness manipulation and quantified
    the effect on exploration strategy.
 
-3. **Graph-theoretic behavioural characterisation during light/dark
+5. **Graph-theoretic behavioural characterisation during light/dark
    alternation.** Transition entropy, dead-end visit dynamics, and Markov
    model statistics have not been compared between light and dark conditions
    in a structured maze. The finding that most navigation metrics are
    unchanged by darkness -- despite a significant reduction in spatial
    coverage -- is itself informative.
 
-4. **HD sampling characterisation in a structured maze.** This confound is
+6. **HD sampling characterisation in a structured maze.** This confound is
    acknowledged but rarely quantified. Explicit per-cell HD occupancy maps
    are a useful methodological contribution.
 
-5. **Honest reporting of null results.** The null AHV result, the
+7. **Honest reporting of null results.** The null AHV result, the
    non-significant MRL trend, the null speed result (which becomes
    significant only in primary-only analysis), and the failure of the
    second-order Markov model are all informative for future studies using
@@ -1456,6 +1811,24 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
   each permuted condition. This tests whether the observed divergence
   exceeds what would be expected from random partitioning of the same
   behavioural data.
+
+- "The first-epoch finding could be a novelty effect, not a darkness
+  effect." Response: Each session begins with a light epoch, so the first
+  dark epoch is always the second epoch of the session. The mouse has
+  already been in the maze for ~1 minute under illumination before
+  darkness begins. The near-normal coverage in the first dark epoch
+  therefore reflects continued exploration from a familiar state, not
+  initial novelty. Furthermore, the first dark epoch is distinguishable
+  from the first light epoch in that it represents a within-session
+  condition change, not a session onset effect.
+
+- "The per-cell analysis has massive multiple comparisons (23 tests). How
+  many would you expect to be significant by chance?" Response: Under
+  Holm-Bonferroni at alpha = 0.05, we expect <1 false positive. Six cells
+  survived correction, with the strongest showing r = 0.93--0.97. The
+  spatial gradient (distance-from-centre correlation, rho = 0.75) was
+  computed on all 23 cells without multiple comparisons issues, as it is
+  a single test of spatial structure.
 
 ---
 
