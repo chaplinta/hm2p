@@ -319,9 +319,14 @@ def fit_kpms(
         PCA_fitting_num_frames=cfg.get("PCA_fitting_num_frames", 1000000),
     )
 
-    # Ensure pca output is also float64 (fit_pca may return float32 JAX arrays)
-    pca = convert_data_precision(pca)
-    log.info("Converted pca to 64-bit precision")
+    # Convert numeric arrays in pca to float64.  pca is a dict that may
+    # contain sklearn PCA objects (non-numeric) — convert only array leaves.
+    if isinstance(pca, dict):
+        for k, v in pca.items():
+            if hasattr(v, "dtype") and np.issubdtype(v.dtype, np.floating) and v.dtype != np.float64:
+                pca[k] = np.asarray(v, dtype=np.float64)
+                log.info("  Cast pca['%s'] %s → float64", k, v.dtype)
+    log.info("PCA precision check complete")
 
     # ── AR-HMM fitting ─────────────────────────────────────────────────────
     log.info("Fitting AR-HMM (kappa=%.0e, n_iters=%d)...", kappa, num_iters)
