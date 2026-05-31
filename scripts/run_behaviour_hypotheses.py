@@ -14,15 +14,25 @@ Tier-2 (H5, H6, H8-H10): Deeper mechanistic and spatial analyses:
   H9:  Individual differences (per-animal darkness sensitivity)
   H10: Cell-type Markov (3-state J/C/D second-order model)
 
+Extras (low-hanging fruit + must-do):
+  A:  Peri-transition speed timecourse at light-off
+  B:  First dark epoch vs first light epoch coverage
+  C:  Normalised entropy rate (light vs dark)
+  D:  Dwell time per cell type (junction/corridor/dead-end)
+  H3/H4 primary-only:  Robustness check with N=11 primary sessions
+  C6: Tracking confidence by light condition (DLC likelihood)
+
 Outputs:
   - docs/manuscripts/behaviour-hypotheses-results.json        (Tier-1)
   - docs/manuscripts/behaviour-hypotheses-tier2-results.json  (Tier-2)
+  - docs/manuscripts/behaviour-extras-results.json            (Extras)
   - Human-readable summary to stdout
 
 Usage:
   python scripts/run_behaviour_hypotheses.py           # Tier-1 only
   python scripts/run_behaviour_hypotheses.py --tier2   # Tier-2 only
-  python scripts/run_behaviour_hypotheses.py --all     # Both tiers
+  python scripts/run_behaviour_hypotheses.py --extras  # Extras only
+  python scripts/run_behaviour_hypotheses.py --all     # All tiers + extras
 """
 
 from __future__ import annotations
@@ -38,13 +48,14 @@ from pathlib import Path
 import boto3
 import h5py
 import numpy as np
+import pandas as pd
 from scipy import stats as sp_stats
 from scipy.spatial.distance import jensenshannon
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from hm2p.maze.analysis import transition_matrix
+from hm2p.maze.analysis import transition_entropy, transition_matrix
 from hm2p.maze.discretize import cell_sequence, discretize_position_fast
 from hm2p.maze.topology import RoseMaze, build_rose_maze
 
@@ -81,6 +92,15 @@ TYPE_C = 1  # corridor
 TYPE_D = 2  # dead-end
 N_TYPES = 3
 TYPE_NAMES = ["J", "C", "D"]
+
+# Extras constants
+PERI_TRANSITION_WINDOW_S = 10.0  # seconds before/after light-off transition
+OUTPUT_JSON_EXTRAS = (
+    Path(__file__).resolve().parent.parent
+    / "docs"
+    / "manuscripts"
+    / "behaviour-extras-results.json"
+)
 
 MAZE = build_rose_maze()
 
@@ -2276,13 +2296,17 @@ def _print_h5_summary(stats: dict) -> None:
     print(f"  Speed-coverage correlation: rho = {sc['rho']}, p = {sc['p']}")
     rt = stats["recovery_test"]
     print("  Lights-on recovery:")
-    mr = rt.get('mean_recovery')
-    mi = rt.get('mean_initial')
-    print(f"    Recovery: {f'{mr:.3f}' if mr is not None else 'N/A'}, Initial: {f'{mi:.3f}' if mi is not None else 'N/A'}")
-    rp = rt.get('p')
-    ra = rt.get('p_adj')
-    rr = rt.get('r')
-    print(f"    p = {f'{rp:.4f}' if rp is not None else 'N/A'}, p_adj = {f'{ra:.4f}' if ra is not None else 'N/A'}, r = {f'{rr:.3f}' if rr is not None else 'N/A'}, N = {rt.get('n', '?')}")
+    mr = rt.get("mean_recovery")
+    mi = rt.get("mean_initial")
+    print(
+        f"    Recovery: {f'{mr:.3f}' if mr is not None else 'N/A'}, Initial: {f'{mi:.3f}' if mi is not None else 'N/A'}"
+    )
+    rp = rt.get("p")
+    ra = rt.get("p_adj")
+    rr = rt.get("r")
+    print(
+        f"    p = {f'{rp:.4f}' if rp is not None else 'N/A'}, p_adj = {f'{ra:.4f}' if ra is not None else 'N/A'}, r = {f'{rr:.3f}' if rr is not None else 'N/A'}, N = {rt.get('n', '?')}"
+    )
     print(f"  Interpretation: {stats['interpretation']}")
 
 
@@ -2388,6 +2412,951 @@ def _print_h10_summary(stats: dict) -> None:
         f"  Model order (type-level): {mo['n_prefer_2nd']}/{mo['n_total']} prefer 2nd order, "
         f"delta_BIC = {mo['mean_delta_bic']:.1f}, p = {mo['p']}"
     )
+
+
+# ===========================================================================
+# EXTRAS: Low-hanging fruit analyses + must-do items
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# A: Peri-transition speed timecourse at light-off
+# ---------------------------------------------------------------------------
+
+
+def compute_peri_lightoff_speed(
+    data: dict,
+) -> dict:
+    """Extract speed timecourse around light-off transitions.
+
+    For each frame where light_on transitions True->False, extract speed
+    in a window of -PERI_TRANSITION_WINDOW_S to +PERI_TRANSITION_WINDOW_S.
+    Average across all transitions within the session.
+
+    Returns dict with per-session mean peri-event curve and summary stats.
+    """
+    fps = data["fps"]
+    speed = data["speed_cm_s"].astype(np.float64)
+    light_on = data["light_on"].astype(bool)
+    bad_behav = data["bad_behav"].astype(bool)
+    n_frames = len(speed)
+
+    half_win = int(round(PERI_TRANSITION_WINDOW_S * fps))
+
+    # Find light-off transitions: frame i where light_on[i]=True, light_on[i+1]=False
+    transitions: list[int] = []
+    for i in range(n_frames - 1):
+        if light_on[i] and not light_on[i + 1]:
+            # Transition occurs between frame i and i+1; centre on i+1 (first dark frame)
+            transitions.append(i + 1)
+
+    if not transitions:
+        return {
+            "n_transitions": 0,
+            "time_bins": [],
+            "mean_speed": [],
+            "sem_speed": [],
+            "mean_speed_pre": np.nan,
+            "mean_speed_post": np.nan,
+        }
+
+    win_len = 2 * half_win
+    curves: list[np.ndarray] = []
+
+    for t_frame in transitions:
+        start = t_frame - half_win
+        end = t_frame + half_win
+        if start < 0 or end > n_frames:
+            continue
+
+        snippet = speed[start:end].copy()
+        bv = bad_behav[start:end]
+        snippet[bv] = np.nan
+        curves.append(snippet)
+
+    if not curves:
+        return {
+            "n_transitions": len(transitions),
+            "time_bins": [],
+            "mean_speed": [],
+            "sem_speed": [],
+            "mean_speed_pre": np.nan,
+            "mean_speed_post": np.nan,
+        }
+
+    arr = np.array(curves)  # (n_transitions, win_len)
+    mean_curve = np.nanmean(arr, axis=0)
+    sem_curve = (
+        np.nanstd(arr, axis=0, ddof=1) / np.sqrt(np.sum(~np.isnan(arr), axis=0))
+        if arr.shape[0] > 1
+        else np.zeros(win_len)
+    )
+
+    time_bins = np.linspace(-PERI_TRANSITION_WINDOW_S, PERI_TRANSITION_WINDOW_S, win_len)
+
+    # Pre = last 5s before transition, post = first 5s after
+    pre_frames = int(round(5.0 * fps))
+    # Pre: frames from (half_win - pre_frames) to half_win
+    pre_vals = mean_curve[half_win - pre_frames : half_win]
+    # Post: frames from half_win to (half_win + pre_frames)
+    post_vals = mean_curve[half_win : half_win + pre_frames]
+
+    mean_pre = float(np.nanmean(pre_vals)) if len(pre_vals) > 0 else np.nan
+    mean_post = float(np.nanmean(post_vals)) if len(post_vals) > 0 else np.nan
+
+    return {
+        "n_transitions": len(curves),
+        "time_bins": time_bins.tolist(),
+        "mean_speed": mean_curve.tolist(),
+        "sem_speed": sem_curve.tolist(),
+        "mean_speed_pre": mean_pre,
+        "mean_speed_post": mean_post,
+    }
+
+
+def test_peri_lightoff(session_results: list[dict]) -> dict:
+    """Test A: is speed in the first 5s after lights-off lower than the last 5s before?
+
+    Paired Wilcoxon across sessions comparing per-session mean pre vs post speed.
+    """
+    pre = np.array([r["mean_speed_pre"] for r in session_results])
+    post = np.array([r["mean_speed_post"] for r in session_results])
+
+    test = wilcoxon_test(pre, post, alternative="two-sided")
+
+    # Grand mean curve: average session-level curves
+    valid_curves = [r for r in session_results if r["mean_speed"] and r["time_bins"]]
+    if valid_curves:
+        min_len = min(len(r["mean_speed"]) for r in valid_curves)
+        arr = np.array([r["mean_speed"][:min_len] for r in valid_curves])
+        grand_mean = np.nanmean(arr, axis=0).tolist()
+        grand_sem = (
+            (np.nanstd(arr, axis=0, ddof=1) / np.sqrt(arr.shape[0])).tolist()
+            if arr.shape[0] > 1
+            else [0.0] * min_len
+        )
+        time_bins = valid_curves[0]["time_bins"][:min_len]
+    else:
+        grand_mean, grand_sem, time_bins = [], [], []
+
+    def _safe_mean(a: np.ndarray) -> float | None:
+        v = a[np.isfinite(a)]
+        return float(np.mean(v)) if len(v) > 0 else None
+
+    return {
+        "mean_pre_speed": _safe_mean(pre),
+        "mean_post_speed": _safe_mean(post),
+        "test": test,
+        "n_sessions": test.get("n"),
+        "grand_mean_curve": grand_mean,
+        "grand_sem_curve": grand_sem,
+        "time_bins": time_bins,
+    }
+
+
+# ---------------------------------------------------------------------------
+# B: First dark epoch vs first light epoch coverage
+# ---------------------------------------------------------------------------
+
+
+def compute_first_epoch_coverage(data: dict, maze: RoseMaze) -> dict:
+    """Compare coverage in the FIRST dark epoch vs the FIRST light epoch."""
+    fps = data["fps"]
+    x_maze = data["x_maze"].astype(np.float64)
+    y_maze = data["y_maze"].astype(np.float64)
+    light_on = data["light_on"].astype(bool)
+    bad_behav = data["bad_behav"].astype(bool)
+
+    valid = ~bad_behav & np.isfinite(x_maze) & np.isfinite(y_maze)
+    cell_indices = discretize_position_fast(x_maze, y_maze, maze)
+    cell_indices[~valid] = -1
+
+    epochs = detect_epochs(light_on, fps)
+    filtered = [ep for ep in epochs if ep["duration_s"] >= MIN_EPOCH_DURATION_S]
+
+    first_light_cov = np.nan
+    first_dark_cov = np.nan
+
+    for ep in filtered:
+        sl = slice(ep["start"], ep["end"])
+        ep_valid = valid[sl]
+        ep_ci = cell_indices[sl].copy()
+        ep_ci[~ep_valid] = -1
+        visited = set(int(c) for c in ep_ci if c >= 0)
+        cov = len(visited) / maze.n_cells
+
+        if ep["condition"] == "light" and np.isnan(first_light_cov):
+            first_light_cov = cov
+        elif ep["condition"] == "dark" and np.isnan(first_dark_cov):
+            first_dark_cov = cov
+
+        if not np.isnan(first_light_cov) and not np.isnan(first_dark_cov):
+            break
+
+    return {
+        "first_light_coverage": first_light_cov,
+        "first_dark_coverage": first_dark_cov,
+    }
+
+
+def test_first_epoch(session_results: list[dict]) -> dict:
+    """Test B: Wilcoxon signed-rank comparing first light vs first dark coverage."""
+    light = np.array([r["first_light_coverage"] for r in session_results])
+    dark = np.array([r["first_dark_coverage"] for r in session_results])
+
+    test = wilcoxon_test(light, dark)
+
+    def _safe_mean(a: np.ndarray) -> float | None:
+        v = a[np.isfinite(a)]
+        return float(np.mean(v)) if len(v) > 0 else None
+
+    return {
+        "mean_first_light_coverage": _safe_mean(light),
+        "mean_first_dark_coverage": _safe_mean(dark),
+        "test": test,
+        "n_sessions": test.get("n"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# C: Normalised entropy rate
+# ---------------------------------------------------------------------------
+
+
+def compute_normalised_entropy(data: dict, maze: RoseMaze) -> dict:
+    """Compute normalised transition entropy (entropy / log2(n_unique_cells)).
+
+    Normalised by the number of unique cells visited in each condition,
+    controlling for the smaller state space in dark epochs.
+    """
+    x_maze = data["x_maze"].astype(np.float64)
+    y_maze = data["y_maze"].astype(np.float64)
+    light_on = data["light_on"].astype(bool)
+    bad_behav = data["bad_behav"].astype(bool)
+
+    valid = ~bad_behav & np.isfinite(x_maze) & np.isfinite(y_maze)
+    cell_indices = discretize_position_fast(x_maze, y_maze, maze)
+    cell_indices[~valid] = -1
+    n_cells = maze.n_cells
+
+    # Build cell sequences for light and dark
+    ci_light = cell_indices.copy()
+    ci_light[~(valid & light_on)] = -1
+    cs_light, _ = cell_sequence(ci_light)
+
+    ci_dark = cell_indices.copy()
+    ci_dark[~(valid & ~light_on)] = -1
+    cs_dark, _ = cell_sequence(ci_dark)
+
+    def _compute_norm_entropy(cs: np.ndarray) -> tuple[float, float, int]:
+        """Return (raw_entropy, normalised_entropy, n_unique)."""
+        if len(cs) < 10:
+            return np.nan, np.nan, 0
+        n_unique = len(set(int(c) for c in cs if 0 <= c < n_cells))
+        if n_unique < 2:
+            return np.nan, np.nan, n_unique
+        tm = transition_matrix(cs, n_cells)
+        raw_h = transition_entropy(tm, cs)
+        norm_h = raw_h / np.log2(n_unique)
+        return float(raw_h), float(norm_h), n_unique
+
+    raw_light, norm_light, n_unique_light = _compute_norm_entropy(cs_light)
+    raw_dark, norm_dark, n_unique_dark = _compute_norm_entropy(cs_dark)
+
+    return {
+        "entropy_light": raw_light,
+        "entropy_dark": raw_dark,
+        "norm_entropy_light": norm_light,
+        "norm_entropy_dark": norm_dark,
+        "n_unique_light": n_unique_light,
+        "n_unique_dark": n_unique_dark,
+    }
+
+
+def test_normalised_entropy(session_results: list[dict]) -> dict:
+    """Test C: Wilcoxon comparing normalised entropy light vs dark."""
+    norm_l = np.array([r["norm_entropy_light"] for r in session_results])
+    norm_d = np.array([r["norm_entropy_dark"] for r in session_results])
+    raw_l = np.array([r["entropy_light"] for r in session_results])
+    raw_d = np.array([r["entropy_dark"] for r in session_results])
+
+    norm_test = wilcoxon_test(norm_l, norm_d)
+    raw_test = wilcoxon_test(raw_l, raw_d)
+
+    def _safe_mean(a: np.ndarray) -> float | None:
+        v = a[np.isfinite(a)]
+        return float(np.mean(v)) if len(v) > 0 else None
+
+    return {
+        "normalised_entropy": {
+            "mean_light": _safe_mean(norm_l),
+            "mean_dark": _safe_mean(norm_d),
+            "test": norm_test,
+            "n_sessions": norm_test.get("n"),
+        },
+        "raw_entropy": {
+            "mean_light": _safe_mean(raw_l),
+            "mean_dark": _safe_mean(raw_d),
+            "test": raw_test,
+            "n_sessions": raw_test.get("n"),
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# D: Dwell time per cell type
+# ---------------------------------------------------------------------------
+
+
+def compute_dwell_per_cell_type(data: dict, maze: RoseMaze) -> dict:
+    """Compute mean dwell time per cell type in light and dark.
+
+    Dwell time = consecutive frames in the same cell / fps (seconds).
+    Cell types: junction, corridor, dead-end.
+    """
+    fps = data["fps"]
+    x_maze = data["x_maze"].astype(np.float64)
+    y_maze = data["y_maze"].astype(np.float64)
+    light_on = data["light_on"].astype(bool)
+    bad_behav = data["bad_behav"].astype(bool)
+
+    valid = ~bad_behav & np.isfinite(x_maze) & np.isfinite(y_maze)
+    cell_indices = discretize_position_fast(x_maze, y_maze, maze)
+    cell_indices[~valid] = -1
+
+    # Classify cell indices by type
+    junction_idx_set = {maze.cell_to_idx[c] for c in maze.junctions}
+    corridor_idx_set = {maze.cell_to_idx[c] for c in maze.corridors}
+    dead_end_idx_set = {maze.cell_to_idx[c] for c in maze.dead_ends}
+
+    def _cell_type_of(ci: int) -> str | None:
+        if ci in junction_idx_set:
+            return "junction"
+        if ci in corridor_idx_set:
+            return "corridor"
+        if ci in dead_end_idx_set:
+            return "dead_end"
+        return None
+
+    epochs = detect_epochs(light_on, fps)
+
+    # Collect dwell times per cell type per condition
+    dwells: dict[str, dict[str, list[float]]] = {
+        "light": {"junction": [], "corridor": [], "dead_end": []},
+        "dark": {"junction": [], "corridor": [], "dead_end": []},
+    }
+
+    for ep in epochs:
+        if ep["duration_s"] < MIN_EPOCH_DURATION_S:
+            continue
+        sl = slice(ep["start"], ep["end"])
+        ep_valid = valid[sl]
+        ep_ci = cell_indices[sl].copy()
+        ep_ci[~ep_valid] = -1
+        cond = ep["condition"]
+
+        # Walk through the epoch and measure consecutive-frame runs
+        i = 0
+        ep_len = ep["end"] - ep["start"]
+        while i < ep_len:
+            ci = ep_ci[i]
+            if ci < 0:
+                i += 1
+                continue
+            ct = _cell_type_of(ci)
+            if ct is None:
+                i += 1
+                continue
+            run_start = i
+            while i < ep_len and ep_ci[i] == ci:
+                i += 1
+            run_len = i - run_start
+            dwell_s = run_len / fps
+            dwells[cond][ct].append(dwell_s)
+
+    result: dict = {}
+    for ct in ["junction", "corridor", "dead_end"]:
+        dl = dwells["light"][ct]
+        dd = dwells["dark"][ct]
+        result[f"mean_dwell_{ct}_light"] = float(np.mean(dl)) if dl else np.nan
+        result[f"mean_dwell_{ct}_dark"] = float(np.mean(dd)) if dd else np.nan
+
+    return result
+
+
+def test_dwell_per_cell_type(session_results: list[dict]) -> dict:
+    """Test D: Wilcoxon per cell type comparing dwell times light vs dark."""
+    results: dict = {}
+    raw_pvals: list[float | None] = []
+
+    for ct in ["junction", "corridor", "dead_end"]:
+        light = np.array([r[f"mean_dwell_{ct}_light"] for r in session_results])
+        dark = np.array([r[f"mean_dwell_{ct}_dark"] for r in session_results])
+        test = wilcoxon_test(light, dark)
+        raw_pvals.append(test.get("p"))
+
+        def _safe_mean(a: np.ndarray) -> float | None:
+            v = a[np.isfinite(a)]
+            return float(np.mean(v)) if len(v) > 0 else None
+
+        results[ct] = {
+            "mean_light": _safe_mean(light),
+            "mean_dark": _safe_mean(dark),
+            "test": test,
+            "n_sessions": test.get("n"),
+        }
+
+    # Holm-Bonferroni across 3 cell types
+    adjusted = holm_bonferroni(raw_pvals)
+    for i, ct in enumerate(["junction", "corridor", "dead_end"]):
+        results[ct]["p_adj"] = adjusted[i] if i < len(adjusted) else None
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Primary-only robustness for H3/H4
+# ---------------------------------------------------------------------------
+
+
+def test_h3_primary(session_results: list[dict], primary_flags: list[bool]) -> dict:
+    """Re-run H3 tests using only primary sessions."""
+    primary_results = [r for r, p in zip(session_results, primary_flags, strict=True) if p]
+    n = len(primary_results)
+    if n < 6:
+        return {"n_primary": n, "note": "insufficient primary sessions for testing"}
+    return {"n_primary": n, **test_h3(primary_results)}
+
+
+def test_h4_primary(session_results: list[dict], primary_flags: list[bool]) -> dict:
+    """Re-run H4 tests using only primary sessions."""
+    primary_results = [r for r, p in zip(session_results, primary_flags, strict=True) if p]
+    n = len(primary_results)
+    if n < 6:
+        return {"n_primary": n, "note": "insufficient primary sessions for testing"}
+    return {"n_primary": n, **test_h4(primary_results)}
+
+
+# ---------------------------------------------------------------------------
+# C6: Tracking confidence by light condition
+# ---------------------------------------------------------------------------
+
+
+def load_pose_from_s3(s3_client: object, sub: str, ses: str) -> pd.DataFrame | None:
+    """Download and load the DLC .h5 for a session from S3."""
+    prefix = f"pose/{sub}/{ses}/"
+    resp = s3_client.list_objects_v2(Bucket=S3_BUCKET, Prefix=prefix, MaxKeys=20)
+    h5_keys = [
+        o["Key"]
+        for o in resp.get("Contents", [])
+        if o["Key"].endswith(".h5") and "filtered" not in o["Key"]
+    ]
+    if not h5_keys:
+        return None
+
+    # Prefer finetuned (Resnet/HrnetW32) over superanimal
+    key = h5_keys[0]
+    for k in h5_keys:
+        if "Resnet" in k or "Hrnet" in k:
+            key = k
+            break
+
+    with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
+        tmppath = tmp.name
+
+    try:
+        s3_client.download_file(S3_BUCKET, key, tmppath)
+        df = pd.read_hdf(tmppath)
+        return df
+    except Exception as e:
+        print(f"    Error loading pose: {e}")
+        return None
+    finally:
+        if os.path.exists(tmppath):
+            os.unlink(tmppath)
+
+
+def _extract_likelihoods(df: pd.DataFrame) -> dict[str, np.ndarray]:
+    """Extract per-bodypart likelihood arrays from a DLC DataFrame.
+
+    Returns dict mapping bodypart name to (N,) likelihood array.
+    """
+    scorer = df.columns.get_level_values(0)[0]
+    bp_likelihoods: dict[str, np.ndarray] = {}
+
+    if df.columns.nlevels == 4:
+        # Multi-animal format
+        individuals = df.columns.get_level_values(1).unique()
+        bodyparts = list(df.columns.get_level_values(2).unique())
+        ind = individuals[0]
+        for bp in bodyparts:
+            try:
+                lk = df[(scorer, ind, bp, "likelihood")].values
+                bp_likelihoods[bp] = lk.astype(np.float64)
+            except KeyError:
+                pass
+    else:
+        # Single-animal format
+        bodyparts = list(df.columns.get_level_values(1).unique())
+        for bp in bodyparts:
+            try:
+                lk = df[(scorer, bp, "likelihood")].values
+                bp_likelihoods[bp] = lk.astype(np.float64)
+            except KeyError:
+                pass
+
+    return bp_likelihoods
+
+
+def compute_c6_per_session(data: dict, s3_client: object, pose_fps: float = 100.0) -> dict | None:
+    """Compute mean DLC likelihood per bodypart in light vs dark.
+
+    The pose .h5 is at ~100 fps while sync.h5 light_on is at ~9.6 fps.
+    We downsample the pose likelihood to imaging frames using nearest-frame
+    mapping based on frame_times if available, or linear resampling.
+    """
+    sub = data["sub"]
+    ses = data["ses"]
+    light_on = data["light_on"].astype(bool)
+
+    df = load_pose_from_s3(s3_client, sub, ses)
+    if df is None:
+        return None
+
+    bp_lk = _extract_likelihoods(df)
+    if not bp_lk:
+        return None
+
+    n_pose = len(df)
+    n_imaging = len(light_on)
+
+    # Map pose frames to imaging frames via linear resampling
+    # pose_indices[i] = which pose frame corresponds to imaging frame i
+    imaging_frame_in_pose = np.linspace(0, n_pose - 1, n_imaging).astype(int)
+
+    result: dict = {}
+    for bp, lk_full in bp_lk.items():
+        # Downsample to imaging rate
+        lk = lk_full[imaging_frame_in_pose]
+
+        lk_light = lk[light_on]
+        lk_dark = lk[~light_on]
+
+        mean_light = float(np.nanmean(lk_light)) if len(lk_light) > 0 else np.nan
+        mean_dark = float(np.nanmean(lk_dark)) if len(lk_dark) > 0 else np.nan
+
+        result[bp] = {
+            "mean_light": mean_light,
+            "mean_dark": mean_dark,
+        }
+
+    return result
+
+
+def test_c6(session_results: list[dict]) -> dict:
+    """Test C6: Wilcoxon per bodypart comparing mean likelihood light vs dark.
+
+    Tests whether IR camera gives identical tracking in both conditions.
+    """
+    # Collect all bodypart names across sessions
+    all_bps: set[str] = set()
+    for r in session_results:
+        all_bps.update(r.keys())
+    all_bps_sorted = sorted(all_bps)
+
+    bp_results: dict = {}
+    raw_pvals: list[float | None] = []
+
+    for bp in all_bps_sorted:
+        light_vals: list[float] = []
+        dark_vals: list[float] = []
+        for r in session_results:
+            if bp in r:
+                light_vals.append(r[bp]["mean_light"])
+                dark_vals.append(r[bp]["mean_dark"])
+
+        light = np.array(light_vals)
+        dark = np.array(dark_vals)
+
+        test = wilcoxon_test(light, dark)
+        raw_pvals.append(test.get("p"))
+
+        def _safe_mean(a: np.ndarray) -> float | None:
+            v = a[np.isfinite(a)]
+            return float(np.mean(v)) if len(v) > 0 else None
+
+        bp_results[bp] = {
+            "mean_light": _safe_mean(light),
+            "mean_dark": _safe_mean(dark),
+            "test": test,
+            "n_sessions": test.get("n"),
+        }
+
+    # Holm-Bonferroni across bodyparts
+    adjusted = holm_bonferroni(raw_pvals)
+    for i, bp in enumerate(all_bps_sorted):
+        bp_results[bp]["p_adj"] = adjusted[i] if i < len(adjusted) else None
+
+    return bp_results
+
+
+# ---------------------------------------------------------------------------
+# Extras print summaries
+# ---------------------------------------------------------------------------
+
+
+def _print_extra_a_summary(stats: dict) -> None:
+    """Print Extra A: peri-transition speed results."""
+    print("\n--- A: Peri-transition speed at light-off ---")
+    print(f"  N sessions: {stats.get('n_sessions')}")
+    pre = stats.get("mean_pre_speed")
+    post = stats.get("mean_post_speed")
+    pre_s = f"{pre:.2f}" if pre is not None else "N/A"
+    post_s = f"{post:.2f}" if post is not None else "N/A"
+    print(f"  Mean speed pre (last 5s): {pre_s} cm/s")
+    print(f"  Mean speed post (first 5s): {post_s} cm/s")
+    t = stats.get("test", {})
+    p = t.get("p")
+    r = t.get("r")
+    print(
+        f"  Wilcoxon: p = {f'{p:.4f}' if p is not None else 'N/A'}, "
+        f"r = {f'{r:.3f}' if r is not None else 'N/A'}"
+    )
+
+
+def _print_extra_b_summary(stats: dict) -> None:
+    """Print Extra B: first epoch results."""
+    print("\n--- B: First dark epoch vs first light epoch ---")
+    print(f"  N sessions: {stats.get('n_sessions')}")
+    ml = stats.get("mean_first_light_coverage")
+    md = stats.get("mean_first_dark_coverage")
+    ml_s = f"{ml:.3f}" if ml is not None else "N/A"
+    md_s = f"{md:.3f}" if md is not None else "N/A"
+    print(f"  Mean first light coverage: {ml_s}")
+    print(f"  Mean first dark coverage: {md_s}")
+    t = stats.get("test", {})
+    p = t.get("p")
+    r = t.get("r")
+    print(
+        f"  Wilcoxon: p = {f'{p:.4f}' if p is not None else 'N/A'}, "
+        f"r = {f'{r:.3f}' if r is not None else 'N/A'}"
+    )
+
+
+def _print_extra_c_summary(stats: dict) -> None:
+    """Print Extra C: normalised entropy results."""
+    print("\n--- C: Normalised entropy rate ---")
+    ne = stats.get("normalised_entropy", {})
+    ml = ne.get("mean_light")
+    md = ne.get("mean_dark")
+    ml_s = f"{ml:.4f}" if ml is not None else "N/A"
+    md_s = f"{md:.4f}" if md is not None else "N/A"
+    print(f"  Normalised: light={ml_s}, dark={md_s}")
+    t = ne.get("test", {})
+    p = t.get("p")
+    r = t.get("r")
+    print(
+        f"  Wilcoxon: p = {f'{p:.4f}' if p is not None else 'N/A'}, "
+        f"r = {f'{r:.3f}' if r is not None else 'N/A'}, N = {t.get('n')}"
+    )
+    re = stats.get("raw_entropy", {})
+    rl = re.get("mean_light")
+    rd = re.get("mean_dark")
+    rl_s = f"{rl:.4f}" if rl is not None else "N/A"
+    rd_s = f"{rd:.4f}" if rd is not None else "N/A"
+    print(f"  Raw: light={rl_s}, dark={rd_s}")
+    rt = re.get("test", {})
+    rp = rt.get("p")
+    rr = rt.get("r")
+    print(
+        f"  Wilcoxon: p = {f'{rp:.4f}' if rp is not None else 'N/A'}, "
+        f"r = {f'{rr:.3f}' if rr is not None else 'N/A'}, N = {rt.get('n')}"
+    )
+
+    ne_ml = ne.get("mean_light")
+    ne_md = ne.get("mean_dark")
+    if ne_ml is not None and ne_md is not None:
+        if p is not None and p >= 0.05:
+            print(
+                "  Interpretation: normalised entropy unchanged => "
+                "routing is scaled-down but equally structured"
+            )
+        elif ne_md < ne_ml:
+            print(
+                "  Interpretation: normalised entropy decreased => "
+                "routing more predictable on visited subgraph (stronger stereotypy)"
+            )
+        else:
+            print(
+                "  Interpretation: normalised entropy increased => "
+                "routing less predictable on visited subgraph"
+            )
+
+
+def _print_extra_d_summary(stats: dict) -> None:
+    """Print Extra D: dwell time per cell type results."""
+    print("\n--- D: Dwell time per cell type ---")
+    for ct in ["junction", "corridor", "dead_end"]:
+        if ct not in stats:
+            continue
+        s = stats[ct]
+        ml = s.get("mean_light")
+        md = s.get("mean_dark")
+        ml_s = f"{ml:.3f}" if ml is not None else "N/A"
+        md_s = f"{md:.3f}" if md is not None else "N/A"
+        t = s.get("test", {})
+        p = t.get("p")
+        r = t.get("r")
+        p_adj = s.get("p_adj")
+        print(
+            f"  {ct}: light={ml_s}s, dark={md_s}s, "
+            f"p={f'{p:.4f}' if p is not None else 'N/A'}, "
+            f"p_adj={f'{p_adj:.4f}' if p_adj is not None else 'N/A'}, "
+            f"r={f'{r:.3f}' if r is not None else 'N/A'}, N={t.get('n')}"
+        )
+
+
+def _print_primary_robustness_summary(h3_primary: dict, h4_primary: dict) -> None:
+    """Print primary-only robustness results for H3 and H4."""
+    print(f"\n--- H3 primary-only (N={h3_primary.get('n_primary', '?')}) ---")
+    if "note" in h3_primary:
+        print(f"  {h3_primary['note']}")
+    else:
+        for ctype in ["junction_coverage", "corridor_coverage", "dead_end_coverage"]:
+            if ctype in h3_primary:
+                ct = h3_primary[ctype]
+                print(
+                    f"  {ctype}: light={ct['light']}, dark={ct['dark']}, "
+                    f"p={ct.get('p')}, p_adj={ct.get('p_adj')}, r={ct.get('r')}, N={ct.get('n')}"
+                )
+        if "de_vs_junction_drop_interaction" in h3_primary:
+            inter = h3_primary["de_vs_junction_drop_interaction"]
+            print(
+                f"  DE vs junction interaction: p={inter.get('p')}, "
+                f"r={inter.get('r')}, N={inter.get('n')}"
+            )
+        if "diameter" in h3_primary:
+            dm = h3_primary["diameter"]
+            print(
+                f"  Diameter: light={dm.get('light')}, dark={dm.get('dark')}, "
+                f"p={dm.get('p')}, r={dm.get('r')}, N={dm.get('n')}"
+            )
+
+    print(f"\n--- H4 primary-only (N={h4_primary.get('n_primary', '?')}) ---")
+    if "note" in h4_primary:
+        print(f"  {h4_primary['note']}")
+    else:
+        if "revisitation_index" in h4_primary:
+            ri = h4_primary["revisitation_index"]
+            print(
+                f"  Revisitation index: light={ri.get('light')}, dark={ri.get('dark')}, "
+                f"p={ri.get('p')}, r={ri.get('r')}, N={ri.get('n')}"
+            )
+        if "discovery_auc" in h4_primary:
+            da = h4_primary["discovery_auc"]
+            print(
+                f"  Discovery AUC: light={da.get('light')}, dark={da.get('dark')}, "
+                f"p={da.get('p')}, r={da.get('r')}, N={da.get('n')}"
+            )
+
+
+def _print_c6_summary(stats: dict) -> None:
+    """Print C6: tracking confidence results."""
+    print("\n--- C6: Tracking confidence by light condition ---")
+    for bp in sorted(stats.keys()):
+        s = stats[bp]
+        ml = s.get("mean_light")
+        md = s.get("mean_dark")
+        ml_s = f"{ml:.4f}" if ml is not None else "N/A"
+        md_s = f"{md:.4f}" if md is not None else "N/A"
+        t = s.get("test", {})
+        p = t.get("p")
+        p_adj = s.get("p_adj")
+        print(
+            f"  {bp}: light={ml_s}, dark={md_s}, "
+            f"p={f'{p:.4f}' if p is not None else 'N/A'}, "
+            f"p_adj={f'{p_adj:.4f}' if p_adj is not None else 'N/A'}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Extras main
+# ---------------------------------------------------------------------------
+
+
+def main_extras() -> None:
+    """Run extras: low-hanging fruit analyses + must-do items."""
+    print("=" * 70)
+    print("BEHAVIOUR HYPOTHESES -- Extras (A, B, C, D, H3/H4-primary, C6)")
+    print("=" * 70)
+
+    # Load metadata
+    with open(METADATA_CSV) as f:
+        experiments = list(csv.DictReader(f))
+    with open(ANIMALS_CSV) as f:
+        animals = {row["animal_id"]: row for row in csv.DictReader(f)}
+
+    sessions: list[dict] = []
+    for row in experiments:
+        eid = row["exp_id"]
+        parts = eid.split("_")
+        animal_id = parts[-1]
+        sessions.append(
+            {
+                "exp_id": eid,
+                "exp_index": int(row["exp_index"]),
+                "animal_id": animal_id,
+                "celltype": animals.get(animal_id, {}).get("celltype", "unknown"),
+                "exclude": str(row.get("exclude", "0")).strip() == "1",
+                "primary": str(row.get("primary_exp", "1")).strip() != "0",
+            }
+        )
+
+    usable_sessions = [s for s in sessions if not s["exclude"]]
+    print(f"\nTotal sessions: {len(sessions)}")
+    print(f"Excluded: {sum(1 for s in sessions if s['exclude'])}")
+    print(f"Usable: {len(usable_sessions)}")
+    print(f"Primary: {sum(1 for s in usable_sessions if s['primary'])}")
+
+    # Download and analyse
+    s3 = boto3.client("s3", region_name=S3_REGION)
+
+    # Per-session accumulators
+    peri_results: list[dict] = []
+    first_epoch_results: list[dict] = []
+    norm_entropy_results: list[dict] = []
+    dwell_results: list[dict] = []
+    h3_results: list[dict] = []
+    h4_results: list[dict] = []
+    c6_results: list[dict] = []
+    primary_flags: list[bool] = []
+    session_ids: list[str] = []
+
+    for sess in usable_sessions:
+        eid = sess["exp_id"]
+        print(f"\n--- {eid} (#{sess['exp_index']}) ---")
+
+        data = load_session_data(s3, eid)
+        if data is None:
+            print("    SKIPPED (no data)")
+            continue
+
+        session_ids.append(eid)
+        primary_flags.append(sess["primary"])
+
+        # A: Peri-transition speed
+        ra = compute_peri_lightoff_speed(data)
+        peri_results.append(ra)
+        print(
+            f"  A: {ra['n_transitions']} transitions, "
+            f"pre={ra['mean_speed_pre']:.2f}, post={ra['mean_speed_post']:.2f}"
+        )
+
+        # B: First epoch coverage
+        rb = compute_first_epoch_coverage(data, MAZE)
+        first_epoch_results.append(rb)
+        fl = rb["first_light_coverage"]
+        fd = rb["first_dark_coverage"]
+        fl_s = f"{fl:.3f}" if np.isfinite(fl) else "N/A"
+        fd_s = f"{fd:.3f}" if np.isfinite(fd) else "N/A"
+        print(f"  B: first_light={fl_s}, first_dark={fd_s}")
+
+        # C: Normalised entropy
+        rc = compute_normalised_entropy(data, MAZE)
+        norm_entropy_results.append(rc)
+        nl = rc["norm_entropy_light"]
+        nd = rc["norm_entropy_dark"]
+        nl_s = f"{nl:.4f}" if np.isfinite(nl) else "N/A"
+        nd_s = f"{nd:.4f}" if np.isfinite(nd) else "N/A"
+        print(f"  C: norm_entropy L/D={nl_s}/{nd_s}")
+
+        # D: Dwell time per cell type
+        rd = compute_dwell_per_cell_type(data, MAZE)
+        dwell_results.append(rd)
+        dj_l = rd["mean_dwell_junction_light"]
+        dj_d = rd["mean_dwell_junction_dark"]
+        dd_l = rd["mean_dwell_dead_end_light"]
+        dd_d = rd["mean_dwell_dead_end_dark"]
+        print(
+            f"  D: junction dwell L/D="
+            f"{f'{dj_l:.2f}' if np.isfinite(dj_l) else 'N/A'}/"
+            f"{f'{dj_d:.2f}' if np.isfinite(dj_d) else 'N/A'}s, "
+            f"DE dwell L/D="
+            f"{f'{dd_l:.2f}' if np.isfinite(dd_l) else 'N/A'}/"
+            f"{f'{dd_d:.2f}' if np.isfinite(dd_d) else 'N/A'}s"
+        )
+
+        # H3/H4 per-session for primary-only re-analysis
+        r3 = compute_h3_per_session(data, MAZE)
+        h3_results.append(r3)
+        r4 = compute_h4_per_session(data, MAZE)
+        h4_results.append(r4)
+
+        # C6: Tracking confidence
+        r6 = compute_c6_per_session(data, s3)
+        if r6 is not None:
+            c6_results.append(r6)
+            # Report mean across bodyparts
+            all_lights = [v["mean_light"] for v in r6.values() if np.isfinite(v["mean_light"])]
+            all_darks = [v["mean_dark"] for v in r6.values() if np.isfinite(v["mean_dark"])]
+            mean_l = float(np.mean(all_lights)) if all_lights else np.nan
+            mean_d = float(np.mean(all_darks)) if all_darks else np.nan
+            print(f"  C6: mean likelihood L/D={mean_l:.4f}/{mean_d:.4f}")
+        else:
+            print("  C6: no pose data")
+
+    # ===================================================================
+    # Cross-session hypothesis tests
+    # ===================================================================
+    print("\n" + "=" * 70)
+    print("CROSS-SESSION TESTS -- Extras")
+    print("=" * 70)
+
+    a_stats = test_peri_lightoff(peri_results)
+    b_stats = test_first_epoch(first_epoch_results)
+    c_stats = test_normalised_entropy(norm_entropy_results)
+    d_stats = test_dwell_per_cell_type(dwell_results)
+    h3_primary_stats = test_h3_primary(h3_results, primary_flags)
+    h4_primary_stats = test_h4_primary(h4_results, primary_flags)
+    c6_stats = test_c6(c6_results)
+
+    # Print summaries
+    _print_extra_a_summary(a_stats)
+    _print_extra_b_summary(b_stats)
+    _print_extra_c_summary(c_stats)
+    _print_extra_d_summary(d_stats)
+    _print_primary_robustness_summary(h3_primary_stats, h4_primary_stats)
+    _print_c6_summary(c6_stats)
+
+    # ===================================================================
+    # Save results
+    # ===================================================================
+    output = {
+        "metadata": {
+            "n_sessions": len(session_ids),
+            "session_ids": session_ids,
+            "n_primary": sum(primary_flags),
+            "description": (
+                "Extra behaviour analyses: peri-transition speed (A), "
+                "first epoch coverage (B), normalised entropy (C), "
+                "dwell time per cell type (D), H3/H4 primary-only robustness, "
+                "and DLC tracking confidence by light condition (C6)."
+            ),
+        },
+        "A_peri_lightoff_speed": a_stats,
+        "B_first_epoch_coverage": b_stats,
+        "C_normalised_entropy": c_stats,
+        "D_dwell_per_cell_type": d_stats,
+        "H3_primary_only": h3_primary_stats,
+        "H4_primary_only": h4_primary_stats,
+        "C6_tracking_confidence": c6_stats,
+    }
+
+    output_ser = _make_serializable(output)
+    OUTPUT_JSON_EXTRAS.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_JSON_EXTRAS, "w") as f:
+        json.dump(output_ser, f, indent=2)
+    print(f"\nResults saved to: {OUTPUT_JSON_EXTRAS}")
 
 
 # ---------------------------------------------------------------------------
@@ -2716,7 +3685,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run behaviour hypotheses (Tier-1 and/or Tier-2)."
+        description="Run behaviour hypotheses (Tier-1, Tier-2, and/or Extras)."
     )
     parser.add_argument(
         "--tier2",
@@ -2724,16 +3693,24 @@ if __name__ == "__main__":
         help="Run Tier-2 hypotheses (H5, H6, H8, H9, H10) only.",
     )
     parser.add_argument(
+        "--extras",
+        action="store_true",
+        help="Run extras (A-D, H3/H4 primary-only, C6) only.",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
-        help="Run both Tier-1 and Tier-2 hypotheses.",
+        help="Run all tiers (Tier-1 + Tier-2 + Extras).",
     )
     args = parser.parse_args()
 
     if args.all:
         main()
         main_tier2()
+        main_extras()
     elif args.tier2:
         main_tier2()
+    elif args.extras:
+        main_extras()
     else:
         main()

@@ -32,6 +32,12 @@ WORKDIR /app
 # initialised, even if jax[cuda12] ends up installed as a transitive dep.
 ENV JAX_PLATFORMS=cpu
 
+# Enable 64-bit precision in JAX at the environment level.  kpms internally
+# uses float64 but DLC pose data arrives as float32 — JAX raises ValueError
+# if x64 mode is not enabled.  Setting it here guarantees it takes effect
+# before any Python import, regardless of script-level configuration.
+ENV JAX_ENABLE_X64=1
+
 # Install keypoint-MoSeq and all its dependencies in one step.
 # kpms 0.6.8 pins jax~=0.6.2 and tensorflow-probability~=0.25.0 which must
 # stay in sync — do NOT upgrade JAX independently.
