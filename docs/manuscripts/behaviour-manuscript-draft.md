@@ -2,7 +2,7 @@
 
 **Working draft — behavioural methods/descriptive paper**
 
-Status: Draft v0.6.1 — 2026-05-31 (QA fixes: JSD ratio 3.5x→3.9x, cell (3,3) delta correction, Fig. S1C→2D, Holm-Bonferroni family footnotes, named all 6 significant cells)
+Status: Draft v0.7 — 2026-05-31 (extras: C6 tracking confidence, primary-only H3/H4, normalised entropy, dwell time, first-epoch coverage, peri-transition speed, anti-anxiety consolidation)
 
 ---
 
@@ -425,7 +425,11 @@ On a held-out test set, the model achieved RMSE of 3.79 pixels and mAP of
 2.6 to 3.0 px across all bodyparts, with PCK@10 (percentage of correct
 keypoints within 10 pixels) of 95--99%. Because the overhead camera uses
 infrared illumination, tracking quality does not differ systematically
-between light and dark conditions.
+between light and dark conditions. Tracking confidence (per-bodypart DLC
+likelihood) did not differ between light and dark conditions for any of
+the 27 tracked bodyparts (all Holm-Bonferroni adjusted p = 1.000,
+Wilcoxon signed-rank, N = 20), confirming that the infrared camera
+provides identical image quality regardless of visible light condition.
 
 Head direction was computed as the angle of the vector from the midpoint
 between the two ears to the nose tip, unwrapped and expressed in degrees
@@ -941,11 +945,12 @@ stereotypy narrative but requires a larger dataset to confirm.
 | Left turn fraction | 0.495 | 0.500 | 100.0 | 0.870 | 1.000 | 0.05 | -- |
 | Backtracking rate | 0.482 | 0.505 | 92.0 | 0.648 | 1.000 | 0.12 | -- |
 | *Route stereotypy metrics (Fig. 4)* | | | | | | | |
-| Corridor coverage (frac) | 0.482 | 0.380 | -- | <0.00001 | <0.0001^c^ | 0.97 | -- |
-| Junction coverage (frac) | 0.465 | 0.389 | -- | 0.0006 | 0.001^c^ | 0.82 | -- |
-| Dead-end coverage (frac) | 0.286 | 0.262 | -- | 0.261 | 0.261^c^ | 0.30 | -- |
-| Visited diameter (cells) | 6.35 | 5.57 | -- | 0.002 | -- | 0.80 | -- |
-| Revisitation index | 3.39 | 3.88 | -- | 0.011 | -- | 0.64 | -- |
+| Corridor coverage (frac) | 0.482 | 0.380 | -- | <0.00001 | <0.0001^c^ | 0.97 | 0.002 |
+| Junction coverage (frac) | 0.465 | 0.389 | -- | 0.0006 | 0.001^c^ | 0.82 | 0.010 |
+| Dead-end coverage (frac) | 0.286 | 0.262 | -- | 0.261 | 0.261^c^ | 0.30 | 0.465 |
+| DE vs junc. drop interaction | -- | -- | -- | 0.0004 | -- | 0.84 | 0.010 |
+| Visited diameter (cells) | 6.35 | 5.57 | -- | 0.002 | -- | 0.80 | 0.014 |
+| Revisitation index | 3.39 | 3.88 | -- | 0.011 | -- | 0.64 | 0.067 |
 | JSD (transition matrix) | -- | -- | -- | <0.001^d^ | -- | -- | -- |
 | Coverage / transition | 0.398 | 0.355 | -- | 0.076 | -- | 0.46 | -- |
 | Distance-from-centre x delta | -- | -- | -- | <0.0001^e^ | -- | rho=0.75 | -- |
@@ -1106,10 +1111,23 @@ mice maintained visits to terminal destinations (dead ends) at unchanged
 rates but consolidated onto a reduced set of connecting corridors and
 junctions -- a pattern we term route stereotypy.
 
+"The corridor-junction-dead-end dissociation survived primary-only
+analysis (corridor p = 0.002, r = 0.97; junction p = 0.010, r = 0.85;
+dead-end p = 0.465; interaction p = 0.010; diameter p = 0.014; all
+N = 11). Normalised entropy rate (transition entropy / log2(unique cells
+visited)) did not differ between conditions (light 0.277, dark 0.269;
+p = 0.133, r = 0.39, N = 20), indicating that dark-epoch routing is
+scaled-down but equally structured -- the mouse uses fewer routes but
+with comparable predictability. Dwell time per cell type did not differ
+between conditions (junction p = 0.648, corridor p = 0.330, dead-end
+p = 1.000; all Wilcoxon, N = 20), ruling out hesitation at decision
+points as a contributor to the coverage drop.
+
 "Consistent with route consolidation, the revisitation index (total
 cell-to-cell transitions divided by the number of unique cells visited)
 increased in darkness (light: 3.39; dark: 3.88; Wilcoxon, p = 0.011,
-r = 0.64, N = 20; Fig. 4C), indicating that mice traversed the same cells
+r = 0.64, N = 20; Fig. 4C), though this did not survive primary-only
+analysis (N = 11, p = 0.067, r = 0.64). Mice traversed the same cells
 more repeatedly in darkness. The discovery AUC (area under the cumulative
 unique-cell discovery curve, normalised by the number of transitions)
 showed a trend in the same direction (light: 0.297; dark: 0.273; p = 0.058,
@@ -1178,6 +1196,14 @@ to the preceding light epoch (p = 0.39, r = 0.22, N = 20; Fig. 5A). Speed
 likewise showed no trend across dark epochs (median speed-epoch rho = 0.075,
 p = 0.86, N = 14 sessions with sufficient epoch count), ruling out a
 locomotor fatigue explanation.
+
+"Coverage in the first dark epoch (0.593) did not differ from the first
+light epoch (0.628; Wilcoxon p = 0.360, r = 0.25, N = 20), confirming
+that the spatial representation carries over from the preceding light
+epoch and the mouse navigates its first dark epoch as effectively as
+light. Speed did not change abruptly at the light-to-dark transition
+(mean speed in the 5 s before vs after lights-off: p = 0.756, r = 0.09,
+N = 20), ruling out an immediate locomotor response to darkness.
 
 "However, the first dark epoch in each session showed dramatically higher
 coverage than all subsequent dark epochs (first: 0.57; subsequent mean:
@@ -1408,15 +1434,18 @@ epoch may therefore be short enough that the inherited representation
 remains usable, but the mouse detects accumulated error and adjusts for
 subsequent epochs.
 
-Second, the single-trial nature of the adaptation argues against a purely
-reflexive anxiogenic response to darkness. If the coverage reduction
-reflected an immediate anxiety response to darkness onset (as in the
-light-dark box paradigm; Bourin & Hascoet 2003), it should be present from
-the first dark epoch. The fact that the first dark epoch produces
-near-normal exploration indicates that the mouse is not immediately
-cautious in darkness; rather, it discovers through experience that its
-navigation is degraded and adjusts accordingly. However, we cannot exclude
-the possibility that the mouse has some initial caution that is offset by
+Second, four converging null results argue against an anxiety or reflexive
+interpretation of the coverage drop: (i) speed does not change at the
+light-off transition (peri-transition speed: p = 0.756), (ii) first-dark-
+epoch coverage equals first-light-epoch coverage (p = 0.360), (iii) dwell
+times are unchanged at all cell types (junction p = 0.648, corridor
+p = 0.330, dead-end p = 1.000), and (iv) the within-epoch coverage ratio
+does not indicate an immediate step-down (p = 0.064). Together, these
+suggest that the strategy change emerges from experience -- specifically,
+from navigational difficulty encountered during the first dark epoch --
+rather than from an innate aversion to darkness (cf. the light-dark box
+paradigm; Bourin & Hascoet 2003). However, we cannot exclude the
+possibility that the mouse has some initial caution that is offset by
 novelty-driven exploration during the first dark epoch, with the net
 result being near-normal coverage.
 
@@ -1505,25 +1534,20 @@ be considered a non-significant trend rather than an established finding.
    pauses. A control analysis using all frames (including immobile periods)
    is needed to assess whether the node-type speed differences are robust.
 
-7. Three control analyses require frame-level data from regenerated
+7. Two control analyses require frame-level data from regenerated
    sync.h5 files and are deferred until the pipeline re-run completes:
    (a) MRL by maze node type (junction vs corridor vs dead end) in light
    vs dark, which would determine whether the HD concentration trend in
-   darkness is driven by differential maze-location occupancy;
+   darkness is driven by differential maze-location occupancy; and
    (b) speed by node type using all frames (including immobile periods),
    which would test whether the dead-end speed result from the active-only
-   analysis is an artefact of the activity filter; and (c) per-bodypart
-   tracking confidence by light condition, which would provide a more
-   granular check on tracking quality than the aggregate statistics
-   reported in Methods.
+   analysis is an artefact of the activity filter.
 
-8. The route stereotypy findings (H3, H4) have not yet been subjected to
-   the primary-only robustness check (N = 11 independent animals). Given
-   the large effect sizes for corridor coverage (r = 0.97) and junction
-   coverage (r = 0.82), these are likely to survive, but this must be
-   confirmed before submission. The revisitation index (r = 0.64) and
-   coverage-per-transition trend (p = 0.076) have more modest effect sizes
-   and may not survive the reduced sample.
+8. The revisitation index increase (p = 0.011, r = 0.64) did not survive
+   primary-only analysis (p = 0.067), and should be interpreted with
+   caution. The core route stereotypy finding (corridor-junction-dead-end
+   dissociation) survived primary-only analysis with large effect sizes
+   (corridor p = 0.002, r = 0.97; junction p = 0.010, r = 0.85).
 
 9. The total distance values reported here (median 57.7 m) are
    substantially lower than preliminary estimates from an earlier tracking
