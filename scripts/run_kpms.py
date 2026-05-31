@@ -287,13 +287,11 @@ def fit_kpms(
     log.info("data type: %s, keys: %s", type(data).__name__, data_keys)
 
     # Cast data arrays to float64 — kpms/JAX requires x64 precision but
-    # DLC pose data and format_data output are float32.
-    import jax.numpy as jnp
-    if isinstance(data, dict):
-        for k, v in data.items():
-            if hasattr(v, "dtype") and v.dtype == np.float32:
-                data[k] = np.asarray(v, dtype=np.float64)
-                log.info("  Cast data['%s'] from float32 to float64", k)
+    # DLC pose data and format_data output are float32.  Use the library's
+    # own converter which handles nested dicts, JAX arrays, and numpy arrays.
+    from jax_moseq.utils.debugging import convert_data_precision
+    data = convert_data_precision(data)
+    log.info("Converted data to 64-bit precision via convert_data_precision")
 
     # noise_calibration is interactive (requires video frames for a Jupyter
     # widget) — skip it on headless EC2.  The default noise prior works fine
@@ -320,6 +318,10 @@ def fit_kpms(
         conf=data.get("conf"),
         PCA_fitting_num_frames=cfg.get("PCA_fitting_num_frames", 1000000),
     )
+
+    # Ensure pca output is also float64 (fit_pca may return float32 JAX arrays)
+    pca = convert_data_precision(pca)
+    log.info("Converted pca to 64-bit precision")
 
     # ── AR-HMM fitting ─────────────────────────────────────────────────────
     log.info("Fitting AR-HMM (kappa=%.0e, n_iters=%d)...", kappa, num_iters)
