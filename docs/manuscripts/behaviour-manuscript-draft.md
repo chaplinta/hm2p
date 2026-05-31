@@ -2,7 +2,7 @@
 
 **Working draft — behavioural methods/descriptive paper**
 
-Status: Draft v0.4.1 — 2026-05-30 (fixes: mean/median labelling, figure refs, citation placeholders)
+Status: Draft v0.5 — 2026-05-31 (adds H1-H4 hypothesis results: route stereotypy section, updated Discussion)
 
 ---
 
@@ -43,11 +43,26 @@ darkness (p = 0.076), which reaches significance in primary-only sessions
 (p = 0.042), suggesting that reduced locomotion partially contributes to
 the coverage drop. Other metrics -- turn statistics, transition entropy,
 backtracking, and dead-end visit rate -- remain stable between conditions.
+
+The coverage reduction reflects route stereotypy rather than global
+disengagement: corridor and junction coverage drop significantly in
+darkness, but dead-end coverage is unchanged (p = 0.26), indicating that
+mice maintain visits to terminal destinations while consolidating onto fewer
+connecting routes. The visited subgraph diameter contracts (6.35 to 5.57
+cells, p = 0.002), transition matrices diverge between conditions (JSD =
+0.068, 3.5x permutation null, p < 0.001), and revisitation of
+already-covered cells increases (p = 0.011). This dissociation between
+preserved local navigation rules and altered global route selection suggests
+that turn decisions and route planning draw on different information sources,
+with route selection depending on a spatial representation that degrades
+without visual cues.
+
 HD distributions become more concentrated in darkness, but this trend does
 not survive multiple comparisons correction (adjusted p = 0.152) or
 primary-only analysis (p = 0.278). AHV does not differ between conditions
-(p = 0.177). These findings establish spatial coverage as a reliable
-behavioural readout of visual cue availability in the q-rose maze.
+(p = 0.177). These findings establish spatial coverage and route stereotypy
+as reliable behavioural readouts of visual cue availability in the q-rose
+maze.
 
 ### Structure
 
@@ -55,11 +70,11 @@ behavioural readout of visual cue availability in the q-rose maze.
 |---------|---------|-------|
 | Introduction | Frame: maze navigation, exploration rules, light/dark, HD system | ~500 |
 | Methods | Maze, animals, surgery, imaging, tracking, analysis | ~800 |
-| Results | 5 main findings (see below) | ~1200 |
-| Discussion | Comparison to Rosenberg, implications for HD/navigation studies | ~600 |
+| Results | 6 main findings (see below) | ~1600 |
+| Discussion | Comparison to Rosenberg, route stereotypy, implications for HD/navigation studies | ~800 |
 | Supplementary | Controls, additional metrics, individual animal data | as needed |
 
-### Five main results
+### Six main results
 
 1. **Maze structure and exploration coverage** — Mice explore the 23-cell
    q-rose maze with high coverage (typically >90% of cells visited), with
@@ -80,6 +95,19 @@ behavioural readout of visual cue availability in the q-rose maze.
    r = 0.78), indicating that the effect is not purely a locomotor artefact,
    though the primary-only analysis does not reach significance for this
    normalised metric (p = 0.175, r = 0.49).
+
+3b. **The coverage drop reflects route stereotypy** — Speed and coverage
+   are strongly correlated (Spearman rho = 0.76, p < 0.0001), but speed
+   does not fully account for the coverage reduction: coverage per
+   transition shows a trend toward reduced exploration efficiency per
+   decision (light 0.398 vs dark 0.355, p = 0.076, r = 0.46). Corridor
+   coverage drops most strongly (p < 0.00001, r = 0.97), junction coverage
+   drops moderately (p = 0.001, r = 0.82), but dead-end coverage is
+   unchanged (p = 0.26). Mice maintain visits to terminal destinations
+   while consolidating onto fewer connecting routes. The visited subgraph
+   diameter contracts (6.35 to 5.57 cells, p = 0.002, r = 0.80), transition
+   matrices diverge between conditions (JSD = 0.068, 3.5x permutation null,
+   p < 0.001), and revisitation increases (p = 0.011, r = 0.64).
 
 4. **Light vs dark: speed and movement** — Running speed shows a trend
    toward reduction in darkness (p = 0.076, adjusted p = 0.152, r = 0.46,
@@ -565,7 +593,52 @@ magnitude. Shows consistency of the effect across sessions.
 
 ---
 
-### Figure 4: Light vs dark — speed and other metrics
+### Figure 4: Route stereotypy in darkness
+
+**Panel A.** Speed difference (dark - light) vs coverage difference (dark -
+light) per session. Scatter plot with Spearman rho = 0.76 (p < 0.0001).
+Shows the strong speed-coverage coupling (H1) and highlights that speed
+contributes to but does not fully explain the coverage drop.
+
+**Panel B.** Per-epoch coverage by maze cell type (junction, corridor,
+dead end) in light vs dark. Paired box plots for each cell type. Key
+finding: corridor coverage drops most strongly (p < 0.00001, r = 0.97),
+junction coverage drops moderately (p = 0.001, r = 0.82), dead-end
+coverage is unchanged (p = 0.26). Include direct comparison of the
+dead-end vs junction drop magnitudes (p = 0.0004, r = 0.84).
+
+**Panel C.** Revisitation index (total transitions / unique cells visited)
+in light vs dark. Paired comparison across sessions (p = 0.011, r = 0.64).
+Higher values in darkness indicate increased revisitation of
+already-covered cells.
+
+**Panel D.** Jensen-Shannon divergence between light and dark transition
+matrices. Histogram of observed per-session JSD values with the
+permutation null distribution overlaid (1000 permutations). Observed mean
+JSD = 0.068 vs null mean = 0.018 (3.5x). Demonstrates that routing
+patterns change between conditions despite preserved transition entropy.
+
+**Statistics needed:**
+- Spearman correlation of speed-diff vs coverage-diff (H1)
+- Wilcoxon signed-rank for coverage by cell type in light vs dark,
+  Holm-Bonferroni corrected across 3 cell types (H3)
+- Wilcoxon signed-rank comparing dead-end drop magnitude vs junction
+  drop magnitude (H3 interaction)
+- Wilcoxon signed-rank for visited subgraph diameter (H3)
+- Wilcoxon signed-rank for revisitation index (H4)
+- Permutation test for JSD (1000 permutations, H2)
+- Effect sizes (rank-biserial) for all tests
+
+**Code references:**
+- Coverage by cell type: `maze.analysis.cell_occupancy()` with
+  `maze.topology.node_types()`
+- Revisitation index: custom (total transitions / unique cells)
+- JSD: `scipy.spatial.distance.jensenshannon` on transition matrices
+- Permutation null: shuffle light/dark epoch labels within session
+
+---
+
+### Figure 5: Light vs dark — speed and other metrics
 
 **Panel A.** Running speed (cm/s) by condition: box/violin plot of
 session-median speed in light vs dark. Paired by session. Note: data
@@ -600,7 +673,7 @@ in light vs dark — summary bar/violin showing all are non-significant.
 
 ---
 
-### Figure 5: Head direction sampling in the maze
+### Figure 6: Head direction sampling in the maze
 
 **Panel A.** Per-cell HD distribution: polar histogram of HD angles when the
 mouse occupies each of the 23 cells. Show that corridor cells have
@@ -710,10 +783,18 @@ disorientation.
 | Transition entropy (bits/step) | 1.221 | 1.186 | 67.0 | 0.165 | --^b^ | 0.36 | -- |
 | Left turn fraction | 0.495 | 0.500 | 100.0 | 0.870 | 1.000 | 0.05 | -- |
 | Backtracking rate | 0.482 | 0.505 | 92.0 | 0.648 | 1.000 | 0.12 | -- |
+| *Route stereotypy metrics (Fig. 4)* | | | | | | | |
+| Corridor coverage (frac) | 0.482 | 0.380 | -- | <0.00001 | <0.0001^c^ | 0.97 | -- |
+| Junction coverage (frac) | 0.465 | 0.389 | -- | 0.0006 | 0.001^c^ | 0.82 | -- |
+| Dead-end coverage (frac) | 0.286 | 0.262 | -- | 0.261 | 0.261^c^ | 0.30 | -- |
+| Visited diameter (cells) | 6.35 | 5.57 | -- | 0.002 | -- | 0.80 | -- |
+| Revisitation index | 3.39 | 3.88 | -- | 0.011 | -- | 0.64 | -- |
+| JSD (transition matrix) | -- | -- | -- | <0.001^d^ | -- | -- | -- |
+| Coverage / transition | 0.398 | 0.355 | -- | 0.076 | -- | 0.46 | -- |
 
-^a^ Coverage per active minute is a post-hoc control analysis (single test, not part of any Holm-Bonferroni family). ^b^ Transition entropy is the sole light-dark comparison in Supplementary Figure S1 and is not corrected within any family.
+^a^ Coverage per active minute is a post-hoc control analysis (single test, not part of any Holm-Bonferroni family). ^b^ Transition entropy is the sole light-dark comparison in Supplementary Figure S1 and is not corrected within any family. ^c^ Holm-Bonferroni corrected within Family 5 (corridor, junction, dead-end coverage). ^d^ Permutation test (1000 permutations); observed mean JSD = 0.068 vs null mean = 0.018.
 
-*Holm-Bonferroni correction families:* Family 1 (Fig. 3: coverage, dead-end rate, exploration efficiency); Family 2 (Fig. 4: speed, fraction active, immobility bout); Family 3 (Fig. 4: left turn fraction, turn autocorrelation vs zero, autocorrelation light vs dark, backtracking rate); Family 4 (Fig. 5: MRL, AHV).
+*Holm-Bonferroni correction families:* Family 1 (Fig. 3: coverage, dead-end rate, exploration efficiency); Family 2 (Fig. 5: speed, fraction active, immobility bout); Family 3 (Fig. 5: left turn fraction, turn autocorrelation vs zero, autocorrelation light vs dark, backtracking rate); Family 4 (Fig. 6: MRL, AHV); Family 5 (Fig. 4: corridor coverage, junction coverage, dead-end coverage).
 
 ---
 
@@ -797,7 +878,7 @@ r = 0.85).
 "Running speed showed a trend toward reduction in darkness that partially
 accounts for the coverage drop. The speed trend was not significant in the
 full dataset (light mean: 2.28 cm/s; dark mean: 1.97 cm/s; Wilcoxon,
-W = 57.0, p = 0.076, adjusted p = 0.152, r = 0.46, N = 20; Fig. 4A) but
+W = 57.0, p = 0.076, adjusted p = 0.152, r = 0.46, N = 20; Fig. 5A) but
 reached significance in primary-only sessions (N = 11, p = 0.042, r = 0.70).
 To control for this speed confound, we normalised coverage by active time
 (minutes with speed >= 2.5 cm/s). Coverage per active minute was also
@@ -823,6 +904,67 @@ p = 0.106, r = 0.64), consistent with increased cautiousness or pausing behaviou
 during visual cue removal, though this did not survive multiple comparisons
 correction."
 
+### 3b. The coverage drop reflects route stereotypy
+
+"The coverage reduction in darkness could arise from multiple mechanisms:
+fewer cell transitions due to reduced speed, a shift in routing patterns,
+spatial range contraction, or increased revisitation of already-covered
+cells. We tested these hypotheses systematically (Fig. 4).
+
+"Speed and per-epoch coverage were strongly correlated across sessions
+(Spearman rho = 0.76, p < 0.0001, N = 20; Fig. 4A), confirming that
+locomotor activity contributes substantially to the coverage difference.
+However, coverage per transition (unique cells visited divided by total
+cell-to-cell transitions) showed a trend toward reduced exploration
+efficiency per decision in darkness (light: 0.398; dark: 0.355; Wilcoxon,
+p = 0.076, r = 0.46, N = 20), suggesting that the coverage drop is not
+fully explained by reduced locomotion.
+
+"To determine where in the maze coverage was lost, we computed per-epoch
+coverage separately for corridors, junctions, and dead ends (Fig. 4B).
+Corridor coverage showed the largest reduction in darkness (light: 0.482;
+dark: 0.380; Wilcoxon, p < 0.00001, adjusted p < 0.0001, r = 0.97, N = 20).
+Junction coverage also decreased (light: 0.465; dark: 0.389; p = 0.0006,
+adjusted p = 0.001, r = 0.82). In contrast, dead-end coverage was unchanged
+between conditions (light: 0.286; dark: 0.262; p = 0.26, r = 0.30). The
+magnitude of the dead-end coverage drop was significantly smaller than the
+junction coverage drop (Wilcoxon on paired differences, p = 0.0004,
+r = 0.84). The diameter of the visited subgraph -- a measure of the spatial
+extent of the explored region -- also contracted in darkness (light: 6.35
+cells; dark: 5.57 cells; p = 0.002, r = 0.80). This pattern indicates that
+mice maintained visits to terminal destinations (dead ends) at unchanged
+rates but consolidated onto a reduced set of connecting corridors and
+junctions -- a pattern we term route stereotypy.
+
+"Consistent with route consolidation, the revisitation index (total
+cell-to-cell transitions divided by the number of unique cells visited)
+increased in darkness (light: 3.39; dark: 3.88; Wilcoxon, p = 0.011,
+r = 0.64, N = 20; Fig. 4C), indicating that mice traversed the same cells
+more repeatedly in darkness. The discovery AUC (area under the cumulative
+unique-cell discovery curve, normalised by the number of transitions)
+showed a trend in the same direction (light: 0.297; dark: 0.273; p = 0.058,
+r = 0.49), converging with the revisitation finding.
+
+"To test whether routing patterns themselves changed, we computed the
+Jensen-Shannon divergence (JSD) between the light-epoch and dark-epoch
+first-order transition matrices for each session (Fig. 4D). The observed
+mean JSD (0.068) was 3.5 times larger than the permutation null
+distribution obtained by shuffling epoch labels within sessions (null mean:
+0.018; 1000 permutations; p < 0.001). However, no individual transition
+(edge) survived Holm-Bonferroni correction across the 44 edges tested
+(0/44 significant), indicating that the routing change is distributed
+across many small shifts rather than concentrated at a few junctions. This
+result resolves an apparent paradox: transition entropy is preserved between
+conditions (Section 4), yet the actual routes used differ. The transition
+matrix changes in its pattern but not in its predictability.
+
+"Taken together, these results indicate that the coverage reduction in
+darkness reflects a reorganisation of the mouse's route network rather than
+a simple global slowdown. Mice continue to visit dead-end destinations at
+unchanged rates but travel between them via fewer, more repetitive routes.
+This route stereotypy is accompanied by increased revisitation and a
+distributed but significant change in routing patterns."
+
 ### 4. Local navigation rules are preserved in darkness
 
 "Other exploration metrics did not differ significantly between conditions.
@@ -840,7 +982,7 @@ adjusted p = 1.000, r = 0.12).
 
 "Angular head velocity (|AHV|) did not differ between conditions (light
 mean: 93.3 deg/s; dark mean: 95.4 deg/s; Wilcoxon, W = 68.0, p = 0.177,
-adjusted p = 0.177, r = 0.35; Fig. 5). The primary-only analysis also
+adjusted p = 0.177, r = 0.35; Fig. 6E). The primary-only analysis also
 showed no effect (N = 11, p = 0.465, r = 0.27). The absence of a
 significant AHV difference in the present data contrasts with the
 vestibular-visual integration findings of Keshavarzi et al. (2022), who
@@ -849,12 +991,13 @@ may reflect the different measurement scales (behavioural AHV vs neural
 AHV coding), the constrained locomotion in the small maze, or insufficient
 power to detect a subtle effect.
 
-"Taken together, the results indicate that visual cue removal has a
-selective rather than global effect on maze navigation: spatial coverage
-decreases, but the local decision rules governing turn direction,
-alternation, and backtracking are preserved. This pattern is consistent with
-reduced spatial exploration or increased cautiousness rather than
-disorientation or a qualitative shift in navigation strategy."
+"Taken together, the preservation of local navigation rules alongside the
+route stereotypy described in Section 3b indicates that visual cue removal
+has a selective effect on maze navigation. The local decision rules
+governing turn direction, alternation, and backtracking are maintained, but
+the global route network contracts: mice visit the same destinations via
+fewer connecting paths. This dissociation suggests that local turn
+decisions and global route selection draw on different information sources."
 
 ### 5. Head direction is constrained by maze geometry
 
@@ -862,7 +1005,7 @@ disorientation or a qualitative shift in navigation strategy."
 conditions. The mean resultant length of the session-wide HD distribution
 showed a non-significant trend toward higher values in darkness (light:
 0.060; dark: 0.085; Wilcoxon, W = 57.0, p = 0.076, adjusted p = 0.152,
-r = 0.46, N = 20; Fig. 5C). This trend did not survive the primary-only
+r = 0.46, N = 20; Fig. 6C). This trend did not survive the primary-only
 robustness check (N = 11 independent animals; p = 0.278, r = 0.39). The MRL
 difference is therefore suggestive but not robust to pseudoreplication
 control or multiple comparisons correction with the current sample size.
@@ -884,7 +1027,7 @@ trends make this explanation plausible.
 HD tuning analyses conducted in structured environments (as opposed to
 open fields). Apparent neural HD selectivity could partially reflect
 position-dependent sampling rather than true directional tuning. We
-provide per-cell HD occupancy maps (Fig. 5D) to enable occupancy-corrected
+provide per-cell HD occupancy maps (Fig. 6D) to enable occupancy-corrected
 tuning curve estimation in future neural analyses."
 
 ---
@@ -944,13 +1087,50 @@ within-dark-epoch analysis (Fig. S3) tests whether behavioural metrics
 degrade within individual dark epochs, which would be expected if
 progressive spatial disorientation accompanies HD drift.
 
+### Route stereotypy as the mechanism underlying coverage reduction
+
+The coverage reduction in darkness is not explained by a simple global
+slowdown or by disruption of local navigation rules. Instead, mice maintain
+visits to dead-end destinations at unchanged rates but consolidate onto a
+reduced set of connecting corridors and junctions -- route stereotypy. This
+is accompanied by increased revisitation of already-covered cells and a
+distributed but significant reorganisation of the transition matrix. The
+pattern is distinct from classic range contraction toward a central refuge
+(Avni et al. 2006; Fonio et al. 2009): the mouse does not retreat to a safe
+location but reduces path diversity while preserving its destination
+repertoire. This dissociation suggests that local turn decisions and global
+route selection rely on different information sources -- turn alternation may
+be supported by egocentric strategies that operate without visual landmarks,
+while route selection across the maze graph may depend on a spatial
+representation that degrades without visual cues.
+
+The speed-coverage correlation (rho = 0.76) is substantial, and reduced
+locomotion undoubtedly contributes to the coverage drop. We do not claim
+that route stereotypy is independent of speed. Rather, the cell-type
+dissociation (preserved dead-end coverage alongside reduced corridor and
+junction coverage) and the increased revisitation index indicate that the
+coverage reduction has a spatial structure that a uniform speed reduction
+would not produce. A uniform slowdown would reduce coverage proportionally
+across all cell types; the selective loss of corridor and junction coverage
+with preserved dead-end coverage points to a change in route selection
+rather than a simple reduction in the number of steps taken.
+
+The transition matrix analysis provides a complementary perspective. Despite
+preserved transition entropy (the overall predictability of the next step
+given the current position), the actual routes used in light and dark
+conditions differ significantly (JSD = 0.068, p < 0.001 vs permutation
+null). This indicates that the routing change is not a loss of structure
+but a shift to a different, equally structured routing pattern --
+consistent with consolidation onto a subset of familiar routes rather than
+disorientation.
+
 ### HD sampling confound for neural analyses
 
 The non-uniform HD sampling in maze corridors is a methodological concern
 for all HD tuning analyses conducted in structured environments (as opposed
 to open fields). This has been acknowledged in the literature (Muir et al.
 2022; Jacob et al. 2017) but is rarely quantified explicitly. Our per-cell
-HD occupancy maps (Fig. 5D) provide the basis for occupancy-corrected tuning
+HD occupancy maps (Fig. 6D) provide the basis for occupancy-corrected tuning
 curve estimation in the companion neural paper.
 
 ### HD non-uniformity: position and immobility confounds
@@ -1030,7 +1210,15 @@ be considered a non-significant trend rather than an established finding.
    granular check on tracking quality than the aggregate statistics
    reported in Methods.
 
-8. The total distance values reported here (median 57.7 m) are
+8. The route stereotypy findings (H3, H4) have not yet been subjected to
+   the primary-only robustness check (N = 11 independent animals). Given
+   the large effect sizes for corridor coverage (r = 0.97) and junction
+   coverage (r = 0.82), these are likely to survive, but this must be
+   confirmed before submission. The revisitation index (r = 0.64) and
+   coverage-per-transition trend (p = 0.076) have more modest effect sizes
+   and may not survive the reduced sample.
+
+9. The total distance values reported here (median 57.7 m) are
    substantially lower than preliminary estimates from an earlier tracking
    model (median ~106 m). The earlier values were inflated by tracking
    jitter (noisy keypoint estimates producing spurious inter-frame
@@ -1142,23 +1330,32 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
 
 ### What is novel about this paper
 
-1. **The q-rose maze under light/dark alternation is a new paradigm.** The
+1. **Route stereotypy as the mechanism underlying coverage reduction in
+   darkness.** The finding that corridor and junction coverage drops while
+   dead-end coverage is preserved is, to our knowledge, not reported in the
+   darkness-behaviour literature. Previous studies have documented range
+   contraction toward a home base (Avni et al. 2006; Fonio et al. 2009),
+   but the present pattern -- preserved destination repertoire with reduced
+   path diversity -- is qualitatively distinct and suggests a dissociation
+   between local decision rules and global route planning.
+
+2. **The q-rose maze under light/dark alternation is a new paradigm.** The
    original Rosenberg maze used fixed lighting. No prior study has combined
    a binary-choice labyrinth with total darkness manipulation and quantified
    the effect on exploration strategy.
 
-2. **Graph-theoretic behavioural characterisation during light/dark
+3. **Graph-theoretic behavioural characterisation during light/dark
    alternation.** Transition entropy, dead-end visit dynamics, and Markov
    model statistics have not been compared between light and dark conditions
    in a structured maze. The finding that most navigation metrics are
    unchanged by darkness -- despite a significant reduction in spatial
    coverage -- is itself informative.
 
-3. **HD sampling characterisation in a structured maze.** This confound is
+4. **HD sampling characterisation in a structured maze.** This confound is
    acknowledged but rarely quantified. Explicit per-cell HD occupancy maps
    are a useful methodological contribution.
 
-4. **Honest reporting of null results.** The null AHV result, the
+5. **Honest reporting of null results.** The null AHV result, the
    non-significant MRL trend, the null speed result (which becomes
    significant only in primary-only analysis), and the failure of the
    second-order Markov model are all informative for future studies using
@@ -1185,14 +1382,20 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
    epoch-number effects (does the 5th dark epoch differ from the 1st?).
 
 3. **Speed confound for exploration metrics.** Speed showed a trend toward
-   reduction in darkness (p = 0.076; primary-only p = 0.042). Any trend
-   toward slower speed means fewer cell transitions per minute. Transition
-   entropy is rate-normalised (bits per step), but coverage and dead-end
-   visit rate must be normalised by active time or number of transitions,
-   not clock time. The coverage-per-active-minute control (p = 0.001,
-   N = 20) suggests the finding survives locomotor normalisation, but the
-   primary-only analysis does not reach significance (p = 0.175, N = 11),
-   so the speed confound cannot be definitively ruled out.
+   reduction in darkness (p = 0.076; primary-only p = 0.042), and speed and
+   coverage are strongly correlated across sessions (Spearman rho = 0.76,
+   p < 0.0001). Any trend toward slower speed means fewer cell transitions
+   per minute. Transition entropy is rate-normalised (bits per step), but
+   coverage and dead-end visit rate must be normalised by active time or
+   number of transitions, not clock time. The coverage-per-active-minute
+   control (p = 0.001, N = 20) and the coverage-per-transition trend
+   (p = 0.076, r = 0.46) suggest that the coverage reduction is not fully
+   explained by locomotion, and the cell-type dissociation (preserved
+   dead-end coverage with reduced corridor/junction coverage) is not
+   predicted by a uniform speed reduction. However, the primary-only
+   analysis does not reach significance for coverage per active minute
+   (p = 0.175, N = 11), so the speed confound cannot be definitively
+   ruled out.
 
 4. **Small maze ceiling effects.** With only 23 cells, coverage approaches
    100% quickly, limiting the dynamic range for exploration efficiency
@@ -1236,6 +1439,23 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
   persists after normalisation (p = 0.001), though this control does not
   survive primary-only analysis (p = 0.175). We are transparent about this
   ambiguity.
+
+- "Route stereotypy could just be a speed artefact — slower mice traverse
+  fewer corridors." Response: The speed-coverage correlation (rho = 0.76)
+  is honestly reported. However, a uniform speed reduction would reduce
+  coverage proportionally across all cell types. The selective preservation
+  of dead-end coverage alongside reduced corridor and junction coverage is
+  not predicted by a uniform slowdown. Coverage per transition (unique
+  cells / total transitions) also shows a trend toward reduced efficiency
+  per decision (p = 0.076), though this does not reach significance.
+
+- "Is the JSD permutation test appropriate? You shuffled epoch labels, not
+  transitions." Response: The permutation shuffles light/dark labels of
+  entire epochs within each session (preserving the temporal structure of
+  transitions within epochs), then recomputes the transition matrix for
+  each permuted condition. This tests whether the observed divergence
+  exceeds what would be expected from random partitioning of the same
+  behavioural data.
 
 ---
 
