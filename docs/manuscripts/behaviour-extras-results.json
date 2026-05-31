@@ -24,7 +24,7 @@
       "20221116_14_31_12_1118320"
     ],
     "n_primary": 11,
-    "description": "Extra behaviour analyses: peri-transition speed (A), first epoch coverage (B), normalised entropy (C), dwell time per cell type (D), H3/H4 primary-only robustness, and DLC tracking confidence by light condition (C6)."
+    "description": "Extra behaviour analyses: peri-transition speed (A), first epoch coverage (B), normalised entropy (C), dwell time per cell type (D), H3/H4 primary-only robustness, DLC tracking confidence by light condition (C6), and route-dropping null model for H6 topology control."
   },
   "A_peri_lightoff_speed": {
     "mean_pre_speed": 4.277204457587162,
@@ -1109,5 +1109,198 @@
       "n_sessions": 20,
       "p_adj": 1.0
     }
+  },
+  "route_dropping_null": {
+    "observed_mean_rho": 0.12846374983393719,
+    "null_mean_rho": 0.05528533902951075,
+    "null_95_pct": 0.21219393839161357,
+    "null_5_pct": -0.11263134357023585,
+    "permutation_p": 0.281,
+    "n_permutations": 1000,
+    "n_sessions_used": 7,
+    "observed_per_session_rhos": [
+      0.47529408856027067,
+      0.0,
+      0.3700685523763391,
+      -0.2861931249833501,
+      0.34007673288430057,
+      0.0,
+      0.0
+    ],
+    "center_cell": [
+      3,
+      2
+    ],
+    "interpretation": "topology_artefact",
+    "per_session": [
+      {
+        "n_light_edges": 54,
+        "n_dark_edges": 53,
+        "K": 1,
+        "observed_rho": 0.47529408856027067,
+        "null_mean_rho": -0.00200386021080704,
+        "null_95_pct": 0.6140443789052176,
+        "null_5_pct": -0.6303365452564017,
+        "session_p": 0.608,
+        "skipped": false
+      },
+      {
+        "n_light_edges": 65,
+        "n_dark_edges": 54,
+        "K": 11,
+        "observed_rho": 0.0,
+        "null_mean_rho": -0.08893691896335094,
+        "null_95_pct": 0.0,
+        "null_5_pct": -0.30873781377878506,
+        "session_p": 1.0,
+        "skipped": false
+      },
+      {
+        "n_light_edges": 46,
+        "n_dark_edges": 52,
+        "K": -6,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 43,
+        "n_dark_edges": 43,
+        "K": 0,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 41,
+        "n_dark_edges": 53,
+        "K": -12,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 56,
+        "n_dark_edges": 60,
+        "K": -4,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 47,
+        "n_dark_edges": 32,
+        "K": 15,
+        "observed_rho": 0.3700685523763391,
+        "null_mean_rho": 0.3656592465750858,
+        "null_95_pct": 0.40514373110431623,
+        "null_5_pct": 0.2663680239631891,
+        "session_p": 0.74,
+        "skipped": false
+      },
+      {
+        "n_light_edges": 49,
+        "n_dark_edges": 51,
+        "K": -2,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 55,
+        "n_dark_edges": 59,
+        "K": -4,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 52,
+        "n_dark_edges": 50,
+        "K": 2,
+        "observed_rho": -0.2861931249833501,
+        "null_mean_rho": -0.02495054019879356,
+        "null_95_pct": 0.0,
+        "null_5_pct": -0.13721680612390447,
+        "session_p": 0.04,
+        "skipped": false
+      },
+      {
+        "n_light_edges": 56,
+        "n_dark_edges": 54,
+        "K": 2,
+        "observed_rho": 0.34007673288430057,
+        "null_mean_rho": 0.15568738297862106,
+        "null_95_pct": 0.5881446635981104,
+        "null_5_pct": -0.5632362033420106,
+        "session_p": 0.697,
+        "skipped": false
+      },
+      {
+        "n_light_edges": 57,
+        "n_dark_edges": 58,
+        "K": -1,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 47,
+        "n_dark_edges": 48,
+        "K": -1,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 52,
+        "n_dark_edges": 42,
+        "K": 10,
+        "observed_rho": 0.0,
+        "null_mean_rho": -0.04764037239723842,
+        "null_95_pct": 0.0,
+        "null_5_pct": -0.30873781377878506,
+        "session_p": 1.0,
+        "skipped": false
+      },
+      {
+        "n_light_edges": 65,
+        "n_dark_edges": 74,
+        "K": -9,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 73,
+        "n_dark_edges": 73,
+        "K": 0,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 59,
+        "n_dark_edges": 63,
+        "K": -4,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 63,
+        "n_dark_edges": 70,
+        "K": -7,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 65,
+        "n_dark_edges": 70,
+        "K": -5,
+        "skipped": true,
+        "reason": "K <= 0 (dark has same or more edges)"
+      },
+      {
+        "n_light_edges": 71,
+        "n_dark_edges": 62,
+        "K": 9,
+        "observed_rho": 0.0,
+        "null_mean_rho": 0.029182435423058338,
+        "null_95_pct": 0.30873781377878506,
+        "null_5_pct": 0.0,
+        "session_p": 1.0,
+        "skipped": false
+      }
+    ]
   }
 }

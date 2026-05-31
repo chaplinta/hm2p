@@ -21,6 +21,7 @@ Extras (low-hanging fruit + must-do):
   D:  Dwell time per cell type (junction/corridor/dead-end)
   H3/H4 primary-only:  Robustness check with N=11 primary sessions
   C6: Tracking confidence by light condition (DLC likelihood)
+  Route-dropping null: permutation test for H6 central-cell topology artefact
 
 Outputs:
   - docs/manuscripts/behaviour-hypotheses-results.json        (Tier-1)

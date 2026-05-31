@@ -2,7 +2,7 @@
 
 **Working draft — behavioural methods/descriptive paper**
 
-Status: Draft v0.7 — 2026-05-31 (extras: C6 tracking confidence, primary-only H3/H4, normalised entropy, dwell time, first-epoch coverage, peri-transition speed, anti-anxiety consolidation)
+Status: Draft v0.7 — 2026-05-31 (extras: C6 tracking confidence, primary-only H3/H4, normalised entropy, dwell time, first-epoch coverage, peri-transition speed, anti-anxiety consolidation, route-dropping null model)
 
 ---
 
@@ -51,26 +51,35 @@ mice maintain visits to terminal destinations while consolidating onto fewer
 connecting routes. The visited subgraph diameter contracts (6.35 to 5.57
 cells, p = 0.002), transition matrices diverge between conditions (JSD =
 0.068, 3.9x permutation null, p < 0.001), and revisitation of
-already-covered cells increases (p = 0.011). This dissociation between
-preserved local navigation rules and altered global route selection suggests
-that turn decisions and route planning draw on different information sources,
-with route selection depending on a spatial representation that degrades
-without visual cues.
+already-covered cells increases (p = 0.011). Normalised transition entropy
+is unchanged (light 0.277, dark 0.269; p = 0.133), indicating that
+dark-epoch routing is scaled-down but equally structured. Dwell times per
+cell type do not differ between conditions (all p > 0.33), ruling out
+hesitation at decision points. This dissociation between preserved local
+navigation rules and altered global route selection suggests that turn
+decisions and route planning draw on different information sources, with
+route selection depending on a spatial representation that degrades without
+visual cues.
 
-The spatial structure of the coverage reduction is not uniform across the
-maze. Cells closer to the maze centre show the largest visit reductions
+Although cells closer to the maze centre show the largest visit reductions
 (distance-from-centre correlation: Spearman rho = 0.75, p < 0.0001, N = 23),
-inverting the expected pattern of peripheral abandonment. Central backbone
-corridors and junctions lose the most visits, while peripheral dead ends are
-maintained -- deepening the route stereotypy interpretation.
+a route-dropping null model demonstrates that this spatial pattern is
+consistent with random removal of edges from the maze graph (permutation
+p = 0.281, N = 1000). Central cells have higher node degree and thus lose
+more visits under any random route-dropping process, so the spatial
+gradient does not require a preferential avoidance of central locations.
 
 The coverage reduction occurs as a single-trial adaptation: the first dark
 epoch has substantially higher coverage than all subsequent dark epochs
 (0.57 vs 0.30; Wilcoxon, p = 0.0001, r = 0.89, N = 20), after which dark
 coverage stabilises. There is no gradual improvement or worsening across
-later dark epochs (slope p = 0.81). This pattern indicates that mice adjust
-their exploration strategy after their first experience of darkness in the
-session and then maintain this adjusted strategy for the remainder.
+later dark epochs (slope p = 0.81). Speed does not change abruptly at the
+light-to-dark transition (peri-transition speed: p = 0.756, r = 0.09), and
+coverage in the first dark epoch does not differ from the first light epoch
+(p = 0.360, r = 0.25), ruling out an immediate startle or anxiety response
+to darkness onset. This pattern indicates that mice adjust their exploration
+strategy after their first experience of darkness in the session and then
+maintain this adjusted strategy for the remainder.
 
 HD distributions become more concentrated in darkness, but this trend does
 not survive multiple comparisons correction (adjusted p = 0.152) or
@@ -111,23 +120,29 @@ availability in the q-rose maze.
    though the primary-only analysis does not reach significance for this
    normalised metric (p = 0.175, r = 0.49).
 
-3b. **The coverage drop reflects route stereotypy concentrated at central
-   maze locations** — Speed and coverage are strongly correlated (Spearman
-   rho = 0.76, p < 0.0001), but speed does not fully account for the
-   coverage reduction: coverage per transition shows a trend toward reduced
-   exploration efficiency per decision (light 0.398 vs dark 0.355,
-   p = 0.076, r = 0.46). Corridor coverage drops most strongly
-   (p < 0.00001, r = 0.97), junction coverage drops moderately (p = 0.001,
-   r = 0.82), but dead-end coverage is unchanged (p = 0.26). Mice maintain
-   visits to terminal destinations while consolidating onto fewer connecting
-   routes. Per-cell analysis reveals that this consolidation is
-   topographically structured: cells closer to the maze centre show the
-   largest visit reductions (distance-from-centre: rho = 0.75, p < 0.0001,
-   N = 23), and among corridor cells, eccentricity correlates with coverage
-   change (rho = 0.87, p = 0.012, N = 7). The visited subgraph diameter
-   contracts (6.35 to 5.57 cells, p = 0.002, r = 0.80), transition matrices
-   diverge between conditions (JSD = 0.068, 3.9x permutation null,
-   p < 0.001), and revisitation increases (p = 0.011, r = 0.64).
+3b. **The coverage drop reflects route stereotypy** — Speed and coverage
+   are strongly correlated (Spearman rho = 0.76, p < 0.0001), but speed
+   does not fully account for the coverage reduction: coverage per
+   transition shows a trend toward reduced exploration efficiency per
+   decision (light 0.398 vs dark 0.355, p = 0.076, r = 0.46). Corridor
+   coverage drops most strongly (p < 0.00001, r = 0.97), junction coverage
+   drops moderately (p = 0.001, r = 0.82), but dead-end coverage is
+   unchanged (p = 0.26). Mice maintain visits to terminal destinations
+   while consolidating onto fewer connecting routes. Normalised entropy
+   rate is unchanged (light 0.277, dark 0.269; p = 0.133, r = 0.39),
+   indicating that dark-epoch routing is equally structured. Dwell times
+   per cell type do not differ (junction p = 1.000, corridor p = 0.990,
+   dead-end p = 1.000, all Holm-Bonferroni corrected), ruling out hesitation
+   at decision points. The visited subgraph diameter contracts (6.35 to
+   5.57 cells, p = 0.002, r = 0.80), transition matrices diverge between
+   conditions (JSD = 0.068, 3.9x permutation null, p < 0.001), and
+   revisitation increases (p = 0.011, r = 0.64). Per-cell analysis shows
+   that cells closer to the maze centre lose more visits
+   (distance-from-centre: rho = 0.75, p < 0.0001, N = 23), but a
+   route-dropping null model indicates that this spatial gradient is
+   consistent with random edge removal from the graph (permutation
+   p = 0.281), reflecting the higher node degree of central cells rather
+   than preferential avoidance.
 
 3c. **Route stereotypy is established after a single dark epoch** — The
    first dark epoch in each session has substantially higher coverage than
@@ -660,9 +675,19 @@ survive Holm-Bonferroni correction across 23 cells.
 
 **Panel F.** Scatter plot: distance from maze centre (cell (3,2)) vs visit
 fraction delta for all 23 cells, coloured by node type (junction, corridor,
-dead end). Spearman rho = 0.75 (p < 0.0001, N = 23). Shows that the
-coverage reduction is concentrated at central maze locations, inverting
-the expected peripheral-abandonment pattern.
+dead end). Spearman rho = 0.75 (p < 0.0001, N = 23). However, a
+route-dropping null model (Panel G) shows that this spatial gradient is
+consistent with random edge removal (permutation p = 0.281), as central
+cells have higher node degree and therefore lose more visits under any
+random route-dropping process.
+
+**Panel G.** Route-dropping null model. Distribution of null rho values
+from 1000 random edge-removal permutations, with observed rho = 0.128
+marked. Only 7/20 sessions had more edges used in light than dark (K > 0).
+Observed mean rho falls within the null distribution (null mean = 0.055,
+95th percentile = 0.212, p = 0.281), indicating that the spatial pattern
+of route dropping does not require preferential avoidance of central
+locations.
 
 **Statistics needed:**
 - Spearman correlation of speed-diff vs coverage-diff (H1)
@@ -677,6 +702,11 @@ the expected peripheral-abandonment pattern.
   Holm-Bonferroni corrected across 23 cells (H6)
 - Spearman: distance from centre vs delta (N = 23 cells) (H6)
 - Spearman: eccentricity vs delta for corridor cells (N = 7, descriptive) (H6)
+- Route-dropping null model: for each session with K > 0 edges lost in dark,
+  randomly remove K edges and recompute distance-from-centre x delta-usage
+  correlation (1000 permutations; compare observed mean rho to null) (H6)
+- Dwell time per cell type: Wilcoxon signed-rank, Holm-Bonferroni across 3 types
+- Normalised entropy rate: Wilcoxon signed-rank (single test)
 - Effect sizes (rank-biserial) for all tests
 
 **Code references:**
@@ -954,7 +984,14 @@ stereotypy narrative but requires a larger dataset to confirm.
 | JSD (transition matrix) | -- | -- | -- | <0.001^d^ | -- | -- | -- |
 | Coverage / transition | 0.398 | 0.355 | -- | 0.076 | -- | 0.46 | -- |
 | Distance-from-centre x delta | -- | -- | -- | <0.0001^e^ | -- | rho=0.75 | -- |
+| Route-dropping null model | -- | -- | -- | 0.281^j^ | -- | rho=0.128 | -- |
+| Normalised entropy rate | 0.277 | 0.269 | -- | 0.133 | -- | 0.39 | -- |
+| Dwell: junction (s) | 1.889 | 2.082 | -- | -- | 1.000^k^ | -- | 0.020 |
+| Dwell: corridor (s) | 1.493 | 1.624 | -- | -- | 0.990^k^ | -- | 0.006 |
+| Dwell: dead-end (s) | 1.966 | 1.893 | -- | -- | 1.000^k^ | -- | 0.465 |
+| Peri-transition speed (cm/s) | 4.28 | 4.21 | -- | 0.756 | -- | 0.09 | -- |
 | *Epoch adaptation metrics (Fig. 5)* | | | | | | | |
+| First dark vs first light cov. | 0.628 | 0.593 | -- | 0.360 | -- | 0.25 | -- |
 | First dark epoch cov. (frac) | -- | 0.567 | -- | 0.0001 | 0.0004^f^ | 0.89 | -- |
 | Subsequent dark epoch cov. (frac) | -- | 0.303 | -- | -- | -- | -- | -- |
 | Dark cov. slope (rho vs epoch) | -- | -- | -- | 0.81 | 0.81 | 0.06 | -- |
@@ -967,9 +1004,9 @@ stereotypy narrative but requires a larger dataset to confirm.
 | Type-level JSD | -- | -- | -- | <0.001^d^ | -- | -- | -- |
 | P(C\|C,J) | 0.796 | 0.771 | -- | 0.027 | 0.107 | 0.56 | -- |
 
-^a^ Coverage per active minute is a post-hoc control analysis (single test, not part of any Holm-Bonferroni family). ^b^ Transition entropy is the sole light-dark comparison in Supplementary Figure S1 and is not corrected within any family. ^c^ Holm-Bonferroni corrected within Family 5 (corridor, junction, dead-end coverage; Fig. 4). ^d^ Permutation test (1000 permutations); observed mean JSD = 0.068 vs null mean = 0.018 (cell-level) or 0.0081 vs 0.0031 (type-level). ^e^ Spearman correlation across all 23 cells: distance from maze centre (3,2) vs visit fraction delta (dark - light); single test on all cells. ^f^ Holm-Bonferroni corrected within Family 6 (first-vs-rest, slope, early-vs-late; Fig. 5). ^g^ Wilcoxon one-sample on delta-BIC values; 20/20 sessions prefer second-order at cell-type level (Fig. S5). ^h^ Holm-Bonferroni corrected across 3 planned tests within H5 (coverage ratio, speed ratio, recovery). ^i^ Holm-Bonferroni corrected across 4 transition probabilities within the cell-type Markov analysis.
+^a^ Coverage per active minute is a post-hoc control analysis (single test, not part of any Holm-Bonferroni family). ^b^ Transition entropy is the sole light-dark comparison in Supplementary Figure S1 and is not corrected within any family. ^c^ Holm-Bonferroni corrected within Family 5 (corridor, junction, dead-end coverage; Fig. 4). ^d^ Permutation test (1000 permutations); observed mean JSD = 0.068 vs null mean = 0.018 (cell-level) or 0.0081 vs 0.0031 (type-level). ^e^ Spearman correlation across all 23 cells: distance from maze centre (3,2) vs visit fraction delta (dark - light); single test on all cells. ^f^ Holm-Bonferroni corrected within Family 6 (first-vs-rest, slope, early-vs-late; Fig. 5). ^g^ Wilcoxon one-sample on delta-BIC values; 20/20 sessions prefer second-order at cell-type level (Fig. S5). ^h^ Holm-Bonferroni corrected across 3 planned tests within H5 (coverage ratio, speed ratio, recovery). ^i^ Holm-Bonferroni corrected across 4 transition probabilities within the cell-type Markov analysis. ^j^ Route-dropping null model: for sessions with K > 0 edges lost in dark (7/20), randomly remove K edges from the light graph and recompute distance-from-centre x delta-usage correlation; observed mean rho = 0.128 vs null mean = 0.055 (95th pctl = 0.212); two-sided permutation test, 1000 permutations. ^k^ Holm-Bonferroni corrected within Family 9 (dwell time: junction, corridor, dead-end; 3 tests).
 
-*Holm-Bonferroni correction families:* Family 1 (Fig. 3: coverage, dead-end rate, exploration efficiency); Family 2 (Fig. 6: speed, fraction active, immobility bout); Family 3 (Fig. 6: left turn fraction, turn autocorrelation vs zero, autocorrelation light vs dark, backtracking rate); Family 4 (Fig. 7: MRL, AHV); Family 5 (Fig. 4: corridor coverage, junction coverage, dead-end coverage); Family 6 (Fig. 5/epoch adaptation: first-vs-rest, slope test, early-vs-late); Family 7 (H5: coverage ratio, speed ratio, recovery); Family 8 (cell-type Markov: 4 transition probabilities).
+*Holm-Bonferroni correction families:* Family 1 (Fig. 3: coverage, dead-end rate, exploration efficiency); Family 2 (Fig. 6: speed, fraction active, immobility bout); Family 3 (Fig. 6: left turn fraction, turn autocorrelation vs zero, autocorrelation light vs dark, backtracking rate); Family 4 (Fig. 7: MRL, AHV); Family 5 (Fig. 4: corridor coverage, junction coverage, dead-end coverage); Family 6 (Fig. 5/epoch adaptation: first-vs-rest, slope test, early-vs-late); Family 7 (H5: coverage ratio, speed ratio, recovery); Family 8 (cell-type Markov: 4 transition probabilities); Family 9 (dwell time: junction, corridor, dead-end).
 
 ---
 
@@ -1119,9 +1156,17 @@ visited)) did not differ between conditions (light 0.277, dark 0.269;
 p = 0.133, r = 0.39, N = 20), indicating that dark-epoch routing is
 scaled-down but equally structured -- the mouse uses fewer routes but
 with comparable predictability. Dwell time per cell type did not differ
-between conditions (junction p = 0.648, corridor p = 0.330, dead-end
-p = 1.000; all Wilcoxon, N = 20), ruling out hesitation at decision
-points as a contributor to the coverage drop.
+between conditions after Holm-Bonferroni correction (junction: light
+1.89 s, dark 2.08 s, adjusted p = 1.000; corridor: light 1.49 s, dark
+1.62 s, adjusted p = 0.990; dead-end: light 1.97 s, dark 1.89 s, adjusted
+p = 1.000; all Wilcoxon, N = 20), ruling out hesitation at decision points
+or prolonged dead-end visits as contributors to the coverage drop. In
+primary-only sessions, dwell times showed a significant interaction:
+junction dwell increased (adjusted p = 0.020), corridor dwell increased
+(adjusted p = 0.006), but dead-end dwell was unchanged (adjusted p = 0.465),
+with a significant dead-end vs junction interaction (p = 0.010, r = 0.85,
+N = 11). This is consistent with mice spending slightly more time at
+decision points in darkness without changing their destination behaviour.
 
 "Consistent with route consolidation, the revisitation index (total
 cell-to-cell transitions divided by the number of unique cells visited)
@@ -1164,20 +1209,37 @@ centre of the maze lost more visits than peripheral cells (Fig. 4F). Among
 corridor cells specifically, eccentricity (maximum shortest-path distance
 to any other cell in the graph) correlated with coverage change (rho = 0.87,
 p = 0.012, N = 7), though this correlation should be treated as descriptive
-given the small sample. This pattern inverts the expectation from classical
-range contraction studies, where peripheral locations are abandoned first
-(Avni et al. 2006; Fonio et al. 2009). Instead, mice in darkness
-selectively reduce visits to the central backbone of the maze while
-maintaining visits to peripheral dead ends, consistent with a simplification
-of the route network at its most connected hub.
+given the small sample.
+
+"However, a route-dropping null model (Fig. 4G) demonstrates that this
+spatial gradient is a topological consequence of the maze graph rather than
+evidence for preferential avoidance of central locations. Only 7 of 20
+sessions had more edges used in light than in dark (K > 0); in the remaining
+13 sessions, the dark-epoch transition graph used the same number or more
+edges. For sessions with K > 0, we randomly removed K edges from the light
+transition graph and recomputed the distance-from-centre correlation with
+delta-usage. The observed mean correlation (rho = 0.128) fell within the
+null distribution (null mean = 0.055, 95th percentile = 0.212; permutation
+p = 0.281, N = 1000 permutations). Central cells have higher node degree
+(more connecting edges) and therefore lose more visits under any random
+route-dropping process. The spatial gradient is thus consistent with
+non-selective route reduction rather than a targeted simplification of the
+central backbone. This result distinguishes our findings from classical
+range contraction (Avni et al. 2006; Fonio et al. 2009), where peripheral
+locations are specifically abandoned: in the q-rose maze, the coverage
+reduction pattern is topologically naive -- mice simply use fewer of the
+available routes, and the spatial consequences follow from graph structure.
 
 "Taken together, these results indicate that the coverage reduction in
-darkness reflects a spatially structured reorganisation of the mouse's
-route network rather than a simple global slowdown. Mice continue to visit
-dead-end destinations at unchanged rates but travel between them via fewer,
-more repetitive routes, with the largest reductions at central backbone
-locations. This route stereotypy is accompanied by increased revisitation
-and a distributed but significant change in routing patterns."
+darkness reflects a reorganisation of the mouse's route network rather than
+a simple global slowdown or hesitation at decision points. Mice continue to
+visit dead-end destinations at unchanged rates but travel between them via
+fewer, more repetitive routes. The spatial distribution of the coverage
+reduction across the maze follows from the topology of the graph (central
+cells have more routes to lose) rather than from preferential avoidance of
+specific locations. This route stereotypy is accompanied by unchanged
+transition entropy, increased revisitation, and a distributed but
+significant change in routing patterns."
 
 ### 3c. Route stereotypy is established after a single dark epoch
 
@@ -1364,29 +1426,33 @@ be supported by egocentric strategies that operate without visual landmarks,
 while route selection across the maze graph may depend on a spatial
 representation that degrades without visual cues.
 
-The per-cell analysis reveals that the coverage reduction is
-topographically structured: cells closer to the maze centre show the
-largest visit reductions (rho = 0.75, p < 0.0001), with the central
+The per-cell analysis shows that cells closer to the maze centre exhibit
+the largest visit reductions (rho = 0.75, p < 0.0001), with the central
 T-junction (3,2) and adjacent backbone cells showing the most significant
-drops. This inverts the classical range contraction pattern (Avni et al.
-2006; Fonio et al. 2009), in which peripheral locations are abandoned
-first. In the q-rose maze, peripheral dead ends are maintained while the
-central backbone is simplified. This pattern is consistent with the route
-stereotypy interpretation: the central backbone serves as a transit hub
-connecting multiple branches, so when the mouse restricts its route
-network, the hub cells that served alternative routes are the ones most
-affected. The remaining routes still reach the same dead-end destinations,
-but via fewer central transit points. A supplementary analysis using
-cell-type Markov models (collapsing the 23 individual cells to 3 types:
-junction, corridor, dead-end) revealed that second-order models are
-preferred at this level (mean delta-BIC = 103; 20/20 sessions), in
-contrast to the first-order preference at the individual-cell level.
-This indicates that the maze topology imposes sequential constraints on
-transitions between cell types that are diluted across 23 individual
-states. The probability of sustained backbone traversal (P(corridor |
-corridor, junction)) showed a trend toward reduction in darkness
-(p = 0.027, adjusted p = 0.107), consistent with fewer extended backbone
-traversals, though this did not survive correction.
+drops. However, a route-dropping null model demonstrates that this spatial
+gradient is a topological consequence of the maze graph: central cells have
+higher node degree and therefore lose more visits under any random
+route-dropping process (permutation p = 0.281). The spatial pattern does
+not require preferential avoidance of central locations. This distinguishes
+the present finding from classical range contraction (Avni et al. 2006;
+Fonio et al. 2009), where peripheral locations are specifically abandoned.
+In the q-rose maze, the coverage reduction is topologically naive -- mice
+simply use fewer of the available routes, and the spatial consequences
+follow from graph structure. The route stereotypy phenomenon itself is
+genuine (the corridor-junction-dead-end dissociation is robust, p < 0.001
+for corridors, r = 0.97), but it does not involve spatially targeted
+avoidance of any particular maze region.
+
+A supplementary analysis using cell-type Markov models (collapsing the 23
+individual cells to 3 types: junction, corridor, dead-end) revealed that
+second-order models are preferred at this level (mean delta-BIC = 103;
+20/20 sessions), in contrast to the first-order preference at the
+individual-cell level. This indicates that the maze topology imposes
+sequential constraints on transitions between cell types that are diluted
+across 23 individual states. The probability of sustained backbone
+traversal (P(corridor | corridor, junction)) showed a trend toward
+reduction in darkness (p = 0.027, adjusted p = 0.107), consistent with
+fewer extended backbone traversals, though this did not survive correction.
 
 The speed-coverage correlation (rho = 0.76) is substantial, and reduced
 locomotion undoubtedly contributes to the coverage drop. We do not claim
@@ -1561,7 +1627,14 @@ be considered a non-significant trend rather than an established finding.
     corridor cells (rho = 0.87, p = 0.012, N = 7) should be treated as
     descriptive given the small sample: with N = 7, Spearman requires
     rho > 0.79 for significance at alpha = 0.05 (two-tailed), and the
-    correlation is not robust to removal of any single point.
+    correlation is not robust to removal of any single point. More
+    importantly, a route-dropping null model shows that the spatial gradient
+    of visit reduction (distance-from-centre rho = 0.75) is consistent
+    with random edge removal from the maze graph (permutation p = 0.281).
+    The apparent concentration of visit reductions at central cells is a
+    topological artefact: central cells have higher node degree and therefore
+    lose more visits under any route-dropping process. Claims about
+    preferential central avoidance are not supported.
 
 11. The first-epoch finding (H8) is robust (p = 0.0001, r = 0.89) but its
     interpretation depends on the assumption that the first dark epoch is
@@ -1704,13 +1777,17 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
    path diversity -- is qualitatively distinct and suggests a dissociation
    between local decision rules and global route planning.
 
-2. **Central backbone simplification inverts classical range contraction.**
-   The per-cell analysis shows that cells closest to the maze centre lose
-   the most visits in darkness (rho = 0.75, p < 0.0001), the opposite of
-   the peripheral abandonment predicted by classical range contraction
-   (Avni et al. 2006). This structural specificity strengthens the route
-   stereotypy interpretation: the mouse simplifies the hub of its route
-   network, not its periphery.
+2. **Route stereotypy is topologically naive.** Cells closer to the maze
+   centre lose the most visits (rho = 0.75, p < 0.0001), but a
+   route-dropping null model shows that this spatial gradient is consistent
+   with random edge removal from the graph (permutation p = 0.281). The
+   coverage reduction does not involve preferential avoidance of central
+   locations; the spatial pattern follows from the higher node degree of
+   central cells. This is informative because it distinguishes the present
+   finding from classical range contraction (Avni et al. 2006) and
+   identifies the correct level of description: mice reduce the number of
+   routes used, and the spatial consequences are a passive outcome of graph
+   topology.
 
 3. **Single-trial adaptation to darkness.** The first dark epoch produces
    near-normal coverage; all subsequent dark epochs show the reduced-coverage
@@ -1736,11 +1813,21 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
    acknowledged but rarely quantified. Explicit per-cell HD occupancy maps
    are a useful methodological contribution.
 
-7. **Honest reporting of null results.** The null AHV result, the
-   non-significant MRL trend, the null speed result (which becomes
-   significant only in primary-only analysis), and the failure of the
-   second-order Markov model are all informative for future studies using
-   similar paradigms.
+7. **Comprehensive control analyses ruling out alternative explanations.**
+   Peri-transition speed null (no startle/freeze at lights-off), first-dark
+   equals first-light coverage (no initial anxiety effect), preserved
+   normalised entropy (routes scaled down but equally structured), unchanged
+   dwell times (no hesitation at decision points), and identical DLC tracking
+   confidence across conditions (no tracking artefact). Together, these
+   eliminate reflexive, anxiety-based, and technical explanations for the
+   coverage reduction.
+
+8. **Honest reporting of null results and negative controls.** The null AHV
+   result, the non-significant MRL trend, the null speed result (which
+   becomes significant only in primary-only analysis), the failure of the
+   second-order Markov model, and the route-dropping null model (showing
+   central-cell gradient is a topology artefact) are all informative for
+   future studies using similar paradigms.
 
 ### What is NOT novel
 
@@ -1854,7 +1941,18 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
   survived correction, with the strongest showing r = 0.93--0.97. The
   spatial gradient (distance-from-centre correlation, rho = 0.75) was
   computed on all 23 cells without multiple comparisons issues, as it is
-  a single test of spatial structure.
+  a single test of spatial structure. However, a route-dropping null model
+  shows this spatial gradient is consistent with random edge removal
+  (permutation p = 0.281), so the gradient should not be interpreted as
+  evidence for preferential central avoidance.
+
+- "The central-cell simplification could just be a graph topology artefact."
+  Response: We agree. The route-dropping null model confirms that the spatial
+  pattern of visit reductions is consistent with non-selective route removal.
+  Central cells have higher node degree and lose more visits under any
+  random route-dropping process. We present this explicitly as a topological
+  consequence rather than an active strategy, and the manuscript does not
+  claim preferential central avoidance.
 
 ---
 
