@@ -19,7 +19,7 @@ Extras (low-hanging fruit + must-do):
   B:  First dark epoch vs first light epoch coverage
   C:  Normalised entropy rate (light vs dark)
   D:  Dwell time per cell type (junction/corridor/dead-end)
-  H3/H4 primary-only:  Robustness check with N=11 primary sessions
+  H3/H4 primary-only:  Robustness check with N=12 primary sessions
   C6: Tracking confidence by light condition (DLC likelihood)
   Route-dropping null: permutation test for H6 central-cell topology artefact
 
@@ -36,14 +36,19 @@ Outputs:
   - docs/manuscripts/behaviour-hypotheses-tier2-results.json  (Tier-2)
   - docs/manuscripts/behaviour-extras-results.json            (Extras)
   - docs/manuscripts/behaviour-hmm-graph-results.json         (Advanced)
+  - docs/manuscripts/behaviour-per-animal-results.json        (Per-animal)
   - Human-readable summary to stdout
+
+Per-animal robustness (averaging across sessions within each animal):
+  H1-H4, H8 per-animal: Robustness check with N=15 (one value per animal)
 
 Usage:
   python scripts/run_behaviour_hypotheses.py              # Tier-1 only
   python scripts/run_behaviour_hypotheses.py --tier2      # Tier-2 only
   python scripts/run_behaviour_hypotheses.py --extras     # Extras only
   python scripts/run_behaviour_hypotheses.py --advanced   # Advanced only
-  python scripts/run_behaviour_hypotheses.py --all        # All tiers + extras + advanced
+  python scripts/run_behaviour_hypotheses.py --per-animal # Per-animal robustness only
+  python scripts/run_behaviour_hypotheses.py --all        # All tiers + extras + advanced + per-animal
 """
 
 from __future__ import annotations
@@ -4859,9 +4864,441 @@ def main() -> None:
     print(f"\nResults saved to: {OUTPUT_JSON}")
 
 
+# ---------------------------------------------------------------------------
+# Per-animal averaging robustness check
+# ---------------------------------------------------------------------------
+
+OUTPUT_JSON_PER_ANIMAL = (
+    Path(__file__).resolve().parent.parent
+    / "docs"
+    / "manuscripts"
+    / "behaviour-per-animal-results.json"
+)
+
+
+def _average_dicts_by_animal(
+    session_results: list[dict],
+    animal_ids: list[str],
+    keys: list[str],
+) -> tuple[list[dict], list[str]]:
+    """Average per-session result dicts within each animal.
+
+    For each animal, takes the mean of each key across its sessions.
+    Returns (averaged_results, unique_animal_ids) where each entry in
+    averaged_results is a dict with the same keys, values averaged.
+
+    Parameters
+    ----------
+    session_results : list[dict]
+        Per-session result dicts (one per session, same order as animal_ids).
+    animal_ids : list[str]
+        Animal ID for each session (same length as session_results).
+    keys : list[str]
+        Dict keys to average. Non-finite values are excluded from the mean.
+
+    Returns
+    -------
+    averaged : list[dict]
+        One dict per unique animal, with averaged values.
+    unique_animals : list[str]
+        Sorted list of unique animal IDs (same order as averaged).
+    """
+    from collections import defaultdict
+
+    animal_sessions: dict[str, list[dict]] = defaultdict(list)
+    for aid, res in zip(animal_ids, session_results, strict=True):
+        animal_sessions[aid].append(res)
+
+    unique_animals = sorted(animal_sessions.keys())
+    averaged: list[dict] = []
+
+    for aid in unique_animals:
+        sess_list = animal_sessions[aid]
+        avg: dict = {}
+        for k in keys:
+            vals = []
+            for s in sess_list:
+                v = s.get(k)
+                if v is not None and np.isfinite(v):
+                    vals.append(float(v))
+            avg[k] = float(np.mean(vals)) if vals else np.nan
+        averaged.append(avg)
+
+    return averaged, unique_animals
+
+
+def _average_h8_by_animal(
+    session_results: list[dict],
+    animal_ids: list[str],
+) -> tuple[list[dict], list[str]]:
+    """Average H8 per-session results within each animal.
+
+    H8 has special structure: within_session_rho, early/late/first/rest
+    metrics. We average the scalar metrics across sessions per animal.
+    """
+    keys = [
+        "within_session_rho",
+        "within_speed_rho",
+        "within_light_cov_rho",
+        "early_mean_delta",
+        "late_mean_delta",
+        "early_mean_dark_cov",
+        "late_mean_dark_cov",
+        "first_dark_coverage",
+        "rest_mean_dark_coverage",
+        "first_dark_speed",
+        "rest_mean_dark_speed",
+    ]
+    return _average_dicts_by_animal(session_results, animal_ids, keys)
+
+
+def _print_per_animal_h1(h1_stats: dict, n_animals: int) -> None:
+    """Print per-animal H1 results."""
+    print(f"\n--- H1 per-animal (N={n_animals}) ---")
+    print(f"  Spearman rho = {h1_stats['spearman_rho']}, p = {h1_stats['spearman_p']}")
+    cpt = h1_stats["coverage_per_transition"]
+    print("  Coverage per transition (speed-normalised):")
+    print(f"    Light: {cpt['mean_light']:.4f}, Dark: {cpt['mean_dark']:.4f}")
+    print(f"    p = {cpt['p']}, r = {cpt['r']}, N = {cpt['n_sessions']}")
+
+
+def _print_per_animal_h2(h2_stats: dict, n_animals: int) -> None:
+    """Print per-animal H2 JSD results."""
+    print(f"\n--- H2 per-animal JSD (N={n_animals}) ---")
+    print(f"  Mean JSD: {h2_stats.get('mean_jsd')}")
+    print(f"  Median JSD: {h2_stats.get('median_jsd')}")
+    # Per-animal H2 uses one-sample Wilcoxon on JSD > 0, not permutation
+    jt = h2_stats.get("jsd_one_sample", {})
+    if jt:
+        print(
+            f"  One-sample Wilcoxon (JSD > 0): "
+            f"p = {jt.get('p')}, r = {jt.get('r')}, N = {jt.get('n')}"
+        )
+
+
+def _print_per_animal_h3(h3_stats: dict, n_animals: int) -> None:
+    """Print per-animal H3 results."""
+    print(f"\n--- H3 per-animal (N={n_animals}) ---")
+    for ctype in ["junction_coverage", "corridor_coverage", "dead_end_coverage"]:
+        ct = h3_stats[ctype]
+        print(
+            f"  {ctype}: light={ct['light']}, dark={ct['dark']}, "
+            f"p={ct['p']}, p_adj={ct.get('p_adj')}, r={ct['r']}, N={ct['n']}"
+        )
+    inter = h3_stats["de_vs_junction_drop_interaction"]
+    print(
+        f"  DE drop vs junction drop: "
+        f"mean DE drop={inter['mean_de_drop']}, "
+        f"mean junc drop={inter['mean_junc_drop']}, "
+        f"p={inter['p']}, r={inter['r']}, N={inter['n']}"
+    )
+    dm = h3_stats["diameter"]
+    print(
+        f"  Diameter: light={dm['light']}, dark={dm['dark']}, "
+        f"p={dm['p']}, r={dm['r']}, N={dm['n']}"
+    )
+
+
+def _print_per_animal_h4(h4_stats: dict, n_animals: int) -> None:
+    """Print per-animal H4 results."""
+    print(f"\n--- H4 per-animal (N={n_animals}) ---")
+    ri = h4_stats["revisitation_index"]
+    print(
+        f"  Revisitation index: light={ri['light']}, dark={ri['dark']}, "
+        f"p={ri['p']}, r={ri['r']}, N={ri['n']}"
+    )
+    da = h4_stats["discovery_auc"]
+    print(
+        f"  Discovery AUC: light={da['light']}, dark={da['dark']}, "
+        f"p={da['p']}, r={da['r']}, N={da['n']}"
+    )
+
+
+def _print_per_animal_h8(h8_stats: dict, n_animals: int) -> None:
+    """Print per-animal H8 results."""
+    print(f"\n--- H8 per-animal (N={n_animals}) ---")
+    sd = h8_stats["slope_direction_test"]
+    print("  Within-session slope (epoch# vs coverage delta):")
+    print(
+        f"    Median rho = {sd['median_rho']}, p = {sd['p']}, "
+        f"p_adj = {sd['p_adj']}, N = {sd['n']}"
+    )
+    el = h8_stats["early_vs_late_test"]
+    print("  Early vs late coverage delta:")
+    print(f"    Early: {el['mean_early_delta']}, Late: {el['mean_late_delta']}")
+    print(f"    p = {el['p']}, p_adj = {el['p_adj']}, r = {el['r']}, N = {el['n']}")
+    fr = h8_stats["first_vs_rest_test"]
+    print("  First dark epoch vs rest:")
+    print(f"    First: {fr['mean_first_cov']}, Rest: {fr['mean_rest_cov']}")
+    print(f"    p = {fr['p']}, p_adj = {fr['p_adj']}, r = {fr['r']}, N = {fr['n']}")
+    print(f"  Interpretation: {h8_stats['interpretation']}")
+
+
+def test_h2_per_animal(animal_jsd_values: list[float]) -> dict:
+    """Test H2 at per-animal level using one-sample Wilcoxon on JSD values.
+
+    Unlike the session-level test (which uses a permutation null), the
+    per-animal test checks whether per-animal mean JSD values are
+    significantly greater than zero using a one-sample Wilcoxon
+    signed-rank test.
+    """
+    jsd_arr = np.array(animal_jsd_values, dtype=float)
+    valid = jsd_arr[np.isfinite(jsd_arr)]
+    n = len(valid)
+
+    jsd_test = one_sample_wilcoxon(valid, alternative="greater")
+
+    return {
+        "mean_jsd": float(np.mean(valid)) if n > 0 else None,
+        "median_jsd": float(np.median(valid)) if n > 0 else None,
+        "jsd_one_sample": {
+            "p": jsd_test.get("p"),
+            "r": jsd_test.get("r"),
+            "n": jsd_test.get("n"),
+            "median": jsd_test.get("median"),
+            "test": "wilcoxon_one_sample_greater",
+        },
+    }
+
+
+def main_per_animal() -> None:
+    """Run per-animal averaged robustness check for H1, H2, H3, H4, H8.
+
+    For animals with multiple sessions, averages per-session metrics
+    to produce one value per animal (N=15). Tests whether results
+    hold when treating animal (not session) as the unit of observation.
+    """
+    print("=" * 70)
+    print("BEHAVIOUR HYPOTHESES -- Per-animal averaging robustness (H1-H4, H8)")
+    print("=" * 70)
+
+    # Load metadata
+    with open(METADATA_CSV) as f:
+        experiments = list(csv.DictReader(f))
+    with open(ANIMALS_CSV) as f:
+        animals = {row["animal_id"]: row for row in csv.DictReader(f)}
+
+    sessions: list[dict] = []
+    for row in experiments:
+        eid = row["exp_id"]
+        parts = eid.split("_")
+        animal_id = parts[-1]
+        sessions.append(
+            {
+                "exp_id": eid,
+                "exp_index": int(row["exp_index"]),
+                "animal_id": animal_id,
+                "celltype": animals.get(animal_id, {}).get("celltype", "unknown"),
+                "exclude": str(row.get("exclude", "0")).strip() == "1",
+            }
+        )
+
+    usable_sessions = [s for s in sessions if not s["exclude"]]
+    n_animals_total = len(set(s["animal_id"] for s in usable_sessions))
+
+    print(f"\nTotal sessions: {len(sessions)}")
+    print(f"Excluded: {sum(1 for s in sessions if s['exclude'])}")
+    print(f"Usable: {len(usable_sessions)}")
+    print(f"Unique animals: {n_animals_total}")
+
+    # Show per-animal session counts
+    from collections import Counter
+
+    animal_counts = Counter(s["animal_id"] for s in usable_sessions)
+    multi = {a: c for a, c in animal_counts.items() if c > 1}
+    if multi:
+        print(f"  Animals with multiple sessions: {dict(multi)}")
+
+    # Download and analyse
+    s3 = boto3.client("s3", region_name=S3_REGION)
+
+    h1_results: list[dict] = []
+    h2_results: list[dict] = []
+    h3_results: list[dict] = []
+    h4_results: list[dict] = []
+    h8_results: list[dict] = []
+    session_animal_ids: list[str] = []
+    session_ids: list[str] = []
+
+    for sess in usable_sessions:
+        eid = sess["exp_id"]
+        print(f"\n--- {eid} (#{sess['exp_index']}, {sess['animal_id']}) ---")
+
+        data = load_session_data(s3, eid)
+        if data is None:
+            print("    SKIPPED (no data)")
+            continue
+
+        session_ids.append(eid)
+        session_animal_ids.append(sess["animal_id"])
+
+        # H1
+        r1 = compute_h1_per_session(data, MAZE)
+        h1_results.append(r1)
+        print(f"  H1: speed diff={r1['speed_diff']:.2f}, cov diff={r1['cov_diff']:.3f}")
+
+        # H2
+        r2 = compute_h2_per_session(data, MAZE)
+        h2_results.append(r2)
+        print(f"  H2: JSD={r2['jsd']:.4f}" if np.isfinite(r2["jsd"]) else "  H2: JSD=N/A")
+
+        # H3
+        r3 = compute_h3_per_session(data, MAZE)
+        h3_results.append(r3)
+        print(
+            f"  H3: junc cov L/D="
+            f"{r3['mean_junc_cov_light']:.2f}/{r3['mean_junc_cov_dark']:.2f}, "
+            f"DE cov L/D="
+            f"{r3['mean_de_cov_light']:.2f}/{r3['mean_de_cov_dark']:.2f}"
+        )
+
+        # H4
+        r4 = compute_h4_per_session(data, MAZE)
+        h4_results.append(r4)
+        print(
+            f"  H4: revis L/D="
+            f"{r4['mean_revis_light']:.2f}/{r4['mean_revis_dark']:.2f}"
+        )
+
+        # H8
+        r8 = compute_h8_per_session(data, MAZE)
+        h8_results.append(r8)
+        rho_str = (
+            f"{r8['within_session_rho']:.3f}" if r8["within_session_rho"] is not None else "N/A"
+        )
+        print(f"  H8: {r8['n_epoch_pairs']} epoch pairs, slope rho={rho_str}")
+
+    # ===================================================================
+    # Per-animal averaging
+    # ===================================================================
+    print("\n" + "=" * 70)
+    print("PER-ANIMAL AVERAGED TESTS")
+    print(f"(averaging across sessions within each animal, N={n_animals_total} animals)")
+    print("=" * 70)
+
+    # --- H1 ---
+    h1_keys = [
+        "mean_speed_light",
+        "mean_speed_dark",
+        "mean_cov_light",
+        "mean_cov_dark",
+        "speed_diff",
+        "cov_diff",
+        "mean_cpt_light",
+        "mean_cpt_dark",
+    ]
+    h1_animal, animal_list = _average_dicts_by_animal(h1_results, session_animal_ids, h1_keys)
+    n_animals = len(animal_list)
+    h1_animal_stats = test_h1(h1_animal)
+    _print_per_animal_h1(h1_animal_stats, n_animals)
+
+    # --- H2 ---
+    # Average JSD per animal, then test with one-sample Wilcoxon
+    h2_jsd_keys = ["jsd"]
+    h2_animal, _ = _average_dicts_by_animal(h2_results, session_animal_ids, h2_jsd_keys)
+    animal_jsd_values = [r["jsd"] for r in h2_animal]
+    h2_animal_stats = test_h2_per_animal(animal_jsd_values)
+    _print_per_animal_h2(h2_animal_stats, n_animals)
+
+    # --- H3 ---
+    h3_keys = [
+        "mean_junc_cov_light",
+        "mean_junc_cov_dark",
+        "mean_corr_cov_light",
+        "mean_corr_cov_dark",
+        "mean_de_cov_light",
+        "mean_de_cov_dark",
+        "mean_diam_light",
+        "mean_diam_dark",
+    ]
+    h3_animal, _ = _average_dicts_by_animal(h3_results, session_animal_ids, h3_keys)
+    h3_animal_stats = test_h3(h3_animal)
+    _print_per_animal_h3(h3_animal_stats, n_animals)
+
+    # --- H4 ---
+    h4_keys = [
+        "mean_revis_light",
+        "mean_revis_dark",
+        "mean_auc_light",
+        "mean_auc_dark",
+    ]
+    h4_animal, _ = _average_dicts_by_animal(h4_results, session_animal_ids, h4_keys)
+    h4_animal_stats = test_h4(h4_animal)
+    _print_per_animal_h4(h4_animal_stats, n_animals)
+
+    # --- H8 ---
+    h8_animal, _ = _average_h8_by_animal(h8_results, session_animal_ids)
+    h8_animal_stats = test_h8(h8_animal)
+    _print_per_animal_h8(h8_animal_stats, n_animals)
+
+    # ===================================================================
+    # Show per-animal table for transparency
+    # ===================================================================
+    print("\n" + "-" * 70)
+    print("Per-animal summary (coverage light/dark, N sessions)")
+    print("-" * 70)
+    from collections import defaultdict
+
+    animal_sess_count: dict[str, int] = defaultdict(int)
+    for aid in session_animal_ids:
+        animal_sess_count[aid] += 1
+
+    for i, aid in enumerate(animal_list):
+        h3a = h3_animal[i]
+        ct = animals.get(aid, {}).get("celltype", "?")
+        jl = h3a.get("mean_junc_cov_light", np.nan)
+        jd = h3a.get("mean_junc_cov_dark", np.nan)
+        dl = h3a.get("mean_de_cov_light", np.nan)
+        dd = h3a.get("mean_de_cov_dark", np.nan)
+        jl_s = f"{jl:.3f}" if np.isfinite(jl) else "N/A"
+        jd_s = f"{jd:.3f}" if np.isfinite(jd) else "N/A"
+        dl_s = f"{dl:.3f}" if np.isfinite(dl) else "N/A"
+        dd_s = f"{dd:.3f}" if np.isfinite(dd) else "N/A"
+        print(
+            f"  {aid} ({ct}, {animal_sess_count[aid]} sess): "
+            f"junc L/D={jl_s}/{jd_s}, DE L/D={dl_s}/{dd_s}"
+        )
+
+    # ===================================================================
+    # Save results
+    # ===================================================================
+    output = {
+        "metadata": {
+            "n_sessions": len(session_ids),
+            "n_animals": n_animals,
+            "session_ids": session_ids,
+            "animal_ids": animal_list,
+            "sessions_per_animal": {
+                aid: animal_sess_count[aid] for aid in animal_list
+            },
+            "description": (
+                "Per-animal averaged robustness check. For animals with "
+                "multiple sessions, per-session metrics are averaged to "
+                "produce one value per animal (N=15). Tests whether "
+                "session-level results (N=23) hold when using animal as "
+                "the statistical unit."
+            ),
+        },
+        "h1_speed_coverage": h1_animal_stats,
+        "h2_transition_jsd": h2_animal_stats,
+        "h3_spatial_contraction": h3_animal_stats,
+        "h4_revisitation": h4_animal_stats,
+        "h8_epoch_adaptation": h8_animal_stats,
+    }
+
+    output_ser = _make_serializable(output)
+    OUTPUT_JSON_PER_ANIMAL.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_JSON_PER_ANIMAL, "w") as f:
+        json.dump(output_ser, f, indent=2)
+    print(f"\nResults saved to: {OUTPUT_JSON_PER_ANIMAL}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run behaviour hypotheses (Tier-1, Tier-2, Extras, and/or Advanced)."
+        description=(
+            "Run behaviour hypotheses "
+            "(Tier-1, Tier-2, Extras, Advanced, and/or per-animal)."
+        )
     )
     parser.add_argument(
         "--tier2",
@@ -4879,9 +5316,18 @@ if __name__ == "__main__":
         help="Run advanced analyses (HMM kinematic states, graph metrics) only.",
     )
     parser.add_argument(
+        "--per-animal",
+        action="store_true",
+        help=(
+            "Run per-animal averaged robustness check (H1-H4, H8). "
+            "Averages metrics within each animal (N=15) to control "
+            "for repeat sessions from the same animal."
+        ),
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
-        help="Run all tiers (Tier-1 + Tier-2 + Extras + Advanced).",
+        help="Run all tiers (Tier-1 + Tier-2 + Extras + Advanced + per-animal).",
     )
     args = parser.parse_args()
 
@@ -4890,11 +5336,14 @@ if __name__ == "__main__":
         main_tier2()
         main_extras()
         main_advanced()
+        main_per_animal()
     elif args.tier2:
         main_tier2()
     elif args.extras:
         main_extras()
     elif args.advanced:
         main_advanced()
+    elif args.per_animal:
+        main_per_animal()
     else:
         main()
