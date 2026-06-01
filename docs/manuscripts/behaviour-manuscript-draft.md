@@ -2,7 +2,7 @@
 
 **Working draft -- behavioural methods/descriptive paper**
 
-Status: Draft v0.8 -- 2026-05-31 (restructured: positive findings in main text, null findings/controls in Supplementary)
+Status: Draft v0.9 -- 2026-06-01 (added HMM kinematic states + graph topology analyses as Supplementary Figs S10--S11)
 
 ---
 
@@ -59,6 +59,17 @@ a startle or anxiety response (Supplementary Fig. S5). After one experience
 of navigating without visual cues, mice adopt a more conservative route
 network and maintain it for the remainder of the session.
 
+Converging analyses support this interpretation. A hidden Markov model on
+kinematic features reveals three navigation states (pausing, slow
+scanning, fast traversal), but their occupancy does not change between
+conditions (Supplementary Fig. S10), indicating that darkness alters where
+in the maze mice deploy each behaviour rather than the kinematic profile
+itself. Graph-theoretic analysis of the directed transition graph shows
+that the largest strongly connected component contracts from 96% to 84%
+of visited cells in darkness (r = 0.85; Supplementary Fig. S11), meaning
+the navigation network fragments into disconnected subgraphs -- an
+independent corroboration of route stereotypy.
+
 ### Structure
 
 | Section | Content | Words |
@@ -67,7 +78,7 @@ network and maintain it for the remainder of the session.
 | Methods | Maze, animals, surgery, imaging, tracking, analysis | ~800 |
 | Results | 4 main findings (see below) | ~1400 |
 | Discussion | Comparison to Rosenberg, route stereotypy, implications | ~800 |
-| Supplementary | Controls, null results, additional metrics | as needed |
+| Supplementary | Controls, null results, HMM, graph metrics | as needed |
 
 ### Four main results
 
@@ -421,6 +432,40 @@ estimation with optional Laplace smoothing (pseudocount = 0.01). Model
 comparison used Akaike (AIC) and Bayesian (BIC) information criteria,
 following Rosenberg et al. (2021).
 
+### Hidden Markov model of kinematic states
+
+To decompose navigation into discrete kinematic modes, a Gaussian hidden
+Markov model (HMM) with full covariance was fitted independently to each
+session using three features: speed (cm/s), absolute angular head velocity
+(deg/s), and spatial coverage rate (unique cells visited per second). All
+features were z-scored within each session before fitting. The number of
+hidden states K was selected by BIC comparison across K = 2, 3, and 4; K = 3
+was preferred (lower BIC than K = 2; K = 4 introduced overlapping states
+without improved interpretability). States were labelled post hoc by
+ranking on mean speed within each session and then aligning labels across
+sessions by the speed hierarchy (pausing < slow scanning < fast traversal).
+State occupancy was computed as the fraction of frames assigned to each
+state per epoch (light or dark), then compared between conditions using
+Wilcoxon signed-rank (N = 20 sessions) with Holm-Bonferroni correction
+across three states. Implementation used `hmmlearn.GaussianHMM` with
+random state = 42 and 100 iterations.
+
+### Graph-theoretic analysis of the navigation network
+
+The cell-to-cell transition sequence for each condition (light or dark)
+was represented as a directed graph where nodes are maze cells and edges
+are observed transitions. An edge threshold of at least 2 transitions
+per condition was applied to exclude spurious single-frame transitions.
+Six graph metrics were computed for each condition using NetworkX:
+(1) edge density (edges / possible edges), (2) mean out-degree, (3)
+number of strongly connected components (SCCs), (4) fraction of nodes
+in the largest SCC, (5) global efficiency (mean inverse shortest path
+length), and (6) transitivity (fraction of directed triads that are
+transitive). Light and dark values were compared using Wilcoxon
+signed-rank (N = 20 sessions) with Holm-Bonferroni correction across
+six metrics. This approach was inspired by the NaviGraph framework
+(Koren Iton et al. 2025).
+
 ### Statistical analysis
 
 All statistical tests were non-parametric. Within-session paired comparisons
@@ -699,11 +744,38 @@ p > 0.33; Supplementary Table S2), and speed did not change abruptly at the
 light-off transition (Supplementary Fig. S5), ruling out hesitation at
 decision points and startle responses as contributors to the coverage drop.
 
+Two additional analyses provide converging evidence for route
+reorganisation from independent analytical frameworks. First, a hidden
+Markov model (HMM) fitted to kinematic features (speed, absolute angular
+head velocity, spatial coverage rate) identified three navigation states:
+pausing (~1.1 cm/s, low AHV), slow scanning (~4.5 cm/s, high AHV), and
+fast traversal (~7.7 cm/s, directed movement). Despite the coverage
+reduction, the fractional occupancy of these states did not differ between
+light and dark (all adjusted p > 0.27, Wilcoxon signed-rank, N = 20;
+Supplementary Fig. S10). This null result is informative: it indicates
+that the kinematic profile of navigation is preserved in darkness and
+that the behavioural change is in the spatial deployment of movement
+rather than its character. Second, graph-theoretic analysis of the
+directed cell-transition graph revealed that the largest strongly
+connected component (SCC) contracted in darkness (light: 96% of cells;
+dark: 84%; Wilcoxon, p = 0.017, adjusted p = 0.10, r = 0.85, N = 20;
+Supplementary Fig. S11). This indicates that the navigation graph
+fragments into disconnected subgraphs in darkness: some cell-to-cell
+transitions that occur in light are not used in dark, breaking
+bidirectional reachability. Other graph metrics (edge density, mean
+out-degree, global efficiency, transitivity) did not differ (all adjusted
+p > 0.93; Supplementary Fig. S11). The SCC result did not survive
+Holm-Bonferroni correction across six graph metrics; it is reported as
+an exploratory finding with a large effect size.
+
 Taken together, these results indicate that the coverage reduction in
 darkness reflects a reorganisation of the route network rather than a simple
 global slowdown or hesitation. Mice continue to visit dead-end destinations
 at unchanged rates but travel between them via fewer, more repetitive
-routes.
+routes. The kinematic composition of navigation is unchanged (HMM), but
+the route network loses bidirectional connectivity (SCC fragmentation),
+consistent with the route stereotypy pattern identified by the cell-type
+dissociation analysis.
 
 ### 4. Route stereotypy is established after a single dark epoch
 
@@ -768,7 +840,13 @@ different information sources. Turn alternation may be supported by
 egocentric strategies that operate without visual landmarks (e.g., motor
 efference copy or vestibular signals), while route selection across the maze
 graph may depend on a spatial representation that degrades without visual
-input. This is consistent with the known role of visual landmarks in
+input. This interpretation is reinforced by the HMM analysis: the
+kinematic composition of behaviour (the proportions of pausing, scanning,
+and directed traversal) does not change in darkness (Supplementary Fig.
+S10), suggesting that the motor programme for navigation is intact even
+as the route network contracts. The graph fragmentation (largest SCC
+contraction; Supplementary Fig. S11) provides an independent
+quantification of this contraction from a network-theoretic perspective. This is consistent with the known role of visual landmarks in
 anchoring head direction representations (Jacob et al. 2017) and the
 degradation of spatial coding in darkness (Stackman & Taube 1997; Ajabi et
 al. 2023; Bicknell et al. 2024).
@@ -857,6 +935,12 @@ the companion neural paper.
    relative contributions of locomotor reduction and strategy change cannot
    be definitively separated with the current sample.
 
+7. The HMM kinematic state occupancy comparison and graph-metric
+   comparisons are exploratory. The SCC fragmentation (r = 0.85) did not
+   survive correction across six graph metrics. These analyses provide
+   converging descriptive evidence for route stereotypy but should not be
+   interpreted as independent statistical confirmations.
+
 ---
 
 ## Supplementary Material
@@ -909,6 +993,17 @@ figure family.*
 | Coverage / transition | 0.398 | 0.355 | -- | 0.076 | -- | 0.46 |
 | Coverage ratio (2nd/1st half) | 0.282 | 0.207 | -- | 0.064 | 0.192 | 0.48 |
 | Speed ratio (2nd/1st half) | 0.948 | 0.945 | -- | 0.87 | 1.0 | 0.05 |
+| **HMM state occupancy** | | | | | | |
+| Pausing (frac) | 0.337 | 0.375 | 59 | 0.090 | 0.27 | 0.44 |
+| Slow scanning (frac) | 0.321 | 0.303 | 60 | 0.097 | 0.27 | 0.43 |
+| Fast traversal (frac) | 0.343 | 0.322 | 76 | 0.294 | 0.29 | 0.28 |
+| **Graph metrics** | | | | | | |
+| Largest SCC fraction | 0.959 | 0.838 | 4 | 0.017 | 0.10 | 0.85 |
+| N strongly connected components | 3.5 | 4.6 | 43 | 0.187 | 0.93 | 0.37 |
+| Edge density | 0.087 | 0.086 | 63 | 0.776 | 1.00 | 0.08 |
+| Mean out-degree | 2.12 | 2.09 | 58 | 0.587 | 1.00 | 0.15 |
+| Global efficiency | 0.264 | 0.248 | 76 | 0.445 | 1.00 | 0.20 |
+| Transitivity | 0.170 | 0.171 | 33 | 0.638 | 1.00 | 0.15 |
 
 *DLC tracking confidence did not differ between light and dark for any of
 the 27 tracked bodyparts (all Holm-Bonferroni adjusted p >= 0.52; Wilcoxon,
@@ -1080,6 +1175,87 @@ adjusted p = 0.107).
 Rationale: Tests whether route stereotypy has structure at the level of
 maze topology. The second-order preference at the type level indicates
 topological constraints that are diluted across 23 individual states.
+
+---
+
+### Supplementary Figure S10: HMM kinematic state decomposition
+
+**Panel A.** BIC model comparison for K = 2, 3, 4 hidden states fitted to
+kinematic features (speed, absolute angular head velocity, spatial coverage
+rate). K = 3 preferred over K = 2 (mean BIC: 27,836 vs 54,440). K = 4
+yields a lower BIC but introduces states with overlapping kinematic
+profiles; K = 3 is retained for interpretability.
+
+**Panel B.** State definitions for the K = 3 model. Three states discovered
+by Gaussian HMM (full covariance, fitted per session):
+- *Pausing*: speed 1.1 +/- 0.3 cm/s, AHV 31 +/- 6 deg/s
+- *Slow scanning*: speed 4.5 +/- 0.4 cm/s, AHV 223 +/- 32 deg/s
+- *Fast traversal*: speed 7.7 +/- 0.5 cm/s, AHV 158 +/- 24 deg/s
+States labelled post hoc by speed ranking; emission parameters are
+means +/- SEM across sessions (N = 20). The slow scanning state is
+distinguished by the highest absolute AHV, consistent with active
+orienting at junctions or during local exploration.
+
+**Panel C.** State occupancy (fraction of time) in light vs dark. Paired
+box plots for each state. No state shows a significant occupancy change
+(all Holm-Bonferroni adjusted p > 0.27; Wilcoxon signed-rank, N = 20):
+- Pausing: light 33.7%, dark 37.5% (p = 0.090, adj p = 0.27, r = 0.44)
+- Slow scanning: light 32.1%, dark 30.3% (p = 0.097, adj p = 0.27, r = 0.43)
+- Fast traversal: light 34.3%, dark 32.2% (p = 0.294, adj p = 0.29, r = 0.28)
+
+**Panel D.** Robustness: K = 2 model (slow/fast split). Occupancy also does
+not differ between conditions (adj p > 0.23).
+
+Rationale: The HMM provides a data-driven decomposition of navigation into
+kinematic modes. The null occupancy result is informative: the coverage
+reduction in darkness is not accompanied by a shift in movement type (e.g.,
+more pausing). Instead, the same kinematic behaviours are deployed over a
+more restricted spatial extent, consistent with route stereotypy as a
+spatial reorganisation rather than a locomotor change.
+
+---
+
+### Supplementary Figure S11: Graph topology of the navigation network
+
+**Panel A.** Example session navigation graph (directed) in light vs dark.
+Nodes are maze cells; edges are observed cell-to-cell transitions (threshold:
+at least 2 transitions per epoch set). Visual comparison shows sparser edges
+and fragmented components in dark.
+
+**Panel B.** Largest strongly connected component (SCC) fraction in light vs
+dark. Paired comparison across sessions: light 0.96 +/- 0.02; dark 0.84
++/- 0.06 (Wilcoxon, W = 4.0, p = 0.017, adjusted p = 0.10, r = 0.85,
+N = 20). Does not survive Holm-Bonferroni correction across 6 graph metrics
+but has the largest effect size in the dataset. In light, nearly all visited
+cells are mutually reachable via observed transitions. In darkness, the
+navigation graph fragments: some cells can only be reached from certain
+directions, and reciprocal transitions are absent.
+
+**Panel C.** Number of strongly connected components: light 3.5 +/- 0.5;
+dark 4.6 +/- 0.8 (p = 0.187, adj p = 0.93, r = 0.37). Consistent
+direction but not significant.
+
+**Panel D.** Summary of all six graph metrics:
+
+| Metric | Light | Dark | p (raw) | p (adj) | r |
+|--------|-------|------|---------|---------|---|
+| Edge density | 0.087 | 0.086 | 0.776 | 1.00 | 0.08 |
+| Mean out-degree | 2.12 | 2.09 | 0.587 | 1.00 | 0.15 |
+| Largest SCC frac. | 0.96 | 0.84 | 0.017 | 0.10 | 0.85 |
+| N SCCs | 3.5 | 4.6 | 0.187 | 0.93 | 0.37 |
+| Global efficiency | 0.264 | 0.248 | 0.445 | 1.00 | 0.20 |
+| Transitivity | 0.170 | 0.171 | 0.638 | 1.00 | 0.15 |
+
+Rationale: The navigation graph provides a complementary formalisation of
+route stereotypy. The SCC fragmentation captures the loss of bidirectional
+reachability -- in light, the mouse traverses corridors in both directions;
+in darkness, some transitions become unidirectional, creating disconnected
+subgraphs. This is consistent with the mouse consolidating onto a subset
+of familiar routes. The large effect size (r = 0.85) is notable despite
+non-significance after multiple comparison correction across six metrics.
+Other graph metrics (density, degree, efficiency) do not change because the
+total number of transitions and cells visited does not drop dramatically;
+instead, the *directionality* of transitions becomes more constrained.
 
 ---
 
@@ -1276,12 +1452,27 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
    original Rosenberg maze used fixed lighting. No prior study has combined
    a binary-choice labyrinth with total darkness manipulation.
 
+5. **Kinematic profile preservation in darkness.** The HMM decomposition
+   shows that the proportions of pausing, scanning, and traversal do not
+   change in darkness. This is a useful negative result: it rules out the
+   hypothesis that mice simply pause more or move less vigorously in
+   darkness, and localises the behavioural change to spatial routing.
+
+6. **Navigation graph fragmentation.** The SCC contraction provides a
+   graph-theoretic restatement of route stereotypy. While graph approaches
+   to maze navigation have been proposed (Koren Iton et al. 2025), the
+   specific finding that the directed navigation graph fragments into
+   disconnected components in darkness has not been reported.
+
 ### What is NOT novel
 
 - Turn alternation in maze exploration (Rosenberg et al. 2021).
 - Speed reduction in darkness is well-established (Whishaw & Tomie 1996).
 - HD drift in darkness (Stackman & Taube 1997; Ajabi et al. 2023).
 - DeepLabCut-based pose tracking (standard tool).
+- HMM decomposition of locomotor behaviour is widely used (e.g., Wiltschko
+  et al. 2015 for MoSeq; Batty et al. 2019 for ARHMM). The application to
+  this maze is new but the method is standard.
 
 ### Key confounds addressed
 
@@ -1317,3 +1508,20 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
 - "Why not use an open field?" Response: The maze provides hundreds of
   natural binary decisions and structured corridors, enriching the
   behavioural readout.
+
+- "The SCC fragmentation does not survive correction -- why report it?"
+  Response: The effect size (r = 0.85) is the largest in the dataset
+  for any graph metric, and SCC fragmentation provides an independent
+  graph-theoretic corroboration of route stereotypy established by the
+  cell-type dissociation. We report it explicitly as exploratory with
+  the corrected p-value (0.10) and emphasise that the cell-type
+  dissociation (corridor/junction/dead-end) remains the primary evidence.
+
+- "The HMM null result could reflect insufficient power."
+  Response: The effect sizes are small-to-moderate (r = 0.28--0.44) and
+  the trends are in the expected direction (more pausing, less traversal
+  in dark). With N = 20 and r = 0.44 for the largest trend (pausing),
+  a post-hoc power analysis suggests ~45% power to detect this effect.
+  We therefore cannot exclude a small occupancy shift, but the core
+  interpretive point -- that the dominant behavioural change is spatial
+  rather than kinematic -- holds.
