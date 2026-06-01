@@ -23,17 +23,27 @@ Extras (low-hanging fruit + must-do):
   C6: Tracking confidence by light condition (DLC likelihood)
   Route-dropping null: permutation test for H6 central-cell topology artefact
 
+Advanced (HMM + graph analyses):
+  HMM:   GaussianHMM on kinematic features (speed, AHV, coverage rate)
+         to discover discrete navigation states; compare state occupancy
+         between light and dark epochs.
+  Graph: Directed graph metrics on cell transition matrices (edge density,
+         out-degree, SCCs, global efficiency, transitivity); compare
+         light vs dark.
+
 Outputs:
   - docs/manuscripts/behaviour-hypotheses-results.json        (Tier-1)
   - docs/manuscripts/behaviour-hypotheses-tier2-results.json  (Tier-2)
   - docs/manuscripts/behaviour-extras-results.json            (Extras)
+  - docs/manuscripts/behaviour-hmm-graph-results.json         (Advanced)
   - Human-readable summary to stdout
 
 Usage:
-  python scripts/run_behaviour_hypotheses.py           # Tier-1 only
-  python scripts/run_behaviour_hypotheses.py --tier2   # Tier-2 only
-  python scripts/run_behaviour_hypotheses.py --extras  # Extras only
-  python scripts/run_behaviour_hypotheses.py --all     # All tiers + extras
+  python scripts/run_behaviour_hypotheses.py              # Tier-1 only
+  python scripts/run_behaviour_hypotheses.py --tier2      # Tier-2 only
+  python scripts/run_behaviour_hypotheses.py --extras     # Extras only
+  python scripts/run_behaviour_hypotheses.py --advanced   # Advanced only
+  python scripts/run_behaviour_hypotheses.py --all        # All tiers + extras + advanced
 """
 
 from __future__ import annotations
@@ -104,6 +114,23 @@ OUTPUT_JSON_EXTRAS = (
 )
 
 MAZE = build_rose_maze()
+
+# Advanced analysis constants
+HMM_K_DEFAULT = 3  # default number of HMM states
+HMM_K_RANGE = [2, 3, 4]  # robustness: test multiple K values
+HMM_RANDOM_STATE = 42
+HMM_COV_TYPE = "full"
+HMM_N_ITER = 200
+COVERAGE_WINDOW_FRAMES = 90  # default ~3s at 30fps; overridden per-session by fps
+N_ACCESSIBLE_CELLS = 23  # total cells in the Rosenberg maze
+GRAPH_EDGE_THRESHOLD = 2  # minimum transitions to count as an edge
+
+OUTPUT_JSON_ADVANCED = (
+    Path(__file__).resolve().parent.parent
+    / "docs"
+    / "manuscripts"
+    / "behaviour-hmm-graph-results.json"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -3532,6 +3559,788 @@ def _print_c6_summary(stats: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Advanced Analysis 1: HMM on kinematic features
+# ---------------------------------------------------------------------------
+
+
+def _compute_ahv_from_hd(hd_deg: np.ndarray, fps: float) -> np.ndarray:
+    """Compute angular head velocity from head direction (deg/s).
+
+    Uses circular difference (wrapping-aware) and Gaussian smoothing.
+    First frame is set to 0. NaN values in hd_deg are forward-filled
+    before smoothing, then the output is set to NaN at those positions.
+
+    Parameters
+    ----------
+    hd_deg : (N,) float
+        Head direction in degrees (may contain NaN).
+    fps : float
+        Sampling rate in Hz.
+
+    Returns
+    -------
+    ahv : (N,) float
+        Absolute angular head velocity in deg/s. NaN where input was NaN.
+    """
+    hd = np.asarray(hd_deg, dtype=np.float64)
+    nan_mask = ~np.isfinite(hd)
+
+    # Forward-fill NaN to allow smoothing (will be masked back)
+    hd_filled = hd.copy()
+    if nan_mask.any():
+        # Forward fill, then backward fill remaining leading NaNs
+        for i in range(1, len(hd_filled)):
+            if not np.isfinite(hd_filled[i]):
+                hd_filled[i] = hd_filled[i - 1]
+        for i in range(len(hd_filled) - 2, -1, -1):
+            if not np.isfinite(hd_filled[i]):
+                hd_filled[i] = hd_filled[i + 1]
+
+    # If still all NaN, return zeros
+    if not np.isfinite(hd_filled).any():
+        return np.zeros_like(hd)
+
+    # Smooth HD before differentiation to reduce noise
+    from scipy.ndimage import gaussian_filter1d
+
+    hd_smooth = gaussian_filter1d(hd_filled, sigma=1.0)
+    diff = np.diff(hd_smooth)
+    # Wrap to [-180, 180]
+    diff = ((diff + 180) % 360) - 180
+    ahv = np.abs(diff) * fps
+    ahv = np.concatenate([[0], ahv])
+
+    # Restore NaN where original was NaN
+    ahv[nan_mask] = np.nan
+    return ahv
+
+
+def _compute_coverage_rate(
+    cell_indices: np.ndarray,
+    valid_mask: np.ndarray,
+    window: int = COVERAGE_WINDOW_FRAMES,
+    n_cells: int = N_ACCESSIBLE_CELLS,
+) -> np.ndarray:
+    """Compute rolling spatial coverage rate.
+
+    For each frame, count the number of unique cells visited in a
+    trailing window of `window` frames, divided by `n_cells`.
+
+    Parameters
+    ----------
+    cell_indices : (N,) int
+        Per-frame cell assignment (-1 for invalid).
+    valid_mask : (N,) bool
+        True for frames with valid position.
+    window : int
+        Sliding window size in frames.
+    n_cells : int
+        Total number of accessible cells (denominator).
+
+    Returns
+    -------
+    cov_rate : (N,) float
+        Fraction of unique cells visited in each trailing window.
+    """
+    n = len(cell_indices)
+    cov_rate = np.zeros(n, dtype=np.float64)
+    for i in range(n):
+        start = max(0, i - window + 1)
+        sl = cell_indices[start : i + 1]
+        vm = valid_mask[start : i + 1]
+        unique = set(int(c) for c, v in zip(sl, vm) if v and c >= 0)
+        cov_rate[i] = len(unique) / n_cells
+    return cov_rate
+
+
+def compute_hmm_per_session(data: dict, maze: RoseMaze, k: int = HMM_K_DEFAULT) -> dict:
+    """Fit a GaussianHMM with K states on kinematic features for one session.
+
+    Features (per-frame, z-scored):
+      1. speed (cm/s)
+      2. absolute angular head velocity (deg/s)
+      3. spatial coverage rate (unique cells in trailing 90-frame window / 23)
+
+    The HMM is fit on ALL valid frames (light + dark combined) so that
+    state definitions are shared across conditions. State occupancy is then
+    computed separately for light and dark epochs.
+
+    Parameters
+    ----------
+    data : dict
+        Session data from load_session_data().
+    maze : RoseMaze
+        Maze topology.
+    k : int
+        Number of HMM states.
+
+    Returns
+    -------
+    dict with keys:
+        state_means : (K, 3) mean of each feature per state (raw, before z-score)
+        state_labels : list[str]  post-hoc labels sorted by speed
+        occupancy_light : (K,) fraction of light frames in each state
+        occupancy_dark : (K,) fraction of dark frames in each state
+        bic : float  BIC for model selection
+        k : int
+        converged : bool
+    """
+    from hmmlearn.hmm import GaussianHMM
+
+    fps = data["fps"]
+    speed = data["speed_cm_s"].astype(np.float64)
+    hd_deg = data["hd_deg"].astype(np.float64)
+    light_on = data["light_on"].astype(bool)
+    bad_behav = data["bad_behav"].astype(bool)
+    x_maze = data["x_maze"].astype(np.float64)
+    y_maze = data["y_maze"].astype(np.float64)
+
+    valid = (
+        ~bad_behav
+        & np.isfinite(speed)
+        & np.isfinite(hd_deg)
+        & np.isfinite(x_maze)
+        & np.isfinite(y_maze)
+    )
+
+    # Compute AHV
+    ahv = _compute_ahv_from_hd(hd_deg, fps)
+
+    # Compute cell indices and coverage rate
+    cell_indices = discretize_position_fast(x_maze, y_maze, maze)
+    cell_indices[~valid] = -1
+    # Use a ~3s window adapted to the session frame rate
+    cov_window = max(int(3.0 * fps), 10)
+    cov_rate = _compute_coverage_rate(cell_indices, valid, window=cov_window)
+
+    # Build feature matrix for valid frames only
+    valid_idx = np.flatnonzero(valid)
+    if len(valid_idx) < 100:
+        return {
+            "state_means": None,
+            "state_labels": None,
+            "occupancy_light": None,
+            "occupancy_dark": None,
+            "bic": np.nan,
+            "k": k,
+            "converged": False,
+            "error": "too_few_valid_frames",
+        }
+
+    feat_speed = speed[valid_idx]
+    feat_ahv = ahv[valid_idx]
+    feat_cov = cov_rate[valid_idx]
+
+    # Additional NaN guard: AHV may still have NaN at edges
+    all_finite = np.isfinite(feat_speed) & np.isfinite(feat_ahv) & np.isfinite(feat_cov)
+    if not all_finite.all():
+        feat_speed = feat_speed[all_finite]
+        feat_ahv = feat_ahv[all_finite]
+        feat_cov = feat_cov[all_finite]
+        # Update valid_idx for light/dark occupancy computation
+        valid_idx = valid_idx[all_finite]
+
+    if len(valid_idx) < 100:
+        return {
+            "state_means": None,
+            "state_labels": None,
+            "occupancy_light": None,
+            "occupancy_dark": None,
+            "bic": np.nan,
+            "k": k,
+            "converged": False,
+            "error": "too_few_valid_frames_after_nan_filter",
+        }
+
+    # Z-score features per session
+    raw_means = np.array([feat_speed.mean(), feat_ahv.mean(), feat_cov.mean()])
+    raw_stds = np.array([feat_speed.std(), feat_ahv.std(), feat_cov.std()])
+    # Guard against zero std
+    raw_stds[raw_stds < 1e-10] = 1.0
+
+    X = np.column_stack(
+        [
+            (feat_speed - raw_means[0]) / raw_stds[0],
+            (feat_ahv - raw_means[1]) / raw_stds[1],
+            (feat_cov - raw_means[2]) / raw_stds[2],
+        ]
+    )
+
+    # Fit HMM
+    model = GaussianHMM(
+        n_components=k,
+        covariance_type=HMM_COV_TYPE,
+        n_iter=HMM_N_ITER,
+        random_state=HMM_RANDOM_STATE,
+    )
+    try:
+        model.fit(X)
+    except Exception as e:
+        return {
+            "state_means": None,
+            "state_labels": None,
+            "occupancy_light": None,
+            "occupancy_dark": None,
+            "bic": np.nan,
+            "k": k,
+            "converged": False,
+            "error": str(e),
+        }
+
+    states = model.predict(X)
+    bic = model.bic(X)
+
+    # Compute raw (un-z-scored) feature means per state
+    state_means_raw = np.zeros((k, 3))
+    for s in range(k):
+        mask_s = states == s
+        if mask_s.any():
+            state_means_raw[s, 0] = feat_speed[mask_s].mean()
+            state_means_raw[s, 1] = feat_ahv[mask_s].mean()
+            state_means_raw[s, 2] = feat_cov[mask_s].mean()
+
+    # Sort states by mean speed (ascending)
+    speed_order = np.argsort(state_means_raw[:, 0])
+    state_means_sorted = state_means_raw[speed_order]
+
+    # Create label mapping: old state index -> sorted rank
+    remap = np.zeros(k, dtype=int)
+    for rank, old_idx in enumerate(speed_order):
+        remap[old_idx] = rank
+    states_sorted = remap[states]
+
+    # Post-hoc labels
+    if k == 3:
+        state_labels = ["pausing", "slow_scanning", "fast_traversal"]
+    elif k == 2:
+        state_labels = ["slow", "fast"]
+    elif k == 4:
+        state_labels = ["pausing", "slow_scanning", "moderate", "fast_traversal"]
+    else:
+        state_labels = [f"state_{i}" for i in range(k)]
+
+    # Compute occupancy for light and dark
+    light_valid = light_on[valid_idx]
+    occ_light = np.zeros(k)
+    occ_dark = np.zeros(k)
+    n_light = light_valid.sum()
+    n_dark = (~light_valid).sum()
+
+    for s in range(k):
+        mask_s = states_sorted == s
+        if n_light > 0:
+            occ_light[s] = (mask_s & light_valid).sum() / n_light
+        if n_dark > 0:
+            occ_dark[s] = (mask_s & ~light_valid).sum() / n_dark
+
+    return {
+        "state_means": state_means_sorted.tolist(),
+        "state_labels": state_labels,
+        "occupancy_light": occ_light.tolist(),
+        "occupancy_dark": occ_dark.tolist(),
+        "bic": float(bic),
+        "k": k,
+        "converged": bool(model.monitor_.converged),
+        "n_valid": int(len(valid_idx)),
+        "n_light": int(n_light),
+        "n_dark": int(n_dark),
+    }
+
+
+def test_hmm_cross_session(results: list[dict], k: int = HMM_K_DEFAULT) -> dict:
+    """Cross-session Wilcoxon tests on HMM state occupancy (light vs dark).
+
+    For each state, tests whether occupancy differs between light and dark
+    using Wilcoxon signed-rank test (paired by session).
+
+    Parameters
+    ----------
+    results : list[dict]
+        Per-session outputs from compute_hmm_per_session().
+    k : int
+        Number of states.
+
+    Returns
+    -------
+    dict with per-state test results and state definitions.
+    """
+    # Filter to sessions that converged
+    valid = [r for r in results if r.get("converged") and r["state_means"] is not None]
+    n = len(valid)
+    n_converged = sum(1 for r in results if r.get("converged"))
+
+    # Handle case where no sessions converged
+    if n == 0:
+        if k == 3:
+            _labels = ["pausing", "slow_scanning", "fast_traversal"]
+        elif k == 2:
+            _labels = ["slow", "fast"]
+        elif k == 4:
+            _labels = ["pausing", "slow_scanning", "moderate", "fast_traversal"]
+        else:
+            _labels = [f"state_{i}" for i in range(k)]
+        return {
+            "k": k,
+            "n_sessions": 0,
+            "n_converged": 0,
+            "n_total": len(results),
+            "state_definitions": {},
+            "state_occupancy_tests": {},
+            "bic_mean": None,
+            "bic_sem": 0.0,
+            "error": "no_sessions_converged",
+        }
+
+    # Collect state definitions (mean +/- SEM across sessions)
+    all_means = np.array([r["state_means"] for r in valid])  # (N, K, 3)
+    state_defs = {}
+    state_labels = valid[0]["state_labels"] if valid else [f"state_{i}" for i in range(k)]
+
+    for s in range(k):
+        label = state_labels[s] if s < len(state_labels) else f"state_{s}"
+        speed_vals = all_means[:, s, 0]
+        ahv_vals = all_means[:, s, 1]
+        cov_vals = all_means[:, s, 2]
+        state_defs[label] = {
+            "speed_mean": float(np.mean(speed_vals)),
+            "speed_sem": float(np.std(speed_vals, ddof=1) / np.sqrt(n)) if n > 1 else 0.0,
+            "ahv_mean": float(np.mean(ahv_vals)),
+            "ahv_sem": float(np.std(ahv_vals, ddof=1) / np.sqrt(n)) if n > 1 else 0.0,
+            "coverage_rate_mean": float(np.mean(cov_vals)),
+            "coverage_rate_sem": float(np.std(cov_vals, ddof=1) / np.sqrt(n)) if n > 1 else 0.0,
+        }
+
+    # Per-state occupancy tests
+    state_tests = {}
+    raw_pvals = []
+    for s in range(k):
+        label = state_labels[s] if s < len(state_labels) else f"state_{s}"
+        occ_l = np.array([r["occupancy_light"][s] for r in valid])
+        occ_d = np.array([r["occupancy_dark"][s] for r in valid])
+
+        mean_l = float(np.mean(occ_l))
+        mean_d = float(np.mean(occ_d))
+        sem_l = float(np.std(occ_l, ddof=1) / np.sqrt(n)) if n > 1 else 0.0
+        sem_d = float(np.std(occ_d, ddof=1) / np.sqrt(n)) if n > 1 else 0.0
+
+        wtest = wilcoxon_test(occ_l, occ_d)
+        state_tests[label] = {
+            "occupancy_light_mean": mean_l,
+            "occupancy_light_sem": sem_l,
+            "occupancy_dark_mean": mean_d,
+            "occupancy_dark_sem": sem_d,
+            **wtest,
+        }
+        raw_pvals.append(wtest.get("p"))
+
+    # Holm-Bonferroni correction across states
+    adj_pvals = holm_bonferroni(raw_pvals)
+    label_keys = [
+        state_labels[s] if s < len(state_labels) else f"state_{s}" for s in range(k)
+    ]
+    for i, label in enumerate(label_keys):
+        state_tests[label]["p_adj"] = adj_pvals[i]
+
+    # BIC summary
+    bic_values = [r["bic"] for r in valid if np.isfinite(r["bic"])]
+
+    return {
+        "k": k,
+        "n_sessions": n,
+        "n_converged": n_converged,
+        "n_total": len(results),
+        "state_definitions": state_defs,
+        "state_occupancy_tests": state_tests,
+        "bic_mean": float(np.mean(bic_values)) if bic_values else None,
+        "bic_sem": (
+            float(np.std(bic_values, ddof=1) / np.sqrt(len(bic_values)))
+            if len(bic_values) > 1
+            else 0.0
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Advanced Analysis 2: Graph metrics on transition matrices
+# ---------------------------------------------------------------------------
+
+
+def compute_graph_metrics_per_session(data: dict, maze: RoseMaze) -> dict:
+    """Compute directed-graph metrics on navigation transition matrices.
+
+    Builds separate directed graphs for light and dark epochs. An edge
+    (i -> j) exists if there are >= GRAPH_EDGE_THRESHOLD transitions from
+    cell i to cell j.
+
+    Metrics computed per condition:
+      - edge_density: n_edges / n_possible_edges
+      - mean_out_degree: mean outgoing edges per visited node
+      - n_scc: number of strongly connected components
+      - largest_scc_frac: largest SCC size / number of visited nodes
+      - global_efficiency: mean 1/shortest_path for all reachable pairs
+      - transitivity: clustering coefficient of the undirected projection
+
+    Parameters
+    ----------
+    data : dict
+        Session data from load_session_data().
+    maze : RoseMaze
+        Maze topology.
+
+    Returns
+    -------
+    dict with light/dark metrics.
+    """
+    import networkx as nx
+
+    x_maze = data["x_maze"].astype(np.float64)
+    y_maze = data["y_maze"].astype(np.float64)
+    light_on = data["light_on"].astype(bool)
+    bad_behav = data["bad_behav"].astype(bool)
+
+    valid = ~bad_behav & np.isfinite(x_maze) & np.isfinite(y_maze)
+    cell_indices = discretize_position_fast(x_maze, y_maze, maze)
+    cell_indices[~valid] = -1
+
+    n_cells = maze.n_cells
+
+    def _build_transition_counts(ci: np.ndarray, vmask: np.ndarray) -> np.ndarray:
+        """Build raw transition count matrix from cell indices."""
+        ci_valid = ci.copy()
+        ci_valid[~vmask] = -1
+        cs, _ = cell_sequence(ci_valid)
+        tc = np.zeros((n_cells, n_cells), dtype=np.int64)
+        for t in range(len(cs) - 1):
+            if 0 <= cs[t] < n_cells and 0 <= cs[t + 1] < n_cells:
+                tc[cs[t], cs[t + 1]] += 1
+        return tc
+
+    def _graph_metrics(tc: np.ndarray) -> dict:
+        """Compute graph metrics from a transition count matrix."""
+        G = nx.DiGraph()
+        # Add all maze cells as nodes
+        for i in range(n_cells):
+            G.add_node(i)
+
+        # Add edges where count >= threshold
+        for i in range(n_cells):
+            for j in range(n_cells):
+                if i != j and tc[i, j] >= GRAPH_EDGE_THRESHOLD:
+                    G.add_edge(i, j, weight=int(tc[i, j]))
+
+        n_edges = G.number_of_edges()
+        n_possible = n_cells * (n_cells - 1)  # directed, no self-loops
+        edge_density = n_edges / n_possible if n_possible > 0 else 0.0
+
+        # Mean out-degree (only for nodes that were visited)
+        visited = [n for n in G.nodes() if G.out_degree(n) > 0 or G.in_degree(n) > 0]
+        if visited:
+            out_degrees = [G.out_degree(n) for n in visited]
+            mean_out_degree = float(np.mean(out_degrees))
+        else:
+            mean_out_degree = 0.0
+
+        # Strongly connected components
+        sccs = list(nx.strongly_connected_components(G))
+        n_scc = len(sccs)
+        largest_scc = max(sccs, key=len) if sccs else set()
+        n_visited = len(visited) if visited else 1
+        largest_scc_frac = len(largest_scc) / n_visited if n_visited > 0 else 0.0
+
+        # Global efficiency: mean of 1/d(i,j) for all reachable pairs i!=j
+        # (standard definition: Latora & Marchiori 2001)
+        inv_distances = []
+        for source in G.nodes():
+            lengths = nx.single_source_shortest_path_length(G, source)
+            for target, d in lengths.items():
+                if target != source and d > 0:
+                    inv_distances.append(1.0 / d)
+        # Normalise by n*(n-1) to include unreachable pairs as 0
+        global_efficiency = sum(inv_distances) / n_possible if n_possible > 0 else 0.0
+
+        # Transitivity (clustering coefficient of undirected projection)
+        G_undir = G.to_undirected()
+        transitivity = nx.transitivity(G_undir)
+
+        return {
+            "edge_density": float(edge_density),
+            "mean_out_degree": float(mean_out_degree),
+            "n_scc": int(n_scc),
+            "largest_scc_frac": float(largest_scc_frac),
+            "global_efficiency": float(global_efficiency),
+            "transitivity": float(transitivity),
+            "n_edges": int(n_edges),
+        }
+
+    # Build transition counts for light and dark
+    tc_light = _build_transition_counts(cell_indices, valid & light_on)
+    tc_dark = _build_transition_counts(cell_indices, valid & ~light_on)
+
+    metrics_light = _graph_metrics(tc_light)
+    metrics_dark = _graph_metrics(tc_dark)
+
+    return {"light": metrics_light, "dark": metrics_dark}
+
+
+def test_graph_metrics_cross_session(results: list[dict]) -> dict:
+    """Cross-session Wilcoxon tests on graph metrics (light vs dark).
+
+    For each metric, tests whether it differs between light and dark
+    using Wilcoxon signed-rank test (paired by session).
+
+    Parameters
+    ----------
+    results : list[dict]
+        Per-session outputs from compute_graph_metrics_per_session().
+
+    Returns
+    -------
+    dict with per-metric test results.
+    """
+    metric_names = [
+        "edge_density",
+        "mean_out_degree",
+        "n_scc",
+        "largest_scc_frac",
+        "global_efficiency",
+        "transitivity",
+    ]
+
+    n = len(results)
+    metric_tests = {}
+    raw_pvals = []
+
+    for mname in metric_names:
+        vals_l = np.array([r["light"][mname] for r in results], dtype=float)
+        vals_d = np.array([r["dark"][mname] for r in results], dtype=float)
+
+        mean_l = float(np.mean(vals_l))
+        mean_d = float(np.mean(vals_d))
+        sem_l = float(np.std(vals_l, ddof=1) / np.sqrt(n)) if n > 1 else 0.0
+        sem_d = float(np.std(vals_d, ddof=1) / np.sqrt(n)) if n > 1 else 0.0
+
+        wtest = wilcoxon_test(vals_l, vals_d)
+        metric_tests[mname] = {
+            "light_mean": mean_l,
+            "light_sem": sem_l,
+            "dark_mean": mean_d,
+            "dark_sem": sem_d,
+            **wtest,
+        }
+        raw_pvals.append(wtest.get("p"))
+
+    # Holm-Bonferroni correction across metrics
+    adj_pvals = holm_bonferroni(raw_pvals)
+    for i, mname in enumerate(metric_names):
+        metric_tests[mname]["p_adj"] = adj_pvals[i]
+
+    return {
+        "n_sessions": n,
+        "metrics": metric_tests,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Advanced: main_advanced
+# ---------------------------------------------------------------------------
+
+
+def main_advanced() -> None:
+    """Run advanced analyses: HMM kinematic states + graph metrics."""
+    print("=" * 70)
+    print("BEHAVIOUR HYPOTHESES -- Advanced (HMM states, Graph metrics)")
+    print("=" * 70)
+
+    # Load metadata (same pattern as other mains)
+    with open(METADATA_CSV) as f:
+        experiments = list(csv.DictReader(f))
+    with open(ANIMALS_CSV) as f:
+        animals = {row["animal_id"]: row for row in csv.DictReader(f)}
+
+    sessions: list[dict] = []
+    for row in experiments:
+        eid = row["exp_id"]
+        parts = eid.split("_")
+        animal_id = parts[-1]
+        sessions.append(
+            {
+                "exp_id": eid,
+                "exp_index": int(row["exp_index"]),
+                "animal_id": animal_id,
+                "celltype": animals.get(animal_id, {}).get("celltype", "unknown"),
+                "exclude": str(row.get("exclude", "0")).strip() == "1",
+                "primary": str(row.get("primary_exp", "1")).strip() != "0",
+            }
+        )
+
+    usable_sessions = [s for s in sessions if not s["exclude"]]
+    print(f"\nTotal sessions: {len(sessions)}")
+    print(f"Excluded: {sum(1 for s in sessions if s['exclude'])}")
+    print(f"Usable: {len(usable_sessions)}")
+
+    # Download and analyse
+    s3 = boto3.client("s3", region_name=S3_REGION)
+
+    # Per-session accumulators
+    hmm_results_k3: list[dict] = []
+    hmm_results_k2: list[dict] = []
+    hmm_results_k4: list[dict] = []
+    graph_results: list[dict] = []
+    session_ids: list[str] = []
+
+    for sess in usable_sessions:
+        eid = sess["exp_id"]
+        print(f"\n--- {eid} (#{sess['exp_index']}) ---")
+
+        data = load_session_data(s3, eid)
+        if data is None:
+            print("    SKIPPED (no data)")
+            continue
+
+        # Check required fields
+        missing = [f for f in ["speed_cm_s", "hd_deg", "x_maze", "y_maze", "light_on", "bad_behav"]
+                    if data.get(f) is None]
+        if missing:
+            print(f"    SKIPPED (missing fields: {missing})")
+            continue
+
+        session_ids.append(eid)
+
+        # --- HMM analysis ---
+        for k_val, acc in [(2, hmm_results_k2), (3, hmm_results_k3), (4, hmm_results_k4)]:
+            r = compute_hmm_per_session(data, MAZE, k=k_val)
+            acc.append(r)
+            if k_val == HMM_K_DEFAULT:
+                if r.get("converged"):
+                    occ_l = r["occupancy_light"]
+                    occ_d = r["occupancy_dark"]
+                    labels = r["state_labels"]
+                    parts_str = ", ".join(
+                        f"{labels[i]}:L={occ_l[i]:.2f}/D={occ_d[i]:.2f}"
+                        for i in range(len(labels))
+                    )
+                    print(f"  HMM(K={k_val}): {parts_str}  BIC={r['bic']:.0f}")
+                else:
+                    print(f"  HMM(K={k_val}): FAILED ({r.get('error', 'unknown')})")
+
+        # --- Graph metrics ---
+        rg = compute_graph_metrics_per_session(data, MAZE)
+        graph_results.append(rg)
+        gl = rg["light"]
+        gd = rg["dark"]
+        print(
+            f"  Graph: density L/D={gl['edge_density']:.3f}/{gd['edge_density']:.3f}, "
+            f"efficiency L/D={gl['global_efficiency']:.3f}/{gd['global_efficiency']:.3f}, "
+            f"transitivity L/D={gl['transitivity']:.3f}/{gd['transitivity']:.3f}"
+        )
+
+    # ===================================================================
+    # Cross-session tests
+    # ===================================================================
+    print("\n" + "=" * 70)
+    print("CROSS-SESSION TESTS -- Advanced")
+    print("=" * 70)
+
+    # HMM tests for K=3 (primary) and K=2, K=4 (robustness)
+    hmm_stats_k3 = test_hmm_cross_session(hmm_results_k3, k=3)
+    hmm_stats_k2 = test_hmm_cross_session(hmm_results_k2, k=2)
+    hmm_stats_k4 = test_hmm_cross_session(hmm_results_k4, k=4)
+
+    # Graph tests
+    graph_stats = test_graph_metrics_cross_session(graph_results)
+
+    # ---- Print HMM summary ----
+    print("\n--- HMM Kinematic States (K=3, primary model) ---")
+    if hmm_stats_k3.get("error"):
+        print(f"  WARNING: {hmm_stats_k3['error']}")
+    print(f"  N sessions converged: {hmm_stats_k3['n_converged']}/{hmm_stats_k3['n_total']}")
+    print(f"  Mean BIC: {hmm_stats_k3['bic_mean']:.0f} +/- {hmm_stats_k3['bic_sem']:.0f}"
+          if hmm_stats_k3['bic_mean'] is not None else "  Mean BIC: N/A")
+    print()
+    print("  State definitions (mean +/- SEM across sessions):")
+    for label, sdef in hmm_stats_k3["state_definitions"].items():
+        print(
+            f"    {label}: speed={sdef['speed_mean']:.1f}+/-{sdef['speed_sem']:.1f} cm/s, "
+            f"AHV={sdef['ahv_mean']:.1f}+/-{sdef['ahv_sem']:.1f} deg/s, "
+            f"cov_rate={sdef['coverage_rate_mean']:.3f}+/-{sdef['coverage_rate_sem']:.3f}"
+        )
+    print()
+    print("  Occupancy tests (light vs dark, Wilcoxon signed-rank):")
+    for label, stest in hmm_stats_k3["state_occupancy_tests"].items():
+        p_str = f"{stest['p']:.4f}" if stest["p"] is not None else "N/A"
+        p_adj_str = f"{stest['p_adj']:.4f}" if stest.get("p_adj") is not None else "N/A"
+        r_str = f"{stest['r']:.3f}" if stest["r"] is not None else "N/A"
+        print(
+            f"    {label}: L={stest['occupancy_light_mean']:.3f}+/-{stest['occupancy_light_sem']:.3f}, "
+            f"D={stest['occupancy_dark_mean']:.3f}+/-{stest['occupancy_dark_sem']:.3f}, "
+            f"p={p_str}, p_adj={p_adj_str}, r={r_str}, N={stest['n']}"
+        )
+
+    # BIC comparison across K values
+    print("\n  BIC model comparison (lower = better):")
+    for k_val, stats in [(2, hmm_stats_k2), (3, hmm_stats_k3), (4, hmm_stats_k4)]:
+        bic_str = f"{stats['bic_mean']:.0f}+/-{stats['bic_sem']:.0f}" if stats["bic_mean"] is not None else "N/A"
+        print(f"    K={k_val}: BIC={bic_str}, converged={stats['n_converged']}/{stats['n_total']}")
+
+    # Robustness: K=2 and K=4 occupancy tests
+    for k_val, stats in [(2, hmm_stats_k2), (4, hmm_stats_k4)]:
+        print(f"\n  Robustness check K={k_val}:")
+        for label, stest in stats["state_occupancy_tests"].items():
+            p_str = f"{stest['p']:.4f}" if stest["p"] is not None else "N/A"
+            r_str = f"{stest['r']:.3f}" if stest["r"] is not None else "N/A"
+            print(
+                f"    {label}: L={stest['occupancy_light_mean']:.3f}, "
+                f"D={stest['occupancy_dark_mean']:.3f}, "
+                f"p={p_str}, r={r_str}"
+            )
+
+    # ---- Print Graph summary ----
+    print("\n--- Graph Metrics on Transition Matrices ---")
+    print(f"  N sessions: {graph_stats['n_sessions']}")
+    print(f"  Edge threshold: >= {GRAPH_EDGE_THRESHOLD} transitions")
+    print()
+    for mname, mtest in graph_stats["metrics"].items():
+        p_str = f"{mtest['p']:.4f}" if mtest["p"] is not None else "N/A"
+        p_adj_str = f"{mtest['p_adj']:.4f}" if mtest.get("p_adj") is not None else "N/A"
+        r_str = f"{mtest['r']:.3f}" if mtest["r"] is not None else "N/A"
+        print(
+            f"  {mname}: L={mtest['light_mean']:.4f}+/-{mtest['light_sem']:.4f}, "
+            f"D={mtest['dark_mean']:.4f}+/-{mtest['dark_sem']:.4f}, "
+            f"p={p_str}, p_adj={p_adj_str}, r={r_str}, N={mtest['n']}"
+        )
+
+    # ===================================================================
+    # Save results
+    # ===================================================================
+    output = {
+        "metadata": {
+            "n_sessions": len(session_ids),
+            "session_ids": session_ids,
+            "description": (
+                "Advanced behaviour analyses: (1) HMM kinematic state discovery "
+                "(GaussianHMM on speed, AHV, coverage rate) with light vs dark "
+                "occupancy comparison; (2) Directed graph metrics on cell transition "
+                "matrices with light vs dark comparison."
+            ),
+            "hmm_features": ["speed_cm_s", "abs_angular_head_velocity_deg_s", "coverage_rate"],
+            "hmm_covariance_type": HMM_COV_TYPE,
+            "hmm_random_state": HMM_RANDOM_STATE,
+            "graph_edge_threshold": GRAPH_EDGE_THRESHOLD,
+        },
+        "hmm_k3": hmm_stats_k3,
+        "hmm_k2_robustness": hmm_stats_k2,
+        "hmm_k4_robustness": hmm_stats_k4,
+        "graph_metrics": graph_stats,
+    }
+
+    output_ser = _make_serializable(output)
+    OUTPUT_JSON_ADVANCED.parent.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_JSON_ADVANCED, "w") as f:
+        json.dump(output_ser, f, indent=2)
+    print(f"\nResults saved to: {OUTPUT_JSON_ADVANCED}")
+
+
+# ---------------------------------------------------------------------------
 # Extras main
 # ---------------------------------------------------------------------------
 
@@ -4052,7 +4861,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Run behaviour hypotheses (Tier-1, Tier-2, and/or Extras)."
+        description="Run behaviour hypotheses (Tier-1, Tier-2, Extras, and/or Advanced)."
     )
     parser.add_argument(
         "--tier2",
@@ -4065,9 +4874,14 @@ if __name__ == "__main__":
         help="Run extras (A-D, H3/H4 primary-only, C6) only.",
     )
     parser.add_argument(
+        "--advanced",
+        action="store_true",
+        help="Run advanced analyses (HMM kinematic states, graph metrics) only.",
+    )
+    parser.add_argument(
         "--all",
         action="store_true",
-        help="Run all tiers (Tier-1 + Tier-2 + Extras).",
+        help="Run all tiers (Tier-1 + Tier-2 + Extras + Advanced).",
     )
     args = parser.parse_args()
 
@@ -4075,9 +4889,12 @@ if __name__ == "__main__":
         main()
         main_tier2()
         main_extras()
+        main_advanced()
     elif args.tier2:
         main_tier2()
     elif args.extras:
         main_extras()
+    elif args.advanced:
+        main_advanced()
     else:
         main()

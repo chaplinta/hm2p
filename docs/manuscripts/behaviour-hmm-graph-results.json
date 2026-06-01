@@ -1,0 +1,329 @@
+{
+  "metadata": {
+    "n_sessions": 20,
+    "session_ids": [
+      "20210823_16_59_50_1114353",
+      "20210920_11_09_37_1114356",
+      "20210923_15_05_14_1114356",
+      "20210924_16_09_21_1114356",
+      "20211028_11_25_50_1115465",
+      "20211029_13_50_08_1115465",
+      "20211102_15_11_34_1115465",
+      "20211203_15_10_27_1115464",
+      "20211216_14_36_39_1115816",
+      "20220408_15_01_57_1116663",
+      "20220411_16_45_08_1116663",
+      "20220608_15_27_32_1117217",
+      "20220608_16_22_06_1116994",
+      "20220802_15_06_53_1117646",
+      "20220804_11_21_59_1117646",
+      "20221003_14_36_54_1118020",
+      "20221010_11_43_35_1118018",
+      "20221018_10_56_17_1117788",
+      "20221115_13_27_42_1118213",
+      "20221116_14_31_12_1118320"
+    ],
+    "description": "Advanced behaviour analyses: (1) HMM kinematic state discovery (GaussianHMM on speed, AHV, coverage rate) with light vs dark occupancy comparison; (2) Directed graph metrics on cell transition matrices with light vs dark comparison.",
+    "hmm_features": [
+      "speed_cm_s",
+      "abs_angular_head_velocity_deg_s",
+      "coverage_rate"
+    ],
+    "hmm_covariance_type": "full",
+    "hmm_random_state": 42,
+    "graph_edge_threshold": 2
+  },
+  "hmm_k3": {
+    "k": 3,
+    "n_sessions": 20,
+    "n_converged": 20,
+    "n_total": 20,
+    "state_definitions": {
+      "pausing": {
+        "speed_mean": 1.0998842043010038,
+        "speed_sem": 0.2612958662813499,
+        "ahv_mean": 30.678003722947174,
+        "ahv_sem": 5.502947175301612,
+        "coverage_rate_mean": 0.054823205787599326,
+        "coverage_rate_sem": 0.0031933521662127983
+      },
+      "slow_scanning": {
+        "speed_mean": 4.495812159723838,
+        "speed_sem": 0.4235798771219471,
+        "ahv_mean": 223.06428437936967,
+        "ahv_sem": 31.624729550216706,
+        "coverage_rate_mean": 0.08946212534167333,
+        "coverage_rate_sem": 0.007944721998908678
+      },
+      "fast_traversal": {
+        "speed_mean": 7.705480977667028,
+        "speed_sem": 0.47128448373247156,
+        "ahv_mean": 157.54104567986784,
+        "ahv_sem": 24.388352757336786,
+        "coverage_rate_mean": 0.11562571892252756,
+        "coverage_rate_sem": 0.005114785581547206
+      }
+    },
+    "state_occupancy_tests": {
+      "pausing": {
+        "occupancy_light_mean": 0.336758574017995,
+        "occupancy_light_sem": 0.024156441965946497,
+        "occupancy_dark_mean": 0.37470180323918423,
+        "occupancy_dark_sem": 0.028424706447092808,
+        "stat": 59.0,
+        "p": 0.08969497680664062,
+        "r": 0.4380952380952381,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 0.2690849304199219
+      },
+      "slow_scanning": {
+        "occupancy_light_mean": 0.32052929088510773,
+        "occupancy_light_sem": 0.020647775673064816,
+        "occupancy_dark_mean": 0.30292113916736907,
+        "occupancy_dark_sem": 0.018999785647256847,
+        "stat": 60.0,
+        "p": 0.09730720520019531,
+        "r": 0.4285714285714286,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 0.2690849304199219
+      },
+      "fast_traversal": {
+        "occupancy_light_mean": 0.34271213509689724,
+        "occupancy_light_sem": 0.022576024299398378,
+        "occupancy_dark_mean": 0.32237705759344676,
+        "occupancy_dark_sem": 0.02661059457396741,
+        "stat": 76.0,
+        "p": 0.2942523956298828,
+        "r": 0.2761904761904762,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 0.2942523956298828
+      }
+    },
+    "bic_mean": 27835.595773332654,
+    "bic_sem": 14000.102398569154
+  },
+  "hmm_k2_robustness": {
+    "k": 2,
+    "n_sessions": 20,
+    "n_converged": 20,
+    "n_total": 20,
+    "state_definitions": {
+      "slow": {
+        "speed_mean": 1.8067508346370313,
+        "speed_sem": 0.37105076125880565,
+        "ahv_mean": 65.06824425935743,
+        "ahv_sem": 16.389521294246578,
+        "coverage_rate_mean": 0.06281860955595177,
+        "coverage_rate_sem": 0.0044835060791998975
+      },
+      "fast": {
+        "speed_mean": 6.684792082950176,
+        "speed_sem": 0.474558601865659,
+        "ahv_mean": 179.88385062151517,
+        "ahv_sem": 17.484032257518365,
+        "coverage_rate_mean": 0.1085483870847316,
+        "coverage_rate_sem": 0.005208348750947953
+      }
+    },
+    "state_occupancy_tests": {
+      "slow": {
+        "occupancy_light_mean": 0.4644725087688132,
+        "occupancy_light_sem": 0.02685217882901092,
+        "occupancy_dark_mean": 0.502073545540959,
+        "occupancy_dark_sem": 0.026795530489856164,
+        "stat": 62.0,
+        "p": 0.11398696899414062,
+        "r": 0.4095238095238095,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 0.22797393798828125
+      },
+      "fast": {
+        "occupancy_light_mean": 0.5355274912311869,
+        "occupancy_light_sem": 0.02685217882901092,
+        "occupancy_dark_mean": 0.49792645445904105,
+        "occupancy_dark_sem": 0.026795530489856167,
+        "stat": 62.0,
+        "p": 0.11398696899414062,
+        "r": 0.4095238095238095,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 0.22797393798828125
+      }
+    },
+    "bic_mean": 54439.80575739342,
+    "bic_sem": 12153.541946003596
+  },
+  "hmm_k4_robustness": {
+    "k": 4,
+    "n_sessions": 20,
+    "n_converged": 20,
+    "n_total": 20,
+    "state_definitions": {
+      "pausing": {
+        "speed_mean": 1.4924843755680144,
+        "speed_sem": 0.27732378799014934,
+        "ahv_mean": 57.13920826630787,
+        "ahv_sem": 11.128049639616094,
+        "coverage_rate_mean": 0.04928640833757754,
+        "coverage_rate_sem": 0.0024275101687971645
+      },
+      "slow_scanning": {
+        "speed_mean": 4.235708430553861,
+        "speed_sem": 0.30786349314922307,
+        "ahv_mean": 142.40282258462912,
+        "ahv_sem": 22.027386247620647,
+        "coverage_rate_mean": 0.08493993968556594,
+        "coverage_rate_sem": 0.00654165050077908
+      },
+      "moderate": {
+        "speed_mean": 5.803103905047652,
+        "speed_sem": 0.3775861848154887,
+        "ahv_mean": 134.55744571749284,
+        "ahv_sem": 29.420885226139678,
+        "coverage_rate_mean": 0.12538286654549258,
+        "coverage_rate_sem": 0.007649374547717223
+      },
+      "fast_traversal": {
+        "speed_mean": 9.804207783133394,
+        "speed_sem": 0.8321540259486562,
+        "ahv_mean": 306.2625666161857,
+        "ahv_sem": 39.569615080197465,
+        "coverage_rate_mean": 0.13265523621870462,
+        "coverage_rate_sem": 0.00874278432845644
+      }
+    },
+    "state_occupancy_tests": {
+      "pausing": {
+        "occupancy_light_mean": 0.35707777012373204,
+        "occupancy_light_sem": 0.027630911579214212,
+        "occupancy_dark_mean": 0.3991391368644789,
+        "occupancy_dark_sem": 0.03250655330106846,
+        "stat": 55.0,
+        "p": 0.06372261047363281,
+        "r": 0.47619047619047616,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 0.212677001953125
+      },
+      "slow_scanning": {
+        "occupancy_light_mean": 0.279645021765954,
+        "occupancy_light_sem": 0.013285530722944654,
+        "occupancy_dark_mean": 0.2628559776564981,
+        "occupancy_dark_sem": 0.013296905569142495,
+        "stat": 70.0,
+        "p": 0.20244979858398438,
+        "r": 0.33333333333333337,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 0.40489959716796875
+      },
+      "moderate": {
+        "occupancy_light_mean": 0.2182077837758914,
+        "occupancy_light_sem": 0.014911857222207045,
+        "occupancy_dark_mean": 0.1990261613810717,
+        "occupancy_dark_sem": 0.01701725260774513,
+        "stat": 53.0,
+        "p": 0.05316925048828125,
+        "r": 0.49523809523809526,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 0.212677001953125
+      },
+      "fast_traversal": {
+        "occupancy_light_mean": 0.14506942433442252,
+        "occupancy_light_sem": 0.01670869715011894,
+        "occupancy_dark_mean": 0.13897872409795128,
+        "occupancy_dark_sem": 0.02231731776962058,
+        "stat": 86.0,
+        "p": 0.49800872802734375,
+        "r": 0.18095238095238098,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 0.49800872802734375
+      }
+    },
+    "bic_mean": -26050.741466138395,
+    "bic_sem": 17017.435788160805
+  },
+  "graph_metrics": {
+    "n_sessions": 20,
+    "metrics": {
+      "edge_density": {
+        "light_mean": 0.08705533596837947,
+        "light_sem": 0.0027892746609065595,
+        "dark_mean": 0.08557312252964426,
+        "dark_sem": 0.004180302316429691,
+        "stat": 62.5,
+        "p": 0.7756302796693564,
+        "r": 0.08088235294117652,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 1.0
+      },
+      "mean_out_degree": {
+        "light_mean": 2.1165441271162093,
+        "light_sem": 0.07648755566219037,
+        "dark_mean": 2.0867001516472343,
+        "dark_sem": 0.09789914248875155,
+        "stat": 57.5,
+        "p": 0.5871071989491958,
+        "r": 0.15441176470588236,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 1.0
+      },
+      "n_scc": {
+        "light_mean": 3.5,
+        "light_sem": 0.505235744870389,
+        "dark_mean": 4.6,
+        "dark_sem": 0.8252591299579468,
+        "stat": 43.0,
+        "p": 0.186634912080199,
+        "r": 0.36764705882352944,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 0.933174560400995
+      },
+      "largest_scc_frac": {
+        "light_mean": 0.9587776258828891,
+        "light_sem": 0.020828834207334355,
+        "dark_mean": 0.8382946001367054,
+        "dark_sem": 0.0553107546723516,
+        "stat": 4.0,
+        "p": 0.016604878103722732,
+        "r": 0.8545454545454545,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 0.0996292686223364
+      },
+      "global_efficiency": {
+        "light_mean": 0.264093693142606,
+        "light_sem": 0.010127086891078881,
+        "dark_mean": 0.24815844783236068,
+        "dark_sem": 0.015226114974104801,
+        "stat": 76.0,
+        "p": 0.44450890263539555,
+        "r": 0.19999999999999996,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 1.0
+      },
+      "transitivity": {
+        "light_mean": 0.16962309422186017,
+        "light_sem": 0.041323092948343826,
+        "dark_mean": 0.17106740010526209,
+        "dark_sem": 0.045398838628523557,
+        "stat": 33.0,
+        "p": 0.6378701798979456,
+        "r": 0.15384615384615385,
+        "n": 20,
+        "test": "wilcoxon_signed_rank",
+        "p_adj": 1.0
+      }
+    }
+  }
+}
