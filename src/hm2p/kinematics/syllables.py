@@ -47,7 +47,7 @@ def run_keypoint_moseq(
     bodyparts: list[str] | None = None,
     kappa: float = 1e6,
     num_pcs: int = 10,
-    num_iters: int = 50,
+    num_iters: int = 100,
     use_docker: bool = True,
 ) -> dict[str, np.ndarray]:
     """Fit a keypoint-MoSeq AR-HMM model on one or more sessions.
@@ -76,9 +76,17 @@ def run_keypoint_moseq(
         FileNotFoundError: If Docker image not found or script missing.
     """
     if bodyparts is None:
+        # DLC SuperAnimal output names (pre-rename to project names).
+        # "nose" maps to project "nose_tip"; "head_midpoint" is custom.
         bodyparts = [
-            "nose", "left_ear", "right_ear", "neck",
-            "mid_back", "mouse_center", "mid_backend", "mid_backend2",
+            "nose",
+            "left_ear",
+            "right_ear",
+            "head_midpoint",
+            "neck",
+            "mid_back",
+            "mouse_center",
+            "tail_base",
         ]
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -88,22 +96,35 @@ def run_keypoint_moseq(
     dlc_dir = Path(tempfile.mkdtemp(prefix="kpms_dlc_"))
     for h5 in dlc_files:
         import shutil
+
         shutil.copy2(h5, dlc_dir / h5.name)
 
     if use_docker:
         cmd = [
-            "docker", "run", "--rm",
-            "-v", f"{dlc_dir}:/data/dlc",
-            "-v", f"{project_dir}:/data/project",
-            "-v", f"{output_dir}:/data/output",
+            "docker",
+            "run",
+            "--rm",
+            "-v",
+            f"{dlc_dir}:/data/dlc",
+            "-v",
+            f"{project_dir}:/data/project",
+            "-v",
+            f"{output_dir}:/data/output",
             KPMS_DOCKER_IMAGE,
-            "--dlc-dir", "/data/dlc",
-            "--project-dir", "/data/project",
-            "--output-dir", "/data/output",
-            "--bodyparts", *bodyparts,
-            "--kappa", str(kappa),
-            "--num-pcs", str(num_pcs),
-            "--num-iters", str(num_iters),
+            "--dlc-dir",
+            "/data/dlc",
+            "--project-dir",
+            "/data/project",
+            "--output-dir",
+            "/data/output",
+            "--bodyparts",
+            *bodyparts,
+            "--kappa",
+            str(kappa),
+            "--num-pcs",
+            str(num_pcs),
+            "--num-iters",
+            str(num_iters),
         ]
     else:
         # Direct subprocess — requires kpms installed in current env
@@ -112,14 +133,22 @@ def run_keypoint_moseq(
             raise FileNotFoundError(f"run_kpms.py not found at {script}")
 
         cmd = [
-            "python", str(script),
-            "--dlc-dir", str(dlc_dir),
-            "--project-dir", str(project_dir),
-            "--output-dir", str(output_dir),
-            "--bodyparts", *bodyparts,
-            "--kappa", str(kappa),
-            "--num-pcs", str(num_pcs),
-            "--num-iters", str(num_iters),
+            "python",
+            str(script),
+            "--dlc-dir",
+            str(dlc_dir),
+            "--project-dir",
+            str(project_dir),
+            "--output-dir",
+            str(output_dir),
+            "--bodyparts",
+            *bodyparts,
+            "--kappa",
+            str(kappa),
+            "--num-pcs",
+            str(num_pcs),
+            "--num-iters",
+            str(num_iters),
         ]
 
     log.info("Running kpms: %s", " ".join(str(c) for c in cmd[:8]) + "...")
@@ -142,9 +171,12 @@ def run_keypoint_moseq(
         session_id = npz_path.stem.replace("_syllables", "")
         data = np.load(npz_path)
         outputs[session_id] = data["syllable_id"].astype(np.int16)
-        log.info("Loaded syllables for %s: %d frames, %d unique",
-                 session_id, len(outputs[session_id]),
-                 len(np.unique(outputs[session_id])))
+        log.info(
+            "Loaded syllables for %s: %d frames, %d unique",
+            session_id,
+            len(outputs[session_id]),
+            len(np.unique(outputs[session_id])),
+        )
 
     return outputs
 
@@ -208,8 +240,7 @@ def append_syllables_to_h5(
             n_frames = len(f["frame_times"])
             if len(syllable_ids) != n_frames:
                 raise ValueError(
-                    f"syllable_ids length ({len(syllable_ids)}) != "
-                    f"frame_times length ({n_frames})"
+                    f"syllable_ids length ({len(syllable_ids)}) != frame_times length ({n_frames})"
                 )
 
         # Write syllable_id (overwrite if exists)

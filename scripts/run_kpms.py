@@ -25,6 +25,7 @@ from __future__ import annotations
 # kpms internally uses float64 but DLC pose data is float32 — JAX raises
 # ValueError if x64 mode is not enabled.
 import jax
+
 jax.config.update("jax_enable_x64", True)
 
 import argparse
@@ -34,6 +35,7 @@ import logging
 import os
 import sys
 import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Force JAX to CPU-only (avoids noisy CUDA errors on CPU instances)
@@ -47,6 +49,20 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger("kpms")
+
+# The 8 validated project bodyparts as they appear in DLC SuperAnimal output.
+# Note: DLC uses "nose" (mapped to project name "nose_tip" downstream in
+# kinematics/compute.py).  "head_midpoint" is a custom-trained keypoint.
+DEFAULT_BODYPARTS: list[str] = [
+    "nose",
+    "left_ear",
+    "right_ear",
+    "head_midpoint",
+    "neck",
+    "mid_back",
+    "mouse_center",
+    "tail_base",
+]
 
 
 # ── S3 helpers ──────────────────────────────────────────────────────────────
@@ -172,6 +188,182 @@ def parse_session_id(exp_id: str) -> tuple[str, str]:
     return sub, ses
 
 
+def get_dlc_champion_id(s3, bucket: str) -> str | None:
+    """Read the current DLC champion model ID from S3.
+
+    Returns None if the champion file doesn't exist.
+    """
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+            s3.download_file(bucket, "dlc-champion.json", tmp.name)
+            with open(tmp.name) as f:
+                data = json.load(f)
+            Path(tmp.name).unlink(missing_ok=True)
+            return data.get("champion_id", data.get("model_id"))
+    except Exception:
+        log.warning("Could not read dlc-champion.json from S3")
+        return None
+
+
+# ── Kappa sweep ─────────────────────────────────────────────────────────────
+
+
+def run_kappa_sweep(
+    data: dict,
+    metadata: dict,
+    pca: dict,
+    project_dir: Path,
+    kappa_values: list[float],
+    sweep_iters: int = 25,
+    imaging_fps: float = 30.0,
+) -> dict:
+    """Test multiple kappa values with short fits and return sweep results.
+
+    For each kappa, fits the model for ``sweep_iters`` iterations and
+    computes summary statistics. The recommended kappa is the one whose
+    median syllable duration is closest to 400 ms (kpms recommended
+    range is 300-500 ms).
+
+    Parameters
+    ----------
+    data : dict
+        Formatted kpms data dict from ``kpms.format_data``.
+    metadata : dict
+        Metadata dict from ``kpms.format_data``.
+    pca : dict
+        Fitted PCA dict.
+    project_dir : Path
+        kpms project directory.
+    kappa_values : list of float
+        Kappa values to test.
+    sweep_iters : int
+        Number of fitting iterations per kappa (default 25).
+    imaging_fps : float
+        Frame rate for converting bout duration to seconds (default 30).
+
+    Returns
+    -------
+    dict
+        Sweep results with keys: ``"kappa_values"``, ``"results"`` (list of
+        per-kappa dicts), ``"best_kappa"``, ``"best_idx"``.
+    """
+    import keypoint_moseq as kpms
+
+    target_duration_s = 0.400  # 400 ms target
+    sweep_results: list[dict] = []
+
+    for kappa in kappa_values:
+        log.info("  Sweep: kappa=%.0e (fitting %d iters)...", kappa, sweep_iters)
+
+        kpms.update_config(str(project_dir), kappa=kappa)
+        cfg = kpms.load_config(str(project_dir))
+
+        model = kpms.init_model(data, pca=pca, **cfg)
+        fit_result = kpms.fit_model(
+            model=model,
+            data=data,
+            metadata=metadata,
+            project_dir=str(project_dir),
+            model_name=f"sweep_k{kappa:.0e}",
+            num_iters=sweep_iters,
+        )
+
+        if isinstance(fit_result, tuple):
+            model_out, model_name = fit_result
+        else:
+            model_out = fit_result
+            model_name = f"sweep_k{kappa:.0e}"
+
+        results = kpms.extract_results(
+            model_out,
+            metadata,
+            str(project_dir),
+            model_name=model_name,
+        )
+
+        # Compute summary stats across all sessions
+        all_syllables = []
+        all_bout_durations = []
+        for _session_id, session_res in results.items():
+            syl = np.array(session_res["syllable"])
+            all_syllables.extend(syl.tolist())
+
+            # Compute bout durations: consecutive runs of same syllable
+            if len(syl) > 0:
+                changes = np.where(np.diff(syl) != 0)[0] + 1
+                boundaries = np.concatenate([[0], changes, [len(syl)]])
+                bout_lengths = np.diff(boundaries)
+                all_bout_durations.extend(bout_lengths.tolist())
+
+        all_syllables = np.array(all_syllables)
+        unique_syllables, counts = np.unique(all_syllables, return_counts=True)
+        total_frames = len(all_syllables)
+
+        # Effective syllables: those with >0.5% occupancy
+        if total_frames > 0:
+            occupancy = counts / total_frames
+            n_effective = int(np.sum(occupancy > 0.005))
+        else:
+            n_effective = 0
+
+        # Entropy of syllable distribution
+        if total_frames > 0:
+            probs = counts / total_frames
+            entropy = float(-np.sum(probs * np.log2(probs + 1e-12)))
+        else:
+            entropy = 0.0
+
+        # Median bout duration
+        if all_bout_durations:
+            median_bout_frames = float(np.median(all_bout_durations))
+            median_bout_s = median_bout_frames / imaging_fps
+        else:
+            median_bout_frames = 0.0
+            median_bout_s = 0.0
+
+        result_entry = {
+            "kappa": kappa,
+            "n_unique_syllables": len(unique_syllables),
+            "n_effective_syllables": n_effective,
+            "entropy": entropy,
+            "median_bout_frames": median_bout_frames,
+            "median_bout_duration_s": median_bout_s,
+        }
+        sweep_results.append(result_entry)
+        log.info(
+            "    kappa=%.0e: %d effective syllables, median bout=%.3fs, entropy=%.2f",
+            kappa,
+            n_effective,
+            median_bout_s,
+            entropy,
+        )
+
+    # Select best kappa: closest median duration to 400ms
+    best_idx = 0
+    best_distance = float("inf")
+    for i, r in enumerate(sweep_results):
+        distance = abs(r["median_bout_duration_s"] - target_duration_s)
+        if distance < best_distance:
+            best_distance = distance
+            best_idx = i
+
+    best_kappa = sweep_results[best_idx]["kappa"]
+    log.info(
+        "Kappa sweep complete. Best kappa=%.0e (median bout=%.3fs, target=%.3fs)",
+        best_kappa,
+        sweep_results[best_idx]["median_bout_duration_s"],
+        target_duration_s,
+    )
+
+    return {
+        "kappa_values": [float(k) for k in kappa_values],
+        "results": sweep_results,
+        "best_kappa": best_kappa,
+        "best_idx": best_idx,
+        "target_duration_s": target_duration_s,
+    }
+
+
 # ── keypoint-MoSeq wrapper ─────────────────────────────────────────────────
 
 
@@ -179,23 +371,37 @@ def fit_kpms(
     dlc_files: dict[str, Path],
     project_dir: Path,
     bodyparts: list[str],
-    kappa: float = 1e6,
+    kappa: float | None = None,
     num_pcs: int = 10,
-    num_iters: int = 50,
-) -> dict[str, dict[str, np.ndarray]]:
+    num_iters: int = 100,
+    kappa_sweep: bool = False,
+) -> tuple[dict[str, dict[str, np.ndarray]], dict]:
     """Fit keypoint-MoSeq AR-HMM on DLC .h5 files.
 
-    Args:
-        dlc_files: Dict of session_id → DLC .h5 file path.
-        project_dir: Working directory for kpms config/checkpoints.
-        bodyparts: List of body part names to use.
-        kappa: AR-HMM stickiness (higher = longer syllables).
-        num_pcs: Number of PCA components.
-        num_iters: Number of fitting iterations.
+    Parameters
+    ----------
+    dlc_files : dict[str, Path]
+        Dict of session_id to DLC .h5 file path.
+    project_dir : Path
+        Working directory for kpms config/checkpoints.
+    bodyparts : list[str]
+        List of body part names to use for fitting.
+    kappa : float or None
+        AR-HMM stickiness (higher = longer syllables). If None and
+        kappa_sweep is False, defaults to 1e6.
+    num_pcs : int
+        Number of PCA components.
+    num_iters : int
+        Number of fitting iterations.
+    kappa_sweep : bool
+        If True, run a kappa sweep first to select the value.
 
-    Returns:
-        Dict of session_id → {"syllable_id": (N,) int16,
-                               "syllable_prob": (N, S) float32}
+    Returns
+    -------
+    tuple[dict, dict]
+        (results_dict, fit_info) where results_dict maps session_id to
+        {"syllable_id": (N,) int16, "syllable_prob": (N, S) float32},
+        and fit_info contains fitting metadata (kappa used, PCA variance, etc.).
     """
     import shutil
 
@@ -217,9 +423,9 @@ def fit_kpms(
     # list.  kpms.format_data asserts len(bodyparts) == coordinates.shape[K],
     # so config `bodyparts` must list ALL keypoints from the file, while
     # `use_bodyparts` selects our desired subset.
-    import tempfile
+    import tempfile as _tempfile
 
-    link_dir = Path(tempfile.mkdtemp(prefix="kpms_links_"))
+    link_dir = Path(_tempfile.mkdtemp(prefix="kpms_links_"))
     for sid, h5_path in dlc_files.items():
         # kpms uses the filename (minus extension) as session key
         link = link_dir / f"{sid}.h5"
@@ -261,7 +467,7 @@ def fit_kpms(
     kpms.update_config(
         str(project_dir),
         anterior_bodyparts=[bodyparts[0]],  # e.g. "nose"
-        posterior_bodyparts=[bodyparts[-1]],  # e.g. "mid_backend2"
+        posterior_bodyparts=[bodyparts[-1]],  # e.g. "tail_base"
         bodyparts=all_bodyparts,
         use_bodyparts=bodyparts,
         skeleton=[],
@@ -290,6 +496,7 @@ def fit_kpms(
     # DLC pose data and format_data output are float32.  Use the library's
     # own converter which handles nested dicts, JAX arrays, and numpy arrays.
     from jax_moseq.utils.debugging import convert_data_precision
+
     data = convert_data_precision(data)
     log.info("Converted data to 64-bit precision via convert_data_precision")
 
@@ -298,9 +505,6 @@ def fit_kpms(
     # for DLC data with confidence scores.
 
     # ── PCA ────────────────────────────────────────────────────────────────
-    # kpms.fit_pca is jax_moseq.models.keypoint_slds.fit_pca which takes:
-    #   fit_pca(Y, mask, anterior_idxs, posterior_idxs, conf, ...)
-    # NOT fit_pca(project_dir, data). We must unpack data and config.
     log.info("Fitting PCA (num_pcs=%d)...", num_pcs)
     kpms.update_config(str(project_dir), num_pcs=num_pcs)
     cfg = config()
@@ -323,10 +527,41 @@ def fit_kpms(
     # contain sklearn PCA objects (non-numeric) — convert only array leaves.
     if isinstance(pca, dict):
         for k, v in pca.items():
-            if hasattr(v, "dtype") and np.issubdtype(v.dtype, np.floating) and v.dtype != np.float64:
+            is_float = hasattr(v, "dtype") and np.issubdtype(v.dtype, np.floating)
+            if is_float and v.dtype != np.float64:
                 pca[k] = np.asarray(v, dtype=np.float64)
                 log.info("  Cast pca['%s'] %s → float64", k, v.dtype)
     log.info("PCA precision check complete")
+
+    # Save PCA explained variance
+    pca_variance = {}
+    if isinstance(pca, dict):
+        for k, v in pca.items():
+            if isinstance(v, np.ndarray) and "variance" in k.lower():
+                pca_variance[k] = v.tolist()
+            elif hasattr(v, "explained_variance_ratio_"):
+                # sklearn PCA object
+                pca_variance["explained_variance_ratio"] = v.explained_variance_ratio_.tolist()
+    log.info("PCA variance keys: %s", list(pca_variance.keys()))
+
+    # ── Kappa sweep (optional) ────────────────────────────────────────────
+    sweep_results = None
+    if kappa_sweep:
+        log.info("Running kappa sweep...")
+        kappa_values = [1e3, 1e4, 1e5, 1e6]
+        sweep_results = run_kappa_sweep(
+            data=data,
+            metadata=metadata,
+            pca=pca,
+            project_dir=project_dir,
+            kappa_values=kappa_values,
+            sweep_iters=25,
+        )
+        kappa = sweep_results["best_kappa"]
+        log.info("Selected kappa from sweep: %.0e", kappa)
+    elif kappa is None:
+        kappa = 1e6
+        log.info("Using default kappa=%.0e", kappa)
 
     # ── AR-HMM fitting ─────────────────────────────────────────────────────
     log.info("Fitting AR-HMM (kappa=%.0e, n_iters=%d)...", kappa, num_iters)
@@ -350,6 +585,34 @@ def fit_kpms(
         model, model_name = fit_result
     else:
         model = fit_result
+
+    # ── Capture ELBO/convergence trace if available ────────────────────────
+    elbo_trace = None
+    if isinstance(model, dict):
+        # kpms stores log-likelihood history in some versions
+        for key in ("ll_history", "elbo_history", "log_likelihood"):
+            if key in model:
+                elbo_trace = np.array(model[key]).tolist()
+                log.info(
+                    "Captured convergence trace from model['%s'] (%d values)",
+                    key,
+                    len(elbo_trace),
+                )
+                break
+
+    # Check for saved checkpoint files with ELBO traces
+    checkpoint_dir = project_dir / model_name
+    if elbo_trace is None and checkpoint_dir.exists():
+        for fname in ("history.json", "elbo.json", "log_likelihood.json"):
+            fpath = checkpoint_dir / fname
+            if fpath.exists():
+                try:
+                    with open(fpath) as f:
+                        elbo_trace = json.load(f)
+                    log.info("Loaded convergence trace from %s", fpath)
+                    break
+                except Exception:
+                    pass
 
     # ── Extract results ────────────────────────────────────────────────────
     log.info("Extracting results for model_name=%s...", model_name)
@@ -394,7 +657,101 @@ def fit_kpms(
         else:
             log.warning("  %s: not in results (skipped by kpms?)", session_id)
 
-    return output
+    # Build fit_info metadata
+    fit_info = {
+        "kappa": kappa,
+        "num_pcs": num_pcs,
+        "num_iters": num_iters,
+        "bodyparts": bodyparts,
+        "all_bodyparts": list(all_bodyparts),
+        "pca_variance": pca_variance,
+        "sweep_results": sweep_results,
+        "elbo_trace": elbo_trace,
+        "fit_timestamp": datetime.now(UTC).isoformat(),
+    }
+
+    return output, fit_info
+
+
+# ── Provenance ──────────────────────────────────────────────────────────────
+
+
+def build_provenance(
+    session_id: str,
+    syllable_id: np.ndarray,
+    fit_info: dict,
+    dlc_champion_id: str | None,
+) -> dict:
+    """Build provenance metadata for a session's syllable output.
+
+    Parameters
+    ----------
+    session_id : str
+        Session exp_id.
+    syllable_id : ndarray
+        (N,) syllable ID array for this session.
+    fit_info : dict
+        Fitting metadata from ``fit_kpms``.
+    dlc_champion_id : str or None
+        DLC champion model ID (from dlc-champion.json).
+
+    Returns
+    -------
+    dict
+        Provenance metadata suitable for JSON serialization.
+    """
+    try:
+        import keypoint_moseq
+
+        kpms_version = keypoint_moseq.__version__
+    except Exception:
+        kpms_version = "unknown"
+
+    unique_syllables = np.unique(syllable_id)
+
+    # Compute median bout duration
+    if len(syllable_id) > 0:
+        changes = np.where(np.diff(syllable_id) != 0)[0] + 1
+        boundaries = np.concatenate([[0], changes, [len(syllable_id)]])
+        bout_lengths = np.diff(boundaries)
+        # Assume 30 fps for DLC output (subsampled from ~100 fps)
+        median_bout_s = float(np.median(bout_lengths) / 30.0)
+    else:
+        median_bout_s = 0.0
+
+    return {
+        "dlc_champion_id": dlc_champion_id,
+        "kpms_version": kpms_version,
+        "kappa": fit_info["kappa"],
+        "num_pcs": fit_info["num_pcs"],
+        "num_iters": fit_info["num_iters"],
+        "bodyparts": fit_info["bodyparts"],
+        "fit_timestamp": fit_info["fit_timestamp"],
+        "n_unique_syllables": len(unique_syllables),
+        "median_bout_duration_s": median_bout_s,
+    }
+
+
+def provenance_matches(existing: dict, current: dict) -> bool:
+    """Check if existing provenance matches current run parameters.
+
+    Used by --skip-existing to determine whether a session's output
+    is still valid.
+
+    Parameters
+    ----------
+    existing : dict
+        Provenance from an existing syllables.provenance.json.
+    current : dict
+        Provenance for the current run.
+
+    Returns
+    -------
+    bool
+        True if key parameters match (same DLC champion, kappa, bodyparts, num_iters).
+    """
+    keys_to_compare = ["dlc_champion_id", "kappa", "bodyparts", "num_pcs", "num_iters"]
+    return all(existing.get(key) == current.get(key) for key in keys_to_compare)
 
 
 # ── Main ────────────────────────────────────────────────────────────────────
@@ -442,30 +799,39 @@ def main():
     parser.add_argument(
         "--bodyparts",
         nargs="*",
-        default=[
-            "nose",
-            "left_ear",
-            "right_ear",
-            "neck",
-            "mid_back",
-            "mouse_center",
-            "mid_backend",
-            "mid_backend2",
-        ],
-        help="Body parts to use for fitting (kpms recommends 5-10, no tail).",
+        default=DEFAULT_BODYPARTS,
+        help="Body parts to use for fitting (kpms recommends 5-10, no tail tip).",
     )
-    parser.add_argument("--kappa", type=float, default=1e6)
+    parser.add_argument(
+        "--kappa", type=float, default=None, help="AR-HMM kappa (stickiness). Overrides sweep."
+    )
+    parser.add_argument(
+        "--kappa-sweep",
+        action="store_true",
+        help="Run kappa sweep (1e3, 1e4, 1e5, 1e6) with 25 iters each, "
+        "then full fit with best kappa. Ignored if --kappa is set.",
+    )
     parser.add_argument("--num-pcs", type=int, default=10)
-    parser.add_argument("--num-iters", type=int, default=50)
+    parser.add_argument("--num-iters", type=int, default=100)
     parser.add_argument(
         "--skip-existing",
         action="store_true",
-        help="Skip sessions that already have syllable output on S3.",
+        help="Skip per-session upload for sessions whose existing output "
+        "has matching provenance. All sessions are still included in "
+        "the joint model fit.",
     )
 
     args = parser.parse_args()
 
+    # If --kappa is explicitly set, disable sweep
+    use_sweep = args.kappa_sweep and args.kappa is None
+    if args.kappa_sweep and args.kappa is not None:
+        log.info("--kappa explicitly set to %.0e, ignoring --kappa-sweep", args.kappa)
+
     # ── Determine which sessions to process ─────────────────────────────────
+
+    s3 = None
+    using_s3 = args.all_sessions or args.sessions
 
     if args.dlc_dir:
         # Local mode: find DLC .h5 files
@@ -476,8 +842,9 @@ def main():
             dlc_files[session_id] = h5
         log.info("Found %d DLC files in %s", len(dlc_files), args.dlc_dir)
 
-    elif args.all_sessions or args.sessions:
-        # S3 mode: download DLC outputs
+    elif using_s3:
+        # S3 mode: download ALL DLC outputs for joint model fitting.
+        # --skip-existing only affects per-session upload, NOT download.
         s3 = get_s3_client()
 
         # Load experiments
@@ -498,17 +865,8 @@ def main():
             exp_id = exp["exp_id"]
             sub, ses = parse_session_id(exp_id)
 
-            # Check if syllable output already exists
-            if args.skip_existing:
-                syllable_key = f"kinematics/{sub}/{ses}/syllables.npz"
-                try:
-                    s3.head_object(Bucket=args.s3_bucket, Key=syllable_key)
-                    log.info("Skipping %s (syllables already on S3)", exp_id)
-                    continue
-                except Exception:
-                    pass
-
-            # Download DLC .h5 from pose/
+            # Download DLC .h5 from pose/ — always download ALL sessions
+            # because kpms fits ONE joint model across all sessions
             pose_prefix = f"pose/{sub}/{ses}/"
             try:
                 resp = s3.list_objects_v2(
@@ -552,16 +910,53 @@ def main():
 
     log.info("Starting keypoint-MoSeq fitting on %d sessions...", len(dlc_files))
 
-    results = fit_kpms(
+    results, fit_info = fit_kpms(
         dlc_files=dlc_files,
         project_dir=args.project_dir,
         bodyparts=args.bodyparts,
         kappa=args.kappa,
         num_pcs=args.num_pcs,
         num_iters=args.num_iters,
+        kappa_sweep=use_sweep,
     )
 
     log.info("Fitting complete. %d sessions have results.", len(results))
+
+    # ── Read DLC champion ID for provenance ──────────────────────────────
+    dlc_champion_id = None
+    if using_s3:
+        if s3 is None:
+            s3 = get_s3_client()
+        dlc_champion_id = get_dlc_champion_id(s3, args.s3_bucket)
+        log.info("DLC champion ID: %s", dlc_champion_id)
+
+    # ── Determine which sessions to skip upload for ──────────────────────
+    skip_upload_sessions: set[str] = set()
+    if args.skip_existing and using_s3:
+        if s3 is None:
+            s3 = get_s3_client()
+        for session_id, data in results.items():
+            sub, ses = parse_session_id(session_id)
+            prov_key = f"kinematics/{sub}/{ses}/syllables.provenance.json"
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
+                    s3.download_file(args.s3_bucket, prov_key, tmp.name)
+                    with open(tmp.name) as f:
+                        existing_prov = json.load(f)
+                    Path(tmp.name).unlink(missing_ok=True)
+
+                # Build current provenance to compare
+                current_prov = build_provenance(
+                    session_id, data["syllable_id"], fit_info, dlc_champion_id
+                )
+                if provenance_matches(existing_prov, current_prov):
+                    log.info("Skipping upload for %s (provenance matches)", session_id)
+                    skip_upload_sessions.add(session_id)
+                else:
+                    log.info("Will re-upload %s (provenance mismatch)", session_id)
+            except Exception:
+                # No existing provenance — upload
+                pass
 
     # ── Save outputs ────────────────────────────────────────────────────────
 
@@ -573,21 +968,116 @@ def main():
         if data.get("syllable_prob") is not None:
             npz_data["syllable_prob"] = data["syllable_prob"]
 
+        # Build provenance
+        provenance = build_provenance(session_id, data["syllable_id"], fit_info, dlc_champion_id)
+
         if args.output_dir:
             # Save locally
             out_path = args.output_dir / f"{session_id}_syllables.npz"
             np.savez_compressed(out_path, **npz_data)
             log.info("Saved %s", out_path)
 
-        if args.all_sessions or args.sessions:
-            # Upload to S3
-            s3 = get_s3_client()
-            sub, ses = parse_session_id(session_id)
-            s3_key = f"kinematics/{sub}/{ses}/syllables.npz"
+            # Save provenance locally
+            prov_path = args.output_dir / f"{session_id}_syllables.provenance.json"
+            with open(prov_path, "w") as f:
+                json.dump(provenance, f, indent=2)
 
+        if using_s3:
+            if session_id in skip_upload_sessions:
+                continue
+
+            if s3 is None:
+                s3 = get_s3_client()
+            sub, ses = parse_session_id(session_id)
+
+            # Upload syllables.npz
+            s3_key = f"kinematics/{sub}/{ses}/syllables.npz"
             with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as tmp:
                 np.savez_compressed(tmp.name, **npz_data)
                 upload_s3_file(s3, Path(tmp.name), args.s3_bucket, s3_key)
+
+            # Upload provenance
+            prov_key = f"kinematics/{sub}/{ses}/syllables.provenance.json"
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+                json.dump(provenance, tmp, indent=2)
+                tmp.flush()
+                upload_s3_file(s3, Path(tmp.name), args.s3_bucket, prov_key)
+
+    # ── Upload model artifacts to S3 ───────────────────────────────────────
+
+    if using_s3:
+        if s3 is None:
+            s3 = get_s3_client()
+        model_s3_prefix = "kinematics/kpms_model"
+        log.info("Uploading model artifacts to s3://%s/%s/...", args.s3_bucket, model_s3_prefix)
+
+        # Upload results.h5 if it exists
+        results_h5 = args.project_dir / "hm2p_kpms" / "results.h5"
+        if results_h5.exists():
+            upload_s3_file(s3, results_h5, args.s3_bucket, f"{model_s3_prefix}/results.h5")
+        else:
+            # Search for any results file in the project dir
+            for rh5 in args.project_dir.rglob("results.h5"):
+                upload_s3_file(s3, rh5, args.s3_bucket, f"{model_s3_prefix}/results.h5")
+                break
+
+        # Upload config.yml
+        config_yml = args.project_dir / "config.yml"
+        if config_yml.exists():
+            upload_s3_file(s3, config_yml, args.s3_bucket, f"{model_s3_prefix}/config.yml")
+
+        # Upload PCA explained variance
+        if fit_info.get("pca_variance"):
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+                json.dump(fit_info["pca_variance"], tmp, indent=2)
+                tmp.flush()
+                upload_s3_file(
+                    s3,
+                    Path(tmp.name),
+                    args.s3_bucket,
+                    f"{model_s3_prefix}/pca_variance.json",
+                )
+
+        # Upload sweep results if sweep was run
+        if fit_info.get("sweep_results"):
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+                json.dump(fit_info["sweep_results"], tmp, indent=2)
+                tmp.flush()
+                upload_s3_file(
+                    s3,
+                    Path(tmp.name),
+                    args.s3_bucket,
+                    f"{model_s3_prefix}/kappa_sweep.json",
+                )
+
+        # Upload ELBO/convergence trace if captured
+        if fit_info.get("elbo_trace"):
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+                json.dump({"elbo_trace": fit_info["elbo_trace"]}, tmp, indent=2)
+                tmp.flush()
+                upload_s3_file(
+                    s3,
+                    Path(tmp.name),
+                    args.s3_bucket,
+                    f"{model_s3_prefix}/convergence.json",
+                )
+
+        # Upload fit_info (complete metadata)
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
+            # fit_info may contain non-serializable items; sanitize
+            serializable_info = {
+                k: v
+                for k, v in fit_info.items()
+                if k != "pca_variance"  # already uploaded separately
+            }
+            json.dump(serializable_info, tmp, indent=2, default=str)
+            tmp.flush()
+            upload_s3_file(
+                s3,
+                Path(tmp.name),
+                args.s3_bucket,
+                f"{model_s3_prefix}/fit_info.json",
+            )
 
     # ── Summary ─────────────────────────────────────────────────────────────
 
@@ -606,10 +1096,11 @@ def main():
             for sid, d in results.items()
         },
         "params": {
-            "kappa": args.kappa,
-            "num_pcs": args.num_pcs,
-            "num_iters": args.num_iters,
-            "bodyparts": args.bodyparts,
+            "kappa": fit_info["kappa"],
+            "num_pcs": fit_info["num_pcs"],
+            "num_iters": fit_info["num_iters"],
+            "bodyparts": fit_info["bodyparts"],
+            "kappa_sweep": use_sweep,
         },
     }
 
@@ -624,8 +1115,9 @@ def main():
         with open(args.output_dir / "kpms_summary.json", "w") as f:
             json.dump(summary, f, indent=2)
 
-    if args.all_sessions or args.sessions:
-        s3 = get_s3_client()
+    if using_s3:
+        if s3 is None:
+            s3 = get_s3_client()
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
             json.dump(summary, tmp, indent=2)
             tmp.flush()

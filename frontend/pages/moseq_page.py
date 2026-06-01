@@ -82,12 +82,14 @@ if syllable_sessions:
     for ss in sorted(syllable_sessions, key=lambda x: x["key"]):
         animal_id = ss["sub"].replace("sub-", "")
         celltype = animal_map.get(animal_id, {}).get("celltype", "?")
-        file_info.append({
-            "Subject": ss["sub"],
-            "Session": ss["ses"],
-            "Cell type": celltype,
-            "Size (KB)": f"{ss['size'] / 1024:.0f}",
-        })
+        file_info.append(
+            {
+                "Subject": ss["sub"],
+                "Session": ss["ses"],
+                "Cell type": celltype,
+                "Size (KB)": f"{ss['size'] / 1024:.0f}",
+            }
+        )
 
     with st.expander(f"Per-session files ({n_done} sessions)"):
         st.dataframe(pd.DataFrame(file_info), use_container_width=True)
@@ -108,12 +110,16 @@ if summary is not None:
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("Total unique syllables", global_info.get("n_syllables", "?"))
         col2.metric("Total frames", f"{global_info.get('total_frames', 0):,}")
-        col3.metric("Mean syllables/session", f"{global_info.get('mean_syllables_per_session', 0):.1f}")
+        col3.metric(
+            "Mean syllables/session", f"{global_info.get('mean_syllables_per_session', 0):.1f}"
+        )
         col4.metric("Median bout length", f"{global_info.get('median_bout_frames', '?')}")
 
     if sessions_info:
         sum_df = pd.DataFrame(sessions_info)
-        display_cols = [c for c in ["session", "sub", "ses", "n_frames", "n_syllables"] if c in sum_df.columns]
+        display_cols = [
+            c for c in ["session", "sub", "ses", "n_frames", "n_syllables"] if c in sum_df.columns
+        ]
         if display_cols:
             with st.expander("Per-session summary (from kpms_summary.json)"):
                 st.dataframe(sum_df[display_cols], use_container_width=True)
@@ -132,13 +138,15 @@ else:
             unique_ids = np.unique(s["syllable_id"])
             all_unique.update(unique_ids.tolist())
             total_frames += s["n_frames"]
-            stats_rows.append({
-                "Subject": s["sub"],
-                "Session": s["ses"],
-                "Cell type": s["celltype"],
-                "Frames": s["n_frames"],
-                "Syllable types": s["n_syllables"],
-            })
+            stats_rows.append(
+                {
+                    "Subject": s["sub"],
+                    "Session": s["ses"],
+                    "Cell type": s["celltype"],
+                    "Frames": s["n_frames"],
+                    "Syllable types": s["n_syllables"],
+                }
+            )
 
         col1, col2, col3 = st.columns(3)
         col1.metric("Total unique syllables", len(all_unique))
@@ -156,13 +164,16 @@ else:
                 pooled_counts[int(sid)] = pooled_counts.get(int(sid), 0) + int(cnt)
 
         if pooled_counts:
-            sorted_ids = sorted(pooled_counts.keys(),
-                                key=lambda x: pooled_counts[x], reverse=True)
-            fig = go.Figure(data=[go.Bar(
-                x=[str(s) for s in sorted_ids],
-                y=[pooled_counts[s] for s in sorted_ids],
-                marker_color="steelblue",
-            )])
+            sorted_ids = sorted(pooled_counts.keys(), key=lambda x: pooled_counts[x], reverse=True)
+            fig = go.Figure(
+                data=[
+                    go.Bar(
+                        x=[str(s) for s in sorted_ids],
+                        y=[pooled_counts[s] for s in sorted_ids],
+                        marker_color="steelblue",
+                    )
+                ]
+            )
             fig.update_layout(
                 title="Syllable Usage (pooled across all sessions)",
                 xaxis_title="Syllable ID",
@@ -191,19 +202,23 @@ with st.expander("EC2 Instance Status"):
                 state = inst["State"]["Name"]
                 if state == "terminated":
                     continue
-                instances.append({
-                    "Instance ID": inst["InstanceId"],
-                    "State": state,
-                    "Type": inst.get("InstanceType", "---"),
-                    "IP": inst.get("PublicIpAddress", "---"),
-                    "Launch": str(inst.get("LaunchTime", "---"))[:19],
-                })
+                instances.append(
+                    {
+                        "Instance ID": inst["InstanceId"],
+                        "State": state,
+                        "Type": inst.get("InstanceType", "---"),
+                        "IP": inst.get("PublicIpAddress", "---"),
+                        "Launch": str(inst.get("LaunchTime", "---"))[:19],
+                    }
+                )
 
         if instances:
             for inst in instances:
                 state = inst["State"]
                 if state == "running":
-                    st.success(f"Instance **{inst['Instance ID']}** is **running** at `{inst['IP']}`")
+                    st.success(
+                        f"Instance **{inst['Instance ID']}** is **running** at `{inst['IP']}`"
+                    )
                 elif state == "stopped":
                     st.warning(f"Instance **{inst['Instance ID']}** is **stopped**")
                 else:
@@ -221,13 +236,13 @@ with st.expander("Pipeline Parameters"):
     st.markdown("""
     | Parameter | Value |
     |-----------|-------|
-    | **AR-HMM kappa** | 1,000,000 |
+    | **AR-HMM kappa** | Selected via sweep (1e3, 1e4, 1e5, 1e6); target 400 ms median bout |
     | **Num PCs** | 10 |
-    | **Num iterations** | 50 |
-    | **Bodyparts** | nose, left_ear, right_ear, neck, mid_back, mouse_center, mid_backend, mid_backend2 |
+    | **Num iterations** | 100 (sweep: 25 per kappa) |
+    | **Bodyparts** | nose, left_ear, right_ear, head_midpoint, neck, mid_back, mouse_center, tail_base (8 keypoints) |
     | **Input** | DLC `.h5` files from S3 `pose/` (30 fps subsampled) |
-    | **Output** | `syllables.npz` per session in S3 `kinematics/{sub}/{ses}/` |
-    | **Instance type** | c5.2xlarge (8 vCPU, 16 GB, CPU-only) |
+    | **Output** | `syllables.npz` + `syllables.provenance.json` per session in S3 `kinematics/{sub}/{ses}/` |
+    | **Instance type** | c5.4xlarge (16 vCPU, 32 GB, CPU-only) |
     | **Docker image** | `hm2p-kpms` (isolated numpy<1.27 environment) |
     """)
 
@@ -240,7 +255,7 @@ with st.expander("Methods & References"):
     It fits an autoregressive hidden Markov model (AR-HMM) to keypoint
     trajectories, segmenting continuous behaviour into discrete states.
 
-    The model runs on DLC pose output (5 bodyparts at 30 fps) in an
+    The model runs on DLC pose output (8 bodyparts at 30 fps) in an
     isolated Docker container (due to numpy version conflicts). Results
     are `syllable_id` (int16) per frame and `syllable_prob` (float32)
     posterior probabilities.

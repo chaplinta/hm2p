@@ -39,8 +39,8 @@ TAG_PROJECT = {"Key": "Project", "Value": "hm2p-kpms"}
 STATE_FILE = Path.home() / ".hm2p-kpms-ec2.json"
 
 # DLC .h5 files are ~300 MB each × 26 sessions ≈ 8 GB download
-# Plus Docker image + kpms fitting workspace
-ROOT_VOLUME_GB = 80
+# Plus Docker image + kpms fitting workspace + model artifacts
+ROOT_VOLUME_GB = 100
 
 
 def get_sg_id() -> str:
@@ -125,11 +125,11 @@ def build_user_data() -> str:
             --project-dir /data/project \\
             --output-dir /data/output \\
             --skip-existing \\
-            --bodyparts nose left_ear right_ear neck \\
-                mid_back mouse_center mid_backend mid_backend2 \\
-            --kappa 1000000 \\
+            --bodyparts nose left_ear right_ear head_midpoint \\
+                neck mid_back mouse_center tail_base \\
+            --kappa-sweep \\
             --num-pcs 10 \\
-            --num-iters 50
+            --num-iters 100
         RUN_EXIT=$?
 
         if [ $RUN_EXIT -ne 0 ]; then

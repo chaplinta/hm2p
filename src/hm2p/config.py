@@ -147,13 +147,25 @@ class PipelineConfig(BaseSettings):
         description="Number of PCA components for keypoint-MoSeq.",
     )
     kpms_num_iters: int = Field(
-        default=50,
+        default=100,
         ge=10,
         description="Number of AR-HMM fitting iterations.",
     )
     kpms_bodyparts: list[str] = Field(
-        default=["left_ear", "right_ear", "mid_back", "mouse_center", "tail_base"],
-        description="Body parts to use for syllable fitting.",
+        default=[
+            "nose",
+            "left_ear",
+            "right_ear",
+            "head_midpoint",
+            "neck",
+            "mid_back",
+            "mouse_center",
+            "tail_base",
+        ],
+        description=(
+            "Body parts to use for syllable fitting. Names must match DLC "
+            "output columns (e.g. 'nose' not 'nose_tip')."
+        ),
     )
 
     # ── Stage 5 — Sync ─────────────────────────────────────────────────────
