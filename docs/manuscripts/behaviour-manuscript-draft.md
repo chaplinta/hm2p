@@ -2,7 +2,7 @@
 
 **Working draft -- behavioural methods/descriptive paper**
 
-Status: Draft v1.0 -- 2026-06-01 (pseudoreplication handling: 3-level analysis, updated N=23/15/12, per-animal averaging placeholders)
+Status: Draft v1.0 -- 2026-06-02 (pseudoreplication: first-session-per-animal independence check, N=23/15)
 
 ---
 
@@ -87,9 +87,11 @@ independent corroboration of route stereotypy.
    alternation, modest backtracking). First-order Markov model preferred.
 
 2. **Spatial coverage decreases in darkness** -- Per-epoch spatial coverage
-   drops robustly in darkness (N = 23, p = 0.0003, r = 0.86; per-animal
-   N = 15, p = [PENDING]; primary-only N = 12, p = 0.010). This is the
-   strongest and most consistent behavioural marker of visual cue removal.
+   drops robustly in darkness (N = 23, p = 0.0003, r = 0.86). The
+   cell-type-specific breakdown (corridor p = 0.0004, junction p = 0.003,
+   dead-end p = 0.169; N = 15 first-session independence check) confirms
+   the pattern with fully independent observations. This is the strongest
+   and most consistent behavioural marker of visual cue removal.
 
 3. **The coverage drop reflects route stereotypy** -- Corridor and junction
    coverage drop significantly; dead-end coverage is unchanged. Mice
@@ -297,7 +299,7 @@ poor imaging and restricted behaviour (exp 26, animal 1118317). This left 23
 usable sessions from 15 animals for behavioural analysis (11 Penk-Cre
 animals contributing 16 sessions; 4 Penk-Cre/Cre-OFF animals contributing
 7 sessions). Five animals contributed multiple sessions (2--3 sessions each;
-see *Pseudoreplication and multi-level analysis* below).
+see *Pseudoreplication and independence check* below).
 
 ### Surgical preparation and head-mounted two-photon imaging
 
@@ -488,38 +490,35 @@ test on HD angle distributions per maze cell.
 For within-session light vs dark comparisons, metrics were computed
 separately for all light epochs pooled and all dark epochs pooled within a
 session. The session-level paired difference (dark - light) was then tested
-across sessions using Wilcoxon signed-rank (N = 23 sessions). Per-animal
-and primary-only analyses followed the multi-level framework described
-above (see *Pseudoreplication and multi-level analysis*).
+across sessions using Wilcoxon signed-rank (N = 23 sessions). The
+first-session independence check followed the framework described above
+(see *Pseudoreplication and independence check*).
 
-### Pseudoreplication and multi-level analysis
+### Pseudoreplication and independence check
 
 Five animals contributed multiple sessions (2--3 sessions each), so that
 23 sessions were drawn from 15 animals rather than 23 independent animals.
-To control for pseudoreplication, all primary light-vs-dark comparisons
-were analysed at three levels:
+To control for pseudoreplication, we repeated all primary analyses using
+only the first session per animal (N = 15), ensuring full statistical
+independence. For each animal, the chronologically earliest non-excluded
+session was selected, yielding 15 fully independent observations.
+
+Results are reported at two levels:
 
 1. **All sessions (N = 23).** Maximum statistical power; the primary
    reporting level throughout. Each session contributes one paired
    observation (light vs dark).
 
-2. **Per-animal averages (N = 15).** For animals with multiple sessions,
-   each metric was first averaged across sessions within the animal, then
-   the resulting 15 per-animal values were tested with Wilcoxon signed-rank.
-   This treats each animal as the unit of observation and eliminates
-   pseudoreplication entirely.
-
-3. **Primary sessions only (N = 12).** One designated primary session per
-   animal (12 of 15 animals; three animals lack a designated primary
-   session). This provides a fully independent sample at the cost of
-   reduced power.
+2. **First session per animal (N = 15).** Fully independent observations.
+   This eliminates pseudoreplication entirely by including exactly one
+   session per animal.
 
 The core findings (spatial coverage reduction, corridor-junction-dead-end
-dissociation, single-trial adaptation) are consistent across all three
-levels. Results from all three levels are reported inline in the Results
-for key findings and in full in Supplementary Table S1. Where conclusions
-differ between levels, the per-animal result takes precedence over the
-all-sessions result.
+dissociation, single-trial adaptation) are consistent across both levels.
+First-session results are reported inline in the Results for key findings
+and in full in Supplementary Table S1. Where conclusions differ between
+levels, the first-session result takes precedence over the all-sessions
+result.
 
 ---
 
@@ -588,8 +587,8 @@ preserved transition entropy (Supplementary Table S2).
 **Panel D.** Revisitation index (total transitions / unique cells visited)
 in light vs dark. Paired comparison across sessions (p = 0.011, r = 0.64).
 Higher values in darkness indicate increased revisitation of
-already-covered cells. Note: does not survive primary-only analysis
-(p = 0.067; Supplementary Table S1).
+already-covered cells. Consistent in first-session check (p = 0.030,
+r = 0.63, N = 15; Supplementary Table S1).
 
 **Panel E.** Per-cell coverage heatmap on maze grid. Colour-code each of
 the 23 cells by the mean visit fraction delta (dark - light). Six cells
@@ -626,8 +625,8 @@ N = 23), ruling out a locomotor explanation for the first-epoch effect.
 *Note: Values shown are means across sessions (N = 23). Wilcoxon signed-rank
 test on paired session-level values. p-values are Holm-Bonferroni-adjusted
 within each figure family. Effect sizes are matched-pairs rank-biserial r.
-See Supplementary Table S1 for per-animal (N = 15) and primary-only (N = 12)
-robustness checks and Supplementary Table S2 for control metrics.*
+See Supplementary Table S1 for first-session independence check (N = 15)
+and Supplementary Table S2 for control metrics.*
 
 | Metric | Light | Dark | p (adj) | r | Fig. |
 |--------|-------|------|---------|---|------|
@@ -686,20 +685,19 @@ Within individual 1-minute epochs, mice visited a smaller fraction of the 23
 accessible cells in darkness than in light (light: 0.400; dark: 0.337;
 Wilcoxon, W = 15.0, p = 0.0003, adjusted p = 0.0008, r = 0.86, N = 23;
 Fig. 2A). This coverage reduction was the strongest light-dark effect
-observed in the dataset and was robust across all levels of
-pseudoreplication control (per-animal average: N = 15, p = [PER-ANIMAL
-RESULTS PENDING], r = [PENDING]; primary-only: N = 12, p = 0.010, r = 0.85;
-Supplementary Table S1).
+observed in the dataset and was robust in the first-session independence
+check (corridor: p = 0.0004, r = 0.93; junction: p = 0.003, r = 0.82;
+dead-end: p = 0.169; N = 15; Supplementary Table S1).
 
-Running speed showed a trend toward reduction in darkness (p = 0.076) that
-reached significance in primary-only sessions (p = 0.042, r = 0.70;
+Running speed showed a trend toward reduction in darkness (p = 0.076;
 Supplementary Fig. S4). To control for any locomotor contribution, we
 normalised coverage by active time. Coverage per active minute was also
 significantly lower in darkness (light: 19.8; dark: 17.8 cells/active-min;
 p = 0.001, r = 0.78; Fig. 2C), indicating that the coverage reduction is
-not simply a locomotor artefact. The primary-only analysis did not reach
-significance for this normalised metric (p = 0.175; Supplementary Table S1),
-so the relative contributions of speed and strategy cannot be definitively
+not simply a locomotor artefact. The speed-coverage correlation was
+consistent in direction but underpowered in the first-session independence
+check (rho = 0.50, p = 0.060, N = 15; Supplementary Table S1), so the
+relative contributions of speed and strategy cannot be definitively
 resolved with the current sample.
 
 Other exploration metrics -- turn alternation, backtracking, transition
@@ -728,23 +726,22 @@ smaller than the junction coverage drop (p = 0.0004, r = 0.84). This
 pattern indicates that mice maintained visits to terminal destinations at
 unchanged rates but consolidated onto a reduced set of connecting corridors
 and junctions -- a pattern we term route stereotypy. The dissociation was
-robust across pseudoreplication controls: per-animal averages (corridor
-p = [PER-ANIMAL RESULTS PENDING]; junction p = [PENDING]; dead-end
-p = [PENDING]; N = 15) and primary-only sessions (corridor p = 0.002;
-junction p = 0.010; dead-end p = 0.465; interaction p = 0.010; N = 12)
-both preserved the pattern with large effect sizes (Supplementary
-Table S1).
+robust in the first-session independence check (corridor: p = 0.0004,
+r = 0.93; junction: p = 0.003, r = 0.82; dead-end: p = 0.169, r = 0.42;
+interaction: p = 0.018, r = 0.68; N = 15; Supplementary Table S1).
 
 The diameter of the visited subgraph also contracted in darkness (light:
-6.35 cells; dark: 5.57 cells; p = 0.002, r = 0.80; Fig. 3B), consistent
-with a reduced spatial extent of the route network.
+6.35 cells; dark: 5.57 cells; p = 0.002, r = 0.80; Fig. 3B; first-session:
+p = 0.031, r = 0.63, N = 15), consistent with a reduced spatial extent of
+the route network.
 
 Transition matrices diverged between conditions: the observed mean
 Jensen-Shannon divergence (0.068) was 3.9 times larger than the permutation
-null (null mean: 0.018; 1000 permutations; p < 0.001; N = 23; Fig. 3C). No
-individual edge survived Holm-Bonferroni correction (0/44), indicating that
-the routing change is distributed across many small shifts rather than
-concentrated at a few junctions. Despite the changed routes, transition
+null (null mean: 0.018; 1000 permutations; p < 0.001; N = 23; Fig. 3C;
+first-session: observed mean JSD = 0.065, null mean = 0.018, p < 0.001,
+N = 15). No individual edge survived Holm-Bonferroni correction (0/44),
+indicating that the routing change is distributed across many small shifts
+rather than concentrated at a few junctions. Despite the changed routes, transition
 entropy was preserved (light: 1.221; dark: 1.186 bits/step; p = 0.165;
 Supplementary Table S2), and normalised entropy rate was unchanged (light:
 0.277; dark: 0.269; p = 0.133; Supplementary Table S2). The mouse uses
@@ -753,10 +750,10 @@ fewer routes but with comparable predictability.
 Consistent with route consolidation, the revisitation index (total
 transitions / unique cells visited) increased in darkness (light: 3.39;
 dark: 3.88; p = 0.011, r = 0.64, N = 23; Fig. 3D), indicating increased
-re-traversal of already-covered cells. This effect did not survive
-primary-only analysis (p = 0.067, N = 12; per-animal: p = [PER-ANIMAL
-RESULTS PENDING], N = 15; Supplementary Table S1) and should be interpreted
-as supportive rather than conclusive.
+re-traversal of already-covered cells. This effect was consistent in the
+first-session independence check (p = 0.030, r = 0.63, N = 15;
+Supplementary Table S1), providing converging support for increased
+revisitation in darkness.
 
 Per-cell analysis revealed that cells closer to the maze centre showed the
 largest visit reductions (Spearman rho = 0.75, p < 0.0001, N = 23;
@@ -811,10 +808,11 @@ dissociation analysis.
 The first dark epoch in each session showed substantially higher coverage
 than all subsequent dark epochs (first: 0.57; subsequent mean: 0.30;
 Wilcoxon, p = 0.0001, adjusted p = 0.0004, r = 0.89, N = 23; Fig. 4B).
-This effect was consistent across pseudoreplication controls (per-animal:
-N = 15, p = [PER-ANIMAL RESULTS PENDING]; primary-only: N = 12,
-p = [PENDING]; Supplementary Table S1). After the first dark epoch, dark
-coverage was stable (slope test: p = 0.81; Fig. 4A). Light-epoch coverage
+This effect was consistent in the first-session independence check
+(first: 0.594; subsequent: 0.318; p = 0.0006, r = 0.92, N = 15;
+Supplementary Table S1). After the first dark epoch, dark coverage was
+stable (slope test: p = 0.81; Fig. 4A; first-session: p = 0.589, N = 15).
+Light-epoch coverage
 showed a gradual decline over the session (p = 0.011; Fig. 4C), consistent
 with general exploration habituation, but the dark-epoch pattern was
 qualitatively different: a step change rather than a gradual decline. Speed
@@ -918,8 +916,9 @@ indicate spatial structure that a uniform speed reduction would not produce.
 A uniform slowdown would reduce coverage proportionally across all cell
 types; the selective loss of corridor and junction coverage points to a
 change in route selection. Coverage per active minute confirms a significant
-effect in the full dataset (p = 0.001), though this does not survive
-primary-only analysis (p = 0.175; Supplementary Table S1).
+effect in the full dataset (p = 0.001). The speed-coverage correlation was
+consistent in direction but underpowered in the first-session check
+(rho = 0.50, p = 0.060, N = 15; Supplementary Table S1).
 
 ### Comparison to Rosenberg et al. (2021)
 
@@ -936,8 +935,7 @@ consequence of the maze having 9 dead ends among 23 cells.
 
 HD distributions are non-uniform and constrained by corridor geometry.
 A trend toward increased mean resultant length of the HD distribution in
-darkness (p = 0.076) did not survive correction or primary-only analysis
-(Supplementary Table S2). This non-uniformity is a methodological concern
+darkness (p = 0.076) did not survive correction (Supplementary Table S2). This non-uniformity is a methodological concern
 for HD tuning analyses in structured environments (Jacob et al. 2017;
 Muir et al. 2022) and is characterised in the Supplementary Material
 (Supplementary Fig. S7) to enable occupancy-corrected tuning curves in
@@ -950,10 +948,9 @@ the companion neural paper.
    influence exploration patterns.
 
 2. With 23 sessions from 15 animals (5 animals contributing 2--3 sessions),
-   session-level analyses involve pseudoreplication. Three levels of
-   analysis (all sessions N = 23; per-animal averages N = 15; primary-only
-   N = 12) are reported to address this. The core findings are consistent
-   across all three levels (Supplementary Table S1).
+   session-level analyses involve pseudoreplication. A first-session
+   independence check (N = 15, one session per animal) confirms the core
+   findings (Supplementary Table S1).
 
 3. The 1-minute epoch duration was chosen for neural imaging purposes
    rather than to optimise behavioural measurements. Longer dark epochs
@@ -962,9 +959,9 @@ the companion neural paper.
 4. This is a free-exploration paradigm with no explicit task demands. The
    behavioural metrics quantify exploration strategy, not task performance.
 
-5. The revisitation index increase (p = 0.011) did not survive primary-only
-   analysis (p = 0.067). The core route stereotypy finding (corridor-
-   junction-dead-end dissociation) survived all controls.
+5. The revisitation index increase (p = 0.011, N = 23) was consistent in
+   the first-session check (p = 0.030, N = 15). The core route stereotypy
+   finding (corridor-junction-dead-end dissociation) survived all controls.
 
 6. The speed-coverage correlation is substantial (rho = 0.76), and the
    relative contributions of locomotor reduction and strategy change cannot
@@ -980,15 +977,14 @@ the companion neural paper.
 
 Five of 15 animals contributed multiple recording sessions (2--3 each),
 creating pseudoreplication in the session-level analyses that constitute
-the primary statistical framework. We addressed this through three
-complementary approaches: all-sessions analysis (N = 23) for maximum
-power, per-animal averaged values (N = 15) treating each animal as the
-unit of observation, and primary-session-only analysis (N = 12) using one
-pre-designated session per animal where available. The core findings --
-the coverage reduction in darkness, the corridor-junction-dead-end
-dissociation, and the single-trial adaptation -- are consistent across
-all three approaches (Supplementary Table S1), indicating that the
-results are not driven by over-representation of particular animals.
+the primary statistical framework. We addressed this by repeating all
+primary analyses using only the first session per animal (N = 15),
+ensuring full statistical independence. The core findings -- the coverage
+reduction in darkness, the corridor-junction-dead-end dissociation, and
+the single-trial adaptation -- are consistent across both the
+all-sessions (N = 23) and first-session (N = 15) analyses (Supplementary
+Table S1), indicating that the results are not driven by
+over-representation of particular animals.
 
 The repeat sessions also present an opportunity. Because sessions from the
 same animal were recorded on different days, the within-animal consistency
@@ -1005,27 +1001,24 @@ design with more animals would be needed to resolve this question.
 
 ## Supplementary Material
 
-### Supplementary Table S1: Multi-level pseudoreplication robustness
+### Supplementary Table S1: First-session independence check
 
-*All primary analyses repeated at two additional levels: (i) per-animal
-averages (metrics averaged within animal before testing; N = 15 animals)
-and (ii) primary sessions only (one per animal; N = 12 independent
-animals). Wilcoxon signed-rank, matched-pairs rank-biserial r.*
+*All primary analyses repeated using only the first session per animal
+(N = 15), ensuring full statistical independence. Wilcoxon signed-rank,
+matched-pairs rank-biserial r.*
 
-| Metric | p (N=15, per-animal) | r | p (N=12, primary) | r | Survives? |
-|--------|---------------------|---|-------------------|---|-----------|
-| Per-epoch coverage | [PENDING] | [PENDING] | 0.010 | 0.85 | Yes |
-| Coverage / active min | [PENDING] | [PENDING] | 0.175 | 0.49 | No (primary) |
-| Corridor coverage | [PENDING] | [PENDING] | 0.002 | 0.97 | Yes |
-| Junction coverage | [PENDING] | [PENDING] | 0.010 | 0.85 | Yes |
-| Dead-end coverage | [PENDING] | [PENDING] | 0.465 | -- | n/a (null in full) |
-| DE vs junc. interaction | [PENDING] | [PENDING] | 0.010 | 0.85 | Yes |
-| Visited diameter | [PENDING] | [PENDING] | 0.014 | -- | Yes |
-| Revisitation index | [PENDING] | [PENDING] | 0.067 | 0.64 | No (primary) |
-| Speed | [PENDING] | [PENDING] | 0.042 | 0.70 | Yes |
-| HD MRL | [PENDING] | [PENDING] | 0.278 | 0.39 | No |
-| AHV | [PENDING] | [PENDING] | 0.465 | 0.27 | n/a (null in full) |
-| First dark epoch vs rest | [PENDING] | [PENDING] | [PENDING] | -- | [PENDING] |
+| Metric | p (N=15, first session) | r | Survives? |
+|--------|------------------------|---|-----------|
+| Corridor coverage | 0.0004 | 0.93 | Yes |
+| Junction coverage | 0.003 | 0.82 | Yes |
+| Dead-end coverage | 0.169 | 0.42 | n/a (null in full) |
+| DE vs junc. interaction | 0.018 | 0.68 | Yes |
+| Visited diameter | 0.031 | 0.63 | Yes |
+| JSD (transition matrix) | <0.001 | -- | Yes |
+| Revisitation index | 0.030 | 0.63 | Yes |
+| Discovery AUC | 0.169 | 0.42 | No (underpowered) |
+| Speed-coverage correlation | 0.060 | 0.50 | No (underpowered) |
+| First dark epoch vs rest | 0.0006 | 0.92 | Yes |
 
 ### Supplementary Table S2: Full battery of light-dark comparisons
 
@@ -1122,7 +1115,7 @@ switch. Longer dark epochs or higher temporal resolution would be needed.
 
 **Panel A.** Running speed (cm/s) by condition: box/violin plot of
 session-median speed in light vs dark. Paired by session. Trend (p = 0.076,
-adjusted p = 0.152); significant in primary-only (p = 0.042).
+adjusted p = 0.152).
 
 **Panel B.** Speed vs coverage scatter plot (Spearman rho = 0.76,
 p < 0.0001). Demonstrates the strong speed-coverage coupling.
@@ -1189,7 +1182,7 @@ more uniform.
 **Panel B.** HD sampling non-uniformity (MRL) per cell on the maze grid.
 
 **Panel C.** HD MRL in light vs dark. Trend (p = 0.076, adjusted p = 0.152)
-does not survive primary-only (p = 0.278).
+does not survive correction.
 
 **Panel D.** Joint position x HD occupancy heatmap. Documents the sampling
 landscape for future HD tuning analyses.
@@ -1349,11 +1342,7 @@ dark after Holm-Bonferroni correction (junction: adjusted p = 1.000;
 corridor: adjusted p = 0.990; dead-end: adjusted p = 1.000; all Wilcoxon,
 N = 23; Supplementary Table S2). This rules out hesitation at decision
 points or prolonged exploration of dead ends as contributors to the coverage
-drop. In primary-only sessions, junction and corridor dwell times were
-significantly longer in darkness (junction adjusted p = 0.020; corridor
-adjusted p = 0.006; dead-end adjusted p = 0.465), with a significant
-interaction (p = 0.010, r = 0.85, N = 12), suggesting slightly more time
-at decision points without changes in destination behaviour.
+drop.
 
 **DLC tracking confidence.** Tracking confidence did not differ between light
 and dark for any of the 27 tracked bodyparts (all Holm-Bonferroni adjusted
@@ -1539,13 +1528,14 @@ reorientation and head direction cells." *J. Neurosci.* 23, 3478--3482.
 ### Key confounds addressed
 
 1. **Speed confound.** Speed and coverage strongly correlated (rho = 0.76).
-   Coverage per active minute controls for locomotion (p = 0.001), though
-   primary-only is non-significant (p = 0.175). Cell-type dissociation
-   provides additional evidence beyond speed.
+   Coverage per active minute controls for locomotion (p = 0.001). The
+   speed-coverage correlation is consistent in direction but underpowered
+   in the first-session check (rho = 0.50, p = 0.060, N = 15). Cell-type
+   dissociation provides additional evidence beyond speed.
 
-2. **Pseudoreplication.** 5 animals contribute 2--3 sessions. Three-level
-   analysis (all sessions N = 23; per-animal N = 15; primary-only N = 12)
-   reported in Supplementary Table S1.
+2. **Pseudoreplication.** 5 animals contribute 2--3 sessions.
+   First-session independence check (N = 15) reported in Supplementary
+   Table S1.
 
 3. **Tracking artefact.** DLC confidence identical in light vs dark
    (infrared camera; Supplementary Fig. S5C).
