@@ -114,6 +114,10 @@ def build_user_data() -> str:
         # ── Run kpms on all sessions ─────────────────────────────────────
         echo "=== Running keypoint-MoSeq on all sessions $(date) ==="
 
+        # Safety timeout: terminate instance after 36 hours to prevent
+        # runaway costs if the fitting hangs or OOMs silently.
+        (sleep 129600 && echo "=== 36h safety timeout reached ===" && shutdown -h now) &
+
         # IAM instance profile credentials are available via EC2 metadata service
         docker run --rm --network host \\
             -v /home/ubuntu/kpms_project:/data/project \\
@@ -127,9 +131,11 @@ def build_user_data() -> str:
             --skip-existing \\
             --bodyparts nose left_ear right_ear head_midpoint \\
                 neck mid_back mouse_center tail_base \\
-            --kappa-sweep \\
-            --num-pcs 10 \\
-            --num-iters 100
+            --kappa 1000000 \\
+            --num-pcs 4 \\
+            --num-iters 200 \\
+            --ar-only-iters 50 \\
+            --conf-threshold 0.9
         RUN_EXIT=$?
 
         if [ $RUN_EXIT -ne 0 ]; then

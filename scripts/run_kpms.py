@@ -205,165 +205,6 @@ def get_dlc_champion_id(s3, bucket: str) -> str | None:
         return None
 
 
-# ── Kappa sweep ─────────────────────────────────────────────────────────────
-
-
-def run_kappa_sweep(
-    data: dict,
-    metadata: dict,
-    pca: dict,
-    project_dir: Path,
-    kappa_values: list[float],
-    sweep_iters: int = 25,
-    imaging_fps: float = 30.0,
-) -> dict:
-    """Test multiple kappa values with short fits and return sweep results.
-
-    For each kappa, fits the model for ``sweep_iters`` iterations and
-    computes summary statistics. The recommended kappa is the one whose
-    median syllable duration is closest to 400 ms (kpms recommended
-    range is 300-500 ms).
-
-    Parameters
-    ----------
-    data : dict
-        Formatted kpms data dict from ``kpms.format_data``.
-    metadata : dict
-        Metadata dict from ``kpms.format_data``.
-    pca : dict
-        Fitted PCA dict.
-    project_dir : Path
-        kpms project directory.
-    kappa_values : list of float
-        Kappa values to test.
-    sweep_iters : int
-        Number of fitting iterations per kappa (default 25).
-    imaging_fps : float
-        Frame rate for converting bout duration to seconds (default 30).
-
-    Returns
-    -------
-    dict
-        Sweep results with keys: ``"kappa_values"``, ``"results"`` (list of
-        per-kappa dicts), ``"best_kappa"``, ``"best_idx"``.
-    """
-    import keypoint_moseq as kpms
-
-    target_duration_s = 0.400  # 400 ms target
-    sweep_results: list[dict] = []
-
-    for kappa in kappa_values:
-        log.info("  Sweep: kappa=%.0e (fitting %d iters)...", kappa, sweep_iters)
-
-        kpms.update_config(str(project_dir), kappa=kappa)
-        cfg = kpms.load_config(str(project_dir))
-
-        model = kpms.init_model(data, pca=pca, **cfg)
-        fit_result = kpms.fit_model(
-            model=model,
-            data=data,
-            metadata=metadata,
-            project_dir=str(project_dir),
-            model_name=f"sweep_k{kappa:.0e}",
-            num_iters=sweep_iters,
-        )
-
-        if isinstance(fit_result, tuple):
-            model_out, model_name = fit_result
-        else:
-            model_out = fit_result
-            model_name = f"sweep_k{kappa:.0e}"
-
-        results = kpms.extract_results(
-            model_out,
-            metadata,
-            str(project_dir),
-            model_name=model_name,
-        )
-
-        # Compute summary stats across all sessions
-        all_syllables = []
-        all_bout_durations = []
-        for _session_id, session_res in results.items():
-            syl = np.array(session_res["syllable"])
-            all_syllables.extend(syl.tolist())
-
-            # Compute bout durations: consecutive runs of same syllable
-            if len(syl) > 0:
-                changes = np.where(np.diff(syl) != 0)[0] + 1
-                boundaries = np.concatenate([[0], changes, [len(syl)]])
-                bout_lengths = np.diff(boundaries)
-                all_bout_durations.extend(bout_lengths.tolist())
-
-        all_syllables = np.array(all_syllables)
-        unique_syllables, counts = np.unique(all_syllables, return_counts=True)
-        total_frames = len(all_syllables)
-
-        # Effective syllables: those with >0.5% occupancy
-        if total_frames > 0:
-            occupancy = counts / total_frames
-            n_effective = int(np.sum(occupancy > 0.005))
-        else:
-            n_effective = 0
-
-        # Entropy of syllable distribution
-        if total_frames > 0:
-            probs = counts / total_frames
-            entropy = float(-np.sum(probs * np.log2(probs + 1e-12)))
-        else:
-            entropy = 0.0
-
-        # Median bout duration
-        if all_bout_durations:
-            median_bout_frames = float(np.median(all_bout_durations))
-            median_bout_s = median_bout_frames / imaging_fps
-        else:
-            median_bout_frames = 0.0
-            median_bout_s = 0.0
-
-        result_entry = {
-            "kappa": kappa,
-            "n_unique_syllables": len(unique_syllables),
-            "n_effective_syllables": n_effective,
-            "entropy": entropy,
-            "median_bout_frames": median_bout_frames,
-            "median_bout_duration_s": median_bout_s,
-        }
-        sweep_results.append(result_entry)
-        log.info(
-            "    kappa=%.0e: %d effective syllables, median bout=%.3fs, entropy=%.2f",
-            kappa,
-            n_effective,
-            median_bout_s,
-            entropy,
-        )
-
-    # Select best kappa: closest median duration to 400ms
-    best_idx = 0
-    best_distance = float("inf")
-    for i, r in enumerate(sweep_results):
-        distance = abs(r["median_bout_duration_s"] - target_duration_s)
-        if distance < best_distance:
-            best_distance = distance
-            best_idx = i
-
-    best_kappa = sweep_results[best_idx]["kappa"]
-    log.info(
-        "Kappa sweep complete. Best kappa=%.0e (median bout=%.3fs, target=%.3fs)",
-        best_kappa,
-        sweep_results[best_idx]["median_bout_duration_s"],
-        target_duration_s,
-    )
-
-    return {
-        "kappa_values": [float(k) for k in kappa_values],
-        "results": sweep_results,
-        "best_kappa": best_kappa,
-        "best_idx": best_idx,
-        "target_duration_s": target_duration_s,
-    }
-
-
 # ── keypoint-MoSeq wrapper ─────────────────────────────────────────────────
 
 
@@ -371,12 +212,26 @@ def fit_kpms(
     dlc_files: dict[str, Path],
     project_dir: Path,
     bodyparts: list[str],
-    kappa: float | None = None,
-    num_pcs: int = 10,
-    num_iters: int = 100,
-    kappa_sweep: bool = False,
+    kappa: float = 1_000_000,
+    num_pcs: int = 4,
+    num_iters: int = 200,
+    ar_only_iters: int = 50,
+    conf_threshold: float = 0.9,
 ) -> tuple[dict[str, dict[str, np.ndarray]], dict]:
-    """Fit keypoint-MoSeq AR-HMM on DLC .h5 files.
+    """Fit keypoint-MoSeq using the two-stage pipeline on DLC .h5 files.
+
+    The reference kpms workflow (Weinreb et al. 2024) requires two fitting
+    stages:
+
+    1. AR-only initialisation (``ar_only_iters`` iterations) -- fits an
+       AR-HMM to the latent trajectory without the SLDS observation model.
+    2. Full SLDS model (``num_iters`` iterations) -- fits the complete
+       keypoint-SLDS model, starting from the AR-only checkpoint.
+
+    Low-confidence coordinates (below ``conf_threshold``) are set to NaN
+    before formatting, bypassing the error estimator which cannot be
+    calibrated on headless EC2. The centroid movement prior
+    (``sigmasq_loc``) is estimated from the data.
 
     Parameters
     ----------
@@ -386,15 +241,19 @@ def fit_kpms(
         Working directory for kpms config/checkpoints.
     bodyparts : list[str]
         List of body part names to use for fitting.
-    kappa : float or None
-        AR-HMM stickiness (higher = longer syllables). If None and
-        kappa_sweep is False, defaults to 1e6.
+    kappa : float
+        AR-HMM stickiness (higher = longer syllables).
     num_pcs : int
-        Number of PCA components.
+        Number of PCA components. For 8-keypoint 2D overhead data,
+        4 PCs capture ~90% of meaningful variance (Weinreb et al. 2024).
     num_iters : int
-        Number of fitting iterations.
-    kappa_sweep : bool
-        If True, run a kappa sweep first to select the value.
+        Number of fitting iterations for the full SLDS stage.
+    ar_only_iters : int
+        Number of AR-only initialisation iterations (stage 1).
+    conf_threshold : float
+        DLC confidence threshold. Coordinates with confidence below this
+        value are set to NaN before formatting, bypassing the error
+        estimator. Recommended: 0.9 (per kpms GitHub issue #167).
 
     Returns
     -------
@@ -402,6 +261,13 @@ def fit_kpms(
         (results_dict, fit_info) where results_dict maps session_id to
         {"syllable_id": (N,) int16, "syllable_prob": (N, S) float32},
         and fit_info contains fitting metadata (kappa used, PCA variance, etc.).
+
+    References
+    ----------
+    Weinreb et al. 2024. "Keypoint-MoSeq: parsing behavior by linking point
+    tracking to pose dynamics." Nature Methods 21:1329-1339.
+    doi:10.1038/s41592-024-02318-2
+    https://github.com/dattalab/keypoint-moseq
     """
     import shutil
 
@@ -477,6 +343,33 @@ def fit_kpms(
     def config():
         return kpms.load_config(str(project_dir))
 
+    # ── NaN-mask low-confidence coordinates ─────────────────────────────────
+    # Bypasses the error estimator (which cannot be calibrated on headless
+    # EC2) by converting low-confidence points to NaN. kpms handles NaN
+    # via its missing-data model. Recommended by Caleb Weinreb in kpms
+    # GitHub issue #167.
+    log.info("NaN-masking coordinates with confidence < %.2f...", conf_threshold)
+    n_masked_total = 0
+    n_total = 0
+    for session_id in coordinates:
+        conf = confidences[session_id]  # (T, K)
+        mask = conf < conf_threshold
+        n_masked = int(np.sum(mask))
+        n_total += mask.size
+        n_masked_total += n_masked
+        # Expand mask from (T, K) to (T, K, 2) for x,y coordinates
+        coordinates[session_id] = np.where(
+            mask[..., None],
+            np.nan,
+            coordinates[session_id],
+        )
+    log.info(
+        "Masked %d / %d keypoint-frames (%.1f%%) as NaN",
+        n_masked_total,
+        n_total,
+        100 * n_masked_total / max(n_total, 1),
+    )
+
     # ── Format data ──────────────────────────────────────────────────────────
     log.info(
         "Formatting data (all_bodyparts=%d, use_bodyparts=%d)...",
@@ -492,7 +385,7 @@ def fit_kpms(
     data_keys = list(data.keys()) if isinstance(data, dict) else "N/A"
     log.info("data type: %s, keys: %s", type(data).__name__, data_keys)
 
-    # Cast data arrays to float64 — kpms/JAX requires x64 precision but
+    # Cast data arrays to float64 -- kpms/JAX requires x64 precision but
     # DLC pose data and format_data output are float32.  Use the library's
     # own converter which handles nested dicts, JAX arrays, and numpy arrays.
     from jax_moseq.utils.debugging import convert_data_precision
@@ -500,9 +393,15 @@ def fit_kpms(
     data = convert_data_precision(data)
     log.info("Converted data to 64-bit precision via convert_data_precision")
 
-    # noise_calibration is interactive (requires video frames for a Jupyter
-    # widget) — skip it on headless EC2.  The default noise prior works fine
-    # for DLC data with confidence scores.
+    # ── Estimate sigmasq_loc from data ────────────────────────────────────
+    # Sets the centroid movement prior from the actual data rather than
+    # using the generic default (0.5). Uses the video frame rate from
+    # config as the median filter kernel size.
+    log.info("Estimating sigmasq_loc from data...")
+    fps = cfg.get("fps", 30)
+    sigmasq_loc = kpms.estimate_sigmasq_loc(data["Y"], data["mask"], filter_size=fps)
+    log.info("Estimated sigmasq_loc = %.6f (fps=%d)", sigmasq_loc, fps)
+    kpms.update_config(str(project_dir), sigmasq_loc=sigmasq_loc)
 
     # ── PCA ────────────────────────────────────────────────────────────────
     log.info("Fitting PCA (num_pcs=%d)...", num_pcs)
@@ -524,13 +423,13 @@ def fit_kpms(
     )
 
     # Convert numeric arrays in pca to float64.  pca is a dict that may
-    # contain sklearn PCA objects (non-numeric) — convert only array leaves.
+    # contain sklearn PCA objects (non-numeric) -- convert only array leaves.
     if isinstance(pca, dict):
         for k, v in pca.items():
             is_float = hasattr(v, "dtype") and np.issubdtype(v.dtype, np.floating)
             if is_float and v.dtype != np.float64:
                 pca[k] = np.asarray(v, dtype=np.float64)
-                log.info("  Cast pca['%s'] %s → float64", k, v.dtype)
+                log.info("  Cast pca['%s'] %s -> float64", k, v.dtype)
     log.info("PCA precision check complete")
 
     # Save PCA explained variance
@@ -544,47 +443,67 @@ def fit_kpms(
                 pca_variance["explained_variance_ratio"] = v.explained_variance_ratio_.tolist()
     log.info("PCA variance keys: %s", list(pca_variance.keys()))
 
-    # ── Kappa sweep (optional) ────────────────────────────────────────────
-    sweep_results = None
-    if kappa_sweep:
-        log.info("Running kappa sweep...")
-        kappa_values = [1e3, 1e4, 1e5, 1e6]
-        sweep_results = run_kappa_sweep(
-            data=data,
-            metadata=metadata,
-            pca=pca,
-            project_dir=project_dir,
-            kappa_values=kappa_values,
-            sweep_iters=25,
-        )
-        kappa = sweep_results["best_kappa"]
-        log.info("Selected kappa from sweep: %.0e", kappa)
-    elif kappa is None:
-        kappa = 1e6
-        log.info("Using default kappa=%.0e", kappa)
-
-    # ── AR-HMM fitting ─────────────────────────────────────────────────────
-    log.info("Fitting AR-HMM (kappa=%.0e, n_iters=%d)...", kappa, num_iters)
+    # ── Stage 1: AR-only initialisation ───────────────────────────────────
+    # The AR-only stage fits an AR-HMM to the latent trajectory without the
+    # SLDS observation model. This provides a warm start for the full model.
+    # "EML scores are higher for models fit with an autoregressive-only
+    # (AR-only) initialization stage" (Weinreb et al. 2024).
+    log.info(
+        "Stage 1: AR-only initialisation (kappa=%.0e, %d iters)...",
+        kappa,
+        ar_only_iters,
+    )
     kpms.update_config(str(project_dir), kappa=kappa)
-
     cfg = config()
     model = kpms.init_model(data, pca=pca, **cfg)
 
+    # Apply sigmasq_loc to model hyperparameters
+    model = kpms.update_hypparams(model, sigmasq_loc=sigmasq_loc)
+
     model_name = "hm2p_kpms"
-    # fit_model returns (model_dict, model_name_str) tuple
-    fit_result = kpms.fit_model(
+    model, model_name = kpms.fit_model(
         model=model,
         data=data,
         metadata=metadata,
         project_dir=str(project_dir),
         model_name=model_name,
-        num_iters=num_iters,
+        ar_only=True,
+        num_iters=ar_only_iters,
     )
-    # Unpack: fit_model returns (model, model_name) tuple
-    if isinstance(fit_result, tuple):
-        model, model_name = fit_result
-    else:
-        model = fit_result
+    log.info("Stage 1 complete (AR-only, %d iterations).", ar_only_iters)
+
+    # ── Stage 2: Full SLDS model ──────────────────────────────────────────
+    # Load the AR-only checkpoint and continue with the full keypoint-SLDS
+    # model. The start_iter continues from the AR-only stage.
+    log.info(
+        "Stage 2: Full SLDS model (%d iterations, kappa=%.0e)...",
+        num_iters,
+        kappa,
+    )
+    model, data, metadata, current_iter = kpms.load_checkpoint(
+        project_dir=str(project_dir),
+        model_name=model_name,
+        iteration=ar_only_iters,
+    )
+
+    # Ensure kappa is set for the full model stage
+    model = kpms.update_hypparams(model, kappa=kappa)
+
+    model, model_name = kpms.fit_model(
+        model=model,
+        data=data,
+        metadata=metadata,
+        project_dir=str(project_dir),
+        model_name=model_name,
+        ar_only=False,
+        start_iter=current_iter,
+        num_iters=current_iter + num_iters,
+    )
+    log.info(
+        "Stage 2 complete (full SLDS, %d iterations, total=%d).",
+        num_iters,
+        current_iter + num_iters,
+    )
 
     # ── Capture ELBO/convergence trace if available ────────────────────────
     elbo_trace = None
@@ -662,10 +581,12 @@ def fit_kpms(
         "kappa": kappa,
         "num_pcs": num_pcs,
         "num_iters": num_iters,
+        "ar_only_iters": ar_only_iters,
+        "conf_threshold": conf_threshold,
+        "sigmasq_loc": sigmasq_loc,
         "bodyparts": bodyparts,
         "all_bodyparts": list(all_bodyparts),
         "pca_variance": pca_variance,
-        "sweep_results": sweep_results,
         "elbo_trace": elbo_trace,
         "fit_timestamp": datetime.now(UTC).isoformat(),
     }
@@ -725,6 +646,9 @@ def build_provenance(
         "kappa": fit_info["kappa"],
         "num_pcs": fit_info["num_pcs"],
         "num_iters": fit_info["num_iters"],
+        "ar_only_iters": fit_info.get("ar_only_iters", 0),
+        "conf_threshold": fit_info.get("conf_threshold", 0.9),
+        "sigmasq_loc": fit_info.get("sigmasq_loc"),
         "bodyparts": fit_info["bodyparts"],
         "fit_timestamp": fit_info["fit_timestamp"],
         "n_unique_syllables": len(unique_syllables),
@@ -750,7 +674,15 @@ def provenance_matches(existing: dict, current: dict) -> bool:
     bool
         True if key parameters match (same DLC champion, kappa, bodyparts, num_iters).
     """
-    keys_to_compare = ["dlc_champion_id", "kappa", "bodyparts", "num_pcs", "num_iters"]
+    keys_to_compare = [
+        "dlc_champion_id",
+        "kappa",
+        "bodyparts",
+        "num_pcs",
+        "num_iters",
+        "ar_only_iters",
+        "conf_threshold",
+    ]
     return all(existing.get(key) == current.get(key) for key in keys_to_compare)
 
 
@@ -803,16 +735,31 @@ def main():
         help="Body parts to use for fitting (kpms recommends 5-10, no tail tip).",
     )
     parser.add_argument(
-        "--kappa", type=float, default=None, help="AR-HMM kappa (stickiness). Overrides sweep."
+        "--kappa",
+        type=float,
+        default=1_000_000,
+        help="AR-HMM kappa (stickiness). Default: 1e6.",
+    )
+    parser.add_argument("--num-pcs", type=int, default=4)
+    parser.add_argument(
+        "--num-iters",
+        type=int,
+        default=200,
+        help="Number of full SLDS fitting iterations (stage 2). Default: 200.",
     )
     parser.add_argument(
-        "--kappa-sweep",
-        action="store_true",
-        help="Run kappa sweep (1e3, 1e4, 1e5, 1e6) with 25 iters each, "
-        "then full fit with best kappa. Ignored if --kappa is set.",
+        "--ar-only-iters",
+        type=int,
+        default=50,
+        help="Number of AR-only initialisation iterations (stage 1). Default: 50.",
     )
-    parser.add_argument("--num-pcs", type=int, default=10)
-    parser.add_argument("--num-iters", type=int, default=100)
+    parser.add_argument(
+        "--conf-threshold",
+        type=float,
+        default=0.9,
+        help="DLC confidence threshold. Coordinates below this are set "
+        "to NaN before formatting. Default: 0.9.",
+    )
     parser.add_argument(
         "--skip-existing",
         action="store_true",
@@ -822,11 +769,6 @@ def main():
     )
 
     args = parser.parse_args()
-
-    # If --kappa is explicitly set, disable sweep
-    use_sweep = args.kappa_sweep and args.kappa is None
-    if args.kappa_sweep and args.kappa is not None:
-        log.info("--kappa explicitly set to %.0e, ignoring --kappa-sweep", args.kappa)
 
     # ── Determine which sessions to process ─────────────────────────────────
 
@@ -917,7 +859,8 @@ def main():
         kappa=args.kappa,
         num_pcs=args.num_pcs,
         num_iters=args.num_iters,
-        kappa_sweep=use_sweep,
+        ar_only_iters=args.ar_only_iters,
+        conf_threshold=args.conf_threshold,
     )
 
     log.info("Fitting complete. %d sessions have results.", len(results))
@@ -1038,18 +981,6 @@ def main():
                     f"{model_s3_prefix}/pca_variance.json",
                 )
 
-        # Upload sweep results if sweep was run
-        if fit_info.get("sweep_results"):
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
-                json.dump(fit_info["sweep_results"], tmp, indent=2)
-                tmp.flush()
-                upload_s3_file(
-                    s3,
-                    Path(tmp.name),
-                    args.s3_bucket,
-                    f"{model_s3_prefix}/kappa_sweep.json",
-                )
-
         # Upload ELBO/convergence trace if captured
         if fit_info.get("elbo_trace"):
             with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
@@ -1099,8 +1030,10 @@ def main():
             "kappa": fit_info["kappa"],
             "num_pcs": fit_info["num_pcs"],
             "num_iters": fit_info["num_iters"],
+            "ar_only_iters": fit_info["ar_only_iters"],
+            "conf_threshold": fit_info["conf_threshold"],
+            "sigmasq_loc": fit_info["sigmasq_loc"],
             "bodyparts": fit_info["bodyparts"],
-            "kappa_sweep": use_sweep,
         },
     }
 
