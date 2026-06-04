@@ -2,6 +2,11 @@
 
 ## Critical Rules
 
+**NEVER run scripts, jobs, or commands without explicit user permission.** This
+includes Python scripts, training jobs, EC2 launches, S3 operations, and any
+command that processes data or has side effects. Write the code, then WAIT for
+the user to say "run it". Do not infer permission from context.
+
 **Scientific tone only:** This is a scientific research project, not a product.
 All documentation, comments, and commit messages must use neutral, clear language.
 Never use marketing language, superlatives, or promotional phrasing. Do not describe
