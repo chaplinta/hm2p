@@ -1,0 +1,62 @@
+{
+  "version": "1.0",
+  "model_type": "XGBClassifier",
+  "n_features": 26,
+  "feature_names": [
+    "radius",
+    "compact",
+    "aspect_ratio",
+    "npix",
+    "npix_norm",
+    "skew",
+    "std",
+    "solidity",
+    "soma_crop_fraction",
+    "npix_norm_ratio",
+    "overlap_fraction",
+    "eccentricity",
+    "lam_cv",
+    "n_connected_components",
+    "n_branch_points",
+    "boundary_roughness",
+    "peak_to_noise_dff",
+    "autocorr_halfwidth_s",
+    "fneu_corr",
+    "kurtosis",
+    "signal_to_background",
+    "event_rate",
+    "derivative_skew",
+    "trace_sparsity",
+    "power_slope",
+    "max_pairwise_corr"
+  ],
+  "label_names": [
+    "artefact",
+    "soma",
+    "dend"
+  ],
+  "label_encoding": {
+    "artefact": 0,
+    "soma": 1,
+    "dend": 2
+  },
+  "n_training_rois": 3762,
+  "class_counts": {
+    "artefact": 3212,
+    "soma": 311,
+    "dend": 239
+  },
+  "best_params": {
+    "n_estimators": 245,
+    "max_depth": 7,
+    "learning_rate": 0.176,
+    "min_child_weight": 1,
+    "subsample": 0.993,
+    "colsample_bytree": 0.851,
+    "gamma": 0.868,
+    "reg_alpha": 5.04e-06,
+    "reg_lambda": 7.7e-08
+  },
+  "test_f1_macro_from_split": 0.826,
+  "test_f1_dend_from_split": 0.691
+}

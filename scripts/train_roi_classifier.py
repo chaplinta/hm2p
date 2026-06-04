@@ -473,6 +473,50 @@ def main() -> int:
              xgb_study.best_value, xgb_f1, xgb_f1_per[0], xgb_f1_per[1], xgb_f1_per[2], xgb_best)
     log.info("  Winner: %s", "XGBoost" if xgb_f1 > lr_f1 else "Logistic Regression")
 
+    # ------------------------------------------------------------------
+    # Save champion model
+    # ------------------------------------------------------------------
+    import json
+
+    import joblib
+
+    model_dir = Path("sourcedata/trackers/suite2p")
+    model_dir.mkdir(parents=True, exist_ok=True)
+
+    model_path = model_dir / "roi_classifier_xgb.joblib"
+    meta_path = model_dir / "roi_classifier_xgb.json"
+    medians_path = model_dir / "roi_classifier_medians.npy"
+
+    # Save model
+    joblib.dump(xgb_final, model_path)
+    log.info("Saved XGBoost model to %s", model_path)
+
+    # Save NaN-fill medians (needed at inference time)
+    np.save(medians_path, train_medians.values)
+    log.info("Saved train medians to %s", medians_path)
+
+    # Save metadata
+    meta = {
+        "version": "1.0",
+        "model_type": "XGBClassifier",
+        "n_features": len(FEATURE_COLUMNS),
+        "feature_names": list(FEATURE_COLUMNS),
+        "label_names": LABEL_NAMES,
+        "label_encoding": {"artefact": 0, "soma": 1, "dend": 2},
+        "n_training_rois": len(y_train),
+        "n_test_rois": len(y_test),
+        "class_counts_train": {LABEL_NAMES[i]: int((y_train == i).sum()) for i in range(3)},
+        "test_f1_macro": float(xgb_f1),
+        "test_f1_per_class": {LABEL_NAMES[i]: float(xgb_f1_per[i]) for i in range(3)},
+        "best_params": xgb_best,
+        "optuna_trials": N_OPTUNA_TRIALS,
+        "random_state": RANDOM_STATE,
+        "median_feature_names": list(FEATURE_COLUMNS),
+    }
+    with open(meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    log.info("Saved metadata to %s", meta_path)
+
     return 0
 
 
