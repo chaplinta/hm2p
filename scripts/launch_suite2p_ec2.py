@@ -152,7 +152,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         # Ubuntu 22.04 has Python 3.10. Use a venv to avoid pip restrictions.
         python3 --version
         python3 -m venv /opt/hm2p
-        source /opt/hm2p/bin/activate
+        export PATH="/opt/hm2p/bin:$PATH"
 
         echo "Installing Stage 1 dependencies..."
         pip install --quiet \
