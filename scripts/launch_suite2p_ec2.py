@@ -1,27 +1,19 @@
 #!/usr/bin/env python3
-"""Launch an EC2 g4dn.xlarge instance to run Suite2p on all sessions.
+"""Launch an EC2 c5.2xlarge instance to run Suite2p + ROI classification on all sessions.
 
 Usage (from devcontainer or any machine with boto3 + AWS credentials):
     python scripts/launch_suite2p_ec2.py
-
-The script:
-1. Creates an EC2 key pair (for SSH monitoring) — saved to ~/.ssh/hm2p-suite2p.pem
-2. Creates a security group allowing SSH
-3. Detects IAM instance profile (if setup_ec2_iam.py was run)
-4. Launches a g4dn.xlarge instance with the Deep Learning AMI
-5. User-data bootstraps: install suite2p, process all sessions, self-terminate
-
-Monitor:
+    python scripts/launch_suite2p_ec2.py --dry-run    # print user-data without launching
     python scripts/launch_suite2p_ec2.py --status      # instance state + SSH info
     python scripts/launch_suite2p_ec2.py --progress    # S3 progress file
-    python scripts/launch_suite2p_ec2.py --logs        # CloudWatch logs (needs IAM profile)
     python scripts/launch_suite2p_ec2.py --terminate   # kill early if needed
 
-Authentication modes:
-    - With IAM instance profile (recommended): run setup_ec2_iam.py first.
-      Instance gets S3 + CloudWatch access via IAM role. No embedded credentials.
-    - Without profile: S3 credentials from ~/.aws/credentials [hm2p-agent] are
-      embedded in user-data. CloudWatch logging not available.
+The script:
+1. Launches a c5.2xlarge CPU Spot instance (Suite2p does not need GPU)
+2. Installs hm2p from the git repo (includes suite2p, xgboost, scikit-image)
+3. For each session: downloads TIFFs from S3, runs run_suite2p() which
+   does Suite2p extraction + XGBoost ROI classification, uploads results
+4. Self-terminates when complete
 """
 
 from __future__ import annotations
@@ -38,8 +30,8 @@ from pathlib import Path
 import boto3
 
 REGION = "ap-southeast-2"
-INSTANCE_TYPE = "g4dn.xlarge"
-AMI_ID = "ami-05186a30469f66913"  # Deep Learning Base OSS Nvidia (Ubuntu 22.04) 20260220
+INSTANCE_TYPE = "c5.2xlarge"  # 8 vCPU, 16 GB RAM — CPU-only, no GPU needed
+AMI_ID = "ami-0df4b2961410d4cff"  # Ubuntu 22.04 LTS amd64 (ap-southeast-2)
 KEY_NAME = "hm2p-suite2p"
 SG_NAME = "hm2p-suite2p-sg"
 RAWDATA_BUCKET = "hm2p-rawdata"
@@ -48,18 +40,20 @@ INSTANCE_PROFILE_NAME = "hm2p-ec2-role"
 CW_LOG_GROUP = "/hm2p/suite2p"
 TAG = {"Key": "Project", "Value": "hm2p-suite2p"}
 STATE_FILE = Path.home() / ".hm2p-suite2p-instance.json"
+GIT_REPO = "https://github.com/chaplinta/hm2p.git"
+GIT_BRANCH = "main"
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def has_instance_profile() -> bool:
     """Check if the hm2p EC2 instance profile exists."""
     try:
         iam = boto3.client("iam")
         resp = iam.get_instance_profile(InstanceProfileName=INSTANCE_PROFILE_NAME)
-        roles = resp["InstanceProfile"]["Roles"]
-        return len(roles) > 0
+        return len(resp["InstanceProfile"]["Roles"]) > 0
     except Exception:
         return False
 
@@ -97,20 +91,12 @@ def get_sessions() -> list[dict]:
 
 
 def build_user_data(sessions: list[dict], use_instance_profile: bool = False) -> str:
-    """Build the cloud-init user-data script.
-
-    Args:
-        sessions: List of session dicts with exp_id, sub, ses keys.
-        use_instance_profile: If True, skip embedding AWS credentials (IAM role
-            on the instance provides S3 + CloudWatch access). If False, embed
-            credentials from ~/.aws/credentials.
-    """
+    """Build the cloud-init user-data script."""
     session_json = json.dumps(sessions)
 
-    # Build credentials block
+    # AWS credentials block
     if use_instance_profile:
         creds_block = textwrap.dedent(f"""\
-            # --- AWS credentials via IAM instance profile (no embedded keys) ---
             mkdir -p /root/.aws
             cat > /root/.aws/config << 'CONF'
             [default]
@@ -123,7 +109,6 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
     else:
         key_id, secret, region = get_s3_credentials()
         creds_block = textwrap.dedent(f"""\
-            # --- AWS credentials (embedded — use setup_ec2_iam.py to switch to IAM role) ---
             mkdir -p /root/.aws
             cat > /root/.aws/credentials << 'CREDS'
             [default]
@@ -139,63 +124,37 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             echo "Using embedded AWS credentials"
         """)
 
-    # Build CloudWatch log streaming block
-    cw_block = textwrap.dedent(f"""\
-        # --- CloudWatch Logs ---
-        pip3 install --quiet watchtower 2>/dev/null || true
-        python3 -c "
-        import logging, watchtower
-        handler = watchtower.CloudWatchLogHandler(
-            log_group_name='{CW_LOG_GROUP}',
-            log_stream_name='$(hostname)-$(date +%Y%m%dT%H%M%S)',
-        )
-        logging.getLogger().addHandler(handler)
-        logging.getLogger().setLevel(logging.INFO)
-        logging.info('CloudWatch logging initialized')
-        " 2>/dev/null && echo "CloudWatch logging enabled" || echo "CloudWatch logging not available (missing IAM permissions or watchtower)"
-    """)
-
     script = textwrap.dedent(f"""\
         #!/bin/bash
         exec > >(tee /var/log/hm2p-suite2p.log) 2>&1
 
-        echo "=== hm2p Suite2p cloud run ==="
+        echo "=== hm2p Suite2p + ROI classification ==="
         echo "Started: $(date -u)"
 
-        # Upload log to S3 on exit (success or failure)
         upload_log() {{
             aws s3 cp /var/log/hm2p-suite2p.log s3://{DERIVATIVES_BUCKET}/ca_extraction/_suite2p.log 2>/dev/null || true
         }}
         trap upload_log EXIT
 
 {textwrap.indent(creds_block, "        ")}
+
         # --- System setup ---
         export DEBIAN_FRONTEND=noninteractive
 
-        # Wait for unattended-upgrades / dpkg lock to release (common on Ubuntu AMIs)
         echo "Waiting for dpkg lock..."
         while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
-            echo "  dpkg locked, waiting 10s..."
             sleep 10
         done
-        echo "dpkg lock free"
 
         apt-get update -qq
-        apt-get install -y -qq python3-pip awscli
+        apt-get install -y -qq python3-pip python3-venv awscli git libhdf5-dev pkg-config
 
-        # --- Install suite2p ---
-        # Deep Learning AMI has PyTorch+CUDA pre-installed; install suite2p on top
-        pip3 install --quiet suite2p
-
-        # --- Verify GPU ---
-        nvidia-smi || echo "WARNING: No GPU detected"
-        python3 -c "import suite2p; print('suite2p imported OK')" || echo "WARNING: suite2p import failed"
-
-{textwrap.indent(cw_block, "        ")}
-        # --- Download custom classifier from S3 ---
-        mkdir -p /tmp/hm2p-config
-        aws s3 cp s3://{DERIVATIVES_BUCKET}/config/suite2p/classifier_soma.npy /tmp/hm2p-config/classifier_soma.npy
-        echo "Custom classifier downloaded"
+        # --- Install hm2p from git (includes suite2p, xgboost, scikit-image) ---
+        echo "Installing hm2p..."
+        pip3 install --quiet git+{GIT_REPO}@{GIT_BRANCH}#egg=hm2p[suite2p]
+        python3 -c "import suite2p; print(f'suite2p {{suite2p.__version__}}')"
+        python3 -c "import xgboost; print(f'xgboost {{xgboost.__version__}}')"
+        python3 -c "from hm2p.extraction.roi_classify import classify_session; print('ROI classifier OK')"
 
         # --- Process sessions ---
         SESSIONS='{session_json}'
@@ -203,7 +162,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         mkdir -p $WORK
 
         echo "$SESSIONS" | python3 -c "
-        import json, sys, subprocess, shutil, os, datetime, gc
+        import json, sys, subprocess, shutil, datetime, gc
         from pathlib import Path
 
         sessions = json.load(sys.stdin)
@@ -237,15 +196,16 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             print(f'\\n=== [{{i}}/{{total}}] {{sub}}/{{ses_id}} ({{exp_id}}) ===', flush=True)
             update_progress(f'Processing {{i}}/{{total}}: {{sub}}/{{ses_id}}')
 
-            # Create working dirs
             tiff_dir = work / 'input' / sub / ses_id / 'funcimg'
             out_dir = work / 'output' / sub / ses_id
+            ts_dir = work / 'timestamps' / sub / ses_id
             tiff_dir.mkdir(parents=True, exist_ok=True)
             out_dir.mkdir(parents=True, exist_ok=True)
+            ts_dir.mkdir(parents=True, exist_ok=True)
 
-            # Download TIFFs from S3
+            # Download TIFFs
             s3_prefix = f'rawdata/{{sub}}/{{ses_id}}/funcimg/'
-            print(f'  Downloading from s3://{RAWDATA_BUCKET}/{{s3_prefix}}...', flush=True)
+            print(f'  Downloading TIFFs from s3://{RAWDATA_BUCKET}/{{s3_prefix}}...', flush=True)
             ret = subprocess.run([
                 'aws', 's3', 'sync',
                 f's3://{RAWDATA_BUCKET}/{{s3_prefix}}',
@@ -255,7 +215,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 '--include', '*.tiff',
             ], capture_output=True, text=True)
             if ret.returncode != 0:
-                print(f'  ERROR downloading: {{ret.stderr}}', flush=True)
+                print(f'  ERROR downloading TIFFs: {{ret.stderr}}', flush=True)
                 failed.append(exp_id)
                 continue
 
@@ -264,108 +224,43 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                 print(f'  SKIP: no TIFFs found', flush=True)
                 skipped.append(exp_id)
                 continue
-            print(f'  Downloaded {{len(tifs)}} TIFF(s), total {{sum(f.stat().st_size for f in tifs)/1e9:.1f}} GB', flush=True)
+            print(f'  Downloaded {{len(tifs)}} TIFF(s)', flush=True)
 
-            # Run Suite2p (1.0 API: db + settings)
-            print(f'  Running Suite2p...', flush=True)
+            # Download timestamps.h5
+            ts_s3 = f's3://{DERIVATIVES_BUCKET}/timestamps/{{sub}}/{{ses_id}}/timestamps.h5'
+            ts_local = ts_dir / 'timestamps.h5'
+            subprocess.run([
+                'aws', 's3', 'cp', ts_s3, str(ts_local),
+            ], capture_output=True, text=True)
+
+            # Run Suite2p + ROI classifier via run_suite2p()
+            print(f'  Running Suite2p + ROI classifier...', flush=True)
             try:
-                import numpy as np
-                import suite2p
-                import suite2p.detection.sparsedetect as sd
+                from hm2p.extraction.run_suite2p import run_suite2p
 
-                # Patch mode() bug in suite2p 1.0
-                if not getattr(sd.find_best_scale, '_patched', False):
-                    _orig_fbs = sd.find_best_scale
-                    def _patched_fbs(I, spatial_scale):
-                        scale, mode = _orig_fbs(I, spatial_scale)
-                        if isinstance(scale, np.ndarray):
-                            scale = int(scale.item())
-                        return scale, mode
-                    _patched_fbs._patched = True
-                    sd.find_best_scale = _patched_fbs
-
-                settings = suite2p.default_settings()
-
-                # Core imaging parameters (matching legacy pipeline)
-                settings['fs'] = 29.97
-                settings['tau'] = 0.7  # GCaMP7f decay time
-                settings['diameter'] = [12.0, 12.0]
-
-                # Pipeline control — enable deconvolution for spks.npy
-                settings['run']['do_deconvolution'] = True
-
-                # IO — delete binary to save disk (we only need npy outputs)
-                settings['io']['delete_bin'] = True
-
-                # Registration (matching legacy)
-                settings['registration']['nonrigid'] = True
-                settings['registration']['block_size'] = (32, 32)  # legacy used 32x32
-                settings['registration']['batch_size'] = 200  # keep low to fit in T4 16GB VRAM
-                settings['registration']['maxregshift'] = 0.3  # legacy: allow 30% shift
-                settings['registration']['smooth_sigma'] = 1.15
-                settings['registration']['th_badframes'] = 1.0
-                settings['registration']['subpixel'] = 10
-                settings['registration']['two_step_registration'] = True
-                settings['registration']['keep_movie_raw'] = False  # save disk + memory
-
-                # Detection (matching legacy)
-                settings['detection']['sparse_mode'] = True
-                settings['detection']['spatial_scale'] = 0  # auto-detect
-                settings['detection']['denoise'] = True
-                settings['detection']['connected'] = True  # soma masks connected
-                settings['detection']['smooth_masks'] = True
-                settings['detection']['threshold_scaling'] = 1.0
-                settings['detection']['max_overlap'] = 0.75
-                settings['detection']['max_iterations'] = 100
-                settings['detection']['nbinned'] = 5000
-
-                # Extraction (matching legacy)
-                settings['extraction']['batch_size'] = 500
-                settings['extraction']['neuropil_extract'] = True
-                settings['extraction']['neuropil_coefficient'] = 0.7
-                settings['extraction']['inner_neuropil_radius'] = 2
-                settings['extraction']['min_neuropil_pixels'] = 100  # legacy: 100 (fewer pixels)
-                settings['extraction']['allow_overlap'] = False
-
-                # Classification - custom soma classifier
-                classifier = Path('/tmp/hm2p-config/classifier_soma.npy')
-                if classifier.exists():
-                    settings['classification']['classifier_path'] = str(classifier)
-                    settings['classification']['use_builtin_classifier'] = False
-                    print(f'  Using custom classifier: {{classifier}}', flush=True)
-                else:
-                    settings['classification']['use_builtin_classifier'] = True
-                    print(f'  WARNING: custom classifier not found, using builtin', flush=True)
-
-                db = {{
-                    'data_path': [str(tiff_dir)],
-                    'save_path0': str(out_dir),
-                    'nplanes': 1,
-                    'nchannels': 1,
-                }}
-                suite2p.run_s2p(db=db, settings=settings)
-                print(f'  Suite2p DONE', flush=True)
+                ts_path = ts_local if ts_local.exists() else None
+                suite2p_dir = run_suite2p(
+                    tiff_dir=tiff_dir,
+                    output_dir=out_dir,
+                    timestamps_h5=ts_path,
+                    indicator='GCaMP6s',
+                )
+                print(f'  Suite2p + classification DONE', flush=True)
             except Exception as e:
-                print(f'  ERROR in Suite2p: {{e}}', flush=True)
+                print(f'  ERROR: {{e}}', flush=True)
                 import traceback
                 traceback.print_exc()
                 failed.append(exp_id)
                 continue
 
-            # Upload results to S3 (replace old data only after successful upload)
+            # Upload results to S3
             s2p_out = out_dir / 'suite2p'
             if s2p_out.exists():
-                # Upload to a temp prefix first, then move
                 s3_dest = f's3://{DERIVATIVES_BUCKET}/ca_extraction/{{sub}}/{{ses_id}}/suite2p/'
                 print(f'  Uploading to {{s3_dest}}...', flush=True)
-                # Delete old output, then upload new
-                subprocess.run([
-                    'aws', 's3', 'rm', '--recursive', s3_dest,
-                ], capture_output=True, text=True)
+                subprocess.run(['aws', 's3', 'rm', '--recursive', s3_dest], capture_output=True)
                 ret = subprocess.run([
-                    'aws', 's3', 'sync',
-                    str(s2p_out),
-                    s3_dest,
+                    'aws', 's3', 'sync', str(s2p_out), s3_dest,
                 ], capture_output=True, text=True)
                 if ret.returncode != 0:
                     print(f'  ERROR uploading: {{ret.stderr}}', flush=True)
@@ -374,22 +269,12 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
                     print(f'  Upload DONE', flush=True)
                     completed.append(exp_id)
             else:
-                print(f'  WARNING: suite2p output dir not found at {{s2p_out}}', flush=True)
+                print(f'  WARNING: suite2p output dir not found', flush=True)
                 failed.append(exp_id)
 
-            # Cleanup to save disk space
+            # Cleanup
             shutil.rmtree(work / 'input' / sub, ignore_errors=True)
             shutil.rmtree(out_dir, ignore_errors=True)
-            print(f'  Cleaned up local files', flush=True)
-
-            # Free GPU memory between sessions
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    torch.cuda.synchronize()
-            except Exception:
-                pass
             gc.collect()
 
         print(f'\\n=== ALL SESSIONS COMPLETE ===', flush=True)
@@ -414,8 +299,9 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
 # EC2 operations
 # ---------------------------------------------------------------------------
 
+
 def ensure_key_pair(ec2) -> str:
-    """Create key pair if it doesn't exist. Returns key name."""
+    """Create key pair if it doesn't exist."""
     try:
         ec2.describe_key_pairs(KeyNames=[KEY_NAME])
         print(f"Key pair '{KEY_NAME}' already exists")
@@ -442,7 +328,6 @@ def ensure_security_group(ec2) -> str:
     except ec2.exceptions.ClientError:
         pass
 
-    # Get default VPC
     vpcs = ec2.describe_vpcs(Filters=[{"Name": "isDefault", "Values": ["true"]}])
     vpc_id = vpcs["Vpcs"][0]["VpcId"]
 
@@ -476,18 +361,14 @@ def launch(args):
     key_name = ensure_key_pair(ec2)
     sg_id = ensure_security_group(ec2)
 
-    # Check for IAM instance profile (provides S3 + CloudWatch without embedded keys)
     use_profile = args.use_profile or has_instance_profile()
     if use_profile:
         print(f"Using IAM instance profile: {INSTANCE_PROFILE_NAME}")
-        print("  (no embedded credentials — S3 + CloudWatch via IAM role)")
     else:
-        print("No IAM instance profile found — embedding S3 credentials in user-data")
-        print("  Run 'python scripts/setup_ec2_iam.py' to create the profile")
+        print("No IAM instance profile — embedding S3 credentials in user-data")
 
     user_data = build_user_data(sessions, use_instance_profile=use_profile)
 
-    # Build run_instances kwargs
     launch_kwargs = {
         "ImageId": AMI_ID,
         "InstanceType": INSTANCE_TYPE,
@@ -521,12 +402,10 @@ def launch(args):
 
     instance_id = resp["Instances"][0]["InstanceId"]
     print(f"\nInstance launched: {instance_id}")
-    print(f"Type: {INSTANCE_TYPE} Spot (~$0.30/hr)")
+    print(f"Type: {INSTANCE_TYPE} (~$0.14 USD/hr on-demand)")
 
-    # Save state for monitoring
     STATE_FILE.write_text(json.dumps({"instance_id": instance_id, "region": REGION}))
 
-    # Wait for running state
     print("Waiting for instance to start...", end="", flush=True)
     waiter = ec2.get_waiter("instance_running")
     waiter.wait(InstanceIds=[instance_id])
@@ -542,7 +421,7 @@ def launch(args):
 
 
 def status(args):
-    """Check instance status and show recent log output."""
+    """Check instance status."""
     if not STATE_FILE.exists():
         print("No active instance. Run without --status to launch.")
         return
@@ -550,26 +429,33 @@ def status(args):
     state = json.loads(STATE_FILE.read_text())
     ec2 = boto3.client("ec2", region_name=state["region"])
 
-    desc = ec2.describe_instances(InstanceIds=[state["instance_id"]])
-    inst = desc["Reservations"][0]["Instances"][0]
-    print(f"Instance: {state['instance_id']}")
-    print(f"State:    {inst['State']['Name']}")
-    print(f"Type:     {inst['InstanceType']}")
-    if "PublicIpAddress" in inst:
-        print(f"IP:       {inst['PublicIpAddress']}")
-        print(f"SSH:      ssh -i ~/.ssh/{KEY_NAME}.pem ubuntu@{inst['PublicIpAddress']}")
-        print(f"Logs:     ssh ... 'tail -f /var/log/hm2p-suite2p.log'")
-
-    # Try to get console output
     try:
-        console = ec2.get_console_output(InstanceId=state["instance_id"])
-        if "Output" in console and console["Output"]:
-            lines = console["Output"].strip().split("\n")
-            print(f"\n--- Console output (last 20 lines) ---")
-            for line in lines[-20:]:
-                print(f"  {line}")
-    except Exception:
-        pass
+        desc = ec2.describe_instances(InstanceIds=[state["instance_id"]])
+        inst = desc["Reservations"][0]["Instances"][0]
+        inst_state = inst["State"]["Name"]
+        public_ip = inst.get("PublicIpAddress", "N/A")
+        launch_time = inst.get("LaunchTime", "")
+        print(f"Instance: {state['instance_id']}")
+        print(f"State: {inst_state}")
+        print(f"IP: {public_ip}")
+        print(f"Launched: {launch_time}")
+        if inst_state == "running":
+            print(f"\nSSH: ssh -i ~/.ssh/{KEY_NAME}.pem ubuntu@{public_ip}")
+    except Exception as e:
+        print(f"Error checking status: {e}")
+
+
+def progress(args):
+    """Download and show the S3 progress file."""
+    import tempfile
+    s3 = boto3.client("s3", region_name=REGION)
+    with tempfile.NamedTemporaryFile(suffix=".json") as f:
+        try:
+            s3.download_file(DERIVATIVES_BUCKET, "ca_extraction/_progress.json", f.name)
+            data = json.loads(Path(f.name).read_text())
+            print(json.dumps(data, indent=2))
+        except Exception as e:
+            print(f"No progress file found: {e}")
 
 
 def terminate(args):
@@ -580,96 +466,27 @@ def terminate(args):
 
     state = json.loads(STATE_FILE.read_text())
     ec2 = boto3.client("ec2", region_name=state["region"])
+
+    print(f"Terminating {state['instance_id']}...")
     ec2.terminate_instances(InstanceIds=[state["instance_id"]])
-    print(f"Terminated: {state['instance_id']}")
-    STATE_FILE.unlink()
+    print("Terminated.")
+    STATE_FILE.unlink(missing_ok=True)
 
-
-def logs(args):
-    """Stream CloudWatch logs from the running instance."""
-    logs_client = boto3.client("logs", region_name=REGION)
-
-    # List log streams in the group
-    try:
-        resp = logs_client.describe_log_streams(
-            logGroupName=CW_LOG_GROUP,
-            orderBy="LastEventTime",
-            descending=True,
-            limit=5,
-        )
-    except logs_client.exceptions.ResourceNotFoundException:
-        print(f"Log group '{CW_LOG_GROUP}' not found.")
-        print("Run 'python scripts/setup_ec2_iam.py' to create it.")
-        return
-    except Exception as e:
-        print(f"Error accessing CloudWatch Logs: {e}")
-        print("The h2mp-agent user may not have CloudWatch permissions.")
-        print("Check IAM policies or use --status for SSH-based log access.")
-        return
-
-    streams = resp.get("logStreams", [])
-    if not streams:
-        print(f"No log streams in {CW_LOG_GROUP}")
-        print("The instance may not have started logging yet.")
-        return
-
-    # Show the most recent stream
-    stream_name = streams[0]["logStreamName"]
-    print(f"Log stream: {stream_name}")
-    print(f"---")
-
-    resp = logs_client.get_log_events(
-        logGroupName=CW_LOG_GROUP,
-        logStreamName=stream_name,
-        startFromHead=False,
-        limit=100,
-    )
-    for event in resp.get("events", []):
-        print(event["message"])
-
-
-def progress(args):
-    """Check processing progress from S3 progress file."""
-    s3 = boto3.client("s3", region_name=REGION)
-    try:
-        resp = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key="ca_extraction/_progress.json")
-        data = json.loads(resp["Body"].read())
-        print(f"Status:    {data['status']}")
-        print(f"Progress:  {data['completed']}/{data['total']} completed, "
-              f"{data['failed']} failed, {data['skipped']} skipped")
-        print(f"Updated:   {data['updated']}")
-        if data.get("completed_sessions"):
-            print(f"\nCompleted: {', '.join(data['completed_sessions'])}")
-        if data.get("failed_sessions"):
-            print(f"Failed:    {', '.join(data['failed_sessions'])}")
-    except s3.exceptions.NoSuchKey:
-        print("No progress file found. Processing may not have started yet.")
-    except Exception as e:
-        print(f"Error reading progress: {e}")
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Launch Suite2p on EC2 g4dn Spot")
+    parser = argparse.ArgumentParser(description="Launch Suite2p + ROI classifier on EC2")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--status", action="store_true", help="Check instance status")
-    group.add_argument("--progress", action="store_true", help="Check processing progress from S3")
-    group.add_argument("--logs", action="store_true", help="Stream CloudWatch logs")
+    group.add_argument("--progress", action="store_true", help="Show S3 progress")
     group.add_argument("--terminate", action="store_true", help="Terminate instance")
     group.add_argument("--dry-run", action="store_true", help="Print user-data without launching")
-    parser.add_argument("--use-profile", action="store_true",
-                        help="Force use of IAM instance profile (skip embedded credentials)")
+    parser.add_argument("--use-profile", action="store_true", help="Force IAM instance profile")
     args = parser.parse_args()
 
     if args.status:
         status(args)
     elif args.progress:
         progress(args)
-    elif args.logs:
-        logs(args)
     elif args.terminate:
         terminate(args)
     elif args.dry_run:
