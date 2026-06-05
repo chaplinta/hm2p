@@ -77,7 +77,7 @@ the new code must be:
 - **Clean and well-structured** — proper modules, clear separation of concerns
 - **Fully unit-tested** — every processing function has tests; no untested logic
 - **Extractor/tracker-agnostic** — pluggable backends for calcium extraction and pose tracking
-- **Cloud-first, locally runnable** — CPU stages can run locally; GPU stages require a GPU
+- **Cloud-first, locally runnable** — most stages are CPU; only DLC training/inference requires a GPU
 - **Data-standard compliant** — NeuroBlueprint folder layout throughout
 - **Modern** — always use the latest stable versions of all libraries (see Versions below)
 
@@ -178,8 +178,8 @@ Do not pin to old versions without a documented compatibility reason.
 | Data transfer to cloud | DataShuttle (datashuttle.neuroinformatics.dev) |
 | Pipeline orchestration | Snakemake (local + AWS Batch profiles) |
 | Cloud storage | AWS S3 |
-| GPU compute | AWS EC2 g4dn Spot, or local GPU machine |
-| CPU compute | AWS EC2 c5 Spot, or local machine |
+| GPU compute | AWS EC2 g4dn Spot (DLC training/inference only) |
+| CPU compute | AWS EC2 c5 Spot, or local machine (all other stages) |
 
 ---
 
@@ -208,7 +208,7 @@ Optional Stage 3b outputs (exploratory — deferred until Stages 0–5 complete)
 | Stage | Local CPU | Local GPU | Cloud |
 | --- | --- | --- | --- |
 | 0 — Ingest | ✓ | ✓ | ✓ |
-| 1 — 2P extraction | slow | ✓ | ✓ |
+| 1 — 2P extraction | ✓ | ✓ | ✓ |
 | 2a — DLC Training | ✗ | ✓ | ✓ |
 | 2b — DLC Inference | ✗ | ✓ | ✓ |
 | 3 — Kinematics | ✓ | ✓ | ✓ |
@@ -223,7 +223,7 @@ Compute profile set in `config/compute.yaml`: `local`, `local-gpu`, or `aws-batc
 
 ```text
 Stage 0   Ingest + validate + DAQ parse  CPU           DataShuttle → S3; TDMS → timestamps.h5
-Stage 1   2P extraction (pluggable)      GPU           TIFF → ca_extraction/ via roiextractors
+Stage 1   2P extraction (pluggable)      CPU           TIFF → ca_extraction/ via roiextractors; ROI classifier (XGBoost) runs at end
 Stage 2a  DLC Training                   GPU (24h max)  labeled frames → dlc_training/models/
 Stage 2b  DLC Inference (pluggable)      GPU           .mp4 → pose/ (DLC / SLEAP / LP); depends on 2a
 Stage 3   Kinematics (movement)          CPU           pose → kinematics.h5 (HD, position, speed)
