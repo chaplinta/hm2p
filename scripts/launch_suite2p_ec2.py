@@ -152,10 +152,9 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         # Ubuntu 22.04 has Python 3.10. Use a venv to avoid pip restrictions.
         python3 --version
         python3 -m venv /opt/hm2p
-        export PATH="/opt/hm2p/bin:$PATH"
 
         echo "Installing Stage 1 dependencies..."
-        pip install --quiet \
+        /opt/hm2p/bin/pip install --quiet \
             suite2p \
             xgboost \
             scikit-image \
@@ -174,18 +173,18 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             boto3
 
         echo "Installing hm2p (no-deps)..."
-        pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
+        /opt/hm2p/bin/pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
 
-        python3 -c "import suite2p; print(f'suite2p {{suite2p.__version__}}')"
-        python3 -c "import xgboost; print(f'xgboost {{xgboost.__version__}}')"
-        python3 -c "from hm2p.extraction.roi_classify import classify_session; print('ROI classifier OK')"
+        /opt/hm2p/bin/python -c "import suite2p; print(f'suite2p {{suite2p.__version__}}')"
+        /opt/hm2p/bin/python -c "import xgboost; print(f'xgboost {{xgboost.__version__}}')"
+        /opt/hm2p/bin/python -c "from hm2p.extraction.roi_classify import classify_session; print('ROI classifier OK')"
 
         # --- Process sessions ---
         SESSIONS='{session_json}'
         WORK=/tmp/hm2p-work
         mkdir -p $WORK
 
-        echo "$SESSIONS" | python3 -c "
+        echo "$SESSIONS" | /opt/hm2p/bin/python -c "
         import json, sys, subprocess, shutil, datetime, gc
         from pathlib import Path
 
