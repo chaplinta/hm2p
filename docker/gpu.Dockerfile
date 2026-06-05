@@ -33,6 +33,10 @@ RUN pip install --no-cache-dir ".[suite2p,dlc]"
 # ── Pipeline code ──────────────────────────────────────────────────────────
 COPY config/ config/
 COPY metadata/ metadata/
+COPY sourcedata/trackers/suite2p/roi_classifier_xgb.joblib \
+     sourcedata/trackers/suite2p/roi_classifier_xgb.json \
+     sourcedata/trackers/suite2p/roi_classifier_medians.npy \
+     sourcedata/trackers/suite2p/
 
 ENV HM2P_COMPUTE_PROFILE=aws-batch
 

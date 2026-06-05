@@ -33,10 +33,13 @@ dependencies = [
     # Stage 4 — Calcium processing
     # NOTE: cascade2p is NOT on PyPI; install separately — see [project.optional-dependencies]
     "roiextractors>=0.5.10,<1.0",
-    # scikit-learn powers the soma/dend/artefact classifier (LogisticRegression
-    # + StandardScaler pipeline). joblib persists the fitted pipeline.
+    # scikit-learn powers the soma/dend/artefact classifier. joblib persists
+    # the fitted pipeline. xgboost is the champion ROI classifier. scikit-image
+    # provides skeletonize for mask topology features (branch points).
     "scikit-learn>=1.4,<2.0",
     "joblib>=1.3,<2.0",
+    "xgboost>=2.0,<4.0",
+    "scikit-image>=0.22,<1.0",
     # Stage 5 — Sync
     # (numpy + scipy + pandas already listed above)
     # IO & validation
