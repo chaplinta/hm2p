@@ -147,7 +147,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         done
 
         apt-get update -qq
-        apt-get install -y -qq python3-pip awscli git libhdf5-dev pkg-config
+        apt-get install -y -qq python3-pip python3-venv awscli git libhdf5-dev pkg-config
 
         # Ubuntu 22.04 has Python 3.10. Use a venv to avoid pip restrictions.
         python3 --version
