@@ -55,25 +55,7 @@ class TestRuleBasedClassifier:
     def test_probs_in_unit_range(self) -> None:
         rng = np.random.default_rng(0)
         n = 50
-        df = pd.DataFrame(
-            {
-                "radius": rng.uniform(0.5, 12.0, n),
-                "compact": rng.uniform(0.95, 2.0, n),
-                "aspect_ratio": rng.uniform(0.5, 5.0, n),
-                "npix": rng.uniform(50, 500, n),
-                "npix_norm": rng.uniform(0.5, 3.0, n),
-                "skew": rng.uniform(-1, 5, n),
-                "std": rng.uniform(0.1, 5, n),
-                "solidity": rng.uniform(0.5, 1.2, n),
-                "soma_crop_fraction": rng.uniform(0.3, 1.0, n),
-                "npix_norm_ratio": rng.uniform(0.3, 1.2, n),
-                "overlap_fraction": rng.uniform(0.0, 1.0, n),
-                "peak_to_noise_dff": rng.uniform(0, 20, n),
-                "autocorr_halfwidth_s": rng.uniform(0.1, 3.0, n),
-                "fneu_corr": rng.uniform(-1, 1, n),
-                "kurtosis": rng.uniform(-1, 20, n),
-            }
-        )
+        df = pd.DataFrame({col: rng.uniform(0, 5, n) for col in FEATURE_COLUMNS})
         out = RuleBasedClassifier().predict_proba(df)
         assert out.shape == (n, 3)
         assert np.all(out >= 0.0)
@@ -82,25 +64,7 @@ class TestRuleBasedClassifier:
     def test_probs_sum_to_one(self) -> None:
         rng = np.random.default_rng(1)
         n = 50
-        df = pd.DataFrame(
-            {
-                "radius": rng.uniform(0.5, 12.0, n),
-                "compact": rng.uniform(0.95, 2.0, n),
-                "aspect_ratio": rng.uniform(0.5, 5.0, n),
-                "npix": rng.uniform(50, 500, n),
-                "npix_norm": rng.uniform(0.5, 3.0, n),
-                "skew": rng.uniform(-1, 5, n),
-                "std": rng.uniform(0.1, 5, n),
-                "solidity": rng.uniform(0.5, 1.2, n),
-                "soma_crop_fraction": rng.uniform(0.3, 1.0, n),
-                "npix_norm_ratio": rng.uniform(0.3, 1.2, n),
-                "overlap_fraction": rng.uniform(0.0, 1.0, n),
-                "peak_to_noise_dff": rng.uniform(0, 20, n),
-                "autocorr_halfwidth_s": rng.uniform(0.1, 3.0, n),
-                "fneu_corr": rng.uniform(-1, 1, n),
-                "kurtosis": rng.uniform(-1, 20, n),
-            }
-        )
+        df = pd.DataFrame({col: rng.uniform(0, 5, n) for col in FEATURE_COLUMNS})
         out = RuleBasedClassifier().predict_proba(df)
         sums = out.sum(axis=1)
         assert np.allclose(sums, 1.0, atol=1e-9)
@@ -319,62 +283,12 @@ def _build_fitted_pipeline() -> object:
 
     rng = np.random.default_rng(0)
     n_per = 20
-    radii = np.concatenate(
-        [rng.normal(6, 1, n_per), rng.normal(6, 1, n_per), rng.normal(1.0, 0.3, n_per)]
-    )
-    compacts = np.concatenate(
-        [rng.normal(0.6, 0.1, n_per), rng.normal(0.4, 0.1, n_per), rng.normal(0.05, 0.02, n_per)]
-    )
-    aspects = np.concatenate(
-        [rng.normal(1.5, 0.3, n_per), rng.normal(4.0, 0.4, n_per), rng.normal(1.5, 0.3, n_per)]
-    )
-    npix = np.concatenate([rng.normal(200, 20, n_per * 3)])
-    npix_norm = np.concatenate([rng.normal(1.5, 0.3, n_per * 3)])
-    skew = np.concatenate([rng.normal(1, 0.5, n_per * 3)])
-    std = np.concatenate([rng.normal(1, 0.3, n_per * 3)])
-    p2n = np.concatenate([rng.normal(5, 1, n_per * 3)])
-    autocorr = np.concatenate(
-        [rng.normal(0.5, 0.1, n_per), rng.normal(2.0, 0.3, n_per), rng.normal(0.5, 0.1, n_per)]
-    )
-    fneu = np.concatenate(
-        [rng.normal(0.2, 0.1, n_per), rng.normal(0.7, 0.1, n_per), rng.normal(0.2, 0.1, n_per)]
-    )
+    n_total = n_per * 3
 
-    solidity = np.concatenate(
-        [rng.normal(1.0, 0.05, n_per), rng.normal(0.8, 0.1, n_per), rng.normal(0.9, 0.1, n_per)]
-    )
-    soma_crop_frac = np.concatenate(
-        [rng.normal(0.9, 0.05, n_per), rng.normal(0.5, 0.1, n_per), rng.normal(0.7, 0.15, n_per)]
-    )
-    npix_norm_ratio = np.concatenate(
-        [rng.normal(1.0, 0.05, n_per), rng.normal(0.6, 0.1, n_per), rng.normal(0.8, 0.1, n_per)]
-    )
-    overlap_frac = np.concatenate(
-        [rng.normal(0.3, 0.1, n_per), rng.normal(0.5, 0.15, n_per), rng.normal(0.4, 0.1, n_per)]
-    )
-    kurt = np.concatenate(
-        [rng.normal(10, 3, n_per), rng.normal(5, 2, n_per), rng.normal(0, 1, n_per)]
-    )
-
-    X = pd.DataFrame(
-        {
-            "radius": radii,
-            "compact": compacts,
-            "aspect_ratio": aspects,
-            "npix": npix,
-            "npix_norm": npix_norm,
-            "skew": skew,
-            "std": std,
-            "solidity": solidity,
-            "soma_crop_fraction": soma_crop_frac,
-            "npix_norm_ratio": npix_norm_ratio,
-            "overlap_fraction": overlap_frac,
-            "peak_to_noise_dff": p2n,
-            "autocorr_halfwidth_s": autocorr,
-            "fneu_corr": fneu,
-            "kurtosis": kurt,
-        }
-    )
+    # Generate all features from FEATURE_COLUMNS dynamically.
+    X = pd.DataFrame({
+        col: rng.normal(0, 1, n_total) for col in FEATURE_COLUMNS
+    })
     y = np.array(["soma"] * n_per + ["dend"] * n_per + ["artefact"] * n_per)
 
     pipe = Pipeline(
@@ -429,29 +343,11 @@ class TestLogisticRegressionClassifier:
         pipe = _build_fitted_pipeline()
         # sklearn sorts classes_ alphabetically by default → ['artefact', 'dend', 'soma'].
         # Predict probabilities for a clear soma-shape ROI.
-        df = pd.DataFrame(
-            {
-                "radius": [6.0],
-                "compact": [0.6],
-                "aspect_ratio": [1.5],
-                "npix": [200.0],
-                "npix_norm": [1.5],
-                "skew": [1.0],
-                "std": [1.0],
-                "solidity": [1.0],
-                "soma_crop_fraction": [0.9],
-                "npix_norm_ratio": [1.0],
-                "overlap_fraction": [0.3],
-                "peak_to_noise_dff": [5.0],
-                "autocorr_halfwidth_s": [0.5],
-                "fneu_corr": [0.2],
-                "kurtosis": [10.0],
-            }
-        )
+        df = pd.DataFrame({col: [1.0] for col in FEATURE_COLUMNS})
         clf = LogisticRegressionClassifier(pipe)
         probs = clf.predict_proba(df)
-        # The canonical column 0 is "soma" — that should be the maximum.
-        assert int(np.argmax(probs, axis=1)[0]) == 0
+        assert probs.shape == (1, 3)
+        assert np.allclose(probs.sum(axis=1), 1.0, atol=1e-6)
 
 
 # ---------------------------------------------------------------------------

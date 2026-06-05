@@ -479,6 +479,29 @@ def run_suite2p(
     # Suite2p only stores meanImg and meanImgE (enhanced mean), not a true max.
     _compute_max_projection(plane0)
 
+    # Run the 3-way ROI classifier (soma/dend/artefact) on the detected ROIs.
+    # This overwrites iscell.npy so only soma appear as "cells" in the Suite2p
+    # GUI and downstream stages, and writes roi_class.npy + roi_class_prob.npy.
+    from hm2p.extraction.roi_classify import classify_session
+
+    try:
+        result = classify_session(plane0, fps=fps)
+        log.info(
+            "ROI classification: %d soma, %d dend, %d artefact",
+            result["n_soma"], result["n_dend"], result["n_artefact"],
+        )
+    except FileNotFoundError:
+        log.warning(
+            "ROI classifier model not found — skipping classification. "
+            "iscell.npy retains Suite2p's default binary labels."
+        )
+    except Exception as exc:
+        log.warning(
+            "ROI classification failed (%s) — skipping. "
+            "iscell.npy retains Suite2p's default binary labels.",
+            exc,
+        )
+
     log.info("Suite2p complete. Output: %s", suite2p_dir)
     return suite2p_dir
 

@@ -13,7 +13,7 @@ from hm2p.extraction.soma_features import (
     _autocorr_halfwidth_s,
     _derivative_skew,
     _event_rate,
-    _fneu_corr,
+    _fneu_corr_batch,
     _kurtosis,
     _peak_to_noise,
     _power_slope,
@@ -114,22 +114,35 @@ class TestAutocorrHalfwidth:
 # ---------------------------------------------------------------------------
 
 
-class TestFneuCorr:
+class TestFneuCorrBatch:
     def test_short_returns_nan(self) -> None:
-        assert np.isnan(_fneu_corr(np.zeros(5), np.zeros(5)))
+        result = _fneu_corr_batch(np.zeros((1, 5)), np.zeros((1, 5)))
+        assert np.isnan(result[0])
 
     def test_constant_returns_nan(self) -> None:
-        assert np.isnan(_fneu_corr(np.zeros(50), np.linspace(0, 1, 50)))
+        result = _fneu_corr_batch(np.zeros((1, 50)), np.linspace(0, 1, 50).reshape(1, -1))
+        assert np.isnan(result[0])
 
     def test_perfect_correlation(self) -> None:
         rng = np.random.default_rng(4)
-        x = rng.normal(0, 1, size=200)
-        assert _fneu_corr(x, x.copy()) == pytest.approx(1.0)
+        x = rng.normal(0, 1, size=(1, 200))
+        result = _fneu_corr_batch(x, x.copy())
+        assert result[0] == pytest.approx(1.0, abs=1e-6)
 
     def test_anti_correlation(self) -> None:
         rng = np.random.default_rng(5)
-        x = rng.normal(0, 1, size=200)
-        assert _fneu_corr(x, -x) == pytest.approx(-1.0)
+        x = rng.normal(0, 1, size=(1, 200))
+        result = _fneu_corr_batch(x, -x)
+        assert result[0] == pytest.approx(-1.0, abs=1e-6)
+
+    def test_batch_multiple_rois(self) -> None:
+        rng = np.random.default_rng(6)
+        dff = rng.normal(0, 1, size=(5, 200))
+        fneu = rng.normal(0, 1, size=(5, 200))
+        result = _fneu_corr_batch(dff, fneu)
+        assert result.shape == (5,)
+        assert np.all(np.isfinite(result))
+        assert np.all(np.abs(result) <= 1.0)
 
 
 # ---------------------------------------------------------------------------

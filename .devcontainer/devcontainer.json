@@ -52,7 +52,7 @@
     "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/brains-sorted,target=/data/brains-sorted,type=bind,readonly=true",
     "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/brains-reg,target=/data/brains-reg,type=bind,readonly=true",
     "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/video-meta-backup,target=/data/video-meta-backup,type=bind,readonly=true",
-    "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/s2p,type=bind,readonly=true",
+    "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/s2p,target=/data/s2p,type=bind,readonly=true",
     "source=/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p/dlc,target=/legacy/dlc-old,type=bind,readonly=true",
     "source=/Users/tristan/Neuro/hm2p-dlc-videos,target=/host-dlc-videos,type=bind"
   ],

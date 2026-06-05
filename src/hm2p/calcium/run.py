@@ -191,43 +191,45 @@ def run(
         else:
             bad_imaging_frames = np.zeros(n_total_frames, dtype=bool)
 
-    # --- Classify ROI types ---
-    # When stat.npy is present, route through the activity-aware classifier
-    # which records calibrated per-ROI probabilities (p_soma, p_dend,
-    # p_artefact) alongside the hard labels.  When stat.npy is missing
-    # (e.g. degraded Suite2p outputs), default everything to "soma".
-    stat_path = plane_dir / "stat.npy"
+    # --- Load ROI classification ---
+    # The XGBoost 3-way classifier (soma/dend/artefact) runs at the end of
+    # Stage 1 and writes roi_class.npy + roi_class_prob.npy alongside the
+    # Suite2p outputs.  Read those here; fall back to iscell-based labels
+    # if the classifier hasn't been run (e.g. legacy data).
+    roi_class_path = plane_dir / "roi_class.npy"
+    roi_class_prob_path = plane_dir / "roi_class_prob.npy"
     p_soma_arr: np.ndarray | None = None
     p_dend_arr: np.ndarray | None = None
     p_artefact_arr: np.ndarray | None = None
 
-    if stat_path.exists():
-        from hm2p.extraction.suite2p import classify_roi_types_with_probs
+    label_map_inv = {0: "artefact", 1: "soma", 2: "dend"}
 
-        stat = list(np.load(stat_path, allow_pickle=True))
+    if roi_class_path.exists():
+        roi_class = np.load(roi_class_path)
+        roi_types = [label_map_inv.get(int(c), "artefact") for c in roi_class]
 
-        # Infer fps for the feature extractor from frame_times below.  At
-        # this point in the function, frame_times has not yet been loaded,
-        # so we compute a provisional fps from ops if possible.  This
-        # avoids a circular dependency on the timestamps load order.
-        ops_for_fps = np.load(ops_path, allow_pickle=True).item() if ops_path.exists() else None
-        fps_for_features = float(ops_for_fps.get("fs", 9.6)) if ops_for_fps is not None else 9.6
+        if roi_class_prob_path.exists():
+            probs = np.load(roi_class_prob_path)
+            # Column order: [P(artefact), P(soma), P(dendrite)]
+            p_artefact_arr = probs[:, 0].astype(np.float32)
+            p_soma_arr = probs[:, 1].astype(np.float32)
+            p_dend_arr = probs[:, 2].astype(np.float32)
 
-        roi_types, probs = classify_roi_types_with_probs(
-            stat, F=F, Fneu=Fneu, fps=fps_for_features
+        log.info(
+            "Loaded ROI classification from roi_class.npy: %d soma, %d dend, %d artefact",
+            sum(1 for t in roi_types if t == "soma"),
+            sum(1 for t in roi_types if t == "dend"),
+            sum(1 for t in roi_types if t == "artefact"),
         )
-        # CLASS_NAMES order: ("soma", "dend", "artefact")
-        p_soma_arr = probs[:, 0].astype(np.float32)
-        p_dend_arr = probs[:, 1].astype(np.float32)
-        p_artefact_arr = probs[:, 2].astype(np.float32)
     else:
-        roi_types = ["soma"] * F.shape[0]
-
-    # ``roi_types`` is the soma/dend/artefact label from the classifier — it
-    # is **not** combined with iscell. Suite2p's iscell flag is stored as a
-    # separate boolean (``iscell``) so that downstream code can distinguish
-    # a Suite2p-rejected dendrite (``roi_types == "dend"``, ``iscell ==
-    # False``) from a physical artefact (``roi_types == "artefact"``).
+        # Fallback: no XGBoost classifier output.  Use iscell as a binary
+        # soma/artefact label (no dendrite distinction possible).
+        log.warning(
+            "roi_class.npy not found in %s — falling back to iscell.npy "
+            "binary labels (soma vs artefact only, no dendrite class).",
+            plane_dir,
+        )
+        roi_types = ["soma" if m else "artefact" for m in cell_mask]
 
     # --- Load imaging frame times ---
     ts = read_h5(timestamps_h5)
