@@ -31,7 +31,7 @@ import boto3
 
 REGION = "ap-southeast-2"
 INSTANCE_TYPE = "c5.2xlarge"  # 8 vCPU, 16 GB RAM — CPU-only, no GPU needed
-AMI_ID = "ami-0df4b2961410d4cff"  # Ubuntu 22.04 LTS amd64 (ap-southeast-2)
+AMI_ID = "ami-09f7afd0bec4e4238"  # Ubuntu 24.04 LTS amd64 (ap-southeast-2) — Python 3.12
 KEY_NAME = "hm2p-suite2p"
 SG_NAME = "hm2p-suite2p-sg"
 RAWDATA_BUCKET = "hm2p-rawdata"
@@ -147,19 +147,21 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         done
 
         apt-get update -qq
-        apt-get install -y -qq software-properties-common awscli git libhdf5-dev pkg-config
-        add-apt-repository -y ppa:deadsnakes/ppa
-        apt-get update -qq
-        apt-get install -y -qq python3.11 python3.11-dev python3.11-venv
-        python3.11 -m ensurepip --upgrade
-        ln -sf /usr/bin/python3.11 /usr/local/bin/python3
+        apt-get install -y -qq python3-pip python3-venv awscli git libhdf5-dev pkg-config
+
+        # Ubuntu 24.04 ships Python 3.12
+        python3 --version
 
         # --- Install dependencies for Stage 1 (Suite2p + ROI classifier) ---
         # Install hm2p from git in --no-deps mode to avoid pulling movement
         # (which is for Stage 3 kinematics, not needed here). Then install
         # the specific deps that Stage 1 actually needs.
+        # Use a venv to avoid Ubuntu 24.04's externally-managed-environment block
+        python3 -m venv /opt/hm2p-venv
+        export PATH="/opt/hm2p-venv/bin:$PATH"
+
         echo "Installing Stage 1 dependencies..."
-        python3 -m pip install --quiet \
+        pip install --quiet \
             suite2p \
             xgboost \
             scikit-image \
@@ -172,7 +174,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             tqdm
 
         echo "Installing hm2p (no-deps)..."
-        python3 -m pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
+        pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
 
         python3 -c "import suite2p; print(f'suite2p {{suite2p.__version__}}')"
         python3 -c "import xgboost; print(f'xgboost {{xgboost.__version__}}')"
