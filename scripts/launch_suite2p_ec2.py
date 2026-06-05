@@ -31,7 +31,7 @@ import boto3
 
 REGION = "ap-southeast-2"
 INSTANCE_TYPE = "c5.2xlarge"  # 8 vCPU, 16 GB RAM — CPU-only, no GPU needed
-AMI_ID = "ami-09f7afd0bec4e4238"  # Ubuntu 24.04 LTS amd64 (ap-southeast-2) — Python 3.12
+AMI_ID = "ami-0df4b2961410d4cff"  # Ubuntu 22.04 LTS amd64 (ap-southeast-2) — Python 3.10
 KEY_NAME = "hm2p-suite2p"
 SG_NAME = "hm2p-suite2p-sg"
 RAWDATA_BUCKET = "hm2p-rawdata"
@@ -147,21 +147,15 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         done
 
         apt-get update -qq
-        apt-get install -y -qq python3-pip python3-venv awscli git libhdf5-dev pkg-config
+        apt-get install -y -qq python3-pip awscli git libhdf5-dev pkg-config
 
-        # Ubuntu 24.04 ships Python 3.12
+        # Ubuntu 22.04 has Python 3.10 — suite2p and our deps work on 3.10.
+        # Install hm2p with --no-deps to avoid pulling movement (Stage 3 only,
+        # not on PyPI). Install Stage 1 deps explicitly.
         python3 --version
 
-        # --- Install dependencies for Stage 1 (Suite2p + ROI classifier) ---
-        # Install hm2p from git in --no-deps mode to avoid pulling movement
-        # (which is for Stage 3 kinematics, not needed here). Then install
-        # the specific deps that Stage 1 actually needs.
-        # Use a venv to avoid Ubuntu 24.04's externally-managed-environment block
-        python3 -m venv /opt/hm2p-venv
-        export PATH="/opt/hm2p-venv/bin:$PATH"
-
         echo "Installing Stage 1 dependencies..."
-        pip install --quiet \
+        pip3 install --quiet --break-system-packages \
             suite2p \
             xgboost \
             scikit-image \
@@ -171,10 +165,16 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             scipy \
             pandas \
             h5py \
-            tqdm
+            tqdm \
+            structlog \
+            rich \
+            typer \
+            roiextractors \
+            pandera \
+            boto3
 
         echo "Installing hm2p (no-deps)..."
-        pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
+        pip3 install --quiet --break-system-packages --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
 
         python3 -c "import suite2p; print(f'suite2p {{suite2p.__version__}}')"
         python3 -c "import xgboost; print(f'xgboost {{xgboost.__version__}}')"
@@ -409,7 +409,7 @@ def launch(args):
             },
         }],
         "UserData": user_data,
-        "InstanceInitiatedShutdownBehavior": "terminate",
+        "InstanceInitiatedShutdownBehavior": "stop",  # stop (not terminate) so we can debug failures
         "TagSpecifications": [{
             "ResourceType": "instance",
             "Tags": [
