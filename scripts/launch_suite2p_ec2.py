@@ -149,13 +149,13 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         apt-get update -qq
         apt-get install -y -qq python3-pip awscli git libhdf5-dev pkg-config
 
-        # Ubuntu 22.04 has Python 3.10 — suite2p and our deps work on 3.10.
-        # Install hm2p with --no-deps to avoid pulling movement (Stage 3 only,
-        # not on PyPI). Install Stage 1 deps explicitly.
+        # Ubuntu 22.04 has Python 3.10. Use a venv to avoid pip restrictions.
         python3 --version
+        python3 -m venv /opt/hm2p
+        source /opt/hm2p/bin/activate
 
         echo "Installing Stage 1 dependencies..."
-        pip3 install --quiet --break-system-packages \
+        pip install --quiet \
             suite2p \
             xgboost \
             scikit-image \
@@ -174,7 +174,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             boto3
 
         echo "Installing hm2p (no-deps)..."
-        pip3 install --quiet --break-system-packages --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
+        pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
 
         python3 -c "import suite2p; print(f'suite2p {{suite2p.__version__}}')"
         python3 -c "import xgboost; print(f'xgboost {{xgboost.__version__}}')"
