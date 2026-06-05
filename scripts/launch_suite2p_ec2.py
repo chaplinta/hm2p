@@ -147,11 +147,33 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         done
 
         apt-get update -qq
-        apt-get install -y -qq python3-pip python3-venv awscli git libhdf5-dev pkg-config
+        apt-get install -y -qq software-properties-common awscli git libhdf5-dev pkg-config
+        add-apt-repository -y ppa:deadsnakes/ppa
+        apt-get update -qq
+        apt-get install -y -qq python3.11 python3.11-dev python3.11-venv
+        python3.11 -m ensurepip --upgrade
+        ln -sf /usr/bin/python3.11 /usr/local/bin/python3
 
-        # --- Install hm2p from git (includes suite2p, xgboost, scikit-image) ---
-        echo "Installing hm2p..."
-        pip3 install --quiet git+{GIT_REPO}@{GIT_BRANCH}#egg=hm2p[suite2p]
+        # --- Install dependencies for Stage 1 (Suite2p + ROI classifier) ---
+        # Install hm2p from git in --no-deps mode to avoid pulling movement
+        # (which is for Stage 3 kinematics, not needed here). Then install
+        # the specific deps that Stage 1 actually needs.
+        echo "Installing Stage 1 dependencies..."
+        python3 -m pip install --quiet \
+            suite2p \
+            xgboost \
+            scikit-image \
+            scikit-learn \
+            joblib \
+            numpy \
+            scipy \
+            pandas \
+            h5py \
+            tqdm
+
+        echo "Installing hm2p (no-deps)..."
+        python3 -m pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
+
         python3 -c "import suite2p; print(f'suite2p {{suite2p.__version__}}')"
         python3 -c "import xgboost; print(f'xgboost {{xgboost.__version__}}')"
         python3 -c "from hm2p.extraction.roi_classify import classify_session; print('ROI classifier OK')"
