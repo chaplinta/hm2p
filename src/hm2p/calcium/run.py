@@ -194,42 +194,39 @@ def run(
     # --- Load ROI classification ---
     # The XGBoost 3-way classifier (soma/dend/artefact) runs at the end of
     # Stage 1 and writes roi_class.npy + roi_class_prob.npy alongside the
-    # Suite2p outputs.  Read those here; fall back to iscell-based labels
-    # if the classifier hasn't been run (e.g. legacy data).
+    # Suite2p outputs.  This is required — there is no fallback.
     roi_class_path = plane_dir / "roi_class.npy"
     roi_class_prob_path = plane_dir / "roi_class_prob.npy"
     p_soma_arr: np.ndarray | None = None
     p_dend_arr: np.ndarray | None = None
     p_artefact_arr: np.ndarray | None = None
 
+    if not roi_class_path.exists():
+        raise FileNotFoundError(
+            f"roi_class.npy not found in {plane_dir}. "
+            "The XGBoost ROI classifier must run as part of Stage 1 "
+            "(run_suite2p) before calcium processing. Re-run Stage 1 "
+            "or run `hm2p.extraction.roi_classify.classify_session()` "
+            "on the Suite2p output directory."
+        )
+
     label_map_inv = {0: "artefact", 1: "soma", 2: "dend"}
+    roi_class = np.load(roi_class_path)
+    roi_types = [label_map_inv.get(int(c), "artefact") for c in roi_class]
 
-    if roi_class_path.exists():
-        roi_class = np.load(roi_class_path)
-        roi_types = [label_map_inv.get(int(c), "artefact") for c in roi_class]
+    if roi_class_prob_path.exists():
+        probs = np.load(roi_class_prob_path)
+        # Column order: [P(artefact), P(soma), P(dendrite)]
+        p_artefact_arr = probs[:, 0].astype(np.float32)
+        p_soma_arr = probs[:, 1].astype(np.float32)
+        p_dend_arr = probs[:, 2].astype(np.float32)
 
-        if roi_class_prob_path.exists():
-            probs = np.load(roi_class_prob_path)
-            # Column order: [P(artefact), P(soma), P(dendrite)]
-            p_artefact_arr = probs[:, 0].astype(np.float32)
-            p_soma_arr = probs[:, 1].astype(np.float32)
-            p_dend_arr = probs[:, 2].astype(np.float32)
-
-        log.info(
-            "Loaded ROI classification from roi_class.npy: %d soma, %d dend, %d artefact",
-            sum(1 for t in roi_types if t == "soma"),
-            sum(1 for t in roi_types if t == "dend"),
-            sum(1 for t in roi_types if t == "artefact"),
-        )
-    else:
-        # Fallback: no XGBoost classifier output.  Use iscell as a binary
-        # soma/artefact label (no dendrite distinction possible).
-        log.warning(
-            "roi_class.npy not found in %s — falling back to iscell.npy "
-            "binary labels (soma vs artefact only, no dendrite class).",
-            plane_dir,
-        )
-        roi_types = ["soma" if m else "artefact" for m in cell_mask]
+    log.info(
+        "Loaded ROI classification from roi_class.npy: %d soma, %d dend, %d artefact",
+        sum(1 for t in roi_types if t == "soma"),
+        sum(1 for t in roi_types if t == "dend"),
+        sum(1 for t in roi_types if t == "artefact"),
+    )
 
     # --- Load imaging frame times ---
     ts = read_h5(timestamps_h5)
