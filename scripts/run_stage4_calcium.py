@@ -112,6 +112,14 @@ def run_session(s3, sub: str, ses: str, exp_id: str, work_dir: Path,
         print(f"  Downloading timestamps.h5...")
         s3.download_file(DERIVATIVES_BUCKET, ts_key, str(ts_local))
 
+        # Run ROI classifier if roi_class.npy is missing
+        plane_dir = s2p_local / "plane0"
+        if not (plane_dir / "roi_class.npy").exists():
+            print(f"  Running ROI classifier...")
+            from hm2p.extraction.roi_classify import classify_session
+            cls_result = classify_session(plane_dir)
+            print(f"  Classified: {cls_result['n_soma']} soma, {cls_result['n_dend']} dend, {cls_result['n_artefact']} artefact")
+
         # Run calcium pipeline
         print(f"  Running calcium pipeline...")
         from hm2p.calcium.run import run
