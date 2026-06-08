@@ -62,15 +62,25 @@ def download_h5(s3, bucket: str, key: str, local_path: Path) -> bool:
 
 
 def load_h5(path: Path) -> dict:
-    """Load all datasets and attrs from an HDF5 file."""
+    """Load all datasets and attrs from an HDF5 file.
+
+    Datasets are read into arrays. Nested groups (e.g. the ``roi_qc`` group in
+    sync.h5) are loaded recursively into nested dicts rather than slicing them
+    directly, which would raise on an h5py.Group.
+    """
     import h5py
+
+    def _load_group(grp: "h5py.Group") -> dict:
+        out = {}
+        for k in grp.keys():
+            item = grp[k]
+            out[k] = _load_group(item) if isinstance(item, h5py.Group) else item[:]
+        for k, v in grp.attrs.items():
+            out[k] = v
+        return out
+
     with h5py.File(path, "r") as f:
-        data = {}
-        for k in f.keys():
-            data[k] = f[k][:]
-        for k, v in f.attrs.items():
-            data[k] = v
-        return data
+        return _load_group(f)
 
 
 def run_analysis_all_signals(
