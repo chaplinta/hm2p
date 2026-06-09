@@ -210,6 +210,159 @@ def subtract_estimated_coefficient(
     return F_corr.astype(np.float32), coefficients
 
 
+def load_registered_movie(
+    data_bin: Path,
+    crop_ly: int,
+    crop_lx: int,
+    n_frames: int | None = None,
+    mmap: bool = True,
+) -> np.ndarray:
+    """Load a Suite2p registered binary (``data.bin``) as a movie array.
+
+    Suite2p writes the motion-corrected movie to ``data.bin`` as a flat little-
+    endian ``int16`` stream of shape ``(n_frames, crop_ly, crop_lx)``, where the
+    spatial dimensions are the *cropped* registration window
+    (``ops['yrange']`` × ``ops['xrange']``), not the full ``Ly × Lx`` field of
+    view. This loader returns that movie so it can be passed to FISSA together
+    with crop-aligned masks (see
+    :func:`hm2p.calcium.fissa_masks.crop_masks_to_window`).
+
+    Parameters
+    ----------
+    data_bin : Path
+        Path to Suite2p's ``data.bin`` (registered movie).
+    crop_ly : int
+        Cropped image height (``ops['yrange'][1] - ops['yrange'][0]``).
+    crop_lx : int
+        Cropped image width (``ops['xrange'][1] - ops['xrange'][0]``).
+    n_frames : int or None
+        Number of frames. If ``None`` it is inferred from the file size
+        (``size / (crop_ly * crop_lx * 2)``).
+    mmap : bool
+        If True (default) the file is memory-mapped read-only rather than read
+        fully into RAM — a full session can be several GB.
+
+    Returns
+    -------
+    np.ndarray
+        ``(n_frames, crop_ly, crop_lx)`` ``int16`` movie (a memmap when
+        ``mmap`` is True).
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``data_bin`` does not exist.
+    ValueError
+        If ``crop_ly``/``crop_lx`` are not positive or the file size is not an
+        integer multiple of the per-frame byte count.
+    """
+    data_bin = Path(data_bin)
+    if not data_bin.exists():
+        raise FileNotFoundError(f"registered binary not found: {data_bin}")
+    if crop_ly <= 0 or crop_lx <= 0:
+        raise ValueError(f"crop_ly/crop_lx must be positive; got {crop_ly}x{crop_lx}")
+
+    bytes_per_frame = crop_ly * crop_lx * 2  # int16
+    file_size = data_bin.stat().st_size
+    if file_size % bytes_per_frame != 0:
+        raise ValueError(
+            f"data.bin size {file_size} is not a multiple of the per-frame size "
+            f"{bytes_per_frame} (crop {crop_ly}x{crop_lx}, int16) — crop "
+            "dimensions likely wrong."
+        )
+    inferred = file_size // bytes_per_frame
+    if n_frames is None:
+        n_frames = inferred
+    elif n_frames > inferred:
+        raise ValueError(
+            f"requested {n_frames} frames but file only holds {inferred}"
+        )
+
+    if mmap:
+        movie = np.memmap(
+            data_bin, dtype=np.int16, mode="r", shape=(n_frames, crop_ly, crop_lx)
+        )
+    else:
+        movie = np.fromfile(
+            data_bin, dtype=np.int16, count=n_frames * crop_ly * crop_lx
+        ).reshape(n_frames, crop_ly, crop_lx)
+    return movie
+
+
+def subtract_fissa_from_movie(
+    movie: np.ndarray,
+    roi_masks: list[np.ndarray],
+    output_dir: Path,
+    F_fallback: np.ndarray | None = None,
+    Fneu_fallback: np.ndarray | None = None,
+    n_components: int = 4,
+) -> np.ndarray:
+    """Run FISSA on an in-memory (or memmapped) movie array.
+
+    Identical to :func:`subtract_fissa` but takes a single movie array of shape
+    ``(n_frames, height, width)`` instead of TIFF paths. ``fissa.Experiment``
+    accepts a list of numpy arrays as its ``images`` argument, so the Suite2p
+    registered binary can be passed directly without first being written to a
+    multi-GB temporary TIFF. The movie's spatial dimensions must match the
+    ``roi_masks`` shape (use crop-aligned masks — see
+    :func:`hm2p.calcium.fissa_masks.crop_masks_to_window`).
+
+    Parameters
+    ----------
+    movie : np.ndarray
+        ``(n_frames, height, width)`` array (e.g. the registered binary loaded
+        by :func:`load_registered_movie`).
+    roi_masks : list of np.ndarray
+        Per-ROI ``(height, width)`` boolean masks aligned to ``movie``'s
+        spatial dimensions.
+    output_dir : Path
+        Directory for FISSA's intermediate cache files. Created if absent.
+    F_fallback, Fneu_fallback : np.ndarray or None
+        Fallback traces used if FISSA fails (see :func:`subtract_fissa`).
+    n_components : int
+        Number of ICA components per ROI (default 4).
+
+    Returns
+    -------
+    np.ndarray
+        ``(n_rois, n_frames)`` float32 neuropil-corrected fluorescence.
+
+    Raises
+    ------
+    ValueError
+        If ``movie`` is not 3-D or its spatial dims do not match the masks.
+    RuntimeError
+        If FISSA fails and no fallback traces are available.
+    ImportError
+        If the ``fissa`` package is not installed.
+
+    References
+    ----------
+    Keemink SW, Lowe SC, Pakan JMP, Dylda E, van Rossum MCW, Bhatt DH. 2018.
+    "FISSA: A neuropil decontamination toolbox for calcium imaging signals."
+    Scientific Reports 8:3493. doi:10.1038/s41598-018-21640-2
+    https://github.com/rochefort-lab/fissa
+    """
+    movie = np.asarray(movie)
+    if movie.ndim != 3:
+        raise ValueError(f"movie must be 3-D (frames, H, W); got {movie.shape}")
+    spatial = movie.shape[1:]
+    for i, m in enumerate(roi_masks):
+        if m.shape != spatial:
+            raise ValueError(
+                f"roi_masks[{i}] shape {m.shape} != movie spatial dims {spatial}"
+            )
+
+    return _run_fissa(
+        images=[movie],
+        roi_masks=roi_masks,
+        output_dir=Path(output_dir),
+        F_fallback=F_fallback,
+        Fneu_fallback=Fneu_fallback,
+        n_components=n_components,
+    )
+
+
 def subtract_fissa(
     tiff_paths: list[str | Path],
     roi_masks: list[np.ndarray],
@@ -278,6 +431,57 @@ def subtract_fissa(
     proteins for imaging neuronal activity." Nature 499:295-300.
     doi:10.1038/nature12354
     """
+    return _run_fissa(
+        images=[str(p) for p in tiff_paths],
+        roi_masks=roi_masks,
+        output_dir=Path(output_dir),
+        F_fallback=F_fallback,
+        Fneu_fallback=Fneu_fallback,
+        n_components=n_components,
+    )
+
+
+def _run_fissa(
+    images: list,
+    roi_masks: list[np.ndarray],
+    output_dir: Path,
+    F_fallback: np.ndarray | None,
+    Fneu_fallback: np.ndarray | None,
+    n_components: int,
+) -> np.ndarray:
+    """Run ``fissa.Experiment`` on ``images`` and return separated ROI traces.
+
+    Shared core for :func:`subtract_fissa` (TIFF paths) and
+    :func:`subtract_fissa_from_movie` (movie array). ``images`` is whatever
+    ``fissa.Experiment`` accepts as its ``images`` argument — a list of TIFF
+    path strings or a list of ``(frames, H, W)`` numpy arrays.
+
+    Parameters
+    ----------
+    images : list
+        ``fissa.Experiment`` ``images`` argument (TIFF paths or array list).
+    roi_masks : list of np.ndarray
+        Per-ROI boolean masks.
+    output_dir : Path
+        FISSA cache directory (created if absent).
+    F_fallback, Fneu_fallback : np.ndarray or None
+        Fallback traces used if FISSA raises.
+    n_components : int
+        ICA components per ROI.
+
+    Returns
+    -------
+    np.ndarray
+        ``(n_rois, n_frames)`` float32 separated traces, or the estimated-
+        coefficient fallback if FISSA fails and fallback traces are provided.
+
+    Raises
+    ------
+    ImportError
+        If ``fissa`` is not installed.
+    RuntimeError
+        If FISSA fails and no fallback traces are available.
+    """
     try:
         import fissa  # noqa: PLC0415
     except ImportError as exc:
@@ -287,18 +491,16 @@ def subtract_fissa(
             "see docs/manual-installs.md (fissa pins scikit-learn<1.2)."
         ) from exc
 
-    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # FISSA expects rois as list-of-lists: [[mask_roi0], [mask_roi1], ...]
     # Each inner list contains the masks for one ROI's sub-regions (here, just
     # the single somatic mask; FISSA generates neuropil rings internally).
-    rois_fissa = [[mask.astype(bool)] for mask in roi_masks]
-    tiff_strs = [str(p) for p in tiff_paths]
+    rois_fissa = [[np.asarray(mask, dtype=bool)] for mask in roi_masks]
 
     try:
         exp = fissa.Experiment(
-            images=tiff_strs,
+            images=images,
             rois=rois_fissa,
             folder=str(output_dir),
             nRegions=n_components,
