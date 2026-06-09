@@ -146,7 +146,18 @@ def mean_vector_length(
     Returns
     -------
     float
-        MVL in [0, 1].  Returns 0.0 if the sum of rates is zero.
+        MVL in [0, 1].  Returns 0.0 if the rectified tuning curve sums to zero.
+
+    Notes
+    -----
+    The resultant-length formula |sum(r_i e^{j theta_i})| / sum(r_i) only lies
+    in [0, 1] when the weights r_i are non-negative. dF/F tuning curves contain
+    negative (below-baseline) bins, which make sum(r_i) small or negative and
+    let the ratio exceed 1 or go negative. The curve is therefore rectified
+    (below-baseline bins clipped to 0) before the resultant is computed, so MVL
+    is interpreted on the rate-like positive part of the tuning curve and is
+    guaranteed to fall in [0, 1]. For an already non-negative input (event or
+    spike-rate tuning curve) rectification is a no-op.
     """
     # Skip NaN bins (unvisited directions) rather than replacing with 0.
     # Replacing with 0 deflates MVL for cells with incomplete angular
@@ -154,7 +165,9 @@ def mean_vector_length(
     valid = ~np.isnan(tuning_curve)
     if not valid.any():
         return 0.0
-    tc = tuning_curve[valid]
+    # Rectify: clip below-baseline (negative dF/F) bins to 0 so the resultant
+    # length stays in [0, 1]. See Notes.
+    tc = np.clip(tuning_curve[valid], 0.0, None)
     theta = np.deg2rad(bin_centers_deg[valid])
     r_sum = np.sum(tc)
     if r_sum == 0.0:

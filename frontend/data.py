@@ -877,6 +877,32 @@ def _fetch_all_sync_data() -> dict:
                 event_masks = f["event_masks"][:] if "event_masks" in f else None
                 # SD-threshold events (Zong et al. 2022 — more sensitive)
                 event_masks_sd = f["event_masks_sd"][:] if "event_masks_sd" in f else None
+                # Per-ROI signal arrays must have one row per dF/F ROI. A few
+                # sessions carry a deconv/spike array from a different Suite2p
+                # run with a mismatched ROI count (e.g. iscell-filtered), whose
+                # rows do not correspond to the dF/F ROIs. Drop any such array
+                # so no page can misalign it against dff/roi_types.
+                _n_rois = dff.shape[0]
+                _aligned = {}
+                for _name, _arr in (
+                    ("deconv", deconv), ("spikes", spikes),
+                    ("deconv_norm", deconv_norm),
+                    ("event_masks", event_masks),
+                    ("event_masks_sd", event_masks_sd),
+                ):
+                    if _arr is not None and _arr.shape[0] != _n_rois:
+                        log.warning(
+                            "%s: %s has %d rows but %d dF/F ROIs — dropping",
+                            exp_id, _name, _arr.shape[0], _n_rois,
+                        )
+                        _aligned[_name] = None
+                    else:
+                        _aligned[_name] = _arr
+                deconv = _aligned["deconv"]
+                spikes = _aligned["spikes"]
+                deconv_norm = _aligned["deconv_norm"]
+                event_masks = _aligned["event_masks"]
+                event_masks_sd = _aligned["event_masks_sd"]
                 # Position and AHV (from kinematics, resampled to imaging rate)
                 x_mm = f["x_mm"][:] if "x_mm" in f else None
                 y_mm = f["y_mm"][:] if "y_mm" in f else None
@@ -1386,16 +1412,26 @@ def session_filter_controls(
                     s_copy = dict(s)
                     s_copy["dff"] = s["dff"][mask]
                     s_copy["roi_types"] = roi_types[mask]
-                    if s.get("deconv") is not None:
-                        s_copy["deconv"] = s["deconv"][mask]
-                    if s.get("deconv_norm") is not None:
-                        s_copy["deconv_norm"] = s["deconv_norm"][mask]
-                    if s.get("spikes") is not None:
-                        s_copy["spikes"] = s["spikes"][mask]
-                    if s.get("event_masks") is not None:
-                        s_copy["event_masks"] = s["event_masks"][mask]
-                    if s.get("event_masks_sd") is not None:
-                        s_copy["event_masks_sd"] = s["event_masks_sd"][mask]
+                    # Per-ROI signal arrays should have one row per ROI. Some
+                    # sessions carry a deconv/spike array from a different
+                    # Suite2p run with a mismatched ROI count (e.g. iscell-
+                    # filtered). Those rows do not correspond to the masked
+                    # ROIs, so drop the array rather than misalign or crash.
+                    for key in (
+                        "deconv", "deconv_norm", "spikes",
+                        "event_masks", "event_masks_sd",
+                    ):
+                        arr = s.get(key)
+                        if arr is None:
+                            continue
+                        if arr.shape[0] == mask.shape[0]:
+                            s_copy[key] = arr[mask]
+                        else:
+                            log.warning(
+                                "%s: %s has %d rows but %d ROIs — dropping for ROI filter",
+                                s.get("exp_id", "?"), key, arr.shape[0], mask.shape[0],
+                            )
+                            s_copy[key] = None
                     s_copy["n_rois"] = int(mask.sum())
                     roi_filtered.append(s_copy)
             else:
