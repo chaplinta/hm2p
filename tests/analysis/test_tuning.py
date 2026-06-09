@@ -161,6 +161,36 @@ class TestMeanVectorLength:
         mvl = mean_vector_length(tc, centers)
         assert 0.0 <= mvl <= 1.0
 
+    def test_negative_bins_stay_in_range(self):
+        """dF/F tuning curves have below-baseline (negative) bins. The
+        rectified MVL must stay in [0, 1] rather than escaping the range."""
+        n_bins = 36
+        centers = np.linspace(5, 355, n_bins)
+        rng = np.random.default_rng(0)
+        # Peaked positive bump on a fluctuating negative baseline.
+        tc = rng.normal(-0.5, 0.3, n_bins)
+        tc[18] = 5.0
+        mvl = mean_vector_length(tc, centers)
+        assert 0.0 <= mvl <= 1.0
+
+    def test_rectification_noop_for_nonnegative(self):
+        """For an already non-negative curve, rectification changes nothing:
+        MVL equals the closed-form resultant length."""
+        n_bins = 36
+        centers = np.linspace(5, 355, n_bins)
+        theta = np.deg2rad(centers)
+        tc = np.abs(np.cos(theta - np.deg2rad(90.0))) + 0.1
+        expected = float(
+            np.abs(np.sum(tc * np.exp(1j * theta))) / np.sum(tc)
+        )
+        assert mean_vector_length(tc, centers) == pytest.approx(expected, abs=1e-12)
+
+    def test_all_negative_returns_zero(self):
+        """A curve with no above-baseline bins rectifies to all-zero → MVL 0."""
+        centers = np.linspace(5, 355, 36)
+        tc = np.full(36, -0.7)
+        assert mean_vector_length(tc, centers) == 0.0
+
 
 # ---------------------------------------------------------------------------
 # Preferred direction
