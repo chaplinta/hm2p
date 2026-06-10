@@ -14,6 +14,32 @@ from hm2p.calcium.run import load_suite2p, run
 # ---------------------------------------------------------------------------
 
 
+def _write_roi_class(
+    plane: Path,
+    codes: np.ndarray | list[int],
+    *,
+    with_probs: bool = False,
+) -> None:
+    """Write the classifier outputs Stage 4 consumes (no fallback in ``run``).
+
+    The XGBoost 3-way ROI classifier runs at the end of Stage 1 and writes
+    ``roi_class.npy`` (and optionally ``roi_class_prob.npy``) alongside the
+    Suite2p arrays; ``calcium.run`` requires ``roi_class.npy`` and reads the
+    per-class probabilities when present. Tests therefore write these files
+    to mirror a completed Stage 1.
+
+    ``codes`` use the classifier encoding ``0=artefact, 1=soma, 2=dend``.
+    ``roi_class_prob.npy`` columns are ``[P(artefact), P(soma), P(dend)]``.
+    """
+    codes = np.asarray(codes, dtype=np.int64)
+    np.save(plane / "roi_class.npy", codes)
+    if with_probs:
+        probs = np.full((codes.size, 3), 0.1, dtype=np.float32)
+        probs[np.arange(codes.size), codes] = 0.8
+        probs /= probs.sum(axis=1, keepdims=True)
+        np.save(plane / "roi_class_prob.npy", probs.astype(np.float32))
+
+
 def _write_suite2p_plane0(
     suite2p_dir: Path,
     n_rois: int = 12,
@@ -37,6 +63,9 @@ def _write_suite2p_plane0(
     np.save(plane / "F.npy", F)
     np.save(plane / "Fneu.npy", Fneu)
     np.save(plane / "iscell.npy", iscell)
+    # roi_class.npy is required by run(); no probabilities here so the
+    # "no p_soma without probabilities" path is exercised.
+    _write_roi_class(plane, np.ones(n_rois, dtype=np.int64))
 
 
 def _write_timestamps(path: Path, n_frames: int = 300, fps: float = 30.0) -> None:
@@ -259,6 +288,7 @@ def _write_suite2p_with_ops(
     np.save(plane / "F.npy", F)
     np.save(plane / "Fneu.npy", Fneu)
     np.save(plane / "iscell.npy", iscell)
+    _write_roi_class(plane, np.ones(n_rois, dtype=np.int64))
 
     ops = {"fs": 9.6, "Ly": 64, "Lx": 64, "nframes": n_frames}
     if bad_frame_indices:
@@ -430,6 +460,10 @@ def _write_suite2p_with_stat(
             }
         )
     np.save(plane / "stat.npy", np.array(stat, dtype=object), allow_pickle=True)
+    # roi_class.npy + roi_class_prob.npy so run() writes roi_qc/p_* arrays.
+    # Even ROIs are soma (radius 6), odd ROIs are artefact (radius 1).
+    codes = np.array([1 if i % 2 == 0 else 0 for i in range(n_rois)], dtype=np.int64)
+    _write_roi_class(plane, codes, with_probs=True)
     ops = {
         "fs": 9.6,
         "Ly": 64,
@@ -487,12 +521,16 @@ class TestSomaClassifierProbabilities:
         assert ca["roi_qc/p_dend"].shape == (n_rois,)
         assert ca["roi_qc/p_artefact"].shape == (n_rois,)
 
-    def test_no_p_soma_when_stat_missing(self, tmp_path: Path) -> None:
-        """When stat.npy is absent, p_soma is not written (graceful fallback)."""
+    def test_no_p_soma_when_probs_missing(self, tmp_path: Path) -> None:
+        """When roi_class_prob.npy is absent, p_soma is not written.
+
+        run() requires roi_class.npy but the per-class probabilities are
+        optional; without them the roi_qc/p_* arrays are omitted.
+        """
         from hm2p.io.hdf5 import read_h5
 
         suite2p_dir = tmp_path / "suite2p"
-        # Use the without-stat helper:
+        # _write_suite2p_plane0 writes roi_class.npy but not roi_class_prob.npy.
         _write_suite2p_plane0(suite2p_dir, n_rois=6, n_cells=4, n_frames=200)
         ts_h5 = tmp_path / "ts.h5"
         _write_timestamps(ts_h5, n_frames=200, fps=9.6)
@@ -530,6 +568,7 @@ def _write_suite2p_with_spks(
     np.save(plane / "Fneu.npy", Fneu)
     np.save(plane / "iscell.npy", iscell)
     np.save(plane / "spks.npy", spks)
+    _write_roi_class(plane, np.ones(n_rois, dtype=np.int64))
     np.save(
         plane / "ops.npy",
         {
@@ -566,6 +605,7 @@ class TestNTiffFramesAttr:
         np.save(plane / "F.npy", F)
         np.save(plane / "Fneu.npy", Fneu)
         np.save(plane / "iscell.npy", np.ones((n_rois, 2), dtype=np.float32))
+        _write_roi_class(plane, np.ones(n_rois, dtype=np.int64))
         # ops with both nframes_init (pre-trim, 205) and nframes (post-trim, 200)
         np.save(
             plane / "ops.npy",
@@ -602,6 +642,7 @@ class TestNTiffFramesAttr:
         np.save(plane / "F.npy", rng.uniform(100, 500, (n_rois, n_frames)).astype(np.float32))
         np.save(plane / "Fneu.npy", rng.uniform(50, 200, (n_rois, n_frames)).astype(np.float32))
         np.save(plane / "iscell.npy", np.ones((n_rois, 2), dtype=np.float32))
+        _write_roi_class(plane, np.ones(n_rois, dtype=np.int64))
         np.save(
             plane / "ops.npy",
             {
@@ -671,6 +712,8 @@ class TestRoiTypeEncoding:
             for _ in range(n_rois)
         ]
         np.save(plane / "stat.npy", np.array(stat, dtype=object), allow_pickle=True)
+        # All ROIs are soma per the classifier, independent of iscell.
+        _write_roi_class(plane, np.ones(n_rois, dtype=np.int64))
         np.save(
             plane / "ops.npy",
             {
@@ -750,6 +793,9 @@ class TestRoiTypeEncoding:
             },
         ]
         np.save(plane / "stat.npy", np.array(stat, dtype=object), allow_pickle=True)
+        # ROI 0 = artefact (classifier code 0), ROI 1 = soma (code 1),
+        # independent of Suite2p's iscell flag.
+        _write_roi_class(plane, np.array([0, 1], dtype=np.int64))
         np.save(
             plane / "ops.npy",
             {
