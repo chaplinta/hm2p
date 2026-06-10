@@ -203,13 +203,17 @@ def build_user_data(
             roiextractors pandera boto3
         /opt/hm2p/bin/pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
 
-        # --- Isolated FISSA env: pins scikit-learn<1.2 ---
+        # --- Isolated FISSA env: scikit-learn<1.2 with an ABI-matched numpy.
+        # Pin an explicit, mutually-compatible numpy/scipy/scikit-learn trio
+        # (scikit-learn 1.1.x era) so the resolver cannot mix a sklearn binary
+        # with an incompatible numpy ABI ('numpy.dtype size changed').
         python3 -m venv /opt/fissa
-        /opt/fissa/bin/pip install --quiet fissa numpy scipy h5py tifffile
+        /opt/fissa/bin/pip install --quiet \\
+            "numpy==1.23.5" "scipy==1.9.3" "scikit-learn==1.1.3" fissa h5py tifffile
         /opt/fissa/bin/pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
 
-        /opt/hm2p/bin/python -c "import suite2p, sklearn; print('main: suite2p', suite2p.__version__, 'sklearn', sklearn.__version__)"
-        /opt/fissa/bin/python -c "import fissa, sklearn; print('fissa: fissa', fissa.__version__, 'sklearn', sklearn.__version__)"
+        /opt/hm2p/bin/python -c "import suite2p, sklearn; print('main env OK; sklearn', sklearn.__version__)"
+        /opt/fissa/bin/python -c "import fissa, sklearn; print('fissa env OK; sklearn', sklearn.__version__)" || echo "WARN: fissa env import failed (not needed for --validate-only)"
 
         # --- Process sessions ---
         SESSIONS='{session_json}'
@@ -273,7 +277,9 @@ def build_user_data(
                     alignment_threshold={alignment_threshold},
                 )
                 al = res.get('alignment', {{}})
-                print(f\"  status={{res['status']}} median_spearman={{al.get('median_spearman')}}\", flush=True)
+                st = res['status']
+                ms = al.get('median_spearman')
+                print(f'  status={{st}} median_spearman={{ms}}', flush=True)
                 if res['status'] in ('done','validated'):
                     done.append(exp)
                 elif res['status'] == 'rejected':
