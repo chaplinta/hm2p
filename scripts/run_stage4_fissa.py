@@ -329,7 +329,10 @@ def run_session_fissa(  # pragma: no cover - EC2 I/O + subprocess orchestration
     for d in (tiff_dir, existing_plane0.parent.parent, reg_out):
         d.mkdir(parents=True, exist_ok=True)
 
-    # 1. Download inputs: TIFFs, existing Suite2p output, timestamps.
+    # 1. Download inputs needed for re-registration and the alignment gate:
+    # TIFFs and the existing Suite2p output. timestamps.h5 is only needed by
+    # run() (step 9), so it is fetched later — a --validate-only run never needs
+    # it and must not fail if it is absent.
     _s3_sync(
         f"s3://{RAWDATA_BUCKET}/rawdata/{sub}/{ses}/funcimg/",
         tiff_dir,
@@ -338,9 +341,6 @@ def run_session_fissa(  # pragma: no cover - EC2 I/O + subprocess orchestration
     _s3_sync(
         f"s3://{DERIVATIVES_BUCKET}/ca_extraction/{sub}/{ses}/suite2p/",
         existing_plane0.parent.parent,
-    )
-    _s3_cp(
-        f"s3://{DERIVATIVES_BUCKET}/timestamps/{sub}/{ses}/timestamps.h5", ts_path
     )
 
     # 2. Regenerate the registered binary, matching the original fps/tau.
@@ -398,7 +398,11 @@ def run_session_fissa(  # pragma: no cover - EC2 I/O + subprocess orchestration
         log.info("roi_class.npy missing — running ROI classifier inline")
         classify_session(existing_plane0)
 
-    # 9. Re-run Stage 4 with the FISSA-corrected traces.
+    # 9. Re-run Stage 4 with the FISSA-corrected traces. timestamps.h5 lives
+    # under movement/ (Stage 0/3 output), and is required by run().
+    _s3_cp(
+        f"s3://{DERIVATIVES_BUCKET}/movement/{sub}/{ses}/timestamps.h5", ts_path
+    )
     ca_h5 = sess_dir / "ca.h5"
     run(
         suite2p_dir=existing_plane0.parent,
