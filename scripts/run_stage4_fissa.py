@@ -389,7 +389,16 @@ def run_session_fissa(  # pragma: no cover - EC2 I/O + subprocess orchestration
     )
     F_corr = np.load(fcorr_npy)
 
-    # 8. Re-run Stage 4 with the FISSA-corrected traces.
+    # 8. Ensure roi_class.npy exists (run() requires it, no fallback). Existing
+    # Stage 1 output normally carries it; classify inline if a session predates
+    # the classifier, mirroring run_stage4_calcium.py.
+    if not (existing_plane0 / "roi_class.npy").exists():
+        from hm2p.extraction.roi_classify import classify_session
+
+        log.info("roi_class.npy missing — running ROI classifier inline")
+        classify_session(existing_plane0)
+
+    # 9. Re-run Stage 4 with the FISSA-corrected traces.
     ca_h5 = sess_dir / "ca.h5"
     run(
         suite2p_dir=existing_plane0.parent,
@@ -400,7 +409,7 @@ def run_session_fissa(  # pragma: no cover - EC2 I/O + subprocess orchestration
         precomputed_F_corr=F_corr,
     )
 
-    # 9. Upload the regenerated ca.h5.
+    # 10. Upload the regenerated ca.h5.
     _s3_cp(ca_h5, f"s3://{DERIVATIVES_BUCKET}/calcium/{sub}/{ses}/ca.h5")
     return {"sub": sub, "ses": ses, "status": "done", "alignment": report}
 
