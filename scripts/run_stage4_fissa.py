@@ -326,7 +326,7 @@ def run_session_fissa(  # pragma: no cover - EC2 I/O + subprocess orchestration
     existing_plane0 = sess_dir / "existing" / "suite2p" / "plane0"
     reg_out = sess_dir / "reg"
     ts_path = sess_dir / "timestamps.h5"
-    for d in (tiff_dir, existing_plane0.parent.parent, reg_out):
+    for d in (tiff_dir, existing_plane0.parent, reg_out):
         d.mkdir(parents=True, exist_ok=True)
 
     # 1. Download inputs needed for re-registration and the alignment gate:
@@ -338,9 +338,12 @@ def run_session_fissa(  # pragma: no cover - EC2 I/O + subprocess orchestration
         tiff_dir,
         include=("*.tif", "*.tiff"),
     )
+    # Sync the S3 suite2p/ prefix (whose keys are plane0/...) into the local
+    # suite2p/ dir so files land at existing/suite2p/plane0/, matching
+    # existing_plane0 and run()'s suite2p_dir=existing_plane0.parent.
     _s3_sync(
         f"s3://{DERIVATIVES_BUCKET}/ca_extraction/{sub}/{ses}/suite2p/",
-        existing_plane0.parent.parent,
+        existing_plane0.parent,
     )
 
     # 2. Regenerate the registered binary, matching the original fps/tau.
