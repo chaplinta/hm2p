@@ -295,6 +295,9 @@ def build_user_data(
         "
 
         echo "=== FISSA reprocessing complete: $(date -u) ==="
+        # Upload the log explicitly here (synchronously) — relying on the EXIT
+        # trap alone races the shutdown and can leave a stale log on S3.
+        upload_log
         echo "Shutting down in 60 seconds (cancel with: sudo shutdown -c)"
         sleep 60
         shutdown -h now
