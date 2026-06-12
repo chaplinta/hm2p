@@ -493,10 +493,12 @@ def _run_fissa(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # FISSA expects rois as list-of-lists: [[mask_roi0], [mask_roi1], ...]
-    # Each inner list contains the masks for one ROI's sub-regions (here, just
-    # the single somatic mask; FISSA generates neuropil rings internally).
-    rois_fissa = [[np.asarray(mask, dtype=bool)] for mask in roi_masks]
+    # FISSA indexes ``rois`` per trial: ``self.rois[trial]`` is the roiset (the
+    # list of all ROI masks) for that trial. A single roiset is passed as a
+    # one-element outer list — ``[[mask0, mask1, ...]]`` — which FISSA replicates
+    # across trials (its ``len(rois) == 1`` branch). Passing a flat list of N
+    # masks instead would be read as N trials and collapse to a single ROI.
+    rois_fissa = [[np.asarray(mask, dtype=bool) for mask in roi_masks]]
 
     try:
         exp = fissa.Experiment(

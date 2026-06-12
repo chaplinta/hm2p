@@ -95,3 +95,55 @@ class TestSubtractFissaFromMovieValidation:
         masks = [np.ones((4, 5), bool), np.ones((6, 6), bool)]
         with pytest.raises(ValueError, match=r"roi_masks\[1\] shape"):
             subtract_fissa_from_movie(movie, masks, tmp_path)
+
+
+class TestRunFissaRoiFormat:
+    """The ROI masks must reach fissa.Experiment as a single roiset.
+
+    FISSA indexes ``rois`` per trial (``self.rois[trial]``). With one movie
+    (one trial) the roiset must be the whole list of N masks wrapped once:
+    ``[[mask0, ..., maskN-1]]``. A flat ``[[mask0], [mask1], ...]`` is read as
+    N trials and collapses to a single ROI — the bug this guards against.
+    """
+
+    def _install_fake_fissa(self, monkeypatch, captured, n_frames):
+        import sys
+        import types
+
+        class FakeExperiment:
+            def __init__(self, images, rois, folder, nRegions):
+                captured["images"] = images
+                captured["rois"] = rois
+                captured["nRegions"] = nRegions
+                # FISSA reads the per-trial roiset from rois[0]; replicate its
+                # own ``len(rois) == 1`` semantics so n_roi matches reality.
+                roiset = rois[0] if len(rois) == 1 else rois
+                self._n_roi = len(roiset)
+
+            def separate(self):
+                self.result = [
+                    [np.zeros((1, n_frames), dtype=np.float32)]
+                    for _ in range(self._n_roi)
+                ]
+
+        fake = types.ModuleType("fissa")
+        fake.Experiment = FakeExperiment
+        monkeypatch.setitem(sys.modules, "fissa", fake)
+
+    def test_single_roiset_with_all_masks(self, tmp_path, monkeypatch):
+        n_rois, n_frames = 5, 40
+        movie = np.zeros((n_frames, 6, 6), dtype=np.int16)
+        masks = [np.zeros((6, 6), bool) for _ in range(n_rois)]
+        for i, m in enumerate(masks):
+            m[i % 6, i % 6] = True
+
+        captured: dict = {}
+        self._install_fake_fissa(monkeypatch, captured, n_frames)
+
+        out = subtract_fissa_from_movie(movie, masks, tmp_path)
+
+        # One outer element (single roiset), listing all N masks.
+        assert len(captured["rois"]) == 1
+        assert len(captured["rois"][0]) == n_rois
+        assert len(captured["images"]) == 1  # one trial (one movie)
+        assert out.shape == (n_rois, n_frames)
