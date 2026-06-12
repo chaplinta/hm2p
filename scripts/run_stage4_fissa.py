@@ -123,10 +123,14 @@ def regenerate_registered_binary(
 
 
 def load_registered_movie_for_session(reg_plane0: Path) -> np.ndarray:
-    """Load the regenerated registered movie at its cropped window.
+    """Load the regenerated registered movie at full frame dimensions.
 
-    Reads ``ops.npy`` from the freshly-registered plane to obtain the crop
-    window (``yrange``/``xrange``) and frame count, then memmaps ``data.bin``.
+    Suite2p's ``data.bin`` stores the registered movie at the FULL frame size
+    (``Ly`` x ``Lx``), not the cropped ``yrange``/``xrange`` window — that window
+    only marks the region with valid pixels across all frames. The byte count of
+    ``data.bin`` equals ``nframes * Ly * Lx * 2`` (int16). The stat-derived ROI
+    masks are also in full-frame coordinates, so movie and masks share the
+    full-frame grid directly with no cropping.
 
     Parameters
     ----------
@@ -136,55 +140,39 @@ def load_registered_movie_for_session(reg_plane0: Path) -> np.ndarray:
     Returns
     -------
     movie : np.ndarray
-        ``(n_frames, crop_ly, crop_lx)`` int16 memmap of the registered movie.
+        ``(n_frames, Ly, Lx)`` int16 memmap of the registered movie.
     """
     from hm2p.calcium.neuropil import load_registered_movie
 
     ops = np.load(reg_plane0 / "ops.npy", allow_pickle=True).item()
     ly, lx = int(ops["Ly"]), int(ops["Lx"])
-    yrange = ops.get("yrange", [0, ly])
-    xrange = ops.get("xrange", [0, lx])
-    crop_ly = int(yrange[1] - yrange[0])
-    crop_lx = int(xrange[1] - xrange[0])
     n_frames = int(ops.get("nframes", 0)) or None
     return load_registered_movie(
-        reg_plane0 / "data.bin", crop_ly=crop_ly, crop_lx=crop_lx, n_frames=n_frames
+        reg_plane0 / "data.bin", crop_ly=ly, crop_lx=lx, n_frames=n_frames
     )
 
 
-def build_cropped_masks_for_session(
-    existing_plane0: Path,
-    reg_plane0: Path,
-) -> list[np.ndarray]:
-    """Build crop-aligned FISSA masks from the EXISTING stat.npy.
+def build_masks_for_session(existing_plane0: Path) -> list[np.ndarray]:
+    """Build full-frame FISSA masks from the EXISTING stat.npy.
 
-    ROI masks come from the existing Stage 1 ``stat.npy`` (ROIs unchanged) and
-    are cropped to the registration window of the freshly-regenerated movie so
-    masks and movie share a pixel grid.
+    ROI masks come from the existing Stage 1 ``stat.npy`` (ROIs unchanged) in
+    full-frame (``Ly`` x ``Lx``) coordinates — the same grid as ``data.bin``
+    (see :func:`load_registered_movie_for_session`), so no cropping is needed.
 
     Parameters
     ----------
     existing_plane0 : Path
         plane0 directory with the existing ``stat.npy``/``ops.npy`` from S3.
-    reg_plane0 : Path
-        plane0 directory of the freshly-registered movie (for yrange/xrange).
 
     Returns
     -------
     list of np.ndarray
-        Per-ROI cropped boolean masks aligned to the registered movie.
+        Per-ROI full-frame boolean masks aligned to the registered movie.
     """
-    from hm2p.calcium.fissa_masks import (
-        build_roi_masks_from_plane,
-        crop_masks_to_window,
-    )
+    from hm2p.calcium.fissa_masks import build_roi_masks_from_plane
 
     full_masks, _ = build_roi_masks_from_plane(existing_plane0)
-    reg_ops = np.load(reg_plane0 / "ops.npy", allow_pickle=True).item()
-    ly, lx = int(reg_ops["Ly"]), int(reg_ops["Lx"])
-    yrange = tuple(int(v) for v in reg_ops.get("yrange", [0, ly]))
-    xrange = tuple(int(v) for v in reg_ops.get("xrange", [0, lx]))
-    return crop_masks_to_window(full_masks, yrange=yrange, xrange=xrange)
+    return full_masks
 
 
 def validate_movie_alignment(
@@ -362,8 +350,8 @@ def run_session_fissa(  # pragma: no cover - EC2 I/O + subprocess orchestration
                               f"{existing_ops.get(key)} != {reg_ops.get(key)}"},
             }
 
-    # 4-5. Build crop-aligned masks and load the regenerated movie.
-    masks = build_cropped_masks_for_session(existing_plane0, reg_plane0)
+    # 4-5. Build full-frame masks and load the regenerated movie (full frame).
+    masks = build_masks_for_session(existing_plane0)
     movie = load_registered_movie_for_session(reg_plane0)
 
     # 6. Alignment validation against the stored F.npy.
