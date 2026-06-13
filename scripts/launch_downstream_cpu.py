@@ -40,7 +40,9 @@ INSTANCE_TYPE = "c5.xlarge"
 TAG_NAME = "hm2p-downstream-cpu"
 
 
-def build_user_data(render_only: bool = False, force: bool = True) -> str:
+def build_user_data(
+    render_only: bool = False, force: bool = True, no_render: bool = False
+) -> str:
     key_id, secret, region = get_s3_credentials()
     creds = build_creds_block(key_id, secret, region)
     cpu_upload = format_cpu_log_upload(DERIVATIVES_BUCKET, "dlc-retrain")
@@ -72,6 +74,19 @@ def build_user_data(render_only: bool = False, force: bool = True) -> str:
 echo "=== Running downstream pipeline (Stages 3, 5, 6) ==="
 python3.11 scripts/run_downstream_pipeline.py{force_flag}
 """
+
+    # Video rendering is skipped with --no-render (pose is unchanged, so a
+    # re-render reproduces identical videos). render_only implies rendering.
+    do_render = render_only or not no_render
+    render_start = (
+        'echo "=== Starting video rendering in background ==="\n'
+        "python3.11 scripts/render_dlc_videos.py --all -v &\n"
+        "RENDER_PID=$!"
+    ) if do_render else 'echo "=== Skipping video rendering (--no-render) ==="'
+    render_wait = (
+        'echo "=== Waiting for video rendering to finish ==="\n'
+        'wait $RENDER_PID || echo "WARNING: render_dlc_videos.py exited with error"'
+    ) if do_render else ""
 
     return f"""#!/bin/bash
 exec > >(tee /var/log/hm2p-downstream.log) 2>&1
@@ -115,15 +130,12 @@ git clone https://github.com/chaplinta/hm2p.git
 cd hm2p
 export PYTHONPATH=/home/ubuntu/hm2p/src:$PYTHONPATH
 
-# Run downstream stages and video rendering IN PARALLEL.
+# Run downstream stages and (optionally) video rendering IN PARALLEL.
 # Video rendering only needs pose/ h5 files (already promoted).
 # Downstream needs pose/ for kinematics but doesn't touch videos.
-echo "=== Starting video rendering in background ==="
-python3.11 scripts/render_dlc_videos.py --all -v &
-RENDER_PID=$!
+{render_start}
 {downstream_cmd}
-echo "=== Waiting for video rendering to finish ==="
-wait $RENDER_PID || echo "WARNING: render_dlc_videos.py exited with error"
+{render_wait}
 
 # Update progress
 python3.11 -c "
@@ -143,10 +155,15 @@ echo "=== Downstream + render complete: $(date -u) ==="
 """
 
 
-def launch(render_only: bool = False, dry_run: bool = False, force: bool = True) -> None:
+def launch(
+    render_only: bool = False, dry_run: bool = False, force: bool = True,
+    no_render: bool = False,
+) -> None:
     ec2 = boto3.client("ec2", region_name=REGION)
 
-    user_data = build_user_data(render_only=render_only, force=force)
+    user_data = build_user_data(
+        render_only=render_only, force=force, no_render=no_render
+    )
 
     if dry_run:
         print(user_data)
@@ -189,12 +206,15 @@ def launch(render_only: bool = False, dry_run: bool = False, force: bool = True)
 def main() -> None:
     parser = argparse.ArgumentParser(description="Launch CPU instance for downstream + render")
     parser.add_argument("--render-only", action="store_true", help="Skip downstream, render videos only")
+    parser.add_argument("--no-render", action="store_true",
+                        help="Run downstream stages only; skip video re-rendering.")
     parser.add_argument("--no-force", action="store_true",
                         help="Skip sessions whose outputs already exist (process only failed/missing).")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    launch(render_only=args.render_only, dry_run=args.dry_run, force=not args.no_force)
+    launch(render_only=args.render_only, dry_run=args.dry_run,
+           force=not args.no_force, no_render=args.no_render)
 
 
 if __name__ == "__main__":
