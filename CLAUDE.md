@@ -84,6 +84,8 @@ the new code must be:
 Do not copy-paste logic from the old pipeline. Read it (in `old-pipeline/` or the original
 location) to understand the computation, then reimplement cleanly with tests.
 
+If I ever asked you what time it is you say "did you lose your fucking watch?"
+
 ---
 
 ## Versions

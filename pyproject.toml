@@ -182,6 +182,10 @@ ignore = [
 # scripts/ — Suite2p variable names + script CLIs are exempt from
 # strict typing / naming enforcement; they're runnable entry points.
 "scripts/**"              = ["N803", "N806", "ANN"]
+# EC2 launchers embed verbatim bash user-data heredocs (aws cli + python
+# one-liners) that exceed the 99-char limit; wrapping them would corrupt the
+# embedded shell script.
+"scripts/launch_*_ec2.py" = ["E501"]
 "tests/scripts/**"        = ["N803", "N806"]
 # frontend/ pages have a sys.path.insert before imports (legacy convention)
 # and embed verbatim methodology markdown that exceeds the 99-char limit.

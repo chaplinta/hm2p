@@ -75,8 +75,10 @@ def run(
     output_path: Path,
     neuropil_method: str = "fissa",
     neuropil_coefficient: float = 0.7,
+    precomputed_F_corr: np.ndarray | None = None,
     fissa_tiff_paths: list[Path] | None = None,
     fissa_roi_masks: list[np.ndarray] | None = None,
+    fissa_movie: np.ndarray | None = None,
     fissa_output_dir: Path | None = None,
     dff_baseline_window_s: float = 60.0,
     dff_gaussian_sigma_s: float = 10.0,
@@ -112,13 +114,31 @@ def run(
     neuropil_coefficient : float
         Fixed neuropil subtraction coefficient (used only when
         neuropil_method="fixed"; default 0.7).
+    precomputed_F_corr : np.ndarray or None
+        (n_rois, n_frames) float32 neuropil-corrected traces computed elsewhere.
+        When provided, neuropil subtraction is skipped and these traces are used
+        directly. Used by the Stage 4 FISSA reprocessing path, where FISSA runs
+        in an isolated environment (it pins scikit-learn<1.2, incompatible with
+        the ROI classifier's scikit-learn>=1.4) and its output is handed back
+        here for dF/F0, events, QC and ca.h5 writing. The ROI axis must match
+        F.npy. ``neuropil_method`` is still recorded as the attribute, so pass
+        ``neuropil_method="fissa"`` to label the provenance correctly. Must have
+        the same shape as the loaded F array.
     fissa_tiff_paths : list of Path or None
         Ordered TIFF paths required for FISSA. Must be provided when
         neuropil_method="fissa". If absent, FISSA is skipped and a warning
         logged; the pipeline falls back to "estimated".
     fissa_roi_masks : list of np.ndarray or None
         Per-ROI binary masks (height, width) required for FISSA. Must be
-        provided together with fissa_tiff_paths.
+        provided together with fissa_tiff_paths or fissa_movie.
+    fissa_movie : np.ndarray or None
+        Registered movie (n_frames, height, width) as an alternative FISSA
+        input to fissa_tiff_paths. When provided together with
+        fissa_roi_masks, FISSA runs on this array directly (used by the Stage 4
+        FISSA reprocessing path, where the registered binary is regenerated on
+        EC2 and read via hm2p.calcium.neuropil.load_registered_movie). Masks
+        must be cropped to the movie's spatial dimensions. Takes precedence
+        over fissa_tiff_paths when both are given.
     fissa_output_dir : Path or None
         Directory for FISSA intermediate files. Defaults to
         output_path.parent / "fissa_cache".
@@ -142,6 +162,7 @@ def run(
     from hm2p.calcium.neuropil import (
         subtract_estimated_coefficient,
         subtract_fissa,
+        subtract_fissa_from_movie,
         subtract_fixed_coefficient,
     )
     from hm2p.io.hdf5 import read_h5, write_h5
@@ -245,23 +266,54 @@ def run(
 
     neuropil_coeff_used: float | None = None
 
-    if neuropil_method == "fissa":
-        if fissa_tiff_paths is None or fissa_roi_masks is None:
+    if precomputed_F_corr is not None:
+        # Neuropil correction was computed elsewhere (e.g. FISSA in an isolated
+        # env). Use it directly; skip subtraction. Validate the ROI/frame axes
+        # so a mismatched array cannot silently corrupt the ROI alignment.
+        precomputed_F_corr = np.asarray(precomputed_F_corr, dtype=np.float32)
+        if precomputed_F_corr.shape != F.shape:
+            raise ValueError(
+                f"precomputed_F_corr shape {precomputed_F_corr.shape} != "
+                f"F shape {F.shape}; ROI/frame axes must match exactly."
+            )
+        F_corr = precomputed_F_corr
+        neuropil_coeff_used = None
+        log.info(
+            "Using precomputed neuropil-corrected traces (method=%r); "
+            "skipping in-pipeline subtraction.",
+            neuropil_method,
+        )
+    elif neuropil_method == "fissa":
+        have_movie = fissa_movie is not None and fissa_roi_masks is not None
+        have_tiffs = fissa_tiff_paths is not None and fissa_roi_masks is not None
+        if not (have_movie or have_tiffs):
             log.warning(
-                "neuropil_method=fissa but fissa_tiff_paths/fissa_roi_masks not provided. "
+                "neuropil_method=fissa but neither (fissa_movie + fissa_roi_masks) "
+                "nor (fissa_tiff_paths + fissa_roi_masks) provided. "
                 "Falling back to estimated-coefficient subtraction."
             )
             F_corr, coefficients = subtract_estimated_coefficient(F, Fneu)
             neuropil_coeff_used = float(np.median(coefficients))
         else:
             fissa_dir = fissa_output_dir or (output_path.parent / "fissa_cache")
-            F_corr = subtract_fissa(
-                tiff_paths=fissa_tiff_paths,
-                roi_masks=fissa_roi_masks,
-                output_dir=fissa_dir,
-                F_fallback=F,
-                Fneu_fallback=Fneu,
-            )
+            if have_movie:
+                # Registered-movie path (Stage 4 FISSA reprocessing): FISSA runs
+                # on the Suite2p registered binary regenerated on EC2.
+                F_corr = subtract_fissa_from_movie(
+                    movie=fissa_movie,
+                    roi_masks=fissa_roi_masks,
+                    output_dir=fissa_dir,
+                    F_fallback=F,
+                    Fneu_fallback=Fneu,
+                )
+            else:
+                F_corr = subtract_fissa(
+                    tiff_paths=fissa_tiff_paths,
+                    roi_masks=fissa_roi_masks,
+                    output_dir=fissa_dir,
+                    F_fallback=F,
+                    Fneu_fallback=Fneu,
+                )
             neuropil_coeff_used = None  # FISSA does not produce a scalar coefficient
 
     elif neuropil_method == "estimated":
