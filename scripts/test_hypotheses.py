@@ -307,14 +307,17 @@ def _extract_session_behav(
             srow["frac_active_light"] = float(np.mean(active[light_valid])) if light_valid.sum() > 0 else np.nan
             srow["frac_active_dark"] = float(np.mean(active[dark_valid])) if dark_valid.sum() > 0 else np.nan
 
-        if speed is not None and active is not None:
-            active_light = active & light_valid
-            active_dark = active & dark_valid
-            srow["mean_speed_light"] = float(np.mean(speed[active_light])) if active_light.sum() > 0 else np.nan
-            srow["mean_speed_dark"] = float(np.mean(speed[active_dark])) if active_dark.sum() > 0 else np.nan
-        elif speed is not None:
-            srow["mean_speed_light"] = float(np.mean(speed[light_valid])) if light_valid.sum() > 0 else np.nan
-            srow["mean_speed_dark"] = float(np.mean(speed[dark_valid])) if dark_valid.sum() > 0 else np.nan
+        if speed is not None:
+            # Mean speed per condition over valid frames with finite speed.
+            # Do NOT gate on the `active` mask: if that mask is empty/misaligned
+            # the intersection can be empty, yielding all-NaN columns and a
+            # spurious "0 valid pairs" error in the within-session speed test.
+            # Speed itself carries the movement information.
+            sp = np.asarray(speed, dtype=float)
+            light_sp = light_valid & np.isfinite(sp)
+            dark_sp = dark_valid & np.isfinite(sp)
+            srow["mean_speed_light"] = float(np.mean(sp[light_sp])) if light_sp.sum() > 0 else np.nan
+            srow["mean_speed_dark"] = float(np.mean(sp[dark_sp])) if dark_sp.sum() > 0 else np.nan
 
     session_rows.append(srow)
 
@@ -357,7 +360,9 @@ def define_hypotheses() -> list[dict]:
               "type": "between_group", "metric": "hd_all_tuning_width"})
 
     # --- H3: Visual cue dependence ---
-    h.append({"id": "H3.1", "name": "Darkness degrades tuning",
+    # Neutral name: two-sided light-vs-dark test; direction is reported from the
+    # sign of (light - dark). On clean FISSA data MVL is HIGHER in dark.
+    h.append({"id": "H3.1", "name": "HD tuning (MVL): light vs dark",
               "type": "within_cell",
               "col_a": "hd_light_mvl", "col_b": "hd_dark_mvl"})
     h.append({"id": "H3.2", "name": "PD drifts in darkness",
@@ -388,7 +393,9 @@ def define_hypotheses() -> list[dict]:
               "type": "descriptive", "metric": "place_all_significant"})
     h.append({"id": "H5.2", "name": "Spatial info differs",
               "type": "between_group", "metric": "place_all_spatial_info"})
-    h.append({"id": "H5.3", "name": "Spatial info drops in dark",
+    # Neutral name: direction reported from sign of (light - dark). On clean
+    # data spatial information is HIGHER in dark (per-cell; see caveats in docs).
+    h.append({"id": "H5.3", "name": "Spatial info: light vs dark",
               "type": "within_cell",
               "col_a": "place_light_spatial_info", "col_b": "place_dark_spatial_info"})
 
@@ -466,6 +473,7 @@ def run_hypotheses(
                 r["test"] = "wilcoxon"
                 r["hypothesis"] = hid
                 r["hypothesis_name"] = hname
+                r["col_a"], r["col_b"] = col_a, col_b
                 results.append(r)
 
             elif htype == "within_session":
@@ -477,6 +485,7 @@ def run_hypotheses(
                 r["test"] = "wilcoxon"
                 r["hypothesis"] = hid
                 r["hypothesis_name"] = hname
+                r["col_a"], r["col_b"] = col_a, col_b
                 r["level"] = "session"
                 results.append(r)
 
@@ -694,10 +703,18 @@ def generate_report(
                 p = r.get("p_value", np.nan)
                 p_str = f"p = {p:.4f}" if not np.isnan(p) else "p = n/a"
                 sig = " *" if p < 0.05 else ""
+                mdiff = r.get("mean_diff", r.get("mean_contrast", 0))
+                # Explicit direction: mean_diff = col_a - col_b. State which side
+                # is higher so the label can never imply the wrong direction.
+                col_a, col_b = r.get("col_a"), r.get("col_b")
+                dir_str = ""
+                if col_a and col_b and not np.isnan(mdiff) and mdiff != 0:
+                    hi, lo = (col_a, col_b) if mdiff > 0 else (col_b, col_a)
+                    dir_str = f" [{hi} > {lo}]"
                 lines.append(
                     f"- **Wilcoxon signed-rank:** {p_str}{sig} "
-                    f"(mean diff={r.get('mean_diff', r.get('mean_contrast', 0)):.4f}, "
-                    f"N={r.get('n_cells', 0)}){level_tag}{fdr_tag}"
+                    f"(mean diff={mdiff:.4f}, "
+                    f"N={r.get('n_cells', 0)}){dir_str}{level_tag}{fdr_tag}"
                 )
             elif test == "wilcoxon_onesample":
                 p = r.get("p_value", np.nan)
