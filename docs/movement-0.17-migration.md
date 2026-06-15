@@ -1,9 +1,50 @@
 # movement v0.17.0 migration plan
 
-Status: **code applied (Strategy B), forward-compatible, verified on 0.14.0.
-0.17.0 install + numerical verification blocked on a Python upgrade.**
-Branch `feat/movement-0.17`. This document scopes the upgrade from the
-currently-used `movement` 0.14.0 to 0.17.0.
+Status: **complete. movement 0.17.0 installed and verified on Python 3.12.13.**
+Branch `feat/movement-0.17`. This document scopes the upgrade from `movement`
+0.14.0 to 0.17.0.
+
+## Resolution (2026-06-16): Python bumped to 3.12, 0.17 verified
+
+The blocker below is resolved. The devcontainer ran Python 3.11.2 only by
+accident — the base `node:20` image is Debian bookworm (system python3 = 3.11),
+and the Dockerfile's `ARG PYTHON_VERSION=3.12` was never consumed. There was no
+real reason for 3.11; 3.12 was the original intent.
+
+Changes applied:
+- `pyproject.toml`: `requires-python` `>=3.10,<3.14` → `>=3.12,<3.14` (movement
+  0.17 requires ≥3.12, so 3.10/3.11 are dropped); movement pin `>=0.5,<1.0` →
+  `>=0.17,<0.18`.
+- `uv.lock` re-resolved: movement 0.14.0 → 0.17.0 (+ xgboost 3.2.0, orjson).
+- `.devcontainer/Dockerfile`: added `RUN uv python install ${PYTHON_VERSION}`
+  so the dead ARG is now live and a managed 3.12 interpreter is baked into the
+  image. `uv sync` at container start builds `.venv` on 3.12 (uv also
+  auto-provisions 3.12 from the `requires-python` constraint as a fallback).
+- venv recreated on cpython 3.12.13 via `uv venv --python 3.12 && uv sync
+  --extra dev` (+ ad-hoc `statsmodels`, and the `plotly streamlit-google-auth
+  tifffile` the postStart command installs).
+
+Verification on 3.12.13 + movement 0.17.0 — the singular dims (`keypoint`/
+`individual`) are now real, so the `_normalise_dim_names` shim is exercised:
+- `tests/kinematics tests/pose`: **538 passed**.
+- `tests/calcium tests/extraction tests/scripts`: 967 passed, 5 skipped.
+- `tests/analysis`: 417 passed; 11 `rastermap` failures are pre-existing
+  (`rastermap` not installed — fails identically on the 3.11 backup), and
+  `test_cache.py`/`test_mixed_stats.py` import gaps (`duckdb`, and `statsmodels`
+  until installed) are likewise pre-existing, not migration regressions.
+- Core package + CLI + frontend (incl. the edited `dlc_viewer_page`) import.
+
+The old environment is preserved at `.venv-py311-backup/` (gitignored) for
+rollback; it can be deleted once 3.12 is confirmed in normal use.
+
+Follow-up not done here: EC2 launchers apt-install the distro python3 — with
+`requires-python>=3.12` those hosts now need a 3.12 interpreter (Ubuntu 24.04
+default, or uv-provisioned) rather than 3.10/3.11. No EC2 run is pending, so
+this is deferred.
+
+---
+
+The original plan and the (now-resolved) blocker follow, retained for reference.
 
 ## Applied change set (2026-06-15)
 

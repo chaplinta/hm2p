@@ -97,5 +97,11 @@ RUN sh -c "$(wget -O- https://github.com/deluan/zsh-in-docker/releases/download/
     -a "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
     -x
 
+# Provision the project Python via uv. The base node:20 image is Debian
+# bookworm, whose system python3 is 3.11; the project requires >=3.12
+# (movement 0.17). uv fetches a managed interpreter for the node user so
+# `uv sync` at container start builds the venv on it without a download.
+RUN uv python install ${PYTHON_VERSION}
+
 # Install Claude Code
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}
