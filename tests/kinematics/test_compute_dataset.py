@@ -72,8 +72,8 @@ def _install_mock_movement() -> tuple[MagicMock, MagicMock, MagicMock, MagicMock
     """Install mock movement modules into sys.modules so deferred imports work.
 
     Returns (mock_movement, mock_io, mock_load_poses, mock_filtering).
-    The actual code does ``from movement.io import load_poses`` then
-    ``load_poses.from_file(file=..., source_software=...)``.
+    The actual code does ``from movement.io import load_poses`` then dispatches
+    to a per-format loader, e.g. ``load_poses.from_dlc_file(pose_path)``.
     """
     mock_movement = MagicMock()
     mock_io = MagicMock()
@@ -119,11 +119,10 @@ class TestLoadPoseDataset:
         mock_ds = _make_ds(10)
         _, _, mock_lp, _ = _install_mock_movement()
         try:
-            mock_lp.from_file.return_value = mock_ds
+            mock_lp.from_dlc_file.return_value = mock_ds
             result = load_pose_dataset(tmp_path / "pose.h5", "dlc")
-            mock_lp.from_file.assert_called_once_with(
-                file=tmp_path / "pose.h5", source_software="DeepLabCut"
-            )
+            mock_lp.from_dlc_file.assert_called_once_with(tmp_path / "pose.h5")
+            mock_lp.from_file.assert_not_called()
             assert result is mock_ds
         finally:
             _remove_mock_movement()
@@ -134,11 +133,9 @@ class TestLoadPoseDataset:
         mock_ds = _make_ds(10)
         _, _, mock_lp, _ = _install_mock_movement()
         try:
-            mock_lp.from_file.return_value = mock_ds
+            mock_lp.from_sleap_file.return_value = mock_ds
             load_pose_dataset(tmp_path / "pose.h5", "sleap")
-            mock_lp.from_file.assert_called_once_with(
-                file=tmp_path / "pose.h5", source_software="SLEAP"
-            )
+            mock_lp.from_sleap_file.assert_called_once_with(tmp_path / "pose.h5")
         finally:
             _remove_mock_movement()
 
@@ -148,13 +145,43 @@ class TestLoadPoseDataset:
         mock_ds = _make_ds(10)
         _, _, mock_lp, _ = _install_mock_movement()
         try:
-            mock_lp.from_file.return_value = mock_ds
+            mock_lp.from_lp_file.return_value = mock_ds
             load_pose_dataset(tmp_path / "pose.csv", "lp")
-            mock_lp.from_file.assert_called_once_with(
-                file=tmp_path / "pose.csv", source_software="LightningPose"
-            )
+            mock_lp.from_lp_file.assert_called_once_with(tmp_path / "pose.csv")
         finally:
             _remove_mock_movement()
+
+
+class TestNormaliseDimNames:
+    def test_renames_singular_dims(self) -> None:
+        """movement 0.17 singular dims are renamed to the plural 0.14 names."""
+        from hm2p.kinematics.compute import _normalise_dim_names
+
+        ds = _make_ds(10).rename(
+            {"keypoints": "keypoint", "individuals": "individual"}
+        )
+        out = _normalise_dim_names(ds)
+        assert "keypoints" in out.dims
+        assert "individuals" in out.dims
+        assert "keypoint" not in out.dims
+        assert "individual" not in out.dims
+
+    def test_noop_on_plural_dims(self) -> None:
+        """A movement <0.17 Dataset (already plural) is returned unchanged."""
+        from hm2p.kinematics.compute import _normalise_dim_names
+
+        ds = _make_ds(10)
+        out = _normalise_dim_names(ds)
+        assert out is ds
+
+    def test_partial_rename(self) -> None:
+        """Only the singular dims present are renamed."""
+        from hm2p.kinematics.compute import _normalise_dim_names
+
+        ds = _make_ds(10).rename({"keypoints": "keypoint"})
+        out = _normalise_dim_names(ds)
+        assert "keypoints" in out.dims
+        assert "individuals" in out.dims
 
 
 # ---------------------------------------------------------------------------
@@ -486,7 +513,9 @@ class TestKinematicsRun:
 
     def _setup_mocks(self, pose_ds: xr.Dataset) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
         _, mock_io, mock_lp, mock_filtering = _install_mock_movement()
-        mock_lp.from_file.return_value = pose_ds
+        mock_lp.from_dlc_file.return_value = pose_ds
+        mock_lp.from_sleap_file.return_value = pose_ds
+        mock_lp.from_lp_file.return_value = pose_ds
         mock_filtering.filter_by_confidence.return_value = pose_ds.position
         mock_filtering.interpolate_over_time.return_value = pose_ds.position
         return _, mock_io, mock_lp, mock_filtering

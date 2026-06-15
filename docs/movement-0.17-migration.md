@@ -1,8 +1,56 @@
 # movement v0.17.0 migration plan
 
-Status: **planning only — no code changed.** This document scopes the upgrade
-from the currently-used `movement` 0.14.0 to 0.17.0. Nothing here has been
-applied; it is the change set to review before opening a branch.
+Status: **code applied (Strategy B), forward-compatible, verified on 0.14.0.
+0.17.0 install + numerical verification blocked on a Python upgrade.**
+Branch `feat/movement-0.17`. This document scopes the upgrade from the
+currently-used `movement` 0.14.0 to 0.17.0.
+
+## Applied change set (2026-06-15)
+
+Strategy B (normalise dims at the load boundary) was implemented so the code
+runs unchanged on both 0.14.0 (current devcontainer) and 0.17.0:
+
+- `src/hm2p/kinematics/compute.py`: `_TRACKER_MAP` (source_software strings)
+  replaced by `_TRACKER_LOADERS` (per-format loader names: `from_dlc_file` /
+  `from_sleap_file` / `from_lp_file`, which exist with an identical
+  `(file, fps=None)` signature in 0.14 onward). `load_pose_dataset` now
+  dispatches to the per-format loader and calls a new `_normalise_dim_names`
+  helper that renames singular dims (`keypoint`/`individual`) back to plural —
+  a no-op on movement <0.17. The rest of the module keeps the plural names, so
+  `perspective.py` needed **no change**.
+- `frontend/pages/dlc_viewer_page.py`: same `from_file` → `from_dlc_file`
+  swap + inline dim-normalisation. **This site was missing from the impact
+  inventory below** — found by a repo-wide grep for `from_file`/`source_software`.
+- Tests: `tests/kinematics/test_compute_dataset.py` loader tests assert the
+  per-format loaders; added `TestNormaliseDimNames` (singular→plural, plural
+  no-op, partial). All other kinematics/perspective fixtures keep plural dims
+  and are unchanged (the shim keeps the internal vocabulary plural).
+- `tests/kinematics tests/pose` + dlc-viewer frontend tests: **636 passed** on
+  movement 0.14.0.
+- `pyproject.toml` pin left at `movement>=0.5,<1.0` (permits both 0.14 and
+  0.17). **Not** tightened to `>=0.17` because that would make the env
+  unsatisfiable on the current Python — see blocker below.
+
+## BLOCKER: movement 0.17 requires Python ≥ 3.12
+
+Not anticipated by the original plan. `movement==0.17.0` declares
+`requires-python >=3.12`; the devcontainer runs **Python 3.11.2**, so 0.17
+cannot be installed here. Consequences:
+
+- The actual 0.17 install and the numerical no-op verification (step 4 below)
+  **cannot run until the project Python is bumped to ≥3.12**. `pyproject.toml`
+  already allows it (`requires-python = ">=3.10,<3.14"`); `uv python` can fetch
+  cpython 3.12/3.13 for aarch64.
+- Bumping Python means recreating `/workspace/.venv` on 3.12 and reinstalling
+  all scientific deps (suite2p, FISSA, CASCADE, roiextractors) on ARM — a
+  larger, riskier change than this code edit (FISSA in particular pins old
+  numpy/scipy/sklearn ABIs). That is a separate decision, not done here.
+- Because the code is forward-compatible, the branch can land and keep working
+  on 0.14 today; the Python bump + 0.17 verification is a follow-up.
+
+---
+
+The original plan follows (impact inventory etc.), retained for reference.
 
 ## Why
 
