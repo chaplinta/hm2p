@@ -80,11 +80,22 @@ MAZE_POLYGON_COORDS: list[tuple[int, int]] = [
     (0, 1),
 ]
 
-# movement source_software names keyed by tracker shorthand
-_TRACKER_MAP: dict[str, str] = {
-    "dlc": "DeepLabCut",
-    "sleap": "SLEAP",
-    "lp": "LightningPose",
+# movement per-format loader names keyed by tracker shorthand. The generic
+# load_poses.from_file(source_software=...) was removed in movement 0.17; loading
+# is now per-format and the format is implied by the loader. These loaders exist
+# with an identical (file, fps=None) signature in 0.14 onward, so this dispatch
+# works on both the current pin and 0.17.
+_TRACKER_LOADERS: dict[str, str] = {
+    "dlc": "from_dlc_file",
+    "sleap": "from_sleap_file",
+    "lp": "from_lp_file",
+}
+
+# movement 0.17 renamed the Dataset dims keypoints→keypoint and
+# individuals→individual. The rest of this module uses the plural 0.14 names.
+_SINGULAR_TO_PLURAL_DIMS: dict[str, str] = {
+    "keypoint": "keypoints",
+    "individual": "individuals",
 }
 
 # Keypoint names
@@ -754,19 +765,32 @@ def load_pose_dataset(pose_path: Path, tracker: str) -> xr.Dataset:
     """
     from movement.io import load_poses
 
-    if tracker not in _TRACKER_MAP:
-        raise ValueError(f"Unknown tracker '{tracker}'. Known trackers: {list(_TRACKER_MAP)}")
-    source_software = _TRACKER_MAP[tracker]
-    # movement ≥0.1.0 renamed 'file' → 'file_path'. Support both.
-    import inspect
-    sig = inspect.signature(load_poses.from_file)
-    if "file_path" in sig.parameters:
-        ds = load_poses.from_file(file_path=pose_path, source_software=source_software)
-    else:
-        ds = load_poses.from_file(file=pose_path, source_software=source_software)
+    if tracker not in _TRACKER_LOADERS:
+        raise ValueError(
+            f"Unknown tracker '{tracker}'. Known trackers: {list(_TRACKER_LOADERS)}"
+        )
+    loader = getattr(load_poses, _TRACKER_LOADERS[tracker])
+    ds = loader(pose_path)
+    # Normalise movement 0.17's singular dims back to the plural names this
+    # module uses, at this single load boundary. No-op on movement <0.17 where
+    # the dims are already plural.
+    ds = _normalise_dim_names(ds)
     # Rename SA bodypart names to project names (e.g. "nose" → "nose_tip")
     ds = rename_sa_bodyparts(ds)
     return ds
+
+
+def _normalise_dim_names(ds: xr.Dataset) -> xr.Dataset:
+    """Rename movement 0.17 singular dims (keypoint/individual) back to plural.
+
+    Returns the Dataset unchanged when the singular dims are absent (movement
+    <0.17), so the rest of the module can keep using the plural 0.14 names
+    regardless of the installed movement version.
+    """
+    rename = {
+        old: new for old, new in _SINGULAR_TO_PLURAL_DIMS.items() if old in ds.dims
+    }
+    return ds.rename(rename) if rename else ds
 
 
 def apply_orientation_rotation(ds: xr.Dataset, angle_deg: float) -> xr.Dataset:

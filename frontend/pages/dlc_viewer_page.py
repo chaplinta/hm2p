@@ -150,13 +150,17 @@ def dl_dlc(sub: str, ses: str) -> dict | None:
     with tempfile.NamedTemporaryFile(suffix=".h5", delete=True) as tmp:
         tmp.write(data)
         tmp.flush()
-        # movement ≥0.1.0 renamed 'file' → 'file_path'. Support both.
-        import inspect as _inspect
-        _sig = _inspect.signature(load_poses.from_file)
-        _file_kw = "file_path" if "file_path" in _sig.parameters else "file"
-        ds = load_poses.from_file(
-            **{_file_kw: Path(tmp.name)}, source_software="DeepLabCut", fps=VIDEO_FPS,
-        )
+        # movement 0.17 removed the generic load_poses.from_file; load per-format.
+        ds = load_poses.from_dlc_file(Path(tmp.name), fps=VIDEO_FPS)
+        # movement 0.17 renamed dims keypoints→keypoint, individuals→individual.
+        # Normalise back to the plural names used below (no-op on movement <0.17).
+        _rename = {
+            old: new
+            for old, new in (("keypoint", "keypoints"), ("individual", "individuals"))
+            if old in ds.dims
+        }
+        if _rename:
+            ds = ds.rename(_rename)
 
     # For multi-animal DLC, pick best individual per frame (highest mean confidence)
     individuals = ds.position.coords["individuals"].values.tolist()

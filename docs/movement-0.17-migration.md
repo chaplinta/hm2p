@@ -1,8 +1,97 @@
 # movement v0.17.0 migration plan
 
-Status: **planning only — no code changed.** This document scopes the upgrade
-from the currently-used `movement` 0.14.0 to 0.17.0. Nothing here has been
-applied; it is the change set to review before opening a branch.
+Status: **complete. movement 0.17.0 installed and verified on Python 3.12.13.**
+Branch `feat/movement-0.17`. This document scopes the upgrade from `movement`
+0.14.0 to 0.17.0.
+
+## Resolution (2026-06-16): Python bumped to 3.12, 0.17 verified
+
+The blocker below is resolved. The devcontainer ran Python 3.11.2 only by
+accident — the base `node:20` image is Debian bookworm (system python3 = 3.11),
+and the Dockerfile's `ARG PYTHON_VERSION=3.12` was never consumed. There was no
+real reason for 3.11; 3.12 was the original intent.
+
+Changes applied:
+- `pyproject.toml`: `requires-python` `>=3.10,<3.14` → `>=3.12,<3.14` (movement
+  0.17 requires ≥3.12, so 3.10/3.11 are dropped); movement pin `>=0.5,<1.0` →
+  `>=0.17,<0.18`.
+- `uv.lock` re-resolved: movement 0.14.0 → 0.17.0 (+ xgboost 3.2.0, orjson).
+- `.devcontainer/Dockerfile`: added `RUN uv python install ${PYTHON_VERSION}`
+  so the dead ARG is now live and a managed 3.12 interpreter is baked into the
+  image. `uv sync` at container start builds `.venv` on 3.12 (uv also
+  auto-provisions 3.12 from the `requires-python` constraint as a fallback).
+- venv recreated on cpython 3.12.13 via `uv venv --python 3.12 && uv sync
+  --extra dev` (+ ad-hoc `statsmodels`, and the `plotly streamlit-google-auth
+  tifffile` the postStart command installs).
+
+Verification on 3.12.13 + movement 0.17.0 — the singular dims (`keypoint`/
+`individual`) are now real, so the `_normalise_dim_names` shim is exercised:
+- `tests/kinematics tests/pose`: **538 passed**.
+- `tests/calcium tests/extraction tests/scripts`: 967 passed, 5 skipped.
+- `tests/analysis`: 417 passed; 11 `rastermap` failures are pre-existing
+  (`rastermap` not installed — fails identically on the 3.11 backup), and
+  `test_cache.py`/`test_mixed_stats.py` import gaps (`duckdb`, and `statsmodels`
+  until installed) are likewise pre-existing, not migration regressions.
+- Core package + CLI + frontend (incl. the edited `dlc_viewer_page`) import.
+
+The old environment is preserved at `.venv-py311-backup/` (gitignored) for
+rollback; it can be deleted once 3.12 is confirmed in normal use.
+
+Follow-up not done here: EC2 launchers apt-install the distro python3 — with
+`requires-python>=3.12` those hosts now need a 3.12 interpreter (Ubuntu 24.04
+default, or uv-provisioned) rather than 3.10/3.11. No EC2 run is pending, so
+this is deferred.
+
+---
+
+The original plan and the (now-resolved) blocker follow, retained for reference.
+
+## Applied change set (2026-06-15)
+
+Strategy B (normalise dims at the load boundary) was implemented so the code
+runs unchanged on both 0.14.0 (current devcontainer) and 0.17.0:
+
+- `src/hm2p/kinematics/compute.py`: `_TRACKER_MAP` (source_software strings)
+  replaced by `_TRACKER_LOADERS` (per-format loader names: `from_dlc_file` /
+  `from_sleap_file` / `from_lp_file`, which exist with an identical
+  `(file, fps=None)` signature in 0.14 onward). `load_pose_dataset` now
+  dispatches to the per-format loader and calls a new `_normalise_dim_names`
+  helper that renames singular dims (`keypoint`/`individual`) back to plural —
+  a no-op on movement <0.17. The rest of the module keeps the plural names, so
+  `perspective.py` needed **no change**.
+- `frontend/pages/dlc_viewer_page.py`: same `from_file` → `from_dlc_file`
+  swap + inline dim-normalisation. **This site was missing from the impact
+  inventory below** — found by a repo-wide grep for `from_file`/`source_software`.
+- Tests: `tests/kinematics/test_compute_dataset.py` loader tests assert the
+  per-format loaders; added `TestNormaliseDimNames` (singular→plural, plural
+  no-op, partial). All other kinematics/perspective fixtures keep plural dims
+  and are unchanged (the shim keeps the internal vocabulary plural).
+- `tests/kinematics tests/pose` + dlc-viewer frontend tests: **636 passed** on
+  movement 0.14.0.
+- `pyproject.toml` pin left at `movement>=0.5,<1.0` (permits both 0.14 and
+  0.17). **Not** tightened to `>=0.17` because that would make the env
+  unsatisfiable on the current Python — see blocker below.
+
+## BLOCKER: movement 0.17 requires Python ≥ 3.12
+
+Not anticipated by the original plan. `movement==0.17.0` declares
+`requires-python >=3.12`; the devcontainer runs **Python 3.11.2**, so 0.17
+cannot be installed here. Consequences:
+
+- The actual 0.17 install and the numerical no-op verification (step 4 below)
+  **cannot run until the project Python is bumped to ≥3.12**. `pyproject.toml`
+  already allows it (`requires-python = ">=3.10,<3.14"`); `uv python` can fetch
+  cpython 3.12/3.13 for aarch64.
+- Bumping Python means recreating `/workspace/.venv` on 3.12 and reinstalling
+  all scientific deps (suite2p, FISSA, CASCADE, roiextractors) on ARM — a
+  larger, riskier change than this code edit (FISSA in particular pins old
+  numpy/scipy/sklearn ABIs). That is a separate decision, not done here.
+- Because the code is forward-compatible, the branch can land and keep working
+  on 0.14 today; the Python bump + 0.17 verification is a follow-up.
+
+---
+
+The original plan follows (impact inventory etc.), retained for reference.
 
 ## Why
 
