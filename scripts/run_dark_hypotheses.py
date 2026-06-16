@@ -67,11 +67,14 @@ from statsmodels.stats.multitest import multipletests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from hm2p.analysis.information import skaggs_info_rate  # noqa: E402
 from hm2p.analysis.matched_tuning import (  # noqa: E402
     match_indices_1d,
+    match_indices_2d,
     matched_condition_mvl,
     occupancy_histogram,
     shuffle_debiased_mvl,
+    shuffle_debiased_statistic,
     tuning_curve_fwhm,
 )
 from hm2p.analysis.tuning import (  # noqa: E402
@@ -246,7 +249,8 @@ def _significant_hd_mask(arrays, signal_idx_local) -> np.ndarray:
 
 
 def _matched_session(
-    arrays, match, n_boot, n_shuffles, rng, mask_light=None, mask_dark=None, match_vars_kind=None
+    arrays, match, n_boot, n_shuffles, rng, mask_light=None, mask_dark=None,
+    match_vars_kind=None, statistic="mvl",
 ):
     """Compute per-soma-cell debiased MVL in light & dark under matched sampling.
 
@@ -294,6 +298,7 @@ def _matched_session(
             n_boot=n_boot,
             n_shuffles=n_shuffles,
             debias=True,
+            statistic=statistic,
             rng=rng,
         )
         mvl_l[c] = res["mvl_a"]
@@ -398,14 +403,14 @@ def load_analysis(analysis_f: h5py.File, signal: str, soma_idx: np.ndarray) -> d
 # ===========================================================================
 
 
-def run_matched_hypothesis(sessions, hid, match, n_boot, n_shuffles, seed):
+def run_matched_hypothesis(sessions, hid, match, n_boot, n_shuffles, seed, statistic="mvl"):
     """A1 (occupancy), A2 (kinematics), C1 (state composition) share this engine."""
     rows = []
     light_summ, dark_summ = [], []
     for s in sessions:
         arrays = s["arrays"]
         rng = np.random.default_rng(seed + hash(s["exp_id"]) % 10_000)
-        if hid == "C1":
+        if hid.startswith("C1"):
             # Match active/bad_behav composition: restrict both conditions to
             # ACTIVE moving frames (already exclude bad_behav via 'valid'); then
             # the comparison is occupancy-matched on top (state-composition
@@ -413,10 +418,13 @@ def run_matched_hypothesis(sessions, hid, match, n_boot, n_shuffles, seed):
             ml = arrays["moving"] & arrays["light_on"]
             md = arrays["moving"] & ~arrays["light_on"]
             res = _matched_session(
-                arrays, "occupancy", n_boot, n_shuffles, rng, mask_light=ml, mask_dark=md
+                arrays, "occupancy", n_boot, n_shuffles, rng,
+                mask_light=ml, mask_dark=md, statistic=statistic,
             )
         else:
-            res = _matched_session(arrays, match, n_boot, n_shuffles, rng)
+            res = _matched_session(
+                arrays, match, n_boot, n_shuffles, rng, statistic=statistic
+            )
         if res is None:
             continue
         sig_mask = s.get("hd_sig_mask")
@@ -720,7 +728,7 @@ def run_B3_gained_lost(sessions):
     }, pd.DataFrame(rows)
 
 
-def _matched_curves_session(arrays, n_shuffles, rng):
+def _matched_curves_session(arrays, n_shuffles, rng, statistic="mvl"):
     """Per soma cell: occupancy-matched light & dark debiased MVL, FWHM width,
     and per-condition HD significance.
 
@@ -754,19 +762,19 @@ def _matched_curves_session(arrays, n_shuffles, rng):
     for c in range(n_soma):
         s_l = sig[c][ml][idx_l]
         s_d = sig[c][md][idx_d]
-        r_l = shuffle_debiased_mvl(
+        r_l = shuffle_debiased_statistic(
             s_l, hd_lm, n_bins=HD_N_BINS, smoothing_sigma_deg=HD_SMOOTH_DEG,
-            n_shuffles=n_shuffles, rng=rng,
+            n_shuffles=n_shuffles, statistic=statistic, rng=rng,
         )
-        r_d = shuffle_debiased_mvl(
+        r_d = shuffle_debiased_statistic(
             s_d, hd_dm, n_bins=HD_N_BINS, smoothing_sigma_deg=HD_SMOOTH_DEG,
-            n_shuffles=n_shuffles, rng=rng,
+            n_shuffles=n_shuffles, statistic=statistic, rng=rng,
         )
-        out["mvl_l"][c] = r_l["mvl_debiased"]
-        out["mvl_d"][c] = r_d["mvl_debiased"]
+        out["mvl_l"][c] = r_l["stat_debiased"]
+        out["mvl_d"][c] = r_d["stat_debiased"]
         n_sh = len(r_l["shuffle_dist"])
-        p_l = (1 + int(np.sum(r_l["shuffle_dist"] >= r_l["mvl_raw"]))) / (1 + n_sh)
-        p_d = (1 + int(np.sum(r_d["shuffle_dist"] >= r_d["mvl_raw"]))) / (1 + n_sh)
+        p_l = (1 + int(np.sum(r_l["shuffle_dist"] >= r_l["stat_raw"]))) / (1 + n_sh)
+        p_d = (1 + int(np.sum(r_d["shuffle_dist"] >= r_d["stat_raw"]))) / (1 + n_sh)
         sig_l[c] = p_l < ALPHA
         sig_d[c] = p_d < ALPHA
         tc_l, bc = compute_hd_tuning_curve(
@@ -782,7 +790,7 @@ def _matched_curves_session(arrays, n_shuffles, rng):
     return out
 
 
-def run_tightened_b2_b3(sessions, n_shuffles, seed):
+def run_tightened_b2_b3(sessions, n_shuffles, seed, statistic="mvl"):
     """Recompute B2 (gain vs sharpening) and B3 (recruitment) on OCCUPANCY-MATCHED
     tuning curves instead of the stored, unmatched MVL/significance.
 
@@ -797,7 +805,7 @@ def run_tightened_b2_b3(sessions, n_shuffles, seed):
     b = c = both = neither = 0  # b=light-only sig, c=dark-only sig
     for s in sessions:
         rng = np.random.default_rng(seed + hash(s["exp_id"]) % 10_000)
-        res = _matched_curves_session(s["arrays"], n_shuffles, rng)
+        res = _matched_curves_session(s["arrays"], n_shuffles, rng, statistic=statistic)
         if res is None:
             continue
         sig_either = res["sig_l"] | res["sig_d"]
@@ -857,6 +865,99 @@ def run_tightened_b2_b3(sessions, n_shuffles, seed):
         "p_value": float(p) if np.isfinite(p) else np.nan,
     }
     return mvl_test, wid_test, verdict, pd.DataFrame(b2_rows), b3, pd.DataFrame(b3_rows)
+
+
+def _place_skaggs_info(sig_vals, x_vals, y_vals, xe, ye, occ, n_shuffles, rng):
+    """Shuffle-debiased Skaggs place (spatial) information for one cell.
+
+    Builds a 2-D rate map (mean signal per position bin) over the supplied
+    position-occupancy ``occ`` and edges, computes Skaggs info on the rectified
+    map, and subtracts the mean of a circular-shift null. Returns bits/event.
+    """
+    occf = occ.flatten()
+    valid = occf > 0
+
+    def _info(s):
+        ssum, _, _ = np.histogram2d(x_vals, y_vals, bins=[xe, ye], weights=s)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            rate = (ssum / occ).flatten()
+        base = float(np.nanmin(rate[valid])) if valid.any() else 0.0
+        return skaggs_info_rate(np.nan_to_num(rate - base), occf)
+
+    raw = _info(sig_vals)
+    n = sig_vals.size
+    sh = np.empty(n_shuffles)
+    for i in range(n_shuffles):
+        off = int(rng.integers(1, max(2, n - 1)))
+        sh[i] = _info(np.roll(sig_vals, off))
+    return float(raw - np.mean(sh))
+
+
+def run_P1_matched_place_info(sessions, n_shuffles, seed):
+    """P1 (sensitivity): place Skaggs information light vs dark, with 2-D
+    position-occupancy MATCHED across conditions.
+
+    The stored 'spatial info higher in dark' (H5.3) shares the same sampling
+    confound as the HD-MVL effect: if the animal covers the maze differently in
+    the dark, place information inflates without any coding change. Here the
+    joint x/y occupancy is equalised across light/dark before recomputing
+    shuffle-debiased place information, paired within session.
+    """
+    place_bins = 8
+    light_summ, dark_summ, rows = [], [], []
+    for s in sessions:
+        a = s["arrays"]
+        if "x_maze" not in a or "y_maze" not in a:
+            continue
+        x = np.asarray(a["x_maze"], float)
+        y = np.asarray(a["y_maze"], float)
+        mv = a["moving"]
+        light = a["light_on"]
+        sig = a["signal"]
+        finite = mv & np.isfinite(x) & np.isfinite(y)
+        ml = finite & light
+        md = finite & ~light
+        if ml.sum() < 100 or md.sum() < 100:
+            continue
+        rng = np.random.default_rng(seed + hash(s["exp_id"]) % 10_000)
+        il, idk = match_indices_2d(
+            x[ml], y[ml], x[md], y[md], n_bins=(place_bins, place_bins), rng=rng
+        )
+        if il.size < 100 or idk.size < 100:
+            continue
+        xl, yl = x[ml][il], y[ml][il]
+        xd, yd = x[md][idk], y[md][idk]
+        allx = np.concatenate([xl, xd])
+        ally = np.concatenate([yl, yd])
+        xe = np.linspace(allx.min(), allx.max() + 1e-9, place_bins + 1)
+        ye = np.linspace(ally.min(), ally.max() + 1e-9, place_bins + 1)
+        occ_l, _, _ = np.histogram2d(xl, yl, bins=[xe, ye])
+        occ_d, _, _ = np.histogram2d(xd, yd, bins=[xe, ye])
+        sig_l = sig[:, ml][:, il]
+        sig_d = sig[:, md][:, idk]
+        info_l, info_d = [], []
+        for c in range(sig.shape[0]):
+            info_l.append(_place_skaggs_info(sig_l[c], xl, yl, xe, ye, occ_l, n_shuffles, rng))
+            info_d.append(_place_skaggs_info(sig_d[c], xd, yd, xe, ye, occ_d, n_shuffles, rng))
+        ia = np.array(info_l)
+        ib = np.array(info_d)
+        ok = np.isfinite(ia) & np.isfinite(ib)
+        if ok.sum() < 1:
+            continue
+        light_summ.append(float(np.median(ia[ok])))
+        dark_summ.append(float(np.median(ib[ok])))
+        rows.append(
+            {
+                "exp_id": s["exp_id"],
+                "animal_id": s["animal_id"],
+                "celltype": s["celltype"],
+                "n_cells": int(ok.sum()),
+                "place_info_light": light_summ[-1],
+                "place_info_dark": dark_summ[-1],
+            }
+        )
+    test = paired_test(light_summ, dark_summ, label="P1")
+    return test, pd.DataFrame(rows)
 
 
 def run_B1_maze_position(sessions, n_shuffles, seed):
@@ -1066,6 +1167,10 @@ def main():
     ap.add_argument("--output", type=Path, default=Path("results/dark_hypotheses"))
     ap.add_argument("--skip-d1", action="store_true", help="skip D1 (slow neuropil pass)")
     ap.add_argument("--skip-b1", action="store_true", help="skip B1 (slow position pass)")
+    ap.add_argument(
+        "--skip-mi", action="store_true",
+        help="skip the Skaggs HD/place mutual-information cross-check",
+    )
     args = ap.parse_args()
 
     if args.smoke:
@@ -1114,6 +1219,20 @@ def main():
     log.info("=== C2 hd_confidence ===")
     results["C2"], per_hyp_df["C2"] = run_C2_hd_confidence(sessions, args.seed)
 
+    # --- Skaggs HD mutual-information cross-check (Voigts & Harnett 2020;
+    # Zong et al. 2022). Same matched/shuffle machinery, information statistic.
+    if not args.skip_mi:
+        log.info("=== A1 occupancy-matched (Skaggs HD info) ===")
+        results["A1_mi"], per_hyp_df["A1_mi"] = run_matched_hypothesis(
+            sessions, "A1", "occupancy", args.n_boot, args.n_shuffles, args.seed,
+            statistic="skaggs",
+        )
+        log.info("=== A2 kinematics-matched (Skaggs HD info) ===")
+        results["A2_mi"], per_hyp_df["A2_mi"] = run_matched_hypothesis(
+            sessions, "A2", "kinematics", args.n_boot, args.n_shuffles, args.seed,
+            statistic="skaggs",
+        )
+
     # --- Mechanism ---
     log.info("=== B2 gain vs sharpening ===")
     b2_mvl, b2_wid, b2_verdict, per_hyp_df["B2"] = run_B2_gain_vs_sharpening(sessions)
@@ -1143,6 +1262,20 @@ def main():
     results["B2_tightened_width"] = b2t_wid
     results["B2_tightened_verdict"] = {"label": "B2t", "verdict": b2t_verdict}
 
+    if not args.skip_mi:
+        log.info("=== B2/B3 tightened on occupancy-matched Skaggs HD info ===")
+        b2tm_mvl, _b2tm_wid, b2tm_verdict, _b2tm_df, b3tm, _b3tm_df = run_tightened_b2_b3(
+            sessions, args.n_shuffles, args.seed, statistic="skaggs"
+        )
+        results["B2_tightened_mi"] = b2tm_mvl
+        results["B2_tightened_mi_verdict"] = {"label": "B2t-MI", "verdict": b2tm_verdict}
+        results["B3_tightened_mi"] = b3tm
+
+        log.info("=== P1 occupancy-matched place Skaggs info ===")
+        results["P1"], per_hyp_df["P1"] = run_P1_matched_place_info(
+            sessions, args.n_shuffles, args.seed
+        )
+
     if not args.skip_b1:
         log.info("=== B1 maze position (exploratory) ===")
         results["B1"], per_hyp_df["B1"] = run_B1_maze_position(
@@ -1154,9 +1287,9 @@ def main():
     fam_keys = []
     for k, r in results.items():
         base = k.split("_")[0]
-        # "tightened" keys are a sensitivity re-analysis, not part of the primary
-        # confirmatory family, so they are excluded from FDR correction.
-        if "tightened" in k:
+        # "tightened" re-analysis and the "_mi"/"P1" Skaggs cross-check are
+        # reported alongside the primary MVL family, not folded into its FDR.
+        if "tightened" in k or k.endswith("_mi") or k == "P1":
             continue
         if base in CONFIRMATORY and isinstance(r, dict) and np.isfinite(r.get("p_value", np.nan)):
             fam.append(r["p_value"])
@@ -1361,6 +1494,41 @@ def write_report(args, sessions, results, fdr_map, sanity_msgs, b2_verdict):
             f"{b3t['neither']}; McNemar exact p="
             + (f"{b3t['p_value']:.4f}" if np.isfinite(b3t["p_value"]) else "n/a")
         )
+        L.append("")
+    # Skaggs mutual-information cross-check
+    if "A1_mi" in results:
+        L.append(
+            "## MI — Skaggs HD information cross-check (Voigts & Harnett 2020; "
+            "Zong et al. 2022) [sensitivity]"
+        )
+        L.append(
+            "Same matched/shuffle gauntlet, statistic = Skaggs HD information "
+            "(bits/event) instead of MVL. MI captures non-unimodal tuning MVL "
+            "misses, but is at least as occupancy-biased, so it goes through the "
+            "same matching. Reported alongside MVL, not in the MVL FDR family."
+        )
+        L.append(f"- **A1 (occupancy-matched MI):** {fmt(results['A1_mi'], 'A1_mi')}")
+        L.append(f"- **A2 (kinematics-matched MI):** {fmt(results['A2_mi'], 'A2_mi')}")
+        if "B2_tightened_mi" in results:
+            bmi = results["B2_tightened_mi"]
+            bmv = results["B2_tightened_mi_verdict"]["verdict"]
+            L.append(
+                f"- B2 matched MI (gain): N={bmi['n']}, Wilcoxon p={bmi['p_value']:.4f}, "
+                f"median(dark-light)={bmi['median_diff']:.4f}, "
+                f"rank-biserial={bmi['rank_biserial']:.3f} — {bmv}"
+            )
+            b3mi = results["B3_tightened_mi"]
+            L.append(
+                f"- B3 matched recruitment (MI significance): light-only "
+                f"{b3mi['light_only']}, dark-only {b3mi['dark_only']}, both "
+                f"{b3mi['both']}; McNemar p="
+                + (f"{b3mi['p_value']:.4f}" if np.isfinite(b3mi["p_value"]) else "n/a")
+            )
+        if "P1" in results:
+            L.append(
+                f"- **P1 (position-occupancy-matched PLACE info):** "
+                f"{fmt(results['P1'], 'P1')}"
+            )
         L.append("")
     # B1
     if "B1" in results:

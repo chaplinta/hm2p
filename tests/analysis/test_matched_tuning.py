@@ -275,3 +275,78 @@ def test_fwhm_wraps_across_zero():
     # peak straddling the 0/360 wrap: bins 35, 0, 1 above half-max
     curve[[35, 0, 1]] = 1.0
     assert tuning_curve_fwhm(curve, bc) == 30.0
+
+
+# ---------------------------------------------------------------------------
+# HD-tuning statistic (MVL vs Skaggs information)
+# ---------------------------------------------------------------------------
+
+
+def test_hd_statistic_mvl_matches_direct():
+    rng = np.random.default_rng(20)
+    hd = rng.uniform(0, 360, 1500)
+    sig = _tuned_signal(hd, pd_deg=120)
+    m = np.ones(hd.size, bool)
+    from hm2p.analysis.matched_tuning import hd_tuning_statistic
+
+    tc, bc = compute_hd_tuning_curve(sig, hd, m)
+    assert np.isclose(
+        hd_tuning_statistic(sig, hd, m, statistic="mvl"), mean_vector_length(tc, bc)
+    )
+
+
+def test_hd_statistic_skaggs_tuned_gt_untuned():
+    from hm2p.analysis.matched_tuning import hd_tuning_statistic
+
+    rng = np.random.default_rng(21)
+    n = 4000
+    hd = rng.uniform(0, 360, n)
+    tuned = _tuned_signal(hd, kappa=4.0)
+    untuned = rng.normal(0, 1, n)
+    m = np.ones(n, bool)
+    info_t = hd_tuning_statistic(tuned, hd, m, statistic="skaggs")
+    info_u = hd_tuning_statistic(untuned, hd, m, statistic="skaggs")
+    assert info_t > info_u
+    assert info_t > 0
+
+
+def test_hd_statistic_invalid_raises():
+    from hm2p.analysis.matched_tuning import hd_tuning_statistic
+
+    hd = np.linspace(0, 360, 100, endpoint=False)
+    sig = _tuned_signal(hd)
+    with pytest.raises(ValueError):
+        hd_tuning_statistic(sig, hd, np.ones(100, bool), statistic="bogus")
+
+
+def test_shuffle_debiased_statistic_keys_and_debias():
+    from hm2p.analysis.matched_tuning import shuffle_debiased_statistic
+
+    rng = np.random.default_rng(22)
+    n = 2000
+    hd = rng.uniform(0, 360, n)
+    untuned = rng.normal(0, 1, n)
+    r = shuffle_debiased_statistic(untuned, hd, n_shuffles=80, statistic="skaggs", rng=rng)
+    assert set(r) == {"stat_raw", "stat_bias", "stat_debiased", "shuffle_dist"}
+    assert r["shuffle_dist"].shape == (80,)
+    # untuned -> debiased info near zero, below raw
+    assert r["stat_debiased"] < r["stat_raw"]
+    assert abs(r["stat_debiased"]) < 0.2
+
+
+def test_matched_condition_skaggs_runs():
+    from hm2p.analysis.matched_tuning import matched_condition_mvl
+
+    rng = np.random.default_rng(23)
+    n = 3000
+    hd_a = rng.uniform(0, 360, n)
+    hd_b = np.concatenate([rng.uniform(60, 120, 2000), rng.uniform(0, 360, 1000)])
+    sig_a = _tuned_signal(hd_a, pd_deg=90, kappa=3.0)
+    sig_b = _tuned_signal(hd_b, pd_deg=90, kappa=3.0)
+    out = matched_condition_mvl(
+        sig_a, hd_a, sig_b, hd_b, match="occupancy",
+        statistic="skaggs", n_boot=8, n_shuffles=25, debias=True, rng=rng,
+    )
+    # same underlying code -> matched info similar across conditions
+    assert np.isfinite(out["mvl_a"]) and np.isfinite(out["mvl_b"])
+    assert abs(out["mvl_a"] - out["mvl_b"]) < 0.5
