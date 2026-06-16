@@ -53,6 +53,7 @@ __all__ = [
     "match_indices_2d",
     "shuffle_debiased_mvl",
     "matched_condition_mvl",
+    "tuning_curve_fwhm",
 ]
 
 
@@ -478,3 +479,50 @@ def matched_condition_mvl(
         "n_matched": float(np.mean(n_matched)) if n_matched else 0,
         "n_boot": len(a_vals),
     }
+
+
+def tuning_curve_fwhm(
+    tuning_curve: npt.NDArray[np.floating],
+    bin_centers_deg: npt.NDArray[np.floating],
+) -> float:
+    """Full width at half maximum of an HD tuning curve, in degrees.
+
+    The curve is baseline-subtracted (min removed); the half-maximum threshold
+    is half the resulting peak. Width is the angular extent of the contiguous
+    supra-threshold region surrounding the peak bin, measured on the circular
+    bin grid (so a region that wraps across 0/360 is handled). Returns the bin
+    width for a single-bin peak and ``nan`` for a degenerate curve with zero
+    dynamic range (e.g. a constant curve). A broad/weakly-tuned curve yields a
+    wide FWHM approaching the full circle.
+
+    Used to separate gain (amplitude) from sharpening (width) changes between
+    conditions: an MVL increase with flat width is gain; with narrower width it
+    is sharpening.
+    """
+    tc = np.asarray(tuning_curve, dtype=np.float64)
+    n = tc.size
+    if n == 0:
+        return float("nan")
+    bin_width = 360.0 / n
+    tc0 = tc - np.min(tc)
+    peak = float(np.max(tc0))
+    if peak <= 0:
+        # Constant curve: no dynamic range, width undefined.
+        return float("nan")
+    half = peak / 2.0
+    above = tc0 >= half
+    # Expand from the peak bin in both directions while above half-max,
+    # wrapping circularly.
+    peak_idx = int(np.argmax(tc0))
+    count = 1
+    # walk right
+    i = (peak_idx + 1) % n
+    while above[i] and i != peak_idx:
+        count += 1
+        i = (i + 1) % n
+    # walk left
+    j = (peak_idx - 1) % n
+    while above[j] and j != peak_idx:
+        count += 1
+        j = (j - 1) % n
+    return float(count * bin_width)

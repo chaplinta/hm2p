@@ -14,6 +14,7 @@ from hm2p.analysis.matched_tuning import (
     matched_condition_mvl,
     occupancy_histogram,
     shuffle_debiased_mvl,
+    tuning_curve_fwhm,
 )
 from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length
 
@@ -230,3 +231,47 @@ def test_matched_invalid_mode():
     sig = _tuned_signal(hd)
     with pytest.raises(ValueError):
         matched_condition_mvl(sig, hd, sig, hd, match="bogus", rng=rng)
+
+
+def test_fwhm_single_bin_peak():
+    bc = np.arange(0, 360, 10.0)
+    curve = np.zeros(36)
+    curve[18] = 1.0
+    # one bin above half-max -> one bin width
+    assert tuning_curve_fwhm(curve, bc) == 10.0
+
+
+def test_fwhm_constant_curve_is_nan():
+    bc = np.arange(0, 360, 10.0)
+    # constant curve has zero dynamic range -> width undefined
+    assert np.isnan(tuning_curve_fwhm(np.full(36, 0.5), bc))
+
+
+def test_fwhm_broad_curve_is_wide():
+    bc = np.arange(0, 360, 10.0)
+    bc_rad = np.deg2rad(bc)
+    broad = np.exp(0.5 * np.cos(bc_rad - np.deg2rad(180)))
+    # weak tuning -> wide FWHM (more than a quarter of the circle)
+    assert tuning_curve_fwhm(broad, bc) > 90.0
+
+
+def test_fwhm_degenerate_is_nan():
+    bc = np.arange(0, 360, 10.0)
+    assert np.isnan(tuning_curve_fwhm(np.zeros(36), bc))
+
+
+def test_fwhm_sharper_curve_is_narrower():
+    bc = np.deg2rad(np.arange(0, 360, 10.0))
+    mu = np.deg2rad(180)
+    sharp = np.exp(8.0 * np.cos(bc - mu))
+    broad = np.exp(1.0 * np.cos(bc - mu))
+    bc_deg = np.arange(0, 360, 10.0)
+    assert tuning_curve_fwhm(sharp, bc_deg) < tuning_curve_fwhm(broad, bc_deg)
+
+
+def test_fwhm_wraps_across_zero():
+    bc = np.arange(0, 360, 10.0)
+    curve = np.zeros(36)
+    # peak straddling the 0/360 wrap: bins 35, 0, 1 above half-max
+    curve[[35, 0, 1]] = 1.0
+    assert tuning_curve_fwhm(curve, bc) == 30.0

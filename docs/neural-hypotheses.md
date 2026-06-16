@@ -445,6 +445,41 @@ null result is uninformative.
 **Statement:** MVL decreases and preferred direction shifts when lights are
 extinguished, reflecting loss of visual landmark anchoring.
 
+> **RESULT (2026-06-16) — the stated direction is wrong, and the reverse effect
+> does not survive confound controls.**
+>
+> On the FISSA-uniform, MVL-bug-fixed data, the *raw* within-cell effect runs
+> **opposite** to the prediction: MVL and spatial information are **higher in
+> dark** than light (dF/F Wilcoxon p=0.0010; events p=0.0003), with PD showing
+> no systematic drift (preserved). This surprise prompted a within-session
+> paired confound gauntlet (`scripts/run_dark_hypotheses.py`,
+> `src/hm2p/analysis/matched_tuning.py`; results in `results/dark_hypotheses/`,
+> 23 sessions).
+>
+> **The raw dark>light MVL effect does not survive.** Equalising the light/dark
+> HD-occupancy distribution (A1) or the joint speed×|AHV| distribution (A2)
+> between conditions collapses it: A1 p=0.16 (FDR 0.25), A2 p=0.19 (FDR 0.25),
+> both NS; median(dark−light) shrinks from the raw value to ~0.036–0.040 (still
+> positive, 15/23 sessions dark>light, but underpowered). Sanity checks passed
+> (match=none reproduces raw MVL exactly; occupancy matching equalises the HD
+> histograms to zero difference). **Interpretation: most of the raw dark>light
+> MVL is differential HD *sampling* in darkness, not a coding gain.** The
+> behavioural and bleaching confounds listed below are therefore not hypothetical
+> — A1/A2 show they account for nearly the whole effect.
+>
+> Secondary signals also fail once recomputed on the *same* occupancy-matched
+> frames (B2/B3 tightened in `run_dark_hypotheses.py`). The apparent **gain**
+> does not survive: stored-MVL dark>light (p=0.01) becomes matched-MVL
+> median(dark−light) = −0.119, NS (p=0.21) — if anything slightly negative,
+> with flat width. The apparent **dark recruitment reverses**: unmatched gave
+> more dark-only than light-only HD cells (49 vs 25, McNemar p=0.007), but with
+> matched per-condition significance it flips to *more light-only* (60 vs 39,
+> p=0.044). So both "surviving" signals were sampling artefacts. Controls that
+> held: `hd_confidence` is null light-vs-dark (IR-camera assumption upheld);
+> soma↔neuropil ΔMVL not coupled (rho=0.087, p=0.065). **Implication for the
+> paper: do not frame darkness as enhancing HD coding — none of the enhancement
+> signals survive occupancy/kinematics matching.** See the v3 revision-log entry.
+
 **Reasoning:** This is the expected effect from the entire HD literature
 (Stackman & Taube 1997; Jacob et al. 2017; Bicknell et al. 2024). The key
 question is whether it occurs in our specific setting (L2/3 RSP, GCaMP, 1-min
@@ -1350,6 +1385,37 @@ Zugaro MB, et al. 2003. "Rapid spatial reorientation and head direction cells."
 ---
 
 ## 9. Revision Log
+
+### v3 (2026-06-16, post-results)
+
+First pass with results on the FISSA-uniform, MVL-bug-fixed dataset (all 26
+sessions reprocessed; Stage 6 re-run).
+
+1. **H-N3 sign reversed and headline retired.** The raw within-cell effect is
+   dark > light for both MVL and spatial information (not the predicted
+   degradation). A within-session paired confound gauntlet
+   (`scripts/run_dark_hypotheses.py`, `src/hm2p/analysis/matched_tuning.py`,
+   23 sessions) shows the raw effect **does not survive** occupancy-matching
+   (A1, p=0.15) or speed×|AHV|-matching (A2, p=0.20) — it is largely differential
+   HD sampling in darkness, not a coding gain. The secondary signals fail too
+   when recomputed on matched curves: the "gain" disappears (matched MVL NS,
+   slightly negative) and the apparent dark recruitment reverses to favour light
+   (B3 matched, McNemar p=0.044). Do not frame darkness as enhancing HD coding.
+   See the result box under H-N3.
+
+2. **Between-group cell-type story remains underpowered/null.** H-N2, H-N4 and
+   the other Penk+ vs Penk-CamKII+ contrasts are null at the animal level
+   (N=11 vs 4), consistent with the Section 0.1 power limit. The paper's spine
+   shifts toward a single-population, within-session light/dark account.
+
+3. **New within-session paired hypotheses proposed** (occupancy/kinematics-matched
+   MVL, gain-vs-sharpening, recruitment, soma↔neuropil coupling, maze-position
+   specificity). These supplement Section 3 and are the basis of the v3 gauntlet;
+   they are not yet folded into the numbered H-N list here.
+
+4. **Controls that held:** `hd_confidence` does not differ light vs dark
+   (IR-camera assumption upheld); any residual MVL enhancement is gain, not
+   tuning sharpening (width flat).
 
 ### v2 (2026-06-05, post-review)
 

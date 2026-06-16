@@ -68,9 +68,11 @@ from statsmodels.stats.multitest import multipletests
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from hm2p.analysis.matched_tuning import (  # noqa: E402
+    match_indices_1d,
     matched_condition_mvl,
     occupancy_histogram,
     shuffle_debiased_mvl,
+    tuning_curve_fwhm,
 )
 from hm2p.analysis.tuning import (  # noqa: E402
     compute_hd_tuning_curve,
@@ -718,6 +720,145 @@ def run_B3_gained_lost(sessions):
     }, pd.DataFrame(rows)
 
 
+def _matched_curves_session(arrays, n_shuffles, rng):
+    """Per soma cell: occupancy-matched light & dark debiased MVL, FWHM width,
+    and per-condition HD significance.
+
+    The light/dark HD-occupancy distribution is equalised ONCE per session
+    (shared across cells, since HD is per-frame), then each cell's matched
+    tuning curve is computed in each condition. MVL is circular-shuffle
+    debiased; per-condition significance is the circular-shuffle permutation
+    p-value on the matched subset. This removes the sampling confound that A1/A2
+    showed drives the raw MVL difference, so B2/B3 do not inherit it.
+
+    Returns a dict of (n_soma,) arrays, or None if either condition has too few
+    frames after matching.
+    """
+    sig = arrays["signal"]
+    hd = arrays["hd"]
+    ml = arrays["moving"] & arrays["light_on"]
+    md = arrays["moving"] & ~arrays["light_on"]
+    hd_l, hd_d = hd[ml], hd[md]
+    if hd_l.size < 50 or hd_d.size < 50:
+        return None
+    idx_l, idx_d = match_indices_1d(hd_l, hd_d, n_bins=HD_N_BINS, circular=True, rng=rng)
+    if idx_l.size < 50 or idx_d.size < 50:
+        return None
+    hd_lm, hd_dm = hd_l[idx_l], hd_d[idx_d]
+    n_soma = sig.shape[0]
+    out = {k: np.full(n_soma, np.nan) for k in ("mvl_l", "mvl_d", "wid_l", "wid_d")}
+    sig_l = np.zeros(n_soma, bool)
+    sig_d = np.zeros(n_soma, bool)
+    ones_l = np.ones(hd_lm.size, bool)
+    ones_d = np.ones(hd_dm.size, bool)
+    for c in range(n_soma):
+        s_l = sig[c][ml][idx_l]
+        s_d = sig[c][md][idx_d]
+        r_l = shuffle_debiased_mvl(
+            s_l, hd_lm, n_bins=HD_N_BINS, smoothing_sigma_deg=HD_SMOOTH_DEG,
+            n_shuffles=n_shuffles, rng=rng,
+        )
+        r_d = shuffle_debiased_mvl(
+            s_d, hd_dm, n_bins=HD_N_BINS, smoothing_sigma_deg=HD_SMOOTH_DEG,
+            n_shuffles=n_shuffles, rng=rng,
+        )
+        out["mvl_l"][c] = r_l["mvl_debiased"]
+        out["mvl_d"][c] = r_d["mvl_debiased"]
+        n_sh = len(r_l["shuffle_dist"])
+        p_l = (1 + int(np.sum(r_l["shuffle_dist"] >= r_l["mvl_raw"]))) / (1 + n_sh)
+        p_d = (1 + int(np.sum(r_d["shuffle_dist"] >= r_d["mvl_raw"]))) / (1 + n_sh)
+        sig_l[c] = p_l < ALPHA
+        sig_d[c] = p_d < ALPHA
+        tc_l, bc = compute_hd_tuning_curve(
+            s_l, hd_lm, ones_l, n_bins=HD_N_BINS, smoothing_sigma_deg=HD_SMOOTH_DEG
+        )
+        tc_d, _ = compute_hd_tuning_curve(
+            s_d, hd_dm, ones_d, n_bins=HD_N_BINS, smoothing_sigma_deg=HD_SMOOTH_DEG
+        )
+        out["wid_l"][c] = tuning_curve_fwhm(tc_l, bc)
+        out["wid_d"][c] = tuning_curve_fwhm(tc_d, bc)
+    out["sig_l"] = sig_l
+    out["sig_d"] = sig_d
+    return out
+
+
+def run_tightened_b2_b3(sessions, n_shuffles, seed):
+    """Recompute B2 (gain vs sharpening) and B3 (recruitment) on OCCUPANCY-MATCHED
+    tuning curves instead of the stored, unmatched MVL/significance.
+
+    A1/A2 showed the raw dark>light MVL is largely a sampling artefact, so the
+    stored-MVL versions of B2 and B3 inherit that confound. Here MVL, FWHM width
+    and per-condition HD significance are all derived from the same occupancy-
+    matched frames. Returns (b2_mvl_test, b2_width_test, b2_verdict, b2_df,
+    b3_dict, b3_df).
+    """
+    mvl_l_s, mvl_d_s, wid_l_s, wid_d_s = [], [], [], []
+    b2_rows, b3_rows = [], []
+    b = c = both = neither = 0  # b=light-only sig, c=dark-only sig
+    for s in sessions:
+        rng = np.random.default_rng(seed + hash(s["exp_id"]) % 10_000)
+        res = _matched_curves_session(s["arrays"], n_shuffles, rng)
+        if res is None:
+            continue
+        sig_either = res["sig_l"] | res["sig_d"]
+        finite = np.isfinite(res["mvl_l"]) & np.isfinite(res["mvl_d"])
+        sel = (sig_either & finite) if (sig_either & finite).sum() >= 1 else finite
+        if sel.sum() >= 1:
+            mvl_l_s.append(float(np.median(res["mvl_l"][sel])))
+            mvl_d_s.append(float(np.median(res["mvl_d"][sel])))
+            wfin = sel & np.isfinite(res["wid_l"]) & np.isfinite(res["wid_d"])
+            wid_l_s.append(float(np.median(res["wid_l"][wfin])) if wfin.sum() else np.nan)
+            wid_d_s.append(float(np.median(res["wid_d"][wfin])) if wfin.sum() else np.nan)
+            b2_rows.append(
+                {
+                    "exp_id": s["exp_id"],
+                    "animal_id": s["animal_id"],
+                    "celltype": s["celltype"],
+                    "n_cells": int(sel.sum()),
+                    "mvl_light": mvl_l_s[-1],
+                    "mvl_dark": mvl_d_s[-1],
+                    "width_light": wid_l_s[-1],
+                    "width_dark": wid_d_s[-1],
+                }
+            )
+        sl, sd = res["sig_l"], res["sig_d"]
+        b += int(np.sum(sl & ~sd))
+        c += int(np.sum(~sl & sd))
+        both += int(np.sum(sl & sd))
+        neither += int(np.sum(~sl & ~sd))
+        b3_rows.append(
+            {
+                "exp_id": s["exp_id"],
+                "n_light_only": int(np.sum(sl & ~sd)),
+                "n_dark_only": int(np.sum(~sl & sd)),
+                "n_both": int(np.sum(sl & sd)),
+            }
+        )
+    mvl_test = paired_test(mvl_l_s, mvl_d_s, label="B2t_mvl")
+    wid_test = paired_test(wid_l_s, wid_d_s, label="B2t_width")
+    mvl_up = mvl_test["median_diff"] > 0 and np.isfinite(mvl_test["p_value"]) and mvl_test["p_value"] < ALPHA
+    width_down = wid_test["median_diff"] < 0 and np.isfinite(wid_test["p_value"]) and wid_test["p_value"] < ALPHA
+    if mvl_up and width_down:
+        verdict = "sharpening (matched MVL up + width down)"
+    elif mvl_up:
+        verdict = "gain-only (matched MVL up, width flat)"
+    else:
+        verdict = "no MVL enhancement survives occupancy matching"
+    if b + c >= 1:
+        p = stats.binomtest(min(b, c), b + c, 0.5, alternative="two-sided").pvalue
+    else:
+        p = np.nan
+    b3 = {
+        "label": "B3t",
+        "light_only": b,
+        "dark_only": c,
+        "both": both,
+        "neither": neither,
+        "p_value": float(p) if np.isfinite(p) else np.nan,
+    }
+    return mvl_test, wid_test, verdict, pd.DataFrame(b2_rows), b3, pd.DataFrame(b3_rows)
+
+
 def run_B1_maze_position(sessions, n_shuffles, seed):
     """B1 (generating, exploratory): dark-enhancement vs maze position.
 
@@ -989,6 +1130,19 @@ def main():
     log.info("=== B3 gained/lost McNemar ===")
     results["B3"], per_hyp_df["B3"] = run_B3_gained_lost(sessions)
 
+    log.info("=== B2/B3 tightened on occupancy-matched MVL ===")
+    (
+        b2t_mvl,
+        b2t_wid,
+        b2t_verdict,
+        per_hyp_df["B2_tightened"],
+        results["B3_tightened"],
+        per_hyp_df["B3_tightened"],
+    ) = run_tightened_b2_b3(sessions, args.n_shuffles, args.seed)
+    results["B2_tightened_mvl"] = b2t_mvl
+    results["B2_tightened_width"] = b2t_wid
+    results["B2_tightened_verdict"] = {"label": "B2t", "verdict": b2t_verdict}
+
     if not args.skip_b1:
         log.info("=== B1 maze position (exploratory) ===")
         results["B1"], per_hyp_df["B1"] = run_B1_maze_position(
@@ -1000,6 +1154,10 @@ def main():
     fam_keys = []
     for k, r in results.items():
         base = k.split("_")[0]
+        # "tightened" keys are a sensitivity re-analysis, not part of the primary
+        # confirmatory family, so they are excluded from FDR correction.
+        if "tightened" in k:
+            continue
         if base in CONFIRMATORY and isinstance(r, dict) and np.isfinite(r.get("p_value", np.nan)):
             fam.append(r["p_value"])
             fam_keys.append(k)
@@ -1176,6 +1334,34 @@ def write_report(args, sessions, results, fdr_map, sanity_msgs, b2_verdict):
         else f"- light-only: {b3['light_only']}, dark-only: {b3['dark_only']} (too few discordant)"
     )
     L.append("")
+    # B2/B3 tightened on occupancy-matched MVL
+    if "B2_tightened_mvl" in results:
+        bm, bw = results["B2_tightened_mvl"], results["B2_tightened_width"]
+        bv = results["B2_tightened_verdict"]["verdict"]
+        L.append("## B2/B3 TIGHTENED — recomputed on occupancy-matched curves [sensitivity]")
+        L.append(
+            "MVL, FWHM width and per-condition HD significance all derived from "
+            "the SAME occupancy-matched frames (not stored/unmatched values), so "
+            "these do not inherit the sampling confound A1/A2 exposed. Not part of "
+            "the primary FDR family."
+        )
+        L.append(
+            f"- B2 matched MVL: N={bm['n']}, Wilcoxon p={bm['p_value']:.4f}, "
+            f"median(dark-light)={bm['median_diff']:.4f}, rank-biserial={bm['rank_biserial']:.3f}"
+        )
+        L.append(
+            f"- B2 matched width (FWHM): N={bw['n']}, Wilcoxon p={bw['p_value']:.4f}, "
+            f"median(dark-light)={bw['median_diff']:.4f}, rank-biserial={bw['rank_biserial']:.3f}"
+        )
+        L.append(f"- **B2 classification (matched):** {bv}")
+        b3t = results["B3_tightened"]
+        L.append(
+            f"- B3 matched recruitment: light-only sig {b3t['light_only']}, "
+            f"dark-only sig {b3t['dark_only']}, both {b3t['both']}, neither "
+            f"{b3t['neither']}; McNemar exact p="
+            + (f"{b3t['p_value']:.4f}" if np.isfinite(b3t["p_value"]) else "n/a")
+        )
+        L.append("")
     # B1
     if "B1" in results:
         b1 = results["B1"]
