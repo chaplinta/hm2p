@@ -1437,6 +1437,16 @@ sessions reprocessed; Stage 6 re-run).
    Two independent metrics give the same conclusion. Implemented via a
    `statistic` switch in `hm2p.analysis.matched_tuning`.
 
+6. **B1 (junction-specific dark-effect, H-N13) wired to the real maze graph.**
+   Frames classified as junction (T-junction/crossroads) vs dead-end via
+   `hm2p.maze.topology`, light-vs-dark occupancy-matched within region. The only
+   result in the gauntlet pointing in a hypothesis-consistent direction, but it
+   does not reach significance: session-level paired Wilcoxon p=0.075,
+   median(junction−deadend ΔMVL)=+0.028, rank-biserial 0.43 (N=23); pooled
+   cell-level Mann-Whitney p=0.39. A weak, underpowered trend toward darkness
+   helping more at visual-conflict junctions — the one remaining lead, needs more
+   animals or a symmetric-corridor-specific test to confirm.
+
 ### v2 (2026-06-05, post-review)
 
 Changes made in response to data scientist and QA reviews:

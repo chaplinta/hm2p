@@ -960,86 +960,94 @@ def run_P1_matched_place_info(sessions, n_shuffles, seed):
     return test, pd.DataFrame(rows)
 
 
-def run_B1_maze_position(sessions, n_shuffles, seed):
-    """B1 (generating, exploratory): dark-enhancement vs maze position.
+def run_B1_maze_position(sessions, n_boot, n_shuffles, seed):
+    """B1 (generating, exploratory): is HD dark-enhancement concentrated at maze
+    junctions (visual-aliasing hotspots) vs dead-ends?
 
-    Splits frames into 'junction/corridor' vs 'dead-end' regions by maze
-    occupancy entropy is not available here without the maze graph, so we use a
-    simpler proxy: high-coverage (frequently-visited, central) vs low-coverage
-    locations. Reported as exploratory only.
+    Visual-cue conflict in the q-rose maze is strongest at junctions and
+    symmetric corridors, where the same view appears at multiple headings, so
+    visual landmarks would most disrupt HD tuning in light. If darkness removes
+    that conflict, dark-minus-light MVL should be larger at junctions than at
+    dead-ends.
 
-    Implementation: per session, split moving frames by whether the animal's
-    x_maze/y_maze cell is in the top-tertile of visit frequency (corridor/junction
-    proxy) vs bottom-tertile (dead-end proxy); compute dark-minus-light debiased
-    MVL change in each region; test region difference with Wilcoxon across cells.
+    Frame positions are classified with the *real* maze graph
+    (``hm2p.maze.topology``): a frame is a junction if its nearest accessible
+    cell is a T-junction or crossroads (graph degree >= 3), a dead-end if degree
+    1. Within each region the light-vs-dark MVL is occupancy-matched (per the A1
+    control), so per-cell dark-minus-light DeltaMVL is not a sampling artefact;
+    region DeltaMVL distributions are compared with Mann-Whitney.
     """
+    from hm2p.maze.discretize import discretize_position_fast
+    from hm2p.maze.topology import build_rose_maze
+
+    maze = build_rose_maze()
+    idx_type = {i: maze.node_types[c] for i, c in enumerate(maze.cell_list)}
+
     junction_delta, deadend_delta, rows = [], [], []
+    sess_junction_med, sess_deadend_med = [], []
     for s in sessions:
         a = s["arrays"]
         if "x_maze" not in a or "y_maze" not in a:
             continue
-        x = a["x_maze"]
-        y = a["y_maze"]
+        x = np.asarray(a["x_maze"], float)
+        y = np.asarray(a["y_maze"], float)
         mv = a["moving"]
-        finite = mv & np.isfinite(x) & np.isfinite(y)
-        if finite.sum() < 200:
-            continue
-        # Discretise to integer maze cells (x_maze/y_maze are in cell units)
-        xc = np.round(x).astype(int)
-        yc = np.round(y).astype(int)
-        key = xc.astype(np.int64) * 1000 + yc.astype(np.int64)
-        # Visit frequency per cell among finite moving frames
-        uniq, inv, counts = np.unique(key[finite], return_inverse=True, return_counts=True)
-        freq_map = dict(zip(uniq.tolist(), counts.tolist()))
-        freq = np.array([freq_map.get(int(k), 0) for k in key])
-        hi = np.nanpercentile(counts, 66)
-        lo = np.nanpercentile(counts, 33)
-        junction = finite & (freq >= hi)
-        deadend = finite & (freq <= lo)
-        sig = a["signal"]
-        hd = a["hd"]
         light = a["light_on"]
+        cell_idx = discretize_position_fast(x, y, maze)
+        types = np.array(
+            [idx_type.get(int(i), "none") if i >= 0 else "none" for i in cell_idx]
+        )
+        is_junction = mv & np.isin(types, ("t_junction", "crossroads"))
+        is_deadend = mv & (types == "dead_end")
         rng = np.random.default_rng(seed + hash(s["exp_id"]) % 10_000)
-        for region, store in (("junction", junction_delta), ("deadend", deadend_delta)):
-            mask = junction if region == "junction" else deadend
-            ml = mask & light
-            md = mask & ~light
+        n_j = n_d = 0
+        sess_j = sess_d = np.nan
+        for region, region_mask, store in (
+            ("junction", is_junction, junction_delta),
+            ("deadend", is_deadend, deadend_delta),
+        ):
+            ml = region_mask & light
+            md = region_mask & ~light
             if ml.sum() < 50 or md.sum() < 50:
                 continue
-            hd_l, hd_d = hd[ml], hd[md]
-            for cidx in range(sig.shape[0]):
-                rl = shuffle_debiased_mvl(
-                    sig[cidx][ml],
-                    hd_l,
-                    n_bins=HD_N_BINS,
-                    smoothing_sigma_deg=HD_SMOOTH_DEG,
-                    n_shuffles=n_shuffles,
-                    rng=rng,
-                )
-                rd = shuffle_debiased_mvl(
-                    sig[cidx][md],
-                    hd_d,
-                    n_bins=HD_N_BINS,
-                    smoothing_sigma_deg=HD_SMOOTH_DEG,
-                    n_shuffles=n_shuffles,
-                    rng=rng,
-                )
-                store.append(rd["mvl_debiased"] - rl["mvl_debiased"])
+            # Occupancy-match light vs dark within this maze region.
+            res = _matched_session(
+                a, "occupancy", n_boot, n_shuffles, rng, mask_light=ml, mask_dark=md
+            )
+            if res is None:
+                continue
+            delta = np.asarray(res["mvl_dark"]) - np.asarray(res["mvl_light"])
+            delta = delta[np.isfinite(delta)]
+            store.extend(delta.tolist())
+            if region == "junction":
+                n_j = int(ml.sum() + md.sum())
+                sess_j = float(np.median(delta)) if delta.size else np.nan
+            else:
+                n_d = int(ml.sum() + md.sum())
+                sess_d = float(np.median(delta)) if delta.size else np.nan
         rows.append(
             {
                 "exp_id": s["exp_id"],
-                "n_junction": int(junction.sum()),
-                "n_deadend": int(deadend.sum()),
+                "n_junction_frames": n_j,
+                "n_deadend_frames": n_d,
+                "median_junction_delta": sess_j,
+                "median_deadend_delta": sess_d,
             }
         )
+        if np.isfinite(sess_j) and np.isfinite(sess_d):
+            sess_junction_med.append(sess_j)
+            sess_deadend_med.append(sess_d)
     jd = np.asarray(junction_delta)
     dd = np.asarray(deadend_delta)
     jd = jd[np.isfinite(jd)]
     dd = dd[np.isfinite(dd)]
+    # Cell-level (pooled, generating; pseudoreplicated across cells).
     if len(jd) >= 3 and len(dd) >= 3:
         u, p = stats.mannwhitneyu(jd, dd, alternative="two-sided")
     else:
         u, p = np.nan, np.nan
+    # Session-level paired test — the proper unit, avoids pseudoreplication.
+    sess_test = paired_test(sess_deadend_med, sess_junction_med, label="B1_session")
     return {
         "label": "B1",
         "n_junction_cells": len(jd),
@@ -1048,6 +1056,10 @@ def run_B1_maze_position(sessions, n_shuffles, seed):
         "median_deadend_delta": float(np.median(dd)) if len(dd) else np.nan,
         "u": float(u) if np.isfinite(u) else np.nan,
         "p_value": float(p) if np.isfinite(p) else np.nan,
+        "n_sessions_paired": len(sess_junction_med),
+        "session_p_value": sess_test["p_value"],
+        "session_median_diff": sess_test["median_diff"],
+        "session_rank_biserial": sess_test["rank_biserial"],
     }, pd.DataFrame(rows)
 
 
@@ -1279,7 +1291,7 @@ def main():
     if not args.skip_b1:
         log.info("=== B1 maze position (exploratory) ===")
         results["B1"], per_hyp_df["B1"] = run_B1_maze_position(
-            sessions, args.n_shuffles, args.seed
+            sessions, args.n_boot, args.n_shuffles, args.seed
         )
 
     # --- FDR across confirmatory family ---
@@ -1542,10 +1554,20 @@ def write_report(args, sessions, results, fdr_map, sanity_msgs, b2_verdict):
             f"- dead-end cells: N={b1['n_deadend_cells']}, "
             f"median ΔMVL={b1.get('median_deadend_delta', np.nan):.4f}"
         )
-        L.append(f"- Mann-Whitney junction vs dead-end p={b1.get('p_value', np.nan):.4f}")
         L.append(
-            "- NOTE: position proxy is visit-frequency tertile, not maze-graph "
-            "junctions; treat as hypothesis-generating only."
+            f"- Cell-level (pooled, pseudoreplicated) Mann-Whitney junction vs "
+            f"dead-end p={b1.get('p_value', np.nan):.4f}"
+        )
+        L.append(
+            f"- **Session-level paired (proper unit):** N={b1.get('n_sessions_paired', 0)} "
+            f"sessions, Wilcoxon p={b1.get('session_p_value', np.nan):.4f}, "
+            f"median(junction-deadend ΔMVL)={b1.get('session_median_diff', np.nan):.4f}, "
+            f"rank-biserial={b1.get('session_rank_biserial', np.nan):.3f}"
+        )
+        L.append(
+            "- Positions classified by the real q-rose maze graph (T-junction/"
+            "crossroads vs dead-end); light-vs-dark occupancy-matched within "
+            "region. Exploratory / hypothesis-generating."
         )
         L.append("")
 
