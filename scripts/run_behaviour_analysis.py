@@ -397,6 +397,20 @@ def analyze_session(data, maze):
     epochs = detect_epochs(light_on, fps)
     epoch_coverages_light = []
     epoch_coverages_dark = []
+    # Per-epoch locomotion distance (body centroid path length, metres). Parallel
+    # to coverage: total distance walked within each ~1-min epoch, so it is time-
+    # controlled and uses the body (x_mm/y_mm = mid_back+mouse_center+tail_base
+    # centroid), not the head.
+    epoch_dist_light = []
+    epoch_dist_dark = []
+    # Per-epoch exploration efficiency, controlling for how much they moved:
+    #   cells_per_m = unique cells visited / distance walked in the epoch
+    #   revisit     = total cell-entries / unique cells (1 = never retraced)
+    # These separate "explores new ground" from "just moves more". Only computed
+    # for epochs with real movement (>= MIN_EPOCH_DIST_M) to avoid blow-up.
+    MIN_EPOCH_DIST_M = 0.5
+    epoch_cpm_light, epoch_cpm_dark = [], []
+    epoch_revisit_light, epoch_revisit_dark = [], []
     for ep in epochs:
         if ep["duration_s"] < MIN_EPOCH_DURATION_S:
             continue
@@ -405,13 +419,36 @@ def analyze_session(data, maze):
         ep_ci[~ep_valid] = -1
         unique_in_epoch = len(set(int(c) for c in ep_ci if c >= 0))
         cov = unique_in_epoch / maze.n_cells
+        # Distance: sum body-centroid step lengths over valid transitions whose
+        # start frame falls in this epoch (dist_mm has length n_frames-1).
+        t0, t1 = ep["start"], min(ep["end"], len(dist_mm))
+        ep_dist_m = float(np.sum(dist_mm[t0:t1])) / 1000.0
+        cpm = revisit = None
+        if ep_dist_m >= MIN_EPOCH_DIST_M and unique_in_epoch > 0:
+            seq, _ = cell_sequence(ep_ci)
+            cpm = unique_in_epoch / ep_dist_m
+            revisit = len(seq) / unique_in_epoch
         if ep["condition"] == "light":
             epoch_coverages_light.append(cov)
+            epoch_dist_light.append(ep_dist_m)
+            if cpm is not None:
+                epoch_cpm_light.append(cpm)
+                epoch_revisit_light.append(revisit)
         else:
             epoch_coverages_dark.append(cov)
+            epoch_dist_dark.append(ep_dist_m)
+            if cpm is not None:
+                epoch_cpm_dark.append(cpm)
+                epoch_revisit_dark.append(revisit)
 
     result["mean_epoch_coverage_light"] = float(np.mean(epoch_coverages_light)) if epoch_coverages_light else None
     result["mean_epoch_coverage_dark"] = float(np.mean(epoch_coverages_dark)) if epoch_coverages_dark else None
+    result["mean_epoch_distance_light_m"] = float(np.mean(epoch_dist_light)) if epoch_dist_light else None
+    result["mean_epoch_distance_dark_m"] = float(np.mean(epoch_dist_dark)) if epoch_dist_dark else None
+    result["mean_epoch_cells_per_m_light"] = float(np.mean(epoch_cpm_light)) if epoch_cpm_light else None
+    result["mean_epoch_cells_per_m_dark"] = float(np.mean(epoch_cpm_dark)) if epoch_cpm_dark else None
+    result["mean_epoch_revisit_light"] = float(np.mean(epoch_revisit_light)) if epoch_revisit_light else None
+    result["mean_epoch_revisit_dark"] = float(np.mean(epoch_revisit_dark)) if epoch_revisit_dark else None
     result["n_light_epochs"] = len(epoch_coverages_light)
     result["n_dark_epochs"] = len(epoch_coverages_dark)
 
@@ -826,11 +863,30 @@ def main():
         "test": wilcoxon_test(ib_l, ib_d),
     }
 
-    # Holm-Bonferroni for Figure 2 (3 tests)
+    # Per-epoch locomotion distance (body centroid) light vs dark
+    di_l, di_d = _extract_paired(
+        usable, "mean_epoch_distance_light_m", "mean_epoch_distance_dark_m"
+    )
+    stats["figure2"]["epoch_distance_light_vs_dark"] = {
+        "n": len(di_l),
+        "median_light": float(np.median(di_l)) if len(di_l) > 0 else None,
+        "median_dark": float(np.median(di_d)) if len(di_d) > 0 else None,
+        "mean_light": float(np.mean(di_l)) if len(di_l) > 0 else None,
+        "mean_dark": float(np.mean(di_d)) if len(di_d) > 0 else None,
+        "test": wilcoxon_test(di_l, di_d),
+    }
+    if len(di_l) > 0:
+        print(
+            f"Distance/epoch L vs D: {np.median(di_l):.2f} vs "
+            f"{np.median(di_d):.2f} m (body)"
+        )
+
+    # Holm-Bonferroni for Figure 2 (4 tests)
     fig2_pvals = [
         stats["figure2"]["speed_light_vs_dark"]["test"].get("p"),
         stats["figure2"]["frac_active_light_vs_dark"]["test"].get("p"),
         stats["figure2"]["immobility_bout_duration"]["test"].get("p"),
+        stats["figure2"]["epoch_distance_light_vs_dark"]["test"].get("p"),
     ]
     fig2_pvals_clean = [p if p is not None else 1.0 for p in fig2_pvals]
     fig2_adjusted = holm_bonferroni(fig2_pvals_clean)
@@ -838,6 +894,7 @@ def main():
         "speed": fig2_adjusted[0],
         "frac_active": fig2_adjusted[1],
         "immobility_bout": fig2_adjusted[2],
+        "epoch_distance": fig2_adjusted[3],
     }
 
     # ---- Figure 3: Exploration and coverage (PRIORITY) ----
@@ -888,11 +945,38 @@ def main():
     else:
         stats["figure3"]["exploration_efficiency_w5"] = {"n": 0, "test": {"p": None}}
 
+    # New cells per metre — the direct test of whether reduced dark coverage is
+    # more than just reduced locomotion.
+    cpm_l, cpm_d = _extract_paired(usable, "mean_epoch_cells_per_m_light", "mean_epoch_cells_per_m_dark")
+    stats["figure3"]["cells_per_m_light_vs_dark"] = {
+        "n": len(cpm_l),
+        "mean_light": float(np.mean(cpm_l)) if len(cpm_l) > 0 else None,
+        "mean_dark": float(np.mean(cpm_d)) if len(cpm_d) > 0 else None,
+        "median_light": float(np.median(cpm_l)) if len(cpm_l) > 0 else None,
+        "median_dark": float(np.median(cpm_d)) if len(cpm_d) > 0 else None,
+        "test": wilcoxon_test(cpm_l, cpm_d),
+    }
+    if len(cpm_l) > 0:
+        print(f"Cells per metre L vs D: {np.mean(cpm_l):.3f} vs {np.mean(cpm_d):.3f}")
+
+    # Revisitation (entries per unique cell).
+    rev_l, rev_d = _extract_paired(usable, "mean_epoch_revisit_light", "mean_epoch_revisit_dark")
+    stats["figure3"]["revisit_light_vs_dark"] = {
+        "n": len(rev_l),
+        "mean_light": float(np.mean(rev_l)) if len(rev_l) > 0 else None,
+        "mean_dark": float(np.mean(rev_d)) if len(rev_d) > 0 else None,
+        "test": wilcoxon_test(rev_l, rev_d),
+    }
+    if len(rev_l) > 0:
+        print(f"Revisitation L vs D: {np.mean(rev_l):.3f} vs {np.mean(rev_d):.3f}")
+
     # Holm-Bonferroni for Figure 3
     fig3_pvals = [
         stats["figure3"]["epoch_coverage_light_vs_dark"]["test"].get("p"),
         stats["figure3"]["dead_end_rate_light_vs_dark"]["test"].get("p"),
         stats["figure3"]["exploration_efficiency_w5"]["test"].get("p") if "exploration_efficiency_w5" in stats["figure3"] else None,
+        stats["figure3"]["cells_per_m_light_vs_dark"]["test"].get("p"),
+        stats["figure3"]["revisit_light_vs_dark"]["test"].get("p"),
     ]
     fig3_pvals_clean = [p if p is not None else 1.0 for p in fig3_pvals]
     fig3_adjusted = holm_bonferroni(fig3_pvals_clean)
@@ -900,6 +984,8 @@ def main():
         "epoch_coverage": fig3_adjusted[0],
         "dead_end_rate": fig3_adjusted[1],
         "exploration_efficiency": fig3_adjusted[2],
+        "cells_per_m": fig3_adjusted[3],
+        "revisit": fig3_adjusted[4],
     }
 
     # ---- Figure 4: Turn behaviour (PRIORITY) ----
@@ -1399,6 +1485,9 @@ def _write_summary_markdown(stats, usable, output):
     lines.append(f"| Median speed (cm/s) | {_rv(f2['speed_light_vs_dark'].get('median_light'))} | {_rv(f2['speed_light_vs_dark'].get('median_dark'))} | {_fmt_test(f2['speed_light_vs_dark']['test'], adj2.get('speed'))} |")
     lines.append(f"| Fraction active | {_rv(f2['frac_active_light_vs_dark'].get('mean_light'), '.3f')} | {_rv(f2['frac_active_light_vs_dark'].get('mean_dark'), '.3f')} | {_fmt_test(f2['frac_active_light_vs_dark']['test'], adj2.get('frac_active'))} |")
     lines.append(f"| Median immobility bout (s) | {_rv(f2['immobility_bout_duration'].get('median_light'))} | {_rv(f2['immobility_bout_duration'].get('median_dark'))} | {_fmt_test(f2['immobility_bout_duration']['test'], adj2.get('immobility_bout'))} |")
+    if "epoch_distance_light_vs_dark" in f2:
+        ed = f2["epoch_distance_light_vs_dark"]
+        lines.append(f"| Distance per epoch (m, body) | {_rv(ed.get('median_light'))} | {_rv(ed.get('median_dark'))} | {_fmt_test(ed['test'], adj2.get('epoch_distance'))} |")
 
     # Figure 3
     lines.extend([
@@ -1419,6 +1508,12 @@ def _write_summary_markdown(stats, usable, output):
     lines.append(f"| Dead-end rate (visits/min) | {de.get('mean_light', 'N/A'):.2f} | {de.get('mean_dark', 'N/A'):.2f} | {_fmt_test(de['test'], adj3.get('dead_end_rate'))} |" if de.get('mean_light') is not None else "| Dead-end rate | N/A | N/A | N/A |")
     ee = f3.get("exploration_efficiency_w5", {})
     lines.append(f"| Exploration efficiency (w=5) | {ee.get('mean_light', 'N/A'):.2f} | {ee.get('mean_dark', 'N/A'):.2f} | {_fmt_test(ee.get('test'), adj3.get('exploration_efficiency'))} |" if ee.get('mean_light') is not None else "| Exploration efficiency | N/A | N/A | N/A |")
+    cpm = f3.get("cells_per_m_light_vs_dark", {})
+    if cpm.get("mean_light") is not None:
+        lines.append(f"| New cells per metre (body) | {cpm['mean_light']:.3f} | {cpm['mean_dark']:.3f} | {_fmt_test(cpm['test'], adj3.get('cells_per_m'))} |")
+    rev = f3.get("revisit_light_vs_dark", {})
+    if rev.get("mean_light") is not None:
+        lines.append(f"| Revisitation (entries/cell) | {rev['mean_light']:.3f} | {rev['mean_dark']:.3f} | {_fmt_test(rev['test'], adj3.get('revisit'))} |")
 
     # Figure 4
     lines.extend([
