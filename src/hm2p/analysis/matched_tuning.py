@@ -45,6 +45,7 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
+from hm2p.analysis.information import skaggs_info_rate
 from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length
 
 __all__ = [
@@ -52,9 +53,45 @@ __all__ = [
     "match_indices_1d",
     "match_indices_2d",
     "shuffle_debiased_mvl",
+    "shuffle_debiased_statistic",
     "matched_condition_mvl",
     "tuning_curve_fwhm",
+    "hd_tuning_statistic",
 ]
+
+# Tuning-strength statistics supported by the matched/shuffle machinery.
+_STATISTICS = ("mvl", "skaggs")
+
+
+def hd_tuning_statistic(
+    signal: npt.NDArray[np.floating],
+    hd_deg: npt.NDArray[np.floating],
+    mask: npt.NDArray[np.bool_],
+    n_bins: int = 36,
+    smoothing_sigma_deg: float = 6.0,
+    statistic: str = "mvl",
+) -> float:
+    """Scalar HD-tuning strength from a (signal, head-direction) pair.
+
+    ``statistic="mvl"`` returns the mean vector length of the HD tuning curve.
+    ``statistic="skaggs"`` returns the Skaggs information rate (bits/event) of
+    the same curve against the HD-occupancy distribution — the information
+    measure used by Voigts & Harnett (2020) and Zong et al. (2022). For Skaggs
+    the curve is rectified (baseline removed) so the rate is non-negative, as
+    the information rate is defined for a non-negative rate map.
+    """
+    if statistic not in _STATISTICS:
+        raise ValueError(f"unknown statistic {statistic!r}; choose from {_STATISTICS}")
+    tc, bc = compute_hd_tuning_curve(
+        signal, hd_deg, mask, n_bins=n_bins, smoothing_sigma_deg=smoothing_sigma_deg
+    )
+    if statistic == "mvl":
+        return float(mean_vector_length(tc, bc))
+    # Skaggs information: rectify the curve and weight by HD occupancy.
+    occ = occupancy_histogram(np.asarray(hd_deg)[np.asarray(mask, bool)], n_bins=n_bins)
+    finite = tc[np.isfinite(tc)]
+    base = float(np.min(finite)) if finite.size else 0.0
+    return float(skaggs_info_rate(tc - base, occ))
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +312,47 @@ def shuffle_debiased_mvl(
         ``mvl_debiased`` — ``mvl_raw - mvl_bias``.
         ``shuffle_dist`` — (n_shuffles,) shuffle MVLs.
     """
+    r = shuffle_debiased_statistic(
+        signal,
+        hd_deg,
+        mask=mask,
+        n_bins=n_bins,
+        smoothing_sigma_deg=smoothing_sigma_deg,
+        n_shuffles=n_shuffles,
+        rng=rng,
+        statistic="mvl",
+    )
+    return {
+        "mvl_raw": r["stat_raw"],
+        "mvl_bias": r["stat_bias"],
+        "mvl_debiased": r["stat_debiased"],
+        "shuffle_dist": r["shuffle_dist"],
+    }
+
+
+def shuffle_debiased_statistic(
+    signal: npt.NDArray[np.floating],
+    hd_deg: npt.NDArray[np.floating],
+    mask: npt.NDArray[np.bool_] | None = None,
+    n_bins: int = 36,
+    smoothing_sigma_deg: float = 6.0,
+    n_shuffles: int = 200,
+    rng: np.random.Generator | None = None,
+    statistic: str = "mvl",
+) -> dict:
+    """Circular-shuffle-debiased HD-tuning statistic (MVL or Skaggs info).
+
+    Like :func:`shuffle_debiased_mvl` but for any supported ``statistic``. The
+    observed statistic is corrected by the mean of a circular-shift null, which
+    preserves occupancy and signal autocorrelation while destroying the true HD
+    relationship. Both MVL and Skaggs information are positively biased under
+    finite, uneven sampling, so the same debiasing applies.
+
+    Returns
+    -------
+    dict with keys ``stat_raw``, ``stat_bias``, ``stat_debiased``,
+    ``shuffle_dist`` (n_shuffles,).
+    """
     if rng is None:
         rng = np.random.default_rng()
     signal = np.asarray(signal, dtype=np.float64)
@@ -283,10 +361,10 @@ def shuffle_debiased_mvl(
         mask = np.ones(signal.shape, dtype=bool)
     mask = np.asarray(mask, dtype=bool)
 
-    tc, bc = compute_hd_tuning_curve(
-        signal, hd_deg, mask, n_bins=n_bins, smoothing_sigma_deg=smoothing_sigma_deg
+    stat_raw = hd_tuning_statistic(
+        signal, hd_deg, mask, n_bins=n_bins,
+        smoothing_sigma_deg=smoothing_sigma_deg, statistic=statistic,
     )
-    mvl_raw = mean_vector_length(tc, bc)
 
     n = len(signal)
     min_shift = min(200, n // 4)
@@ -298,16 +376,16 @@ def shuffle_debiased_mvl(
     for i in range(n_shuffles):
         off = int(rng.integers(min_shift, max_shift))
         rolled = np.roll(signal, off)
-        tcs, bcs = compute_hd_tuning_curve(
-            rolled, hd_deg, mask, n_bins=n_bins, smoothing_sigma_deg=smoothing_sigma_deg
+        shuf[i] = hd_tuning_statistic(
+            rolled, hd_deg, mask, n_bins=n_bins,
+            smoothing_sigma_deg=smoothing_sigma_deg, statistic=statistic,
         )
-        shuf[i] = mean_vector_length(tcs, bcs)
 
     bias = float(np.mean(shuf))
     return {
-        "mvl_raw": float(mvl_raw),
-        "mvl_bias": bias,
-        "mvl_debiased": float(mvl_raw - bias),
+        "stat_raw": float(stat_raw),
+        "stat_bias": bias,
+        "stat_debiased": float(stat_raw - bias),
         "shuffle_dist": shuf,
     }
 
@@ -331,9 +409,13 @@ def matched_condition_mvl(
     n_shuffles: int = 100,
     debias: bool = True,
     match_n_bins=None,
+    statistic: str = "mvl",
     rng: np.random.Generator | None = None,
 ) -> dict:
-    """Compute MVL for two conditions under matched behavioural sampling.
+    """Compute an HD-tuning statistic for two conditions under matched sampling.
+
+    ``statistic`` selects the tuning measure (``"mvl"`` or ``"skaggs"`` info);
+    the returned ``mvl_*`` keys hold whichever statistic was requested.
 
     For each bootstrap draw, frames are subsampled so the matched variable(s)
     have an identical distribution across conditions A and B, then MVL is
@@ -419,43 +501,37 @@ def matched_condition_mvl(
         sb, hb = signal_b[ib], hd_b[ib]
 
         if debias:
-            ra = shuffle_debiased_mvl(
+            ra = shuffle_debiased_statistic(
                 sa,
                 ha,
                 n_bins=n_bins,
                 smoothing_sigma_deg=smoothing_sigma_deg,
                 n_shuffles=n_shuffles,
+                statistic=statistic,
                 rng=rng,
             )
-            rb = shuffle_debiased_mvl(
+            rb = shuffle_debiased_statistic(
                 sb,
                 hb,
                 n_bins=n_bins,
                 smoothing_sigma_deg=smoothing_sigma_deg,
                 n_shuffles=n_shuffles,
+                statistic=statistic,
                 rng=rng,
             )
-            a_vals.append(ra["mvl_debiased"])
-            a_raw.append(ra["mvl_raw"])
-            b_vals.append(rb["mvl_debiased"])
-            b_raw.append(rb["mvl_raw"])
+            a_vals.append(ra["stat_debiased"])
+            a_raw.append(ra["stat_raw"])
+            b_vals.append(rb["stat_debiased"])
+            b_raw.append(rb["stat_raw"])
         else:
-            tca, bca = compute_hd_tuning_curve(
-                sa,
-                ha,
-                np.ones(len(sa), bool),
-                n_bins=n_bins,
-                smoothing_sigma_deg=smoothing_sigma_deg,
+            ma = hd_tuning_statistic(
+                sa, ha, np.ones(len(sa), bool), n_bins=n_bins,
+                smoothing_sigma_deg=smoothing_sigma_deg, statistic=statistic,
             )
-            tcb, bcb = compute_hd_tuning_curve(
-                sb,
-                hb,
-                np.ones(len(sb), bool),
-                n_bins=n_bins,
-                smoothing_sigma_deg=smoothing_sigma_deg,
+            mb = hd_tuning_statistic(
+                sb, hb, np.ones(len(sb), bool), n_bins=n_bins,
+                smoothing_sigma_deg=smoothing_sigma_deg, statistic=statistic,
             )
-            ma = mean_vector_length(tca, bca)
-            mb = mean_vector_length(tcb, bcb)
             a_vals.append(ma)
             a_raw.append(ma)
             b_vals.append(mb)

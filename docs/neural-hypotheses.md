@@ -476,9 +476,21 @@ extinguished, reflecting loss of visual landmark anchoring.
 > matched per-condition significance it flips to *more light-only* (60 vs 39,
 > p=0.044). So both "surviving" signals were sampling artefacts. Controls that
 > held: `hd_confidence` is null light-vs-dark (IR-camera assumption upheld);
-> soma↔neuropil ΔMVL not coupled (rho=0.087, p=0.065). **Implication for the
-> paper: do not frame darkness as enhancing HD coding — none of the enhancement
-> signals survive occupancy/kinematics matching.** See the v3 revision-log entry.
+> soma↔neuropil ΔMVL not coupled (rho=0.087, p=0.065).
+>
+> **Mutual-information cross-check (Skaggs bits/event, à la Voigts & Harnett
+> 2020 and Zong et al. 2022) corroborates.** Running the same matched gauntlet
+> with HD *information* instead of MVL gives the same null, more emphatically
+> (MI is more occupancy-biased, so matching removes more): A1 occupancy-matched
+> MI p=0.64 (rank-biserial 0.12), A2 kinematics-matched p=0.89 (0.04); matched MI
+> gain −0.012 NS; matched recruitment symmetric (light-only 41 vs dark-only 38,
+> p=0.82). And **place** Skaggs information — the basis of the "spatial info
+> higher in dark" result (H5.3) — also dies under position-occupancy matching
+> (P1: median dark−light = −0.0098, p=0.15). Two independent metrics agree.
+>
+> **Implication for the paper: do not frame darkness as enhancing HD (or place)
+> coding — no enhancement signal survives occupancy/kinematics matching, under
+> either MVL or mutual information.** See the v3 revision-log entry.
 
 **Reasoning:** This is the expected effect from the entire HD literature
 (Stackman & Taube 1997; Jacob et al. 2017; Bicknell et al. 2024). The key
@@ -1416,6 +1428,24 @@ sessions reprocessed; Stage 6 re-run).
 4. **Controls that held:** `hd_confidence` does not differ light vs dark
    (IR-camera assumption upheld); any residual MVL enhancement is gain, not
    tuning sharpening (width flat).
+
+5. **Mutual-information cross-check added.** The matched gauntlet now also runs
+   Skaggs information (bits/event; Voigts & Harnett 2020, Zong et al. 2022) as a
+   parallel statistic to MVL, plus position-occupancy-matched place information
+   (P1). All agree with the MVL result: matched HD-MI null (A1 p=0.64, A2 p=0.89),
+   no MI gain or recruitment asymmetry, and matched place info null (P1 p=0.15).
+   Two independent metrics give the same conclusion. Implemented via a
+   `statistic` switch in `hm2p.analysis.matched_tuning`.
+
+6. **B1 (junction-specific dark-effect, H-N13) wired to the real maze graph.**
+   Frames classified as junction (T-junction/crossroads) vs dead-end via
+   `hm2p.maze.topology`, light-vs-dark occupancy-matched within region. The only
+   result in the gauntlet pointing in a hypothesis-consistent direction, but it
+   does not reach significance: session-level paired Wilcoxon p=0.075,
+   median(junction−deadend ΔMVL)=+0.028, rank-biserial 0.43 (N=23); pooled
+   cell-level Mann-Whitney p=0.39. A weak, underpowered trend toward darkness
+   helping more at visual-conflict junctions — the one remaining lead, needs more
+   animals or a symmetric-corridor-specific test to confirm.
 
 ### v2 (2026-06-05, post-review)
 
