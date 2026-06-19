@@ -13,6 +13,18 @@ Never use marketing language, superlatives, or promotional phrasing. Do not desc
 the project as "production-grade", "comprehensive", "powerful", "state-of-the-art",
 or similar. State what the code does, not how impressive it is.
 
+**Talk plainly in chat:** Don't talk like a fuckwit or a knobhead. When replying to
+me, be direct and concise. Lead with the answer. No jargon dumps, no hedging, no
+inflated academic register, no walls of bullet points restating what I already know.
+Explain things like a normal person would. (This is about how you talk to me in
+conversation — separate from the neutral tone required in committed docs, comments,
+and commits.)
+
+Specifically banned filler — never write these: "my honest read/take/assessment",
+"to be honest", "honestly", "the truth is", "let me be clear", "it's worth noting",
+"it's important to note". Just say the thing. Don't preface a conclusion by
+advertising that it's a conclusion.
+
 **NEVER modify or delete files in these directories:**
 
 - `old-pipeline/` — legacy pipeline code copied into this repo (read-only reference only)
