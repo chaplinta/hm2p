@@ -41,6 +41,13 @@ from hm2p.maze.analysis import (
     turn_bias,
 )
 from hm2p.maze.discretize import cell_sequence, discretize_position_fast, node_sequence
+from hm2p.maze.exploration_complexity import (
+    build_adjacency_indices,
+    coverage_z_vs_null,
+    normalized_lz76,
+    occupancy_entropy,
+    random_walk_coverage_null,
+)
 from hm2p.maze.neural import classify_frames_by_node_type, extract_junction_events
 from hm2p.maze.topology import build_rose_maze
 
@@ -61,6 +68,8 @@ IMMOBILITY_MIN_DURATION_S = 0.5  # minimum immobility bout duration
 
 # Build maze once
 MAZE = build_rose_maze()
+MAZE_ADJ_IDX = build_adjacency_indices(MAZE)
+N_NULL_WALKS = 200  # random walks per epoch for the coverage null model
 
 
 # ---------------------------------------------------------------------------
@@ -411,6 +420,14 @@ def analyze_session(data, maze):
     MIN_EPOCH_DIST_M = 0.5
     epoch_cpm_light, epoch_cpm_dark = [], []
     epoch_revisit_light, epoch_revisit_dark = [], []
+    # Supplementary coverage methods (see docs/plan-coverage-supplementary-methods.md):
+    #   occupancy entropy   — time-weighted spread over cells (bits)
+    #   normalised LZ76     — route-sequence compressibility (lower = stereotyped)
+    #   coverage z vs null  — coverage relative to a random walk of equal steps
+    epoch_ent_light, epoch_ent_dark = [], []
+    epoch_lz_light, epoch_lz_dark = [], []
+    epoch_zcov_light, epoch_zcov_dark = [], []
+    null_rng = np.random.default_rng(0)
     for ep in epochs:
         if ep["duration_s"] < MIN_EPOCH_DURATION_S:
             continue
@@ -423,23 +440,40 @@ def analyze_session(data, maze):
         # start frame falls in this epoch (dist_mm has length n_frames-1).
         t0, t1 = ep["start"], min(ep["end"], len(dist_mm))
         ep_dist_m = float(np.sum(dist_mm[t0:t1])) / 1000.0
-        cpm = revisit = None
+        ep_entropy = occupancy_entropy(ep_ci)
+        cpm = revisit = lz = zcov = None
         if ep_dist_m >= MIN_EPOCH_DIST_M and unique_in_epoch > 0:
             seq, _ = cell_sequence(ep_ci)
             cpm = unique_in_epoch / ep_dist_m
             revisit = len(seq) / unique_in_epoch
+            if len(seq) >= 2:
+                lz = normalized_lz76(seq.tolist())
+                null = random_walk_coverage_null(
+                    MAZE_ADJ_IDX, int(seq[0]), len(seq) - 1, N_NULL_WALKS, null_rng
+                )
+                zcov = coverage_z_vs_null(unique_in_epoch, null)
         if ep["condition"] == "light":
             epoch_coverages_light.append(cov)
             epoch_dist_light.append(ep_dist_m)
+            epoch_ent_light.append(ep_entropy)
             if cpm is not None:
                 epoch_cpm_light.append(cpm)
                 epoch_revisit_light.append(revisit)
+            if lz is not None:
+                epoch_lz_light.append(lz)
+                if not np.isnan(zcov):
+                    epoch_zcov_light.append(zcov)
         else:
             epoch_coverages_dark.append(cov)
             epoch_dist_dark.append(ep_dist_m)
+            epoch_ent_dark.append(ep_entropy)
             if cpm is not None:
                 epoch_cpm_dark.append(cpm)
                 epoch_revisit_dark.append(revisit)
+            if lz is not None:
+                epoch_lz_dark.append(lz)
+                if not np.isnan(zcov):
+                    epoch_zcov_dark.append(zcov)
 
     result["mean_epoch_coverage_light"] = float(np.mean(epoch_coverages_light)) if epoch_coverages_light else None
     result["mean_epoch_coverage_dark"] = float(np.mean(epoch_coverages_dark)) if epoch_coverages_dark else None
@@ -449,6 +483,12 @@ def analyze_session(data, maze):
     result["mean_epoch_cells_per_m_dark"] = float(np.mean(epoch_cpm_dark)) if epoch_cpm_dark else None
     result["mean_epoch_revisit_light"] = float(np.mean(epoch_revisit_light)) if epoch_revisit_light else None
     result["mean_epoch_revisit_dark"] = float(np.mean(epoch_revisit_dark)) if epoch_revisit_dark else None
+    result["mean_epoch_entropy_light"] = float(np.mean(epoch_ent_light)) if epoch_ent_light else None
+    result["mean_epoch_entropy_dark"] = float(np.mean(epoch_ent_dark)) if epoch_ent_dark else None
+    result["mean_epoch_lz_light"] = float(np.mean(epoch_lz_light)) if epoch_lz_light else None
+    result["mean_epoch_lz_dark"] = float(np.mean(epoch_lz_dark)) if epoch_lz_dark else None
+    result["mean_epoch_zcov_light"] = float(np.mean(epoch_zcov_light)) if epoch_zcov_light else None
+    result["mean_epoch_zcov_dark"] = float(np.mean(epoch_zcov_dark)) if epoch_zcov_dark else None
     result["n_light_epochs"] = len(epoch_coverages_light)
     result["n_dark_epochs"] = len(epoch_coverages_dark)
 
@@ -970,15 +1010,37 @@ def main():
     if len(rev_l) > 0:
         print(f"Revisitation L vs D: {np.mean(rev_l):.3f} vs {np.mean(rev_d):.3f}")
 
+    # Supplementary coverage methods: occupancy entropy, LZ compressibility,
+    # coverage vs random-walk null.
+    for key, (kl, kd) in {
+        "occupancy_entropy_light_vs_dark": ("mean_epoch_entropy_light", "mean_epoch_entropy_dark"),
+        "lz_compressibility_light_vs_dark": ("mean_epoch_lz_light", "mean_epoch_lz_dark"),
+        "coverage_vs_null_light_vs_dark": ("mean_epoch_zcov_light", "mean_epoch_zcov_dark"),
+    }.items():
+        xl, xd = _extract_paired(usable, kl, kd)
+        stats["figure3"][key] = {
+            "n": len(xl),
+            "mean_light": float(np.mean(xl)) if len(xl) > 0 else None,
+            "mean_dark": float(np.mean(xd)) if len(xd) > 0 else None,
+            "test": wilcoxon_test(xl, xd),
+        }
+        if len(xl) > 0:
+            print(f"{key}: {np.mean(xl):.3f} vs {np.mean(xd):.3f}")
+
     # Holm-Bonferroni for Figure 3
-    fig3_pvals = [
-        stats["figure3"]["epoch_coverage_light_vs_dark"]["test"].get("p"),
-        stats["figure3"]["dead_end_rate_light_vs_dark"]["test"].get("p"),
-        stats["figure3"]["exploration_efficiency_w5"]["test"].get("p") if "exploration_efficiency_w5" in stats["figure3"] else None,
-        stats["figure3"]["cells_per_m_light_vs_dark"]["test"].get("p"),
-        stats["figure3"]["revisit_light_vs_dark"]["test"].get("p"),
+    fig3_keys = [
+        "epoch_coverage_light_vs_dark",
+        "dead_end_rate_light_vs_dark",
+        "exploration_efficiency_w5",
+        "cells_per_m_light_vs_dark",
+        "revisit_light_vs_dark",
+        "occupancy_entropy_light_vs_dark",
+        "lz_compressibility_light_vs_dark",
+        "coverage_vs_null_light_vs_dark",
     ]
-    fig3_pvals_clean = [p if p is not None else 1.0 for p in fig3_pvals]
+    fig3_pvals_clean = [
+        (stats["figure3"].get(k, {}).get("test", {}).get("p") or 1.0) for k in fig3_keys
+    ]
     fig3_adjusted = holm_bonferroni(fig3_pvals_clean)
     stats["figure3"]["holm_bonferroni_adjusted_p"] = {
         "epoch_coverage": fig3_adjusted[0],
@@ -986,6 +1048,9 @@ def main():
         "exploration_efficiency": fig3_adjusted[2],
         "cells_per_m": fig3_adjusted[3],
         "revisit": fig3_adjusted[4],
+        "occupancy_entropy": fig3_adjusted[5],
+        "lz_compressibility": fig3_adjusted[6],
+        "coverage_vs_null": fig3_adjusted[7],
     }
 
     # ---- Figure 4: Turn behaviour (PRIORITY) ----
@@ -1514,6 +1579,15 @@ def _write_summary_markdown(stats, usable, output):
     rev = f3.get("revisit_light_vs_dark", {})
     if rev.get("mean_light") is not None:
         lines.append(f"| Revisitation (entries/cell) | {rev['mean_light']:.3f} | {rev['mean_dark']:.3f} | {_fmt_test(rev['test'], adj3.get('revisit'))} |")
+    ent = f3.get("occupancy_entropy_light_vs_dark", {})
+    if ent.get("mean_light") is not None:
+        lines.append(f"| Occupancy entropy (bits) | {ent['mean_light']:.3f} | {ent['mean_dark']:.3f} | {_fmt_test(ent['test'], adj3.get('occupancy_entropy'))} |")
+    lz = f3.get("lz_compressibility_light_vs_dark", {})
+    if lz.get("mean_light") is not None:
+        lines.append(f"| Normalised LZ complexity | {lz['mean_light']:.3f} | {lz['mean_dark']:.3f} | {_fmt_test(lz['test'], adj3.get('lz_compressibility'))} |")
+    zc = f3.get("coverage_vs_null_light_vs_dark", {})
+    if zc.get("mean_light") is not None:
+        lines.append(f"| Coverage z vs random-walk null | {zc['mean_light']:.3f} | {zc['mean_dark']:.3f} | {_fmt_test(zc['test'], adj3.get('coverage_vs_null'))} |")
 
     # Figure 4
     lines.extend([

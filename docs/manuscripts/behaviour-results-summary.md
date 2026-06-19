@@ -35,11 +35,14 @@ All tests are non-parametric. Effect sizes: rank-biserial r (Wilcoxon), Cliff's 
 
 | Comparison | Light | Dark | Test |
 | ---------- | ----- | ---- | ---- |
-| Per-epoch coverage | 0.410 | 0.349 | W = 23.0, p = 0.0002, p_adj = 0.0008, r = 0.833, N = 23 |
-| Dead-end rate (visits/min) | 7.56 | 8.35 | W = 87.0, p = 0.1262, p_adj = 0.1262, r = 0.370, N = 23 |
-| Exploration efficiency (w=5) | 3.54 | 3.40 | W = 68.0, p = 0.0327, p_adj = 0.1017, r = 0.507, N = 23 |
-| New cells per metre (body) | 4.436 | 4.148 | W = 71.0, p = 0.0415, p_adj = 0.1017, r = 0.486, N = 23 |
-| Revisitation (entries/cell) | 3.450 | 3.897 | W = 65.0, p = 0.0254, p_adj = 0.1017, r = 0.529, N = 23 |
+| Per-epoch coverage | 0.410 | 0.349 | W = 23.0, p = 0.0002, p_adj = 0.0012, r = 0.833, N = 23 |
+| Dead-end rate (visits/min) | 7.56 | 8.35 | W = 87.0, p = 0.1262, p_adj = 0.2524, r = 0.370, N = 23 |
+| Exploration efficiency (w=5) | 3.54 | 3.40 | W = 68.0, p = 0.0327, p_adj = 0.1307, r = 0.507, N = 23 |
+| New cells per metre (body) | 4.436 | 4.148 | W = 71.0, p = 0.0415, p_adj = 0.1307, r = 0.486, N = 23 |
+| Revisitation (entries/cell) | 3.450 | 3.897 | W = 65.0, p = 0.0254, p_adj = 0.1271, r = 0.529, N = 23 |
+| Occupancy entropy (bits) | 2.240 | 1.962 | W = 37.0, p = 0.0013, p_adj = 0.0090, r = 0.732, N = 23 |
+| Normalised LZ complexity | 0.733 | 0.722 | W = 131.0, p = 0.8462, p_adj = 0.8462, r = 0.051, N = 23 |
+| Coverage z vs random-walk null | 0.694 | 0.226 | W = 44.0, p = 0.0031, p_adj = 0.0184, r = 0.681, N = 23 |
 
 ---
 
