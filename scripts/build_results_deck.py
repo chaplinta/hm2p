@@ -16,6 +16,7 @@ from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.util import Inches, Pt
 
 OUT = Path(__file__).resolve().parent.parent / "docs" / "manuscripts" / "results-summary-deck.pptx"
+FIGDIR = Path(__file__).resolve().parent.parent / "docs" / "manuscripts" / "figures"
 
 DARK_BLUE = RGBColor(0x1F, 0x4E, 0x79)
 MID_BLUE = RGBColor(0x2E, 0x75, 0xB6)
@@ -106,6 +107,12 @@ def _table(slide, headers, rows, top=1.4, left=0.6, width=12.1, col_w=None, size
                     run.font.color.rgb = colour
 
 
+def _add_image(slide, name, left, top, width):
+    path = FIGDIR / name
+    if path.exists():
+        slide.shapes.add_picture(str(path), Inches(left), Inches(top), width=Inches(width))
+
+
 def _footnote(slide, text):
     box = slide.shapes.add_textbox(Inches(0.6), Inches(7.0), Inches(12.1), Inches(0.4))
     r = box.text_frame.paragraphs[0].add_run()
@@ -180,31 +187,24 @@ def build():
     # 5. Gauntlet result
     s = _blank(prs)
     _title_bar(s, "The effect does not survive matching")
-    _table(s,
-           ["Control", "Light vs dark (MVL)", "Verdict"],
-           [
-               ["Raw (no matching)", "p = 0.0010", ("dark > light", GREEN)],
-               ["A1 occupancy-matched", "p = 0.16", ("not significant", RED)],
-               ["A2 speed+|AHV|-matched", "p = 0.25", ("not significant", RED)],
-               ["A3 epoch-order / bleaching", "p = 0.10", ("not significant", RED)],
-           ],
-           col_w=[5.0, 4.0, 3.1])
+    _add_image(s, "fig_gauntlet.png", left=2.67, top=1.1, width=8.0)
     _bullets(s, [
-        "Equalising how the mouse samples head direction removes the effect",
-        ("The raw dark>light MVL is largely differential sampling, not a coding gain", 0, DARK_BLUE, True),
-    ], top=4.6)
+        ("Each line = one session (light → dark); red bars = condition medians", 0, MID_GREY, False),
+        ("Raw: dark > light (p = 0.001). After matching HD sampling: n.s. (A1 p = 0.16, A2 p = 0.25)", 0, DARK_BLUE, True),
+    ], top=5.95, size=15)
     _footnote(s, "Sanity checks pass: matching disabled reproduces raw MVL exactly; occupancy matching equalises the HD histograms.")
 
     # 6. MI cross-check
     s = _blank(prs)
     _title_bar(s, "A second metric agrees: mutual information")
+    _add_image(s, "fig_mvl_vs_mi.png", left=4.7, top=1.3, width=8.3)
     _bullets(s, [
-        "Skaggs head-direction information (bits/event; Voigts & Harnett 2020, Zong et al. 2022) run through the same matched gauntlet",
-        ("Matched HD-MI is null, more emphatically than MVL: A1 p = 0.64, A2 p = 0.89", 0, DARK_GREY, False),
-        "Place (spatial) information also dies under position-occupancy matching (p = 0.15)",
-        "Secondary signals collapse too: the apparent 'gain' does not survive (matched p = 0.21); the apparent dark cell-recruitment reverses to favour light",
-        ("Two independent metrics give the same answer: no dark enhancement of HD or place coding survives matching", 0, DARK_BLUE, True),
-    ])
+        "Skaggs HD information (bits/event; Voigts & Harnett 2020, Zong 2022) through the same matched gauntlet",
+        ("Matched HD-MI is null, more emphatically than MVL (A1 p = 0.64)", 1, DARK_GREY, False),
+        "Place information also dies under position-occupancy matching (p = 0.15)",
+        "Secondary 'gain' and dark cell-recruitment signals also collapse under matching",
+        ("Two metrics, same answer: no dark enhancement of HD or place coding survives", 0, DARK_BLUE, True),
+    ], width=4.2, size=15)
 
     # 7. Neural conclusion
     s = _blank(prs)
@@ -237,31 +237,33 @@ def build():
     # 9. Behaviour: exploration changes
     s = _blank(prs)
     _title_bar(s, "Behaviour: exploration changes")
+    _add_image(s, "fig_behaviour.png", left=4.9, top=1.3, width=8.1)
     _table(s,
-           ["Measure", "Light", "Dark", "Corrected p"],
+           ["Measure", "L", "D", "p_adj"],
            [
-               ["Coverage (unique cells/min)", "0.41", "0.35", ("0.001", GREEN)],
-               ["Occupancy entropy (bits)", "2.24", "1.96", ("0.009", GREEN)],
-               ["Coverage vs random-walk null (z)", "0.69", "0.23", ("0.018", GREEN)],
-               ["Route compressibility (LZ)", "0.73", "0.72", ("0.85 (ns)", MID_GREY)],
+               ["Coverage (cells/min)", "0.41", "0.35", ("0.001", GREEN)],
+               ["Occupancy entropy", "2.24", "1.96", ("0.009", GREEN)],
+               ["Coverage vs null (z)", "0.69", "0.23", ("0.018", GREEN)],
+               ["Route LZ", "0.73", "0.72", ("0.85", MID_GREY)],
            ],
-           col_w=[5.4, 2.0, 2.0, 2.7])
+           top=1.5, left=0.5, width=4.3, col_w=[2.1, 0.7, 0.7, 0.8], size=12)
     _bullets(s, [
         ("In light, mice cover more of the maze than a random walk of the same length — directed search", 0, DARK_BLUE, True),
-        ("In dark they fall to near random-walk level, controlling for how much they moved and the maze shape", 0, DARK_BLUE, True),
-        ("Local route patterns are unchanged (LZ) — they don't run tighter loops; they stop steering toward new ground", 1, MID_GREY, False),
-    ], top=4.0)
+        ("In dark they fall to near random-walk level, controlling for distance moved and maze shape", 0, DARK_BLUE, True),
+        ("Route patterns unchanged (LZ) — they stop steering toward new ground, not running tighter loops", 1, MID_GREY, False),
+    ], top=4.2, width=4.3, left=0.5, size=14)
 
     # 10. Map engagement
     s = _blank(prs)
     _title_bar(s, "Is the map still engaged in the dark? Yes")
+    _add_image(s, "fig_map_engagement.png", left=8.0, top=1.4, width=5.0)
     _bullets(s, [
-        "Test: does the same maze cell re-instantiate the same population state on each visit? (within- minus across-cell population-vector consistency, sampling matched, no decoding)",
-        ("Consistency is positive in nearly every session — a real spatial map exists", 0, GREEN, True),
-        ("It does NOT differ light vs dark: 0.065 vs 0.062, p = 0.49 (12/21 sessions light>dark)", 0, DARK_BLUE, True),
+        "Does the same maze cell re-instantiate the same population state on each visit? (within- minus across-cell population-vector consistency, sampling matched, no decoding)",
+        ("Positive in nearly every session — a real spatial map exists", 0, GREEN, True),
+        ("Does NOT differ light vs dark: 0.065 vs 0.062, p = 0.49", 0, DARK_BLUE, True),
         "The spatial representation is equally engaged with or without vision",
-        ("Caveats: small/noisy measure (~20 ROIs, underpowered to prove equivalence); HD cells not excluded", 1, MID_GREY, False),
-    ])
+        ("Caveat: small/noisy (~20 ROIs, underpowered to prove equivalence); HD cells not excluded", 1, MID_GREY, False),
+    ], width=7.2, size=16)
 
     # 11. Synthesis
     s = _blank(prs)
@@ -288,6 +290,8 @@ def build():
     ])
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
+    if not (FIGDIR / "fig_gauntlet.png").exists():
+        print("figures missing — run scripts/build_results_figures.py first")
     prs.save(str(OUT))
     print(f"wrote {OUT} ({len(prs.slides.__iter__.__self__._sldIdLst)} slides)")
 
