@@ -8,6 +8,7 @@ import numpy as np
 
 from hm2p.maze.choice_models import (
     allocentric_choice,
+    allocentric_frontier_choice,
     conflict_follow_rate,
     egocentric_choice,
     extract_choice_events,
@@ -69,6 +70,45 @@ def test_allo_picks_largest_finite_recency():
 
 def test_allo_empty_is_none():
     assert allocentric_choice([], {}) is None
+
+
+# ---------------------------------------------------------------------------
+# allocentric_frontier_choice (non-myopic, distance-to-unexplored)
+# ---------------------------------------------------------------------------
+
+
+def test_frontier_picks_arm_toward_unexplored():
+    # All cells visited recently EXCEPT a far one; the arm graph-closest to it wins.
+    # Mark every cell as just-visited at step 100, window 10 -> none stale...
+    last = {i: 100 for i in range(MAZE.n_cells)}
+    # ...then make one distant cell stale by removing it (never visited).
+    far = MAZE.cell_to_idx[(1, 4)]  # a dead-end far from junction (5,4)
+    del last[far]
+    # step-100 = 5 < window 10, so visited cells are NOT stale; only `far` is frontier.
+    pred = allocentric_frontier_choice(MAZE, CANDS, step=105, last_visit_step=last,
+                                       frontier_window=10)
+    # the predicted arm should be the candidate with smallest graph distance to `far`
+    dists = {c: int(MAZE.dist[c, far]) for c in CANDS}
+    assert pred == min(dists, key=dists.get)
+
+
+def test_frontier_none_when_all_recent():
+    last = {i: 100 for i in range(MAZE.n_cells)}
+    pred = allocentric_frontier_choice(MAZE, CANDS, step=101, last_visit_step=last,
+                                       frontier_window=10)
+    assert pred is None
+
+
+def test_frontier_candidate_itself_stale_wins():
+    # Candidate 19 never visited -> it is itself a frontier (distance 0) -> wins.
+    last = {i: 100 for i in range(MAZE.n_cells) if i != 19}
+    pred = allocentric_frontier_choice(MAZE, CANDS, step=105, last_visit_step=last,
+                                       frontier_window=10)
+    assert pred == 19
+
+
+def test_frontier_empty_candidates_none():
+    assert allocentric_frontier_choice(MAZE, [], 10, {0: 1}, 5) is None
 
 
 # ---------------------------------------------------------------------------

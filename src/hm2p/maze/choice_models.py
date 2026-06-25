@@ -86,11 +86,51 @@ def allocentric_choice(
     return winners[0] if len(winners) == 1 else None
 
 
+def allocentric_frontier_choice(
+    maze: RoseMaze,
+    candidates: list[int],
+    step: int,
+    last_visit_step: dict[int, int],
+    frontier_window: int,
+) -> int | None:
+    """Arm heading toward unexplored territory (non-myopic, region-level).
+
+    A cell is a "frontier" if it has not been visited within the last
+    ``frontier_window`` cell-visits (or never). For each candidate arm, the
+    distance to the nearest frontier cell (graph shortest path from the
+    candidate's target cell) is computed; the rule predicts the candidate that
+    minimises this distance — i.e. the arm that most directly heads toward
+    somewhere the animal has not been recently. A candidate that is itself a
+    frontier has distance 0.
+
+    Returns the candidate with the strictly smallest distance-to-frontier, or
+    None if there is no frontier (everything visited recently) or no unique
+    minimum.
+    """
+    if not candidates:
+        return None
+    # Frontier = never visited, or not visited within the last frontier_window steps.
+    frontier = []
+    for i in range(maze.n_cells):
+        last = last_visit_step.get(i)
+        if last is None or (step - last) >= frontier_window:
+            frontier.append(i)
+    if not frontier:
+        return None
+    fidx = np.asarray(frontier, dtype=int)
+    dists = [int(maze.dist[c, fidx].min()) for c in candidates]
+    mn = min(dists)
+    winners = [c for c, d in zip(candidates, dists) if d == mn]
+    return winners[0] if len(winners) == 1 else None
+
+
 def extract_choice_events(
     visit_cells: np.ndarray,
     visit_frames: np.ndarray,
     maze: RoseMaze,
     light_on: np.ndarray,
+    allo_rule: str = "myopic",
+    frontier_window: int = 10,
 ) -> list[dict[str, Any]]:
     """Build per-junction choice events from a distinct-cell visit sequence.
 
@@ -102,6 +142,13 @@ def extract_choice_events(
         Frame index where each visit begins (to read the light condition).
     maze : RoseMaze
     light_on : (n_frames,) bool
+    allo_rule : {"myopic", "frontier"}
+        "myopic" = least-recently-visited neighbour arm; "frontier" = arm whose
+        target is graph-closest to unexplored territory (see
+        :func:`allocentric_frontier_choice`).
+    frontier_window : int
+        Visits-since-last-visit beyond which a cell counts as frontier (frontier
+        rule only).
 
     Returns
     -------
@@ -134,7 +181,12 @@ def extract_choice_events(
                 for c in cands
             }
             ego = egocentric_choice(maze, prev_idx, cur, cands, last_turn)
-            allo = allocentric_choice(cands, recency)
+            if allo_rule == "frontier":
+                allo = allocentric_frontier_choice(
+                    maze, cands, k, last_visit_step, frontier_window
+                )
+            else:
+                allo = allocentric_choice(cands, recency)
             conflict = ego is not None and allo is not None and ego != allo
             followed = "neither"
             hit_ego = ego is not None and chosen == ego

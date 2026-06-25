@@ -46,6 +46,8 @@ log = logging.getLogger("controller_switch")
 BUCKET = "hm2p-derivatives"
 SPEED_THRESHOLD = 2.5
 MAZE = build_rose_maze()
+ALLO_RULE = "frontier"
+FRONTIER_WINDOW = 10
 
 _S3 = None
 
@@ -59,13 +61,24 @@ def _s3():
     return _S3
 
 
-def _download_h5(key):
-    try:
-        obj = _s3().get_object(Bucket=BUCKET, Key=key)
-        return h5py.File(io.BytesIO(obj["Body"].read()), "r")
-    except Exception as exc:  # noqa: BLE001
-        log.debug("download failed %s: %s", key, exc)
-        return None
+def _download_h5(key, retries=4):
+    """Download an HDF5 from S3 into memory, retrying on transient errors.
+
+    The container's S3 connection is intermittently flaky; without retries whole
+    sessions silently drop. Returns None only after all attempts fail.
+    """
+    import time
+
+    for attempt in range(retries):
+        try:
+            obj = _s3().get_object(Bucket=BUCKET, Key=key)
+            return h5py.File(io.BytesIO(obj["Body"].read()), "r")
+        except Exception as exc:  # noqa: BLE001
+            log.debug("download failed %s (attempt %d): %s", key, attempt + 1, exc)
+            if attempt < retries - 1:
+                time.sleep(1.5 * (attempt + 1))
+    log.warning("download FAILED after %d attempts: %s", retries, key)
+    return None
 
 
 def load_metadata():
@@ -101,7 +114,10 @@ def session_choice_stats(sync_f):
     if visit_cells.size < 3:
         return None
 
-    events = extract_choice_events(visit_cells, visit_frames, MAZE, light)
+    events = extract_choice_events(
+        visit_cells, visit_frames, MAZE, light,
+        allo_rule=ALLO_RULE, frontier_window=FRONTIER_WINDOW,
+    )
     if not events:
         return None
 
@@ -146,8 +162,15 @@ def main():
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--min-conflict", type=int, default=5,
                     help="min conflict trials per condition for a session to count")
+    ap.add_argument("--allo-rule", choices=["myopic", "frontier"], default="frontier",
+                    help="allocentric rule: myopic recency or distance-to-frontier")
+    ap.add_argument("--frontier-window", type=int, default=10,
+                    help="visits-since-last-visit beyond which a cell is frontier")
     ap.add_argument("--output", type=Path, default=Path("results/controller_switch"))
     args = ap.parse_args()
+    global ALLO_RULE, FRONTIER_WINDOW
+    ALLO_RULE = args.allo_rule
+    FRONTIER_WINDOW = args.frontier_window
 
     animals, exps = load_metadata()
     valid = exps[exps["exclude"].astype(str).str.strip() != "1"]
