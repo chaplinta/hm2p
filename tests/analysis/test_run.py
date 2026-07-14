@@ -12,10 +12,10 @@ import pytest
 from hm2p.analysis.run import (
     AnalysisParams,
     CellResult,
+    _compute_junction_for_cell,
     _get_signal,
     analyze_cell,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -432,3 +432,83 @@ class TestCellResult:
         r2 = CellResult(roi_idx=1)
         r1.activity["test"] = 1.0
         assert "test" not in r2.activity
+
+    def test_default_empty_gain_and_junction(self) -> None:
+        r = CellResult(roi_idx=0)
+        assert r.gain == {}
+        assert r.junction == {}
+
+
+# ---------------------------------------------------------------------------
+# Gain modulation (H-N12) and junction coding (H-N13) wiring
+# ---------------------------------------------------------------------------
+
+
+def _make_location_masks(n_frames: int, seed: int = 7) -> dict[str, np.ndarray]:
+    """Assign each frame to a node type with disjoint boolean masks."""
+    rng = np.random.default_rng(seed)
+    kind = rng.integers(0, 3, n_frames)
+    return {
+        "junction": kind == 0,
+        "corridor": kind == 1,
+        "dead_end": kind == 2,
+        "invalid": np.zeros(n_frames, dtype=bool),
+    }
+
+
+class TestGainWiring:
+    """analyze_cell populates the gain dict (H-N12)."""
+
+    def test_gain_populated(self) -> None:
+        data = _make_synthetic_data()
+        r = analyze_cell(roi_idx=0, fps=10.0, params=AnalysisParams(n_shuffles=10), **data)
+        assert r.gain, "gain dict should be populated with enough moving frames"
+        for key in ("gain_index", "peak_light", "peak_dark",
+                    "mean_rate_light", "mean_rate_dark"):
+            assert key in r.gain
+        assert -1.0 <= r.gain["gain_index"] <= 1.0
+
+    def test_gain_empty_when_immobile(self) -> None:
+        data = _make_synthetic_data(speed_moving_frac=0.0)
+        data["speed"][:] = 0.0
+        r = analyze_cell(roi_idx=0, fps=10.0, params=AnalysisParams(n_shuffles=10), **data)
+        assert r.gain == {}
+
+
+class TestJunctionWiring:
+    """analyze_cell populates the junction dict only when masks are given."""
+
+    def test_junction_empty_without_masks(self) -> None:
+        data = _make_synthetic_data()
+        r = analyze_cell(roi_idx=0, fps=10.0, params=AnalysisParams(n_shuffles=10), **data)
+        assert r.junction == {}
+
+    def test_junction_populated_with_masks(self) -> None:
+        data = _make_synthetic_data(n_frames=2000)
+        masks = _make_location_masks(2000)
+        r = analyze_cell(
+            roi_idx=0,
+            fps=10.0,
+            params=AnalysisParams(n_shuffles=10),
+            location_masks=masks,
+            **data,
+        )
+        assert r.junction, "junction dict should be populated"
+        for key in ("act_junction_light", "act_corridor_light",
+                    "mvl_junction_light", "mvl_junction_dark"):
+            assert key in r.junction
+
+    def test_compute_junction_insufficient_frames_is_nan(self) -> None:
+        n = 200
+        rng = np.random.default_rng(1)
+        signal = rng.standard_normal(n)
+        hd = rng.uniform(0, 360, n)
+        moving = np.ones(n, dtype=bool)
+        light_on = np.ones(n, dtype=bool)  # no dark frames at all
+        masks = _make_location_masks(n)
+        out = _compute_junction_for_cell(
+            signal, hd, masks, moving, light_on, AnalysisParams(), min_frames=50,
+        )
+        # Dark conditions have zero frames -> NaN.
+        assert np.isnan(out["mvl_junction_dark"])
+        assert np.isnan(out["act_corridor_dark"])

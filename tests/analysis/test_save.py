@@ -70,6 +70,25 @@ def _make_cell_result(roi_idx: int, n_bins: int = 36) -> CellResult:
         place_comparison={
             "correlation": float(rng.random()),
         },
+        gain={
+            "gain_index": float(rng.random() * 2 - 1),
+            "peak_light": float(rng.random()),
+            "peak_dark": float(rng.random()),
+            "dynamic_range_light": float(rng.random()),
+            "dynamic_range_dark": float(rng.random()),
+            "mean_rate_light": float(rng.random()),
+            "mean_rate_dark": float(rng.random()),
+        },
+        junction={
+            "act_junction_light": float(rng.random()),
+            "act_corridor_light": float(rng.random()),
+            "act_junction_dark": float(rng.random()),
+            "act_corridor_dark": float(rng.random()),
+            "mvl_junction_light": float(rng.random()),
+            "mvl_corridor_light": float(rng.random()),
+            "mvl_junction_dark": float(rng.random()),
+            "mvl_corridor_dark": float(rng.random()),
+        },
     )
 
 
@@ -144,6 +163,16 @@ class TestSaveLoad:
         assert "comparison" in dff_data["hd"]
         assert "correlation" in dff_data["hd"]["comparison"]
         assert len(dff_data["hd"]["comparison"]["correlation"]) == n_rois
+
+        # Check gain modulation (H-N12)
+        assert "gain" in dff_data
+        assert "gain_index" in dff_data["gain"]
+        assert len(dff_data["gain"]["gain_index"]) == n_rois
+
+        # Check junction coding (H-N13)
+        assert "junction" in dff_data
+        assert "mvl_junction_light" in dff_data["junction"]
+        assert len(dff_data["junction"]["mvl_junction_light"]) == n_rois
 
     def test_empty_conditions(self, tmp_path: Path):
         """Test saving results where some conditions have no data."""

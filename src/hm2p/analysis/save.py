@@ -19,6 +19,8 @@ Output format: analysis.h5
     /{signal_type}/place/{condition}/sparsity    (n_rois,)
     /{signal_type}/place/{condition}/p_value     (n_rois,)
     /{signal_type}/place/comparison/correlation  (n_rois,)
+    /{signal_type}/gain/{metric}                 (n_rois,)  — H-N12
+    /{signal_type}/junction/{metric}             (n_rois,)  — H-N13
     /bin_centers_hd                              (n_bins,)
     /params/*                                    analysis parameters as attrs
 """
@@ -212,6 +214,58 @@ def _save_signal_results(
         if r.place_comparison:
             place_corrs[i] = r.place_comparison.get("correlation", np.nan)
     pcomp.create_dataset("correlation", data=place_corrs, compression="gzip")
+
+    # --- Gain modulation (light vs dark) — H-N12 ---
+    _save_scalar_dicts(
+        group.create_group("gain"),
+        [r.gain for r in results],
+        n_rois,
+        (
+            "gain_index",
+            "peak_light",
+            "peak_dark",
+            "dynamic_range_light",
+            "dynamic_range_dark",
+            "mean_rate_light",
+            "mean_rate_dark",
+        ),
+    )
+
+    # --- Junction / decision-point coding — H-N13 ---
+    _save_scalar_dicts(
+        group.create_group("junction"),
+        [r.junction for r in results],
+        n_rois,
+        (
+            "act_junction_light",
+            "act_corridor_light",
+            "act_junction_dark",
+            "act_corridor_dark",
+            "mvl_junction_light",
+            "mvl_corridor_light",
+            "mvl_junction_dark",
+            "mvl_corridor_dark",
+        ),
+    )
+
+
+def _save_scalar_dicts(
+    group: h5py.Group,
+    dicts: list[dict],
+    n_rois: int,
+    keys: tuple[str, ...],
+) -> None:
+    """Write one (n_rois,) float32 dataset per key from a list of per-cell dicts.
+
+    Missing keys or empty dicts store NaN so downstream loaders get a
+    consistent shape regardless of which conditions had enough data.
+    """
+    for key in keys:
+        vals = np.array(
+            [(d.get(key, np.nan) if d else np.nan) for d in dicts],
+            dtype=np.float32,
+        )
+        group.create_dataset(key, data=vals, compression="gzip")
 
 
 def load_analysis_results(path: Path) -> dict[str, Any]:

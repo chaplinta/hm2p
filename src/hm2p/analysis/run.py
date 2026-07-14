@@ -52,6 +52,10 @@ class CellResult:
     # Comparison metrics
     hd_comparison: dict = field(default_factory=dict)
     place_comparison: dict = field(default_factory=dict)
+    # Gain modulation (light vs dark peak amplitude) — H-N12
+    gain: dict = field(default_factory=dict)
+    # Junction / decision-point coding — H-N13
+    junction: dict = field(default_factory=dict)
 
 
 def _get_signal(
@@ -208,6 +212,54 @@ def _compute_place_for_condition(
     }
 
 
+def _compute_junction_for_cell(
+    signal: np.ndarray,
+    hd_deg: np.ndarray,
+    location_masks: dict[str, np.ndarray],
+    moving: np.ndarray,
+    light_on: np.ndarray,
+    params: AnalysisParams,
+    min_frames: int = 50,
+) -> dict:
+    """Per-cell activity and HD tuning at junctions vs corridors (H-N13).
+
+    For each of light and dark, computes mean signal and HD tuning MVL
+    restricted to (a) junction frames and (b) corridor frames, using the same
+    movement gate as the other tuning analyses. Conditions with fewer than
+    ``min_frames`` samples yield NaN so downstream tests drop them.
+
+    References
+    ----------
+    Koren Iton A et al. 2025. "NaviGraph: A graph-based framework for
+    multimodal analysis of spatial decision-making." bioRxiv.
+    doi:10.1101/2025.05.18.654725
+    """
+    from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length
+
+    junction = np.asarray(location_masks.get("junction"), dtype=bool)
+    corridor = np.asarray(location_masks.get("corridor"), dtype=bool)
+    out: dict = {}
+    for cond_name, cond in (("light", light_on), ("dark", ~light_on)):
+        for loc_name, loc in (("junction", junction), ("corridor", corridor)):
+            m = moving & cond & loc
+            if int(m.sum()) >= min_frames:
+                act = float(np.mean(signal[m]))
+                tc, centers = compute_hd_tuning_curve(
+                    signal,
+                    hd_deg,
+                    m,
+                    n_bins=params.hd_n_bins,
+                    smoothing_sigma_deg=params.hd_smoothing_sigma_deg,
+                )
+                mvl = float(np.clip(mean_vector_length(tc, centers), 0.0, 1.0))
+            else:
+                act = np.nan
+                mvl = np.nan
+            out[f"act_{loc_name}_{cond_name}"] = act
+            out[f"mvl_{loc_name}_{cond_name}"] = mvl
+    return out
+
+
 def analyze_cell(
     roi_idx: int,
     dff: np.ndarray,
@@ -223,6 +275,7 @@ def analyze_cell(
     params: AnalysisParams | None = None,
     seed: int = 42,
     extra_signals: dict[str, np.ndarray] | None = None,
+    location_masks: dict[str, np.ndarray] | None = None,
 ) -> CellResult:
     """Run full analysis for one cell.
 
@@ -240,6 +293,11 @@ def analyze_cell(
         fps: Imaging frame rate.
         params: Analysis parameters.
         seed: Random seed for reproducibility.
+        extra_signals: Optional extra signal arrays keyed by signal_type.
+        location_masks: Optional per-frame maze node-type masks
+            ("junction", "corridor", ...) from
+            ``hm2p.maze.neural.classify_frames_by_node_type``. When provided,
+            junction/decision-point metrics (H-N13) are computed.
 
     Returns:
         CellResult with all metrics.
@@ -298,6 +356,19 @@ def analyze_cell(
             "mvl_ratio_dark_over_light": mvl_ratio(tc_l, tc_d, centers),
         }
 
+    # --- Gain modulation (light vs dark peak amplitude) — H-N12 ---
+    if moving.sum() > 100:
+        from hm2p.analysis.gain import gain_modulation_index
+
+        result.gain = gain_modulation_index(
+            signal,
+            hd_deg,
+            moving,
+            light_on,
+            n_bins=params.hd_n_bins,
+            smoothing_sigma_deg=params.hd_smoothing_sigma_deg,
+        )
+
     # --- Place tuning ---
     if moving.sum() > 100:
         result.place_all = _compute_place_for_condition(
@@ -338,6 +409,17 @@ def analyze_cell(
                 result.place_dark["rate_map"],
             ),
         }
+
+    # --- Junction / decision-point coding (H-N13) ---
+    if location_masks is not None and moving.sum() > 100:
+        result.junction = _compute_junction_for_cell(
+            signal,
+            hd_deg,
+            location_masks,
+            moving,
+            light_on,
+            params,
+        )
 
     return result
 
@@ -511,6 +593,23 @@ def analyze_session(
     light_on = light_on[:n]
     active_mask = active_mask[:n]
 
+    # --- Maze node-type masks for junction analysis (H-N13) ---
+    # Requires the maze-registered coordinates written by Stage 3. When absent
+    # (older kinematics.h5), junction metrics are skipped and location_masks
+    # stays None.
+    location_masks = None
+    if "x_maze" in kin and "y_maze" in kin:
+        from hm2p.maze.discretize import discretize_position_fast
+        from hm2p.maze.neural import classify_frames_by_node_type
+        from hm2p.maze.topology import build_rose_maze
+
+        maze = build_rose_maze()
+        x_maze = resample_to_imaging_rate(kin["x_maze"], cam_times, img_times)[:n]
+        y_maze = resample_to_imaging_rate(kin["y_maze"], cam_times, img_times)[:n]
+        cell_indices = discretize_position_fast(x_maze, y_maze, maze)
+        cell_indices[~active_mask] = -1
+        location_masks = classify_frames_by_node_type(cell_indices, maze)
+
     n_rois = dff.shape[0]
     log.info("Analyzing %d ROIs, %d frames at %.1f Hz", n_rois, n, fps)
 
@@ -530,6 +629,7 @@ def analyze_session(
             active_mask=active_mask,
             fps=fps,
             params=params,
+            location_masks=location_masks,
         )
         results.append(r)
 

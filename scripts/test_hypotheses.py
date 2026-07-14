@@ -213,6 +213,18 @@ def load_all_analysis(
                     if "correlation" in pl_comp:
                         row["place_comp_correlation"] = float(pl_comp["correlation"][roi])
 
+                # Gain modulation (H-N12)
+                gain = grp.get("gain")
+                if gain is not None:
+                    for k in gain:
+                        row[f"gain_{k}"] = float(gain[k][roi])
+
+                # Junction / decision-point coding (H-N13)
+                junction = grp.get("junction")
+                if junction is not None:
+                    for k in junction:
+                        row[f"junction_{k}"] = float(junction[k][roi])
+
                 # Signal quality confounds
                 if dff_data is not None and roi < dff_data.shape[0]:
                     trace = dff_data[roi]
@@ -398,6 +410,29 @@ def define_hypotheses() -> list[dict]:
     h.append({"id": "H5.3", "name": "Spatial info: light vs dark",
               "type": "within_cell",
               "col_a": "place_light_spatial_info", "col_b": "place_dark_spatial_info"})
+
+    # --- H6: Gain modulation (H-N12) ---
+    # Within-cell HD tuning peak amplitude light vs dark. Direction reported
+    # from sign of (light - dark); positive gain_index = higher peak in light.
+    h.append({"id": "H6.1", "name": "HD tuning peak amplitude: light vs dark",
+              "type": "within_cell",
+              "col_a": "gain_peak_light", "col_b": "gain_peak_dark"})
+    h.append({"id": "H6.2", "name": "Gain modulation differs between types",
+              "type": "between_group", "metric": "gain_gain_index"})
+
+    # --- H7: Junction / decision-point coding (H-N13) ---
+    # Restricted to light epochs for the junction-vs-corridor contrasts (both
+    # location types are well sampled in light); H7.3 tests the light-vs-dark
+    # change of junction tuning.
+    h.append({"id": "H7.1", "name": "Activity higher at junctions than corridors (light)",
+              "type": "within_cell",
+              "col_a": "junction_act_junction_light", "col_b": "junction_act_corridor_light"})
+    h.append({"id": "H7.2", "name": "HD tuning (MVL) junctions vs corridors (light)",
+              "type": "within_cell",
+              "col_a": "junction_mvl_junction_light", "col_b": "junction_mvl_corridor_light"})
+    h.append({"id": "H7.3", "name": "Junction HD tuning (MVL): light vs dark",
+              "type": "within_cell",
+              "col_a": "junction_mvl_junction_light", "col_b": "junction_mvl_junction_dark"})
 
     return h
 
