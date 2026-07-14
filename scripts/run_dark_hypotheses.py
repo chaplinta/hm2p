@@ -1064,6 +1064,195 @@ def run_B1_maze_position(sessions, n_boot, n_shuffles, seed):
 
 
 # ---------------------------------------------------------------------------
+# J1 / J2: matched junction controls for the Stage-6 H7 hypotheses
+# ---------------------------------------------------------------------------
+
+
+def _classify_maze_frames(arrays):
+    """Boolean frame masks for junction / corridor / dead_end from the maze-
+    registered ``x_maze``/``y_maze`` coordinates. None if those coords are
+    absent (older sync.h5).
+
+    Positions are classified with the real q-rose maze graph
+    (``hm2p.maze.topology``): a frame is a junction if its nearest accessible
+    cell is a T-junction or crossroads, a corridor if a through-cell, a
+    dead-end if a leaf.
+    """
+    if "x_maze" not in arrays or "y_maze" not in arrays:
+        return None
+    from hm2p.maze.discretize import discretize_position_fast
+    from hm2p.maze.topology import build_rose_maze
+
+    maze = build_rose_maze()
+    idx_type = {i: maze.node_types[c] for i, c in enumerate(maze.cell_list)}
+    x = np.asarray(arrays["x_maze"], float)
+    y = np.asarray(arrays["y_maze"], float)
+    cell_idx = discretize_position_fast(x, y, maze)
+    types = np.array(
+        [idx_type.get(int(i), "none") if i >= 0 else "none" for i in cell_idx]
+    )
+    return {
+        "junction": np.isin(types, ("t_junction", "crossroads")),
+        "corridor": types == "corridor",
+        "dead_end": types == "dead_end",
+    }
+
+
+def _raw_region_mvl_per_cell(arrays, mask):
+    """Per soma cell raw (un-debiased, unmatched) HD MVL over a frame mask.
+
+    None if the mask has fewer than 50 frames.
+    """
+    sig = arrays["signal"]
+    hd = arrays["hd"]
+    if int(mask.sum()) < 50:
+        return None
+    hd_m = hd[mask]
+    ones = np.ones(hd_m.size, bool)
+    n_soma = sig.shape[0]
+    out = np.full(n_soma, np.nan)
+    for c in range(n_soma):
+        out[c] = _cell_mvl(sig[c][mask], hd_m, ones)
+    return out
+
+
+def _region_matched_mvl(arrays, mask_a, mask_b, n_shuffles, rng):
+    """Equalise the HD-occupancy distribution between two frame masks, return
+    per soma cell shuffle-debiased MVL in each (``mvl_a``, ``mvl_b``).
+
+    Same one-dimensional HD occupancy matching + circular-shuffle debiasing as
+    the A1 control (``hm2p.analysis.matched_tuning``). None if either mask has
+    too few frames before or after matching.
+    """
+    sig = arrays["signal"]
+    hd = arrays["hd"]
+    hd_a = hd[mask_a]
+    hd_b = hd[mask_b]
+    if hd_a.size < 50 or hd_b.size < 50:
+        return None
+    idx_a, idx_b = match_indices_1d(hd_a, hd_b, n_bins=HD_N_BINS, circular=True, rng=rng)
+    if idx_a.size < 50 or idx_b.size < 50:
+        return None
+    hd_am, hd_bm = hd_a[idx_a], hd_b[idx_b]
+    n_soma = sig.shape[0]
+    mvl_a = np.full(n_soma, np.nan)
+    mvl_b = np.full(n_soma, np.nan)
+    for c in range(n_soma):
+        s_a = sig[c][mask_a][idx_a]
+        s_b = sig[c][mask_b][idx_b]
+        r_a = shuffle_debiased_statistic(
+            s_a, hd_am, n_bins=HD_N_BINS, smoothing_sigma_deg=HD_SMOOTH_DEG,
+            n_shuffles=n_shuffles, statistic="mvl", rng=rng,
+        )
+        r_b = shuffle_debiased_statistic(
+            s_b, hd_bm, n_bins=HD_N_BINS, smoothing_sigma_deg=HD_SMOOTH_DEG,
+            n_shuffles=n_shuffles, statistic="mvl", rng=rng,
+        )
+        mvl_a[c] = r_a["stat_debiased"]
+        mvl_b[c] = r_b["stat_debiased"]
+    return {"mvl_a": mvl_a, "mvl_b": mvl_b, "n_matched": int(idx_a.size)}
+
+
+def _run_junction_matched(sessions, mask_fn, n_shuffles, seed, label):
+    """Shared engine for the junction occupancy-matched controls.
+
+    ``mask_fn(arrays, regions) -> (mask_a, mask_b, name_a, name_b)`` selects the
+    two frame sets to contrast. Returns ``(matched_test, raw_test, df)`` where
+    the raw test uses un-debiased MVL on all region frames and the matched test
+    uses occupancy-matched, shuffle-debiased MVL. Session summary = median over
+    HD-significant soma cells (fallback all soma). ``paired_test(a, b)`` reports
+    ``b - a``, so median diff > 0 means condition B has the higher MVL.
+    """
+    a_m, b_m, a_r, b_r, rows = [], [], [], [], []
+    for s in sessions:
+        arrays = s["arrays"]
+        regions = _classify_maze_frames(arrays)
+        if regions is None:
+            continue
+        mask_a, mask_b, name_a, name_b = mask_fn(arrays, regions)
+        rng = np.random.default_rng(seed + hash(s["exp_id"]) % 10_000)
+        res = _region_matched_mvl(arrays, mask_a, mask_b, n_shuffles, rng)
+        if res is None:
+            continue
+        sig_mask = s.get("hd_sig_mask")
+        ma, mb, ncell = _session_summary(res["mvl_a"], res["mvl_b"], sig_mask)
+        if not (np.isfinite(ma) and np.isfinite(mb)):
+            continue
+        raw_a = _raw_region_mvl_per_cell(arrays, mask_a)
+        raw_b = _raw_region_mvl_per_cell(arrays, mask_b)
+        if raw_a is not None and raw_b is not None:
+            ra, rb, _ = _session_summary(raw_a, raw_b, sig_mask)
+        else:
+            ra = rb = np.nan
+        a_m.append(ma)
+        b_m.append(mb)
+        a_r.append(ra)
+        b_r.append(rb)
+        rows.append(
+            {
+                "exp_id": s["exp_id"],
+                "animal_id": s["animal_id"],
+                "celltype": s["celltype"],
+                "n_cells": ncell,
+                "n_matched_frames": res["n_matched"],
+                f"mvl_{name_a}_matched": ma,
+                f"mvl_{name_b}_matched": mb,
+                f"mvl_{name_a}_raw": ra,
+                f"mvl_{name_b}_raw": rb,
+            }
+        )
+    matched = paired_test(a_m, b_m, label=f"{label}_matched")
+    raw = paired_test(a_r, b_r, label=f"{label}_raw")
+    return matched, raw, pd.DataFrame(rows)
+
+
+def run_J1_junction_vs_corridor(sessions, n_shuffles, seed):
+    """J1 (control for H7.2): HD MVL at junctions vs corridors in LIGHT, with the
+    HD-occupancy distribution equalised between the two location types.
+
+    Junctions are sampled with a narrower, more repetitive HD distribution than
+    corridors (the mouse pauses and turns), which by itself changes MVL. J1
+    tests whether the H7.2 junction-vs-corridor difference survives equalising
+    that sampling. ``median(diff) > 0`` => junction MVL > corridor MVL after
+    matching.
+    """
+
+    def mask_fn(a, regions):
+        mv, light = a["moving"], a["light_on"]
+        return (
+            mv & light & regions["corridor"],  # a = corridor
+            mv & light & regions["junction"],  # b = junction
+            "corridor",
+            "junction",
+        )
+
+    return _run_junction_matched(sessions, mask_fn, n_shuffles, seed, "J1")
+
+
+def run_J2_junction_lightdark(sessions, n_shuffles, seed):
+    """J2 (control for H7.3): HD MVL at junctions, light vs dark, occupancy-
+    matched within junction frames.
+
+    This is the confound-controlled version of the H7.3 headline. If the raw
+    junction MVL light-vs-dark difference is driven by the mouse sampling HD
+    differently at junctions in the dark, it will collapse here — the same way
+    A1/A2 collapsed the whole-session dark>light MVL effect. ``median(diff) > 0``
+    => junction MVL higher in dark after matching.
+    """
+
+    def mask_fn(a, regions):
+        mv, light = a["moving"], a["light_on"]
+        return (
+            mv & light & regions["junction"],  # a = light
+            mv & ~light & regions["junction"],  # b = dark
+            "light",
+            "dark",
+        )
+
+    return _run_junction_matched(sessions, mask_fn, n_shuffles, seed, "J2")
+
+
+# ---------------------------------------------------------------------------
 # Sanity checks
 # ---------------------------------------------------------------------------
 
@@ -1180,6 +1369,10 @@ def main():
     ap.add_argument("--skip-d1", action="store_true", help="skip D1 (slow neuropil pass)")
     ap.add_argument("--skip-b1", action="store_true", help="skip B1 (slow position pass)")
     ap.add_argument(
+        "--skip-junction", action="store_true",
+        help="skip J1/J2 (matched junction controls for the Stage-6 H7 hypotheses)",
+    )
+    ap.add_argument(
         "--skip-mi", action="store_true",
         help="skip the Skaggs HD/place mutual-information cross-check",
     )
@@ -1294,14 +1487,28 @@ def main():
             sessions, args.n_boot, args.n_shuffles, args.seed
         )
 
+    if not args.skip_junction:
+        log.info("=== J1/J2 junction tuning occupancy-matched (H7 controls) ===")
+        (
+            results["J1_matched"],
+            results["J1_raw"],
+            per_hyp_df["J1"],
+        ) = run_J1_junction_vs_corridor(sessions, args.n_shuffles, args.seed)
+        (
+            results["J2_matched"],
+            results["J2_raw"],
+            per_hyp_df["J2"],
+        ) = run_J2_junction_lightdark(sessions, args.n_shuffles, args.seed)
+
     # --- FDR across confirmatory family ---
     fam = []
     fam_keys = []
     for k, r in results.items():
         base = k.split("_")[0]
-        # "tightened" re-analysis and the "_mi"/"P1" Skaggs cross-check are
-        # reported alongside the primary MVL family, not folded into its FDR.
-        if "tightened" in k or k.endswith("_mi") or k == "P1":
+        # "tightened" re-analysis, the "_mi"/"P1" Skaggs cross-check, and the
+        # raw (unmatched) leg of the J1/J2 junction controls are reported
+        # alongside the primary MVL family, not folded into its FDR.
+        if "tightened" in k or k.endswith("_mi") or k == "P1" or k.endswith("_raw"):
             continue
         if base in CONFIRMATORY and isinstance(r, dict) and np.isfinite(r.get("p_value", np.nan)):
             fam.append(r["p_value"])
@@ -1331,6 +1538,18 @@ def _verdict_from(test, fdr):
         direction = "dark > light" if md > 0 else "light > dark"
         return f"confirmed ({direction})"
     return "refuted/null (no light-dark difference survives)"
+
+
+def _verdict_generic(test, pos_label, neg_label):
+    """Verdict for a paired test with arbitrary direction labels (used by the
+    J1/J2 junction controls, which are not light-vs-dark)."""
+    p = test.get("p_value", np.nan)
+    md = test.get("median_diff", np.nan)
+    if not np.isfinite(p):
+        return "inconclusive (insufficient pairs)"
+    if p < ALPHA:
+        return f"significant ({pos_label if md > 0 else neg_label})"
+    return "null (no difference survives occupancy matching)"
 
 
 def write_report(args, sessions, results, fdr_map, sanity_msgs, b2_verdict):
@@ -1568,6 +1787,42 @@ def write_report(args, sessions, results, fdr_map, sanity_msgs, b2_verdict):
             "- Positions classified by the real q-rose maze graph (T-junction/"
             "crossroads vs dead-end); light-vs-dark occupancy-matched within "
             "region. Exploratory / hypothesis-generating."
+        )
+        L.append("")
+    # J1 / J2 — matched junction controls for the Stage-6 H7 hypotheses
+    if "J2_matched" in results:
+        L.append(
+            "## J1/J2 — junction HD tuning, occupancy-matched (H7 controls) [sensitivity]"
+        )
+        L.append(
+            "Matched controls for the Stage-6 junction hypotheses H7.2 (MVL at "
+            "junctions vs corridors) and H7.3 (junction MVL light vs dark). HD "
+            "is sampled differently by location type and by light, so the raw "
+            "junction contrasts can be sampling artefacts. Here the HD-occupancy "
+            "distribution is equalised between the two frame sets and MVL is "
+            "circular-shuffle debiased — the same machinery that collapsed the "
+            "whole-session dark>light effect in A1/A2. Exploratory; not in the "
+            "confirmatory FDR family."
+        )
+        j1m, j1r = results["J1_matched"], results["J1_raw"]
+        L.append(
+            f"- **J1 junction vs corridor (light):** raw N={j1r['n']}, "
+            f"Wilcoxon p={j1r['p_value']:.4f}, median(junction-corridor)="
+            f"{j1r['median_diff']:.4f}; matched N={j1m['n']}, p={j1m['p_value']:.4f}, "
+            f"median={j1m['median_diff']:.4f}, rank-biserial={j1m['rank_biserial']:.3f}"
+        )
+        L.append(
+            f"  - **Verdict:** {_verdict_generic(j1m, 'junction > corridor', 'corridor > junction')}"
+        )
+        j2m, j2r = results["J2_matched"], results["J2_raw"]
+        L.append(
+            f"- **J2 junction light vs dark:** raw N={j2r['n']}, "
+            f"Wilcoxon p={j2r['p_value']:.4f}, median(dark-light)="
+            f"{j2r['median_diff']:.4f}; matched N={j2m['n']}, p={j2m['p_value']:.4f}, "
+            f"median={j2m['median_diff']:.4f}, rank-biserial={j2m['rank_biserial']:.3f}"
+        )
+        L.append(
+            f"  - **Verdict:** {_verdict_generic(j2m, 'dark > light', 'light > dark')}"
         )
         L.append("")
 
