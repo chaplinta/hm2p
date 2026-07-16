@@ -310,6 +310,34 @@ def test_hd_statistic_skaggs_tuned_gt_untuned():
     assert info_t > 0
 
 
+def test_hd_statistic_peak_matches_curve_max():
+    from hm2p.analysis.matched_tuning import hd_tuning_statistic
+
+    rng = np.random.default_rng(22)
+    hd = rng.uniform(0, 360, 1500)
+    sig = _tuned_signal(hd, pd_deg=200)
+    m = np.ones(hd.size, bool)
+    tc, _ = compute_hd_tuning_curve(sig, hd, m)
+    assert np.isclose(
+        hd_tuning_statistic(sig, hd, m, statistic="peak"),
+        float(np.nanmax(tc)),
+    )
+
+
+def test_hd_statistic_peak_tuned_gt_untuned():
+    from hm2p.analysis.matched_tuning import hd_tuning_statistic
+
+    rng = np.random.default_rng(23)
+    n = 4000
+    hd = rng.uniform(0, 360, n)
+    tuned = _tuned_signal(hd, kappa=4.0)
+    untuned = rng.normal(0, 1, n)
+    m = np.ones(n, bool)
+    peak_t = hd_tuning_statistic(tuned, hd, m, statistic="peak")
+    peak_u = hd_tuning_statistic(untuned, hd, m, statistic="peak")
+    assert peak_t > peak_u
+
+
 def test_hd_statistic_invalid_raises():
     from hm2p.analysis.matched_tuning import hd_tuning_statistic
 

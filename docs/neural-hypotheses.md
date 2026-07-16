@@ -926,6 +926,33 @@ integrative story. This bridges the behaviour and neural papers.
 light and dark, separately from drift. One population may show gain reduction
 (peak firing drops in dark) while the other maintains gain.
 
+> **RESULT (2026-07-16) — a raw cell-level peak difference that is
+> pseudoreplication, and does not survive the confound gauntlet.**
+>
+> Wired into Stage 6 (`analysis/gain.py` → `analysis/run.py`; the pipeline
+> runner `scripts/run_stage6_analysis.py` was fixed to pass the maze masks) and
+> read by `scripts/test_hypotheses.py` (H6). All 26 sessions reprocessed;
+> primary = 450 soma ROIs, 15 animals, 23 sessions, dF/F, FDR-corrected.
+>
+> **Raw (cell-level):** HD tuning peak is higher in light than dark — H6.1
+> Wilcoxon p<0.0001 (FDR<0.0001), mean diff +0.188 over 450 cells. Between
+> cell types (H6.2) is null and underpowered: Penk+ mean gain index 0.103 vs
+> Penk⁻CamKII+ 0.166 (direction favours CamKII+, opposite the stated
+> prediction), animal-level Mann-Whitney p=0.10, permutation p=0.53, FDR p=0.69
+> (N=11 vs 4 animals).
+>
+> **The peak effect does not survive.** Aggregated to the session level (the
+> proper independent unit, N=23) with circular-shuffle debiasing, even the
+> *unmatched* contrast is null — median(dark−light) = −0.006, Wilcoxon p=0.56,
+> 11/23 sessions dark>light — so the cell-level significance was
+> pseudoreplication across non-independent cells, not a session-reproducible
+> effect. Occupancy-matching (A1) gives p=0.54 (FDR 0.72); speed×|AHV| matching
+> (A2) gives p=0.87 (FDR 0.87). A `"peak"` statistic was added to
+> `src/hm2p/analysis/matched_tuning.py`; run via
+> `scripts/run_gain_junction_controls.py`. **Interpretation: no light/dark gain
+> difference in HD tuning peak survives, and no cell-type difference is
+> resolvable at this N.**
+
 **Reasoning:** Ajabi et al. (2023) showed that HD populations vary along a
 "second dimension" (gain) during drift. Keshavarzi et al. (2022) showed visual
 input increases AHV coding gain. If visual input provides a gain signal to
@@ -952,6 +979,31 @@ level (Ajabi et al. 2023) but not compared between molecularly defined subtypes.
 
 **Statement:** RSP neurons show elevated activity or altered HD tuning at
 T-junction decision points compared to straight corridors.
+
+> **RESULT (2026-07-16) — no junction-vs-corridor difference; the one
+> significant sub-test (junction MVL dark>light) does not survive matching.**
+>
+> Wired into Stage 6 (`maze/neural.py` frame classification → `analysis/run.py`;
+> pipeline runner fixed to build the node-type masks from the maze-registered
+> `x_maze`/`y_maze` in sync.h5) and read by `scripts/test_hypotheses.py` (H7).
+> Primary = 450 soma ROIs, 23 sessions, dF/F, FDR-corrected.
+>
+> **Raw (cell-level):** activity is *not* higher at junctions than corridors in
+> light (H7.1: p=0.16, FDR 0.33, if anything slightly higher in corridors); HD
+> tuning (MVL) is *not* sharper at junctions than corridors (H7.2: p=0.16, FDR
+> 0.33). The only significant sub-test is junction-restricted MVL light vs dark
+> (H7.3: dark>light, Wilcoxon p=0.004, FDR 0.014, mean diff +0.033).
+>
+> **H7.3 does not survive.** At the session level (N=23) the effect is already
+> non-significant (median(dark−light) = +0.032, p=0.29, 13/23 dark>light);
+> occupancy-matching the light/dark junction frames gives p=0.17 (FDR 0.34) and
+> speed×|AHV| matching p=0.13 (FDR 0.34). A weak positive residual persists
+> (rank-biserial 0.33–0.36, 13/23 dark>light) mirroring the B1 maze-junction
+> lead in H-N3, but it is underpowered and not significant — "does not survive",
+> not "equivalent". Run via `scripts/run_gain_junction_controls.py`.
+> **Interpretation: no junction-specific activity or tuning effect is supported;
+> the junction MVL dark>light is the same differential-sampling pattern seen for
+> whole-session MVL (H-N3), not a decision-point signal.**
 
 **Reasoning:** Koren Iton et al. (2025, NaviGraph) found that RSP activity
 varies systematically across maze decision points. Alexander & Nitz (2015)

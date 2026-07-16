@@ -60,7 +60,7 @@ __all__ = [
 ]
 
 # Tuning-strength statistics supported by the matched/shuffle machinery.
-_STATISTICS = ("mvl", "skaggs")
+_STATISTICS = ("mvl", "skaggs", "peak")
 
 
 def hd_tuning_statistic(
@@ -79,6 +79,11 @@ def hd_tuning_statistic(
     measure used by Voigts & Harnett (2020) and Zong et al. (2022). For Skaggs
     the curve is rectified (baseline removed) so the rate is non-negative, as
     the information rate is defined for a non-negative rate map.
+    ``statistic="peak"`` returns the peak (maximum) of the HD tuning curve —
+    the amplitude measure underlying the gain-modulation index in
+    :mod:`hm2p.analysis.gain`. Running it through this machinery lets the
+    light-vs-dark peak comparison be occupancy-/kinematics-matched and
+    shuffle-debiased like the other statistics.
     """
     if statistic not in _STATISTICS:
         raise ValueError(f"unknown statistic {statistic!r}; choose from {_STATISTICS}")
@@ -87,6 +92,9 @@ def hd_tuning_statistic(
     )
     if statistic == "mvl":
         return float(mean_vector_length(tc, bc))
+    if statistic == "peak":
+        finite = tc[np.isfinite(tc)]
+        return float(np.max(finite)) if finite.size else 0.0
     # Skaggs information: rectify the curve and weight by HD occupancy.
     occ = occupancy_histogram(np.asarray(hd_deg)[np.asarray(mask, bool)], n_bins=n_bins)
     finite = tc[np.isfinite(tc)]
