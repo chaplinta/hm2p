@@ -148,6 +148,11 @@ def run_analysis_all_signals(
     bad_behav = sync["bad_behav"].astype(bool)
     active_mask = ~bad_behav
 
+    # Maze-registered coordinates for junction/corridor classification (H-N13).
+    # sync.h5 is already at imaging rate, so no resampling is needed.
+    x_maze = sync.get("x_maze")
+    y_maze = sync.get("y_maze")
+
     x_cm = x_mm / 10.0
     y_cm = y_mm / 10.0
 
@@ -166,6 +171,30 @@ def run_analysis_all_signals(
     speed = speed[:n]
     light_on = light_on[:n]
     active_mask = active_mask[:n]
+
+    # Build per-frame maze node-type masks for the junction analysis (H-N13).
+    # Mirrors analyze_session in analysis/run.py, but reads the maze-registered
+    # coordinates directly from sync.h5 (already at imaging rate). Skipped when
+    # the coordinates are absent.
+    location_masks = None
+    if x_maze is not None and y_maze is not None:
+        from hm2p.maze.discretize import discretize_position_fast
+        from hm2p.maze.neural import classify_frames_by_node_type
+        from hm2p.maze.topology import build_rose_maze
+
+        maze = build_rose_maze()
+        x_maze = np.asarray(x_maze)[:n]
+        y_maze = np.asarray(y_maze)[:n]
+        cell_indices = discretize_position_fast(x_maze, y_maze, maze)
+        cell_indices[~active_mask] = -1
+        location_masks = classify_frames_by_node_type(cell_indices, maze)
+        log.info(
+            "  junction analysis enabled: %d junction, %d corridor frames",
+            int(np.asarray(location_masks.get("junction")).sum()),
+            int(np.asarray(location_masks.get("corridor")).sum()),
+        )
+    else:
+        log.info("  no x_maze/y_maze in sync.h5 — junction analysis skipped")
 
     results_by_signal: dict[str, list] = {}
 
@@ -199,6 +228,7 @@ def run_analysis_all_signals(
                 params=p,
                 seed=42,
                 extra_signals=extra_signals,
+                location_masks=location_masks,
             )
             cell_results.append(r)
         results_by_signal[signal_type] = cell_results
