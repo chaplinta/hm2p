@@ -250,9 +250,10 @@ skips = [
 # --- pytest -----------------------------------------------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Coverage threshold enforced in CI once stages are implemented.
-# During skeleton phase, run without --cov-fail-under.
-addopts = "--cov=hm2p --cov-report=term-missing"
+# Coverage is enabled explicitly by the CI test step (--cov=hm2p
+# --cov-fail-under=90), not here: keeping --cov in the default addopts makes
+# every ad-hoc or filtered run (e.g. pytest -k ...) trip the fail_under gate.
+addopts = ""
 markers = [
     "golden: regression tests against three real sessions on S3 — not run in CI",
 ]
