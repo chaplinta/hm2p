@@ -41,9 +41,7 @@ def test_detect_ear_swaps_consistent_no_swaps() -> None:
     left_ear_y = np.full(n, 3.0)  # above axis → left_sign > 0
     right_ear_x = np.full(n, 5.0)
     right_ear_y = np.full(n, -3.0)  # below axis → right_sign < 0
-    res = detect_ear_swaps(
-        left_ear_x, left_ear_y, right_ear_x, right_ear_y, ax1, ay1, ax2, ay2
-    )
+    res = detect_ear_swaps(left_ear_x, left_ear_y, right_ear_x, right_ear_y, ax1, ay1, ax2, ay2)
     assert res["n_swapped"] == 0
     assert res["pct_swapped"] == 0.0
     assert np.all(res["left_sign"][:5] > 0)
@@ -60,9 +58,7 @@ def test_detect_ear_swaps_detects_swapped_frames() -> None:
     right_ear_y[:2] = 3.0
     left_ear_x = np.full(n, 5.0)
     right_ear_x = np.full(n, 5.0)
-    res = detect_ear_swaps(
-        left_ear_x, left_ear_y, right_ear_x, right_ear_y, ax1, ay1, ax2, ay2
-    )
+    res = detect_ear_swaps(left_ear_x, left_ear_y, right_ear_x, right_ear_y, ax1, ay1, ax2, ay2)
     assert res["is_swapped"][0]
     assert res["is_swapped"][1]
     assert res["n_swapped"] == 2
@@ -80,9 +76,7 @@ def test_detect_ear_swaps_majority_negative_branch() -> None:
     right_ear_y[:2] = -3.0
     left_ear_x = np.full(n, 5.0)
     right_ear_x = np.full(n, 5.0)
-    res = detect_ear_swaps(
-        left_ear_x, left_ear_y, right_ear_x, right_ear_y, ax1, ay1, ax2, ay2
-    )
+    res = detect_ear_swaps(left_ear_x, left_ear_y, right_ear_x, right_ear_y, ax1, ay1, ax2, ay2)
     assert res["n_swapped"] == 2
 
 
@@ -94,9 +88,7 @@ def test_detect_ear_swaps_too_few_valid() -> None:
     left_ear_y = np.full(n, 3.0)
     right_ear_x = np.full(n, 5.0)
     right_ear_y = np.full(n, -3.0)
-    res = detect_ear_swaps(
-        left_ear_x, left_ear_y, right_ear_x, right_ear_y, ax1, ay1, ax2, ay2
-    )
+    res = detect_ear_swaps(left_ear_x, left_ear_y, right_ear_x, right_ear_y, ax1, ay1, ax2, ay2)
     assert res["n_swapped"] == 0
     assert res["pct_swapped"] == 0.0
     assert not res["is_swapped"].any()
@@ -187,9 +179,7 @@ def test_detect_neck_inside_triangle_wrapper() -> None:
     re_y = np.full(n, 10.0)
     neck_x = np.full(n, 2.0)  # inside
     neck_y = np.full(n, 2.0)
-    res = detect_neck_inside_triangle(
-        nose_x, nose_y, le_x, le_y, re_x, re_y, neck_x, neck_y
-    )
+    res = detect_neck_inside_triangle(nose_x, nose_y, le_x, le_y, re_x, re_y, neck_x, neck_y)
     assert res["n_inside"] == n
     assert res["is_inside"].all()
 
@@ -276,9 +266,7 @@ def test_ear_asymmetry_flags_lopsided() -> None:
     le_y = np.full(n, 9.0)  # far from axis
     re_x = np.full(n, 5.0)
     re_y = np.full(n, -1.0)  # near axis → ratio ~9
-    res = detect_ear_asymmetry(
-        le_x, le_y, re_x, re_y, ax1, ay1, ax2, ay2, ratio_threshold=3.0
-    )
+    res = detect_ear_asymmetry(le_x, le_y, re_x, re_y, ax1, ay1, ax2, ay2, ratio_threshold=3.0)
     assert res["n_asymmetric"] == n
     assert res["is_asymmetric"].all()
 

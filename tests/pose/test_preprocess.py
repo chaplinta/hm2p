@@ -11,7 +11,21 @@ from hm2p.pose.preprocess import (
     crop_to_maze_roi,
     load_calibration,
     load_meta,
+    undistort_frame,
 )
+
+
+def test_undistort_frame_zero_distortion_identity() -> None:
+    """With zero distortion coefficients, the frame is returned unchanged."""
+    frame = np.full((20, 30, 3), 120, dtype=np.uint8)
+    camera_matrix = np.array(
+        [[25.0, 0.0, 15.0], [0.0, 25.0, 10.0], [0.0, 0.0, 1.0]], dtype=np.float64
+    )
+    dist_coeffs = np.zeros((1, 5), dtype=np.float64)
+    out = undistort_frame(frame, camera_matrix, dist_coeffs)
+    assert out.shape == frame.shape
+    assert np.array_equal(out, frame)
+
 
 # ---------------------------------------------------------------------------
 # Helpers

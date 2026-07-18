@@ -119,76 +119,104 @@ def test_load_frame_gray_follows_symlink(tmp_path: Path) -> None:
 # ── filter_duplicates_against_existing ──────────────────────────────
 
 
-def _write_video(path: Path, frames: list[np.ndarray]) -> bool:
-    """Write grayscale frames to a lossless AVI. Returns success."""
-    h, w = frames[0].shape
-    fourcc = cv2.VideoWriter_fourcc(*"FFV1")
-    writer = cv2.VideoWriter(str(path), fourcc, 10.0, (w, h))
-    if not writer.isOpened():
-        return False
-    for f in frames:
-        writer.write(cv2.cvtColor(f, cv2.COLOR_GRAY2BGR))
-    writer.release()
-    return path.exists() and path.stat().st_size > 0
+class _FakeCapture:
+    """Deterministic stand-in for cv2.VideoCapture — no codec required.
+
+    Holds a list of grayscale frames; ``read`` returns the BGR frame at
+    the currently-set position, mimicking cv2's real decode path.
+    """
+
+    def __init__(self, frames: list[np.ndarray], opened: bool = True) -> None:
+        self._frames = frames
+        self._opened = opened
+        self._pos = 0
+
+    def isOpened(self) -> bool:  # noqa: N802 — cv2 API name
+        return self._opened
+
+    def set(self, prop: int, value: float) -> bool:
+        self._pos = int(value)
+        return True
+
+    def read(self):
+        if 0 <= self._pos < len(self._frames):
+            bgr = cv2.cvtColor(self._frames[self._pos], cv2.COLOR_GRAY2BGR)
+            return True, bgr
+        return False, None
+
+    def release(self) -> None:
+        return None
 
 
-def test_filter_duplicates_unopenable_video(tmp_path: Path) -> None:
+def _patch_capture(monkeypatch, frames: list[np.ndarray], opened: bool = True) -> None:
+    """Route cv2.VideoCapture to a fake that yields synthetic frames."""
+    monkeypatch.setattr(cv2, "VideoCapture", lambda _path: _FakeCapture(frames, opened=opened))
+
+
+def test_filter_duplicates_unopenable_video(monkeypatch, tmp_path: Path) -> None:
     """If the video cannot be opened, candidates are returned unchanged."""
+    _patch_capture(monkeypatch, [], opened=False)
     existing = tmp_path / "existing"
     existing.mkdir()
     candidates = [0, 5, 10]
-    result = filter_duplicates_against_existing(
-        tmp_path / "no_such_video.mp4", candidates, existing
-    )
+    result = filter_duplicates_against_existing(tmp_path / "any_video.mp4", candidates, existing)
     assert result == candidates
 
 
-def test_filter_duplicates_removes_batch_dups(tmp_path: Path) -> None:
+def test_filter_duplicates_removes_batch_dups(monkeypatch, tmp_path: Path) -> None:
     """Consecutive identical candidate frames are deduplicated."""
     black = np.zeros((32, 32), dtype=np.uint8)
     white = np.full((32, 32), 255, dtype=np.uint8)
-    video = tmp_path / "vid.avi"
-    if not _write_video(video, [black, black.copy(), white]):
-        pytest.skip("No usable lossless video codec available")
+    _patch_capture(monkeypatch, [black, black.copy(), white])
 
     existing = tmp_path / "existing"
     existing.mkdir()  # empty — no disk frames to compare against
 
-    kept = filter_duplicates_against_existing(video, [0, 1, 2], existing)
+    kept = filter_duplicates_against_existing(tmp_path / "vid.mp4", [0, 1, 2], existing)
     # Frame 1 duplicates frame 0 → dropped; frame 2 is distinct → kept.
     assert 0 in kept
     assert 1 not in kept
     assert 2 in kept
 
 
-def test_filter_duplicates_against_disk_frame(tmp_path: Path) -> None:
+def test_filter_duplicates_against_disk_frame(monkeypatch, tmp_path: Path) -> None:
     """A candidate matching an existing on-disk PNG is removed."""
     black = np.zeros((32, 32), dtype=np.uint8)
     white = np.full((32, 32), 255, dtype=np.uint8)
-    video = tmp_path / "vid.avi"
-    if not _write_video(video, [black, white]):
-        pytest.skip("No usable lossless video codec available")
+    _patch_capture(monkeypatch, [black, white])
 
     existing = tmp_path / "existing"
     existing.mkdir()
     # Existing PNG identical to frame 0 (black) → frame 0 should be dropped.
     cv2.imwrite(str(existing / "prev.png"), black)
 
-    kept = filter_duplicates_against_existing(video, [0, 1], existing)
+    kept = filter_duplicates_against_existing(tmp_path / "vid.mp4", [0, 1], existing)
     assert 0 not in kept
     assert 1 in kept
 
 
-def test_filter_duplicates_skips_unreadable_index(tmp_path: Path) -> None:
+def test_filter_duplicates_skips_unreadable_index(monkeypatch, tmp_path: Path) -> None:
     """Out-of-range frame indices are skipped without error."""
     black = np.zeros((32, 32), dtype=np.uint8)
-    video = tmp_path / "vid.avi"
-    if not _write_video(video, [black, black.copy()]):
-        pytest.skip("No usable lossless video codec available")
+    _patch_capture(monkeypatch, [black, black.copy()])
 
     existing = tmp_path / "existing"
     existing.mkdir()
     # Index 999 is past the end → read fails and is skipped.
-    kept = filter_duplicates_against_existing(video, [0, 999], existing)
+    kept = filter_duplicates_against_existing(tmp_path / "vid.mp4", [0, 999], existing)
     assert 0 in kept
     assert 999 not in kept
+
+
+def test_filter_duplicates_ignores_unreadable_existing_png(monkeypatch, tmp_path: Path) -> None:
+    """A non-image file in existing_dir is skipped (load returns None)."""
+    black = np.zeros((32, 32), dtype=np.uint8)
+    _patch_capture(monkeypatch, [black])
+
+    existing = tmp_path / "existing"
+    existing.mkdir()
+    # A .png that is not a valid image → load_frame_gray returns None.
+    (existing / "corrupt.png").write_bytes(b"not an image")
+
+    kept = filter_duplicates_against_existing(tmp_path / "vid.mp4", [0], existing)
+    assert kept == [0]

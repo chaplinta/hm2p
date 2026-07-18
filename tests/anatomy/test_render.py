@@ -16,7 +16,6 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from hm2p.anatomy import render
 from hm2p.anatomy.render import (
     _CAMERAS,
     _CELLTYPE_RGB,
@@ -26,13 +25,17 @@ from hm2p.anatomy.render import (
 )
 
 
-def _brainrender_absent() -> bool:
-    try:
-        import brainrender  # noqa: F401
+@pytest.fixture
+def no_brainrender(monkeypatch: pytest.MonkeyPatch):
+    """Force ``import brainrender`` to raise ImportError deterministically.
 
-        return False
-    except ImportError:
-        return True
+    Setting the sys.modules entries to None makes the import statement
+    raise, so the ImportError branch is exercised in every environment
+    (whether or not brainrender is actually installed) — no skips.
+    """
+    monkeypatch.setitem(sys.modules, "brainrender", None)
+    monkeypatch.setitem(sys.modules, "brainrender.actors", None)
+    yield
 
 
 @pytest.fixture
@@ -85,20 +88,16 @@ def test_celltype_rgb_map() -> None:
 # ── brainrender-absent path ─────────────────────────────────────────
 
 
-@pytest.mark.skipif(not _brainrender_absent(), reason="brainrender installed")
 def test_render_injection_sites_no_brainrender(
-    injection_df: pd.DataFrame, tmp_path: Path
+    no_brainrender, injection_df: pd.DataFrame, tmp_path: Path
 ) -> None:
     """Returns None when brainrender cannot be imported."""
     assert render_injection_sites(injection_df, tmp_path) is None
 
 
-@pytest.mark.skipif(not _brainrender_absent(), reason="brainrender installed")
-def test_render_single_animal_no_brainrender(tmp_path: Path) -> None:
+def test_render_single_animal_no_brainrender(no_brainrender, tmp_path: Path) -> None:
     """Single-animal wrapper also returns None without brainrender."""
-    result = render_single_animal(
-        "m1", 1.5, 1.2, 0.8, "penk", tmp_path
-    )
+    result = render_single_animal("m1", 1.5, 1.2, 0.8, "penk", tmp_path)
     assert result is None
 
 
@@ -146,10 +145,7 @@ class _FakePoint:
 @pytest.fixture
 def fake_brainrender(monkeypatch: pytest.MonkeyPatch):
     """Inject synthetic brainrender modules, restoring originals after."""
-    saved = {
-        k: sys.modules.get(k)
-        for k in ("brainrender", "brainrender.actors")
-    }
+    saved = {k: sys.modules.get(k) for k in ("brainrender", "brainrender.actors")}
 
     br = types.ModuleType("brainrender")
     br.Scene = _FakeScene
@@ -182,18 +178,14 @@ def test_render_injection_sites_with_fake(
     assert fake_brainrender.settings.OFFSCREEN is True
 
 
-def test_render_injection_sites_missing_columns(
-    fake_brainrender, tmp_path: Path
-) -> None:
+def test_render_injection_sites_missing_columns(fake_brainrender, tmp_path: Path) -> None:
     """A DataFrame missing required columns raises ValueError."""
     bad = pd.DataFrame({"animal_id": ["m1"]})
     with pytest.raises(ValueError, match="missing columns"):
         render_injection_sites(bad, tmp_path)
 
 
-def test_render_injection_sites_skips_nan_coords(
-    fake_brainrender, tmp_path: Path
-) -> None:
+def test_render_injection_sites_skips_nan_coords(fake_brainrender, tmp_path: Path) -> None:
     """Rows with NaN coordinates are skipped, not rendered as points."""
     df = pd.DataFrame(
         [
@@ -212,9 +204,7 @@ def test_render_injection_sites_skips_nan_coords(
     assert len(out) == 3
 
 
-def test_render_single_animal_with_fake(
-    fake_brainrender, tmp_path: Path
-) -> None:
+def test_render_single_animal_with_fake(fake_brainrender, tmp_path: Path) -> None:
     """Single-animal wrapper builds a one-row frame and renders it."""
     out = render_single_animal("m1", 1.5, 1.2, 0.8, "penk", tmp_path)
     assert out is not None
