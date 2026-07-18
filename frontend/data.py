@@ -1246,72 +1246,84 @@ def load_all_ca_data() -> list[dict]:
 
 
 @st.cache_data(ttl=1800)
-def _fetch_all_ca_data() -> list[dict]:
-    """Internal: download and parse all ca.h5 files from S3."""
+def load_ca_one(exp_id: str) -> dict | None:
+    """Load and parse a SINGLE session's ca.h5 from S3.
+
+    Returns the same per-session dict shape as one element of
+    :func:`load_all_ca_data`, or None if the session's ca.h5 is missing or
+    unreadable. Loading one session at a time lets pages that only render the
+    selected session (e.g. ROI curation) avoid downloading every session's
+    ca.h5 up front.
+    """
+    import io as _io
+
     import h5py
     import numpy as np
 
-    experiments = load_experiments()
-    animals = load_animals()
-    animal_map = {a["animal_id"]: a for a in animals}
-    sessions = []
+    sub, ses = parse_session_id(exp_id)
+    animal_id = exp_id.split("_")[-1]
+    animal_info = next(
+        (a for a in load_animals() if a["animal_id"] == animal_id), {}
+    )
 
-    for exp in experiments:
-        exp_id = exp["exp_id"]
-        sub, ses = parse_session_id(exp_id)
-        animal_id = exp_id.split("_")[-1]
-        animal_info = animal_map.get(animal_id, {})
+    data = download_s3_bytes(DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5")
+    if data is None:
+        return None
 
-        data = download_s3_bytes(DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5")
-        if data is None:
-            continue
-
-        try:
-            with h5py.File(io.BytesIO(data), "r") as f:
-                dff = f["dff"][:]
-                fps = float(f.attrs.get("fps_imaging", 30.0))
-                roi_types = (
-                    f["roi_types"][:]
-                    if "roi_types" in f
-                    else np.zeros(dff.shape[0], dtype=np.uint8)
-                )
-                event_masks = f["event_masks"][:] if "event_masks" in f else None
-                event_masks_sd = f["event_masks_sd"][:] if "event_masks_sd" in f else None
-                deconv_norm = f["deconv_norm"][:] if "deconv_norm" in f else None
-                spikes_ca = f["spikes"][:] if "spikes" in f else None
-                frame_times_ca = f["frame_times"][:] if "frame_times" in f else None
-
-                # Per-ROI QC metrics (optional, written by Stage 4 qc.py)
-                roi_qc: dict[str, np.ndarray] | None = None
-                if "roi_qc" in f:
-                    grp = f["roi_qc"]
-                    roi_qc = {k: grp[k][:] for k in grp}
-
-            sessions.append(
-                {
-                    "exp_id": exp_id,
-                    "sub": sub,
-                    "ses": ses,
-                    "animal_id": animal_id,
-                    "celltype": animal_info.get("celltype", "unknown"),
-                    "dff": dff,
-                    "fps": fps,
-                    "roi_types": roi_types,
-                    "event_masks": event_masks,
-                    "event_masks_sd": event_masks_sd,
-                    "deconv_norm": deconv_norm,
-                    "spikes": spikes_ca,
-                    "frame_times": frame_times_ca,
-                    "roi_qc": roi_qc,
-                    "n_rois": dff.shape[0],
-                    "n_frames": dff.shape[1],
-                }
+    try:
+        with h5py.File(_io.BytesIO(data), "r") as f:
+            dff = f["dff"][:]
+            fps = float(f.attrs.get("fps_imaging", 30.0))
+            roi_types = (
+                f["roi_types"][:]
+                if "roi_types" in f
+                else np.zeros(dff.shape[0], dtype=np.uint8)
             )
-        except Exception:
-            log.exception("Error reading ca.h5 for %s", exp_id)
-            continue
+            event_masks = f["event_masks"][:] if "event_masks" in f else None
+            event_masks_sd = f["event_masks_sd"][:] if "event_masks_sd" in f else None
+            deconv_norm = f["deconv_norm"][:] if "deconv_norm" in f else None
+            spikes_ca = f["spikes"][:] if "spikes" in f else None
+            frame_times_ca = f["frame_times"][:] if "frame_times" in f else None
 
-    return sessions
+            # Per-ROI QC metrics (optional, written by Stage 4 qc.py)
+            roi_qc: dict[str, np.ndarray] | None = None
+            if "roi_qc" in f:
+                grp = f["roi_qc"]
+                roi_qc = {k: grp[k][:] for k in grp}
+    except Exception:
+        log.exception("Error reading ca.h5 for %s", exp_id)
+        return None
+
+    return {
+        "exp_id": exp_id,
+        "sub": sub,
+        "ses": ses,
+        "animal_id": animal_id,
+        "celltype": animal_info.get("celltype", "unknown"),
+        "dff": dff,
+        "fps": fps,
+        "roi_types": roi_types,
+        "event_masks": event_masks,
+        "event_masks_sd": event_masks_sd,
+        "deconv_norm": deconv_norm,
+        "spikes": spikes_ca,
+        "frame_times": frame_times_ca,
+        "roi_qc": roi_qc,
+        "n_rois": dff.shape[0],
+        "n_frames": dff.shape[1],
+    }
+
+
+@st.cache_data(ttl=1800)
+def _fetch_all_ca_data() -> list[dict]:
+    """Internal: download and parse all ca.h5 files from S3."""
+    experiments = load_experiments()
+    out = []
+    for exp in experiments:
+        one = load_ca_one(exp["exp_id"])
+        if one is not None:
+            out.append(one)
+    return out
 
 
 def session_filter_controls(
@@ -1540,69 +1552,76 @@ def load_all_suite2p_spatial() -> dict[str, dict]:
 
 
 @st.cache_data(ttl=1800)
-def _fetch_all_suite2p_spatial() -> dict[str, dict]:
-    """Internal: download and parse Suite2p spatial files from S3."""
+def load_suite2p_spatial_one(exp_id: str) -> dict:
+    """Download and parse Suite2p spatial files for a SINGLE session.
+
+    Returns the same per-session dict shape as one value of
+    :func:`load_all_suite2p_spatial` (``mean_img``, ``max_img``,
+    ``shape_features``, ``accepted_ids``). Pulling one session at a time lets
+    pages that only render the selected session avoid downloading every
+    session's Suite2p output up front.
+    """
     import numpy as np
 
+    sub, ses = parse_session_id(exp_id)
+
+    s2p_prefix = f"ca_extraction/{sub}/{ses}/suite2p/plane0/"
+    stat = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "stat.npy", allow_pickle=True)
+    ops = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "ops.npy", allow_pickle=True)
+    iscell = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "iscell.npy")
+
+    # Extract mean and max images from ops
+    mean_img = None
+    max_img = None
+    if ops is not None:
+        ops_dict = ops.item() if isinstance(ops, np.ndarray) and ops.ndim == 0 else ops
+        mean_img = ops_dict.get("meanImg")
+        # True max projection (computed post-Suite2p from data.bin).
+        # Falls back to meanImgE (contrast-enhanced mean) if max_proj not available.
+        max_img = ops_dict.get("max_proj")
+        if max_img is None:
+            max_img = ops_dict.get("meanImgE")
+
+    # Get accepted cell indices
+    cell_mask = iscell[:, 0].astype(bool) if iscell is not None else None
+    accepted_ids = list(np.flatnonzero(cell_mask)) if cell_mask is not None else None
+
+    # Build per-ROI shape features from stat.npy
+    shape_features: list[dict | None] = []
+    if stat is not None and accepted_ids is not None:
+        stat_list = list(stat)
+        for global_idx in accepted_ids:
+            if global_idx < len(stat_list):
+                s = stat_list[global_idx]
+                shape_features.append(
+                    {
+                        "aspect_ratio": float(s.get("aspect_ratio", 1.0)),
+                        "radius": float(s.get("radius", 5.0)),
+                        "compact": float(s.get("compact", 1.0)),
+                        "npix": int(s.get("npix", 0)),
+                        "skew": float(s.get("skew", 0.0)),
+                        "med_y": int(s.get("med", [0, 0])[0]),
+                        "med_x": int(s.get("med", [0, 0])[1]),
+                        "ypix": s.get("ypix", np.array([], dtype=int)),
+                        "xpix": s.get("xpix", np.array([], dtype=int)),
+                    }
+                )
+            else:
+                shape_features.append(None)
+
+    return {
+        "mean_img": mean_img,
+        "max_img": max_img,
+        "shape_features": shape_features,
+        "accepted_ids": accepted_ids,
+    }
+
+
+@st.cache_data(ttl=1800)
+def _fetch_all_suite2p_spatial() -> dict[str, dict]:
+    """Internal: download and parse Suite2p spatial files for all sessions."""
     experiments = load_experiments()
-    result: dict[str, dict] = {}
-
-    for exp in experiments:
-        exp_id = exp["exp_id"]
-        sub, ses = parse_session_id(exp_id)
-
-        s2p_prefix = f"ca_extraction/{sub}/{ses}/suite2p/plane0/"
-        stat = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "stat.npy", allow_pickle=True)
-        ops = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "ops.npy", allow_pickle=True)
-        iscell = download_s3_numpy(DERIVATIVES_BUCKET, s2p_prefix + "iscell.npy")
-
-        # Extract mean and max images from ops
-        mean_img = None
-        max_img = None
-        if ops is not None:
-            ops_dict = ops.item() if isinstance(ops, np.ndarray) and ops.ndim == 0 else ops
-            mean_img = ops_dict.get("meanImg")
-            # True max projection (computed post-Suite2p from data.bin).
-            # Falls back to meanImgE (contrast-enhanced mean) if max_proj not available.
-            max_img = ops_dict.get("max_proj")
-            if max_img is None:
-                max_img = ops_dict.get("meanImgE")
-
-        # Get accepted cell indices
-        cell_mask = iscell[:, 0].astype(bool) if iscell is not None else None
-        accepted_ids = list(np.flatnonzero(cell_mask)) if cell_mask is not None else None
-
-        # Build per-ROI shape features from stat.npy
-        shape_features: list[dict | None] = []
-        if stat is not None and accepted_ids is not None:
-            stat_list = list(stat)
-            for global_idx in accepted_ids:
-                if global_idx < len(stat_list):
-                    s = stat_list[global_idx]
-                    shape_features.append(
-                        {
-                            "aspect_ratio": float(s.get("aspect_ratio", 1.0)),
-                            "radius": float(s.get("radius", 5.0)),
-                            "compact": float(s.get("compact", 1.0)),
-                            "npix": int(s.get("npix", 0)),
-                            "skew": float(s.get("skew", 0.0)),
-                            "med_y": int(s.get("med", [0, 0])[0]),
-                            "med_x": int(s.get("med", [0, 0])[1]),
-                            "ypix": s.get("ypix", np.array([], dtype=int)),
-                            "xpix": s.get("xpix", np.array([], dtype=int)),
-                        }
-                    )
-                else:
-                    shape_features.append(None)
-
-        result[exp_id] = {
-            "mean_img": mean_img,
-            "max_img": max_img,
-            "shape_features": shape_features,
-            "accepted_ids": accepted_ids,
-        }
-
-    return result
+    return {exp["exp_id"]: load_suite2p_spatial_one(exp["exp_id"]) for exp in experiments}
 
 
 # ── MoSeq data loaders ──────────────────────────────────────────────────

@@ -38,8 +38,11 @@ from frontend.data import (
     DERIVATIVES_BUCKET,
     METADATA_DIR,
     download_s3_bytes,
-    load_all_ca_data,
-    load_all_suite2p_spatial,
+    load_animals,
+    load_ca_one,
+    load_experiments,
+    load_suite2p_spatial_one,
+    parse_session_id,
 )
 
 from hm2p.extraction.curation import (
@@ -78,14 +81,30 @@ st.caption(
 # ── Cached loaders ────────────────────────────────────────────────────────
 
 
-@st.cache_data(ttl=1800, show_spinner="Loading calcium data...")
-def _load_ca() -> list[dict]:
-    return load_all_ca_data()
+@st.cache_data(ttl=1800, show_spinner=False)
+def _session_list() -> list[dict]:
+    """Lightweight per-session metadata (exp_id, sub, ses, celltype).
 
-
-@st.cache_data(ttl=1800, show_spinner="Loading Suite2p spatial data...")
-def _load_spatial() -> dict:
-    return load_all_suite2p_spatial()
+    Built from metadata CSVs only — no ca.h5 downloads — so the page renders
+    the session selector immediately. Each session's calcium data is loaded
+    lazily once selected.
+    """
+    animals = {a["animal_id"]: a for a in load_animals()}
+    out = []
+    for exp in load_experiments():
+        exp_id = exp["exp_id"]
+        sub, ses = parse_session_id(exp_id)
+        animal_id = exp_id.split("_")[-1]
+        out.append(
+            {
+                "exp_id": exp_id,
+                "sub": sub,
+                "ses": ses,
+                "animal_id": animal_id,
+                "celltype": animals.get(animal_id, {}).get("celltype", "unknown"),
+            }
+        )
+    return out
 
 
 @st.cache_data(ttl=300)
@@ -94,13 +113,11 @@ def _download_session_ca_h5(sub: str, ses: str) -> bytes | None:
     return download_s3_bytes(DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5")
 
 
-ca_sessions = _load_ca()
-spatial_data = _load_spatial()
+sessions_meta = _session_list()
 
-if not ca_sessions:
+if not sessions_meta:
     st.warning(
-        "No calcium data available on S3. Run Stage 4 to generate `ca.h5` files "
-        "before curating ROIs."
+        "No sessions found in metadata. Check that `experiments.csv` is present."
     )
     st.stop()
 
@@ -124,14 +141,25 @@ if not curator.strip():
 
 # ── Session selector (page body, not sidebar) ─────────────────────────────
 
-session_options = [s["exp_id"] for s in ca_sessions]
+session_options = [s["exp_id"] for s in sessions_meta]
 sel_label = st.selectbox(
     "Session",
     options=session_options,
     key="rc_session",
 )
 ses_idx = session_options.index(sel_label)
-ses = ca_sessions[ses_idx]
+ses_meta = sessions_meta[ses_idx]
+
+# Load only the selected session's calcium data (dff, roi_qc, event masks).
+with st.spinner(f"Loading calcium data for {ses_meta['exp_id']}..."):
+    ca = load_ca_one(ses_meta["exp_id"])
+if ca is None:
+    st.warning(
+        f"Could not load `ca.h5` for {ses_meta['exp_id']}. Run Stage 4 to "
+        "generate it, or check S3 connectivity."
+    )
+    st.stop()
+ses = {**ses_meta, **ca}
 
 celltype_label = "Penk+" if ses["celltype"] == "penk" else "Penk⁻CamKII+"
 st.markdown(
@@ -278,7 +306,7 @@ for col, key in zip(qc_cols, qc_keys, strict=True):
 
 # ── Spatial view ──────────────────────────────────────────────────────────
 
-spatial = spatial_data.get(ses["exp_id"], {})
+spatial = load_suite2p_spatial_one(ses["exp_id"]) or {}
 mean_img = spatial.get("mean_img")
 max_img = spatial.get("max_img")
 shape_features = spatial.get("shape_features", [])
