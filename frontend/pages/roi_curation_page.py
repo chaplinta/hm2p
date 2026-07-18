@@ -316,7 +316,7 @@ if max_img is not None:
 if mean_img is not None:
     bg_options.append("Mean image")
 
-ctrl_bg, ctrl_roi = st.columns([3, 1])
+ctrl_bg, ctrl_roi, ctrl_contrast = st.columns([2, 1, 1])
 with ctrl_bg:
     bg_choice = st.radio(
         "Background image",
@@ -327,12 +327,34 @@ with ctrl_bg:
     )
 with ctrl_roi:
     show_roi = st.toggle("Show ROI overlay", value=True, key="rc_show_roi")
+with ctrl_contrast:
+    auto_contrast = st.toggle(
+        "Auto-contrast",
+        value=True,
+        key="rc_auto_contrast",
+        help=(
+            "Stretch the display range to the 1st–99.5th intensity percentile "
+            "so faint somata and dendrites are visible. Turn off to show the "
+            "raw intensity range. Applies to both the mean and max images."
+        ),
+    )
 
 # Radio options only include images that exist, so the selected one is present.
 bg_img = mean_img if bg_choice == "Mean image" else max_img
 
 if bg_img is not None:
-    fig = go.Figure(data=go.Heatmap(z=bg_img, colorscale="gray", showscale=False))
+    # Auto-contrast clips only the display colour scale (not the data) to
+    # robust percentiles, so a few bright pixels don't wash out faint ROIs.
+    zmin = zmax = None
+    if auto_contrast:
+        finite_vals = np.asarray(bg_img)[np.isfinite(bg_img)]
+        if finite_vals.size:
+            lo, hi = np.percentile(finite_vals, [1.0, 99.5])
+            if hi > lo:
+                zmin, zmax = float(lo), float(hi)
+    fig = go.Figure(
+        data=go.Heatmap(z=bg_img, colorscale="gray", showscale=False, zmin=zmin, zmax=zmax)
+    )
     if show_roi and roi_idx < len(shape_features) and shape_features[roi_idx] is not None:
         sf = shape_features[roi_idx]
         ypix = sf.get("ypix", [])
