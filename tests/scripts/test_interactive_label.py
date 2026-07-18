@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import h5py
 import numpy as np
 import pandas as pd
-import pytest
-from pathlib import Path
-
 
 # ---------------------------------------------------------------------------
 # Helpers to create DLC-format H5 files
 # ---------------------------------------------------------------------------
 
-BODYPARTS = ["nose_tip", "left_ear", "right_ear", "head_midpoint",
-             "neck", "mid_back", "mouse_center", "tail_base"]
+BODYPARTS = [
+    "nose_tip",
+    "left_ear",
+    "right_ear",
+    "head_midpoint",
+    "neck",
+    "mid_back",
+    "mouse_center",
+    "tail_base",
+]
 SCORER = "tristan"
 
 
@@ -47,13 +54,16 @@ def _write_dlc_h5(path: Path, df: pd.DataFrame, key: str = "keypoints") -> None:
 # Tests for _validate_h5
 # ---------------------------------------------------------------------------
 
+
 class TestValidateH5:
     """Test the _validate_h5 pre-flight check."""
 
     def _get_validate(self):
         import sys
+
         sys.path.insert(0, "scripts")
         from interactive_label import _validate_h5
+
         return _validate_h5
 
     def test_valid_h5_kept(self, tmp_path):
@@ -165,6 +175,7 @@ class TestValidateH5:
 # Tests for DLC H5 format correctness
 # ---------------------------------------------------------------------------
 
+
 class TestDLCH5Format:
     """Test that our H5 writing produces DLC-compatible files."""
 
@@ -221,8 +232,7 @@ class TestDLCH5Format:
         # Simulate the rename operation
         df2 = pd.read_hdf(h5)
         cols = df2.columns.tolist()
-        new_cols = [(s, bp.replace("head_midpoint", "renamed_bp"), c)
-                    for s, bp, c in cols]
+        new_cols = [(s, bp.replace("head_midpoint", "renamed_bp"), c) for s, bp, c in cols]
         df2.columns = pd.MultiIndex.from_tuples(new_cols, names=df2.columns.names)
         df2.to_hdf(h5, key="keypoints", mode="w")
 

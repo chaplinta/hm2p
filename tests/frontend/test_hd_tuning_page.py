@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.analysis.tuning import (
     compute_hd_tuning_curve,
     mean_vector_length,
-    peak_to_trough_ratio,
     preferred_direction,
     tuning_width_fwhm,
 )
 
 
 def _generate_synthetic_hd_cell(
-    n_frames=5000, preferred_deg=180.0, concentration=2.0,
-    noise_level=0.3, baseline=0.1, seed=42,
+    n_frames=5000,
+    preferred_deg=180.0,
+    concentration=2.0,
+    noise_level=0.3,
+    baseline=0.1,
+    seed=42,
 ):
     """Reproduce the synthetic generator from hd_tuning_page.py."""
     rng = np.random.default_rng(seed)
@@ -54,7 +56,9 @@ class TestSyntheticHDCell:
         """Tuning curve should peak near the input preferred direction."""
         for pref in [0, 90, 180, 270]:
             signal, hd, mask = _generate_synthetic_hd_cell(
-                preferred_deg=pref, concentration=5.0, noise_level=0.1,
+                preferred_deg=pref,
+                concentration=5.0,
+                noise_level=0.1,
             )
             tc, bc = compute_hd_tuning_curve(signal, hd, mask, n_bins=36)
             pd_deg = preferred_direction(tc, bc)
@@ -67,7 +71,9 @@ class TestSyntheticHDCell:
         mvls = []
         for kappa in [0.5, 2.0, 5.0]:
             signal, hd, mask = _generate_synthetic_hd_cell(
-                concentration=kappa, noise_level=0.1, seed=42,
+                concentration=kappa,
+                noise_level=0.1,
+                seed=42,
             )
             tc, bc = compute_hd_tuning_curve(signal, hd, mask)
             mvls.append(mean_vector_length(tc, bc))
@@ -78,7 +84,9 @@ class TestSyntheticHDCell:
         fwhms = []
         for kappa in [0.5, 2.0, 5.0]:
             signal, hd, mask = _generate_synthetic_hd_cell(
-                concentration=kappa, noise_level=0.1, seed=42,
+                concentration=kappa,
+                noise_level=0.1,
+                seed=42,
             )
             tc, bc = compute_hd_tuning_curve(signal, hd, mask)
             fwhms.append(tuning_width_fwhm(tc, bc))
@@ -86,12 +94,16 @@ class TestSyntheticHDCell:
 
     def test_noise_reduces_mvl(self):
         """Higher noise should reduce MVL."""
-        mvl_low = mean_vector_length(*compute_hd_tuning_curve(
-            *_generate_synthetic_hd_cell(noise_level=0.05, seed=42),
-        ))
-        mvl_high = mean_vector_length(*compute_hd_tuning_curve(
-            *_generate_synthetic_hd_cell(noise_level=0.8, seed=42),
-        ))
+        mvl_low = mean_vector_length(
+            *compute_hd_tuning_curve(
+                *_generate_synthetic_hd_cell(noise_level=0.05, seed=42),
+            )
+        )
+        mvl_high = mean_vector_length(
+            *compute_hd_tuning_curve(
+                *_generate_synthetic_hd_cell(noise_level=0.8, seed=42),
+            )
+        )
         assert mvl_low > mvl_high
 
 
@@ -105,7 +117,10 @@ class TestPopulationDisplay:
         recovered = []
         for i, pref in enumerate(prefs):
             signal, hd, mask = _generate_synthetic_hd_cell(
-                preferred_deg=pref, concentration=3.0, noise_level=0.1, seed=i,
+                preferred_deg=pref,
+                concentration=3.0,
+                noise_level=0.1,
+                seed=i,
             )
             tc, bc = compute_hd_tuning_curve(signal, hd, mask)
             recovered.append(preferred_direction(tc, bc))
@@ -119,7 +134,8 @@ class TestPopulationDisplay:
         tc_matrix = np.zeros((n_cells, n_bins))
         for i in range(n_cells):
             signal, hd, mask = _generate_synthetic_hd_cell(
-                preferred_deg=i * 36, seed=i,
+                preferred_deg=i * 36,
+                seed=i,
             )
             tc, _ = compute_hd_tuning_curve(signal, hd, mask, n_bins=n_bins)
             tc_matrix[i] = np.where(np.isnan(tc), 0, tc)
@@ -140,10 +156,15 @@ class TestSignificancePage:
         from hm2p.analysis.significance import hd_tuning_significance
 
         signal, hd, mask = _generate_synthetic_hd_cell(
-            concentration=5.0, noise_level=0.1, seed=42,
+            concentration=5.0,
+            noise_level=0.1,
+            seed=42,
         )
         result = hd_tuning_significance(
-            signal, hd, mask, n_shuffles=100,
+            signal,
+            hd,
+            mask,
+            n_shuffles=100,
             rng=np.random.default_rng(42),
         )
         assert result["p_value"] < 0.05
@@ -153,10 +174,15 @@ class TestSignificancePage:
         from hm2p.analysis.significance import hd_tuning_significance
 
         signal, hd, mask = _generate_synthetic_hd_cell(
-            concentration=0.01, noise_level=0.5, seed=42,
+            concentration=0.01,
+            noise_level=0.5,
+            seed=42,
         )
         result = hd_tuning_significance(
-            signal, hd, mask, n_shuffles=100,
+            signal,
+            hd,
+            mask,
+            n_shuffles=100,
             rng=np.random.default_rng(42),
         )
         assert result["p_value"] > 0.05
@@ -167,7 +193,10 @@ class TestSignificancePage:
 
         signal, hd, mask = _generate_synthetic_hd_cell(seed=42)
         result = hd_tuning_significance(
-            signal, hd, mask, n_shuffles=50,
+            signal,
+            hd,
+            mask,
+            n_shuffles=50,
             rng=np.random.default_rng(42),
         )
         assert len(result["shuffle_distribution"]) == 50

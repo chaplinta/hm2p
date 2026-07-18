@@ -11,7 +11,6 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
-
 # ---------------------------------------------------------------------------
 # Per-keypoint quality metrics
 # ---------------------------------------------------------------------------
@@ -38,8 +37,12 @@ def likelihood_summary(
     n = len(likelihood)
     if n == 0:
         return {
-            "mean": float("nan"), "median": float("nan"), "std": float("nan"),
-            "pct_above_90": 0.0, "pct_above_50": 0.0, "n_frames": 0,
+            "mean": float("nan"),
+            "median": float("nan"),
+            "std": float("nan"),
+            "pct_above_90": 0.0,
+            "pct_above_50": 0.0,
+            "n_frames": 0,
         }
     return {
         "mean": float(np.nanmean(likelihood)),
@@ -343,6 +346,7 @@ def detect_point_in_triangle(
         ``"n_flagged"`` — count.
         ``"pct_flagged"`` — fraction of valid frames.
     """
+
     def _cross(ox, oy, ax, ay, bx, by):
         return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
 
@@ -354,10 +358,7 @@ def detect_point_in_triangle(
     has_pos = (d1 > 0) | (d2 > 0) | (d3 > 0)
     is_outside = has_neg & has_pos  # mixed signs = outside
 
-    valid = (
-        np.isfinite(tri_ax) & np.isfinite(tri_bx)
-        & np.isfinite(tri_cx) & np.isfinite(point_x)
-    )
+    valid = np.isfinite(tri_ax) & np.isfinite(tri_bx) & np.isfinite(tri_cx) & np.isfinite(point_x)
 
     if expect_inside:
         is_flagged = valid & is_outside
@@ -390,8 +391,14 @@ def detect_head_midpoint_outside_triangle(
     Returns dict with ``"is_outside"``, ``"n_outside"``, ``"pct_outside"``.
     """
     result = detect_point_in_triangle(
-        nose_x, nose_y, left_ear_x, left_ear_y,
-        right_ear_x, right_ear_y, midpoint_x, midpoint_y,
+        nose_x,
+        nose_y,
+        left_ear_x,
+        left_ear_y,
+        right_ear_x,
+        right_ear_y,
+        midpoint_x,
+        midpoint_y,
         expect_inside=True,
     )
     return {
@@ -421,8 +428,14 @@ def detect_neck_inside_triangle(
     Returns dict with ``"is_inside"``, ``"n_inside"``, ``"pct_inside"``.
     """
     result = detect_point_in_triangle(
-        nose_x, nose_y, left_ear_x, left_ear_y,
-        right_ear_x, right_ear_y, neck_x, neck_y,
+        nose_x,
+        nose_y,
+        left_ear_x,
+        left_ear_y,
+        right_ear_x,
+        right_ear_y,
+        neck_x,
+        neck_y,
         expect_inside=False,
     )
     return {
@@ -461,8 +474,7 @@ def detect_anterior_posterior_violations(
         where A was posterior to B (should be anterior).
     """
     if order is None:
-        order = ["nose_tip", "head_midpoint", "neck", "mid_back",
-                 "mouse_center", "tail_base"]
+        order = ["nose_tip", "head_midpoint", "neck", "mid_back", "mouse_center", "tail_base"]
 
     # Keep only keypoints that are available
     available = [bp for bp in order if bp in keypoints]
@@ -687,13 +699,12 @@ def session_quality_report(
         # Warnings
         if lik_stats["pct_above_90"] < 0.8:
             issues.append(
-                f"{bp_name}: only {lik_stats['pct_above_90']*100:.0f}% frames "
+                f"{bp_name}: only {lik_stats['pct_above_90'] * 100:.0f}% frames "
                 f"above 0.9 confidence"
             )
         if jumps.sum() > n_frames * 0.01:
             issues.append(
-                f"{bp_name}: {int(jumps.sum())} jump frames "
-                f"({jumps.sum()/n_frames*100:.1f}%)"
+                f"{bp_name}: {int(jumps.sum())} jump frames ({jumps.sum() / n_frames * 100:.1f}%)"
             )
 
     if problem_frames is None:
@@ -706,9 +717,7 @@ def session_quality_report(
     # Weighted combination of per-keypoint quality
     if per_kp:
         mean_lik = np.mean([v["likelihood"]["mean"] for v in per_kp.values()])
-        mean_pct_good = np.mean(
-            [1.0 - v["pct_low_confidence"] for v in per_kp.values()]
-        )
+        mean_pct_good = np.mean([1.0 - v["pct_low_confidence"] for v in per_kp.values()])
         jump_penalty = min(
             1.0,
             sum(v["n_jumps"] for v in per_kp.values()) / max(n, 1) * 10,

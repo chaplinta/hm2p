@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 
 class TestLightOnMask:
@@ -47,11 +46,11 @@ class TestLightOnMask:
             np.array([10.0, 30.0]),
             np.array([20.0, 40.0]),
         )
-        assert not light_on[0]      # t=0 dark
-        assert light_on[100]         # t=10 light
-        assert not light_on[250]     # t=25 dark
-        assert light_on[350]         # t=35 light
-        assert not light_on[450]     # t=45 dark
+        assert not light_on[0]  # t=0 dark
+        assert light_on[100]  # t=10 light
+        assert not light_on[250]  # t=25 dark
+        assert light_on[350]  # t=35 light
+        assert not light_on[450]  # t=45 dark
 
     def test_light_on_at_start(self):
         """Light is on from the very beginning."""

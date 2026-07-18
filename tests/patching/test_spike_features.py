@@ -8,7 +8,6 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Helpers: synthetic spike generation
 # ---------------------------------------------------------------------------
@@ -136,9 +135,7 @@ class TestExtractWaveform:
 
         trace = np.ones(20_000) * -65.0
         spike_idx = 10_000
-        time_ms, voltage = extract_waveform(
-            trace, spike_idx, sr=20_000, pre_ms=5.0, post_ms=10.0
-        )
+        time_ms, voltage = extract_waveform(trace, spike_idx, sr=20_000, pre_ms=5.0, post_ms=10.0)
         expected_len = int(5.0 * 20) + int(10.0 * 20) + 1
         assert len(time_ms) == expected_len
 
@@ -197,9 +194,7 @@ class TestExtractSpikeFeatures:
         time_ms = np.linspace(0, 200, 4000)
         voltage = np.full_like(time_ms, -70.0)
 
-        result = extract_spike_features(
-            voltage, time_ms, stim_start=10.0, stim_end=190.0
-        )
+        result = extract_spike_features(voltage, time_ms, stim_start=10.0, stim_end=190.0)
         assert result is None
 
     def test_spike_index_fallback(self):
@@ -239,8 +234,14 @@ class TestExtractSpikeFeatures:
         )
 
         expected_keys = {
-            "min_vm", "peak_vm", "max_vm_slope", "half_vm",
-            "amplitude", "max_ahp", "half_width", "spike_time",
+            "min_vm",
+            "peak_vm",
+            "max_vm_slope",
+            "half_vm",
+            "amplitude",
+            "max_ahp",
+            "half_width",
+            "spike_time",
         }
         assert result is not None
         assert set(result.keys()) == expected_keys
@@ -252,6 +253,7 @@ class TestExtractSpikeFeaturesImportError:
     def test_import_error_message(self, monkeypatch):
         """Verify helpful error message when eFEL is missing."""
         import builtins
+
         real_import = builtins.__import__
 
         def mock_import(name, *args, **kwargs):
@@ -260,11 +262,8 @@ class TestExtractSpikeFeaturesImportError:
             return real_import(name, *args, **kwargs)
 
         # Need to reload the module to trigger the import
-        import importlib
         import hm2p.patching.spike_features as sf_mod
 
         monkeypatch.setattr(builtins, "__import__", mock_import)
         with pytest.raises(ImportError, match="pip install efel"):
-            sf_mod.extract_spike_features(
-                np.zeros(100), np.linspace(0, 10, 100), 1.0, 9.0
-            )
+            sf_mod.extract_spike_features(np.zeros(100), np.linspace(0, 10, 100), 1.0, 9.0)

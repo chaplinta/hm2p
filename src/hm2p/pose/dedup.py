@@ -16,7 +16,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-
 # Thresholds calibrated against manual review (2026-04-17).
 # PIXEL_NOISE=15 absorbs sensor noise and compression artefacts.
 # MIN_CHANGED_PCT=1.0 means <1% of pixels changed = duplicate.

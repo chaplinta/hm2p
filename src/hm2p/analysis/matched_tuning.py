@@ -370,8 +370,12 @@ def shuffle_debiased_statistic(
     mask = np.asarray(mask, dtype=bool)
 
     stat_raw = hd_tuning_statistic(
-        signal, hd_deg, mask, n_bins=n_bins,
-        smoothing_sigma_deg=smoothing_sigma_deg, statistic=statistic,
+        signal,
+        hd_deg,
+        mask,
+        n_bins=n_bins,
+        smoothing_sigma_deg=smoothing_sigma_deg,
+        statistic=statistic,
     )
 
     n = len(signal)
@@ -385,8 +389,12 @@ def shuffle_debiased_statistic(
         off = int(rng.integers(min_shift, max_shift))
         rolled = np.roll(signal, off)
         shuf[i] = hd_tuning_statistic(
-            rolled, hd_deg, mask, n_bins=n_bins,
-            smoothing_sigma_deg=smoothing_sigma_deg, statistic=statistic,
+            rolled,
+            hd_deg,
+            mask,
+            n_bins=n_bins,
+            smoothing_sigma_deg=smoothing_sigma_deg,
+            statistic=statistic,
         )
 
     bias = float(np.mean(shuf))
@@ -533,12 +541,20 @@ def matched_condition_mvl(
             b_raw.append(rb["stat_raw"])
         else:
             ma = hd_tuning_statistic(
-                sa, ha, np.ones(len(sa), bool), n_bins=n_bins,
-                smoothing_sigma_deg=smoothing_sigma_deg, statistic=statistic,
+                sa,
+                ha,
+                np.ones(len(sa), bool),
+                n_bins=n_bins,
+                smoothing_sigma_deg=smoothing_sigma_deg,
+                statistic=statistic,
             )
             mb = hd_tuning_statistic(
-                sb, hb, np.ones(len(sb), bool), n_bins=n_bins,
-                smoothing_sigma_deg=smoothing_sigma_deg, statistic=statistic,
+                sb,
+                hb,
+                np.ones(len(sb), bool),
+                n_bins=n_bins,
+                smoothing_sigma_deg=smoothing_sigma_deg,
+                statistic=statistic,
             )
             a_vals.append(ma)
             a_raw.append(ma)

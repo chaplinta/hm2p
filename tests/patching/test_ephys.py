@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from hypothesis.extra.numpy import arrays
 
 from hm2p.patching.ephys import (
     build_stim_vector,
@@ -17,7 +16,6 @@ from hm2p.patching.ephys import (
     detect_spikes,
     lowpass_filter,
 )
-
 
 # ---------------------------------------------------------------------------
 # lowpass_filter
@@ -97,8 +95,12 @@ class TestDeconcatTraces:
         total = delay // 2 + n_pulses * (pulse_dur + delay_bp) + delay
         trace = np.arange(total, dtype=np.float64)
         result = deconcat_traces(
-            trace, delay=delay, delay_bp=delay_bp,
-            pulse_dur=pulse_dur, n_pulses=n_pulses, sr=20000,
+            trace,
+            delay=delay,
+            delay_bp=delay_bp,
+            pulse_dur=pulse_dur,
+            n_pulses=n_pulses,
+            sr=20000,
         )
         assert result.shape[1] == n_pulses
         assert result.shape[0] == pulse_dur + delay_bp
@@ -110,8 +112,12 @@ class TestDeconcatTraces:
         total = 1000
         trace = np.ones(total)
         result = deconcat_traces(
-            trace, delay=delay, delay_bp=delay_bp,
-            pulse_dur=pulse_dur, n_pulses=1, sr=20000,
+            trace,
+            delay=delay,
+            delay_bp=delay_bp,
+            pulse_dur=pulse_dur,
+            n_pulses=1,
+            sr=20000,
         )
         assert result.shape[1] == 1
 
@@ -126,8 +132,12 @@ class TestDeconcatTraces:
         total = half_delay + (n_pulses + 1) * step
         trace = np.arange(total, dtype=np.float64)
         result = deconcat_traces(
-            trace, delay=delay, delay_bp=delay_bp,
-            pulse_dur=pulse_dur, n_pulses=n_pulses, sr=20000,
+            trace,
+            delay=delay,
+            delay_bp=delay_bp,
+            pulse_dur=pulse_dur,
+            n_pulses=n_pulses,
+            sr=20000,
         )
         # First column starts at half_delay
         expected_start_0 = half_delay
@@ -162,17 +172,13 @@ class TestBuildStimVector:
         n_pulses=st.integers(min_value=1, max_value=50),
     )
     @settings(max_examples=30)
-    def test_length_hypothesis(
-        self, first_amp: float, amp_change: float, n_pulses: int
-    ) -> None:
+    def test_length_hypothesis(self, first_amp: float, amp_change: float, n_pulses: int) -> None:
         vec = build_stim_vector(first_amp, amp_change, n_pulses)
         assert len(vec) == n_pulses
 
     @given(
         first_amp=st.floats(min_value=-1000, max_value=1000, allow_nan=False),
-        amp_change=st.floats(
-            min_value=0.1, max_value=100, allow_nan=False
-        ),
+        amp_change=st.floats(min_value=0.1, max_value=100, allow_nan=False),
         n_pulses=st.integers(min_value=2, max_value=50),
     )
     @settings(max_examples=30)

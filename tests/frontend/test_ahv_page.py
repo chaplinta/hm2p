@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.analysis.ahv import (
     ahv_modulation_index,

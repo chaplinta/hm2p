@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.maze.exploration_complexity import (
     build_adjacency_indices,
@@ -14,7 +13,6 @@ from hm2p.maze.exploration_complexity import (
     random_walk_coverage_null,
 )
 from hm2p.maze.topology import build_rose_maze
-
 
 # ---------------------------------------------------------------------------
 # occupancy_entropy

@@ -16,7 +16,6 @@ import numpy as np
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from hypothesis.extra.numpy import arrays
 
 from hm2p.analysis.decoder import (
     build_decoder,
@@ -30,7 +29,11 @@ from hm2p.analysis.decoder import (
 
 
 def _make_population(
-    n_cells=10, n_frames=3000, kappa=3.0, noise=0.1, seed=42,
+    n_cells=10,
+    n_frames=3000,
+    kappa=3.0,
+    noise=0.1,
+    seed=42,
 ):
     """Generate synthetic population of HD cells."""
     rng = np.random.default_rng(seed)
@@ -97,7 +100,10 @@ class TestBuildDecoder:
         """With strong tuning, recovered PDs should be near true PDs."""
         n_cells = 8
         signals, hd, mask = _make_population(
-            n_cells=n_cells, n_frames=5000, kappa=5.0, noise=0.05,
+            n_cells=n_cells,
+            n_frames=5000,
+            kappa=5.0,
+            noise=0.05,
         )
         dec = build_decoder(signals, hd, mask)
         true_pds = np.linspace(0, 360, n_cells, endpoint=False)
@@ -248,7 +254,8 @@ class TestPvaDecode:
         decoded_old, _ = decode_hd(signals, dec)
         # pva_decode without mask also uses all frames
         decoded_new, _ = pva_decode(
-            signals, dec["preferred_directions"],
+            signals,
+            dec["preferred_directions"],
             mvl_weights=dec["mvl"],
         )
         errs_old = decode_error(decoded_old, hd % 360.0)
@@ -329,7 +336,11 @@ class TestTemplateDecodeCv:
     def test_output_keys(self):
         signals, hd, mask = _make_population(n_cells=5, n_frames=300)
         result = template_decode_cv(
-            signals, hd, mask, n_folds=3, rng=np.random.default_rng(42),
+            signals,
+            hd,
+            mask,
+            n_folds=3,
+            rng=np.random.default_rng(42),
         )
         assert "decoded_deg" in result
         assert "actual_deg" in result
@@ -340,7 +351,11 @@ class TestTemplateDecodeCv:
     def test_output_shapes(self):
         signals, hd, mask = _make_population(n_cells=5, n_frames=300)
         result = template_decode_cv(
-            signals, hd, mask, n_folds=3, rng=np.random.default_rng(42),
+            signals,
+            hd,
+            mask,
+            n_folds=3,
+            rng=np.random.default_rng(42),
         )
         n_valid = np.sum(mask)
         assert len(result["decoded_deg"]) == n_valid
@@ -351,23 +366,29 @@ class TestTemplateDecodeCv:
         """CV template decoding should beat chance with good tuning."""
         signals, hd, mask = _make_population(n_cells=15, kappa=4.0, noise=0.1)
         result = template_decode_cv(
-            signals, hd, mask, n_folds=5, rng=np.random.default_rng(42),
+            signals,
+            hd,
+            mask,
+            n_folds=5,
+            rng=np.random.default_rng(42),
         )
         assert result["errors"]["mean_abs_error"] < 90.0
 
     def test_cv_reproducible(self):
         """Same RNG seed should give same results."""
         signals, hd, mask = _make_population(n_cells=5, n_frames=200)
-        r1 = template_decode_cv(signals, hd, mask, n_folds=3,
-                                 rng=np.random.default_rng(42))
-        r2 = template_decode_cv(signals, hd, mask, n_folds=3,
-                                 rng=np.random.default_rng(42))
+        r1 = template_decode_cv(signals, hd, mask, n_folds=3, rng=np.random.default_rng(42))
+        r2 = template_decode_cv(signals, hd, mask, n_folds=3, rng=np.random.default_rng(42))
         np.testing.assert_array_equal(r1["decoded_deg"], r2["decoded_deg"])
 
     def test_error_keys(self):
         signals, hd, mask = _make_population(n_cells=5, n_frames=300)
         result = template_decode_cv(
-            signals, hd, mask, n_folds=3, rng=np.random.default_rng(42),
+            signals,
+            hd,
+            mask,
+            n_folds=3,
+            rng=np.random.default_rng(42),
         )
         errs = result["errors"]
         assert "mean_abs_error" in errs
@@ -412,7 +433,11 @@ class TestCrossValidatedDecode:
     def test_output_shapes(self):
         signals, hd, mask = _make_population(n_cells=8, n_frames=500)
         result = cross_validated_decode(
-            signals, hd, mask, n_folds=5, rng=np.random.default_rng(42),
+            signals,
+            hd,
+            mask,
+            n_folds=5,
+            rng=np.random.default_rng(42),
         )
         assert len(result["decoded_deg"]) == np.sum(mask)
         assert len(result["actual_deg"]) == np.sum(mask)
@@ -422,7 +447,11 @@ class TestCrossValidatedDecode:
     def test_cv_error_keys(self):
         signals, hd, mask = _make_population(n_cells=5, n_frames=300)
         result = cross_validated_decode(
-            signals, hd, mask, n_folds=3, rng=np.random.default_rng(42),
+            signals,
+            hd,
+            mask,
+            n_folds=3,
+            rng=np.random.default_rng(42),
         )
         errs = result["errors"]
         assert "mean_abs_error" in errs
@@ -433,7 +462,11 @@ class TestCrossValidatedDecode:
         """CV result should include confidence array."""
         signals, hd, mask = _make_population(n_cells=5, n_frames=300)
         result = cross_validated_decode(
-            signals, hd, mask, n_folds=3, rng=np.random.default_rng(42),
+            signals,
+            hd,
+            mask,
+            n_folds=3,
+            rng=np.random.default_rng(42),
         )
         conf = result["confidence"]
         assert conf.shape == (np.sum(mask),)
@@ -444,7 +477,11 @@ class TestCrossValidatedDecode:
         """CV decoding with tuned population should beat chance (90 deg)."""
         signals, hd, mask = _make_population(n_cells=15, kappa=4.0, noise=0.1)
         result = cross_validated_decode(
-            signals, hd, mask, n_folds=5, rng=np.random.default_rng(42),
+            signals,
+            hd,
+            mask,
+            n_folds=5,
+            rng=np.random.default_rng(42),
         )
         # Chance level for uniform distribution is ~90 deg MAE
         assert result["errors"]["mean_abs_error"] < 90.0
@@ -452,10 +489,8 @@ class TestCrossValidatedDecode:
     def test_cv_reproducible(self):
         """Same RNG seed should give same results."""
         signals, hd, mask = _make_population(n_cells=5, n_frames=200)
-        r1 = cross_validated_decode(signals, hd, mask, n_folds=3,
-                                     rng=np.random.default_rng(42))
-        r2 = cross_validated_decode(signals, hd, mask, n_folds=3,
-                                     rng=np.random.default_rng(42))
+        r1 = cross_validated_decode(signals, hd, mask, n_folds=3, rng=np.random.default_rng(42))
+        r2 = cross_validated_decode(signals, hd, mask, n_folds=3, rng=np.random.default_rng(42))
         np.testing.assert_array_equal(r1["decoded_deg"], r2["decoded_deg"])
         np.testing.assert_array_equal(r1["confidence"], r2["confidence"])
 
@@ -475,7 +510,10 @@ class TestHypothesisDecoder:
     def test_decode_hd_angles_in_range(self, n_cells, n_frames, kappa):
         """decode_hd output angles always in [0, 360)."""
         signals, hd, mask = _make_population(
-            n_cells=n_cells, n_frames=n_frames, kappa=kappa, noise=0.1,
+            n_cells=n_cells,
+            n_frames=n_frames,
+            kappa=kappa,
+            noise=0.1,
         )
         dec = build_decoder(signals, hd, mask)
         decoded, _ = decode_hd(signals, dec)
@@ -491,7 +529,10 @@ class TestHypothesisDecoder:
     def test_decode_hd_confidence_in_unit_interval(self, n_cells, n_frames, noise):
         """decode_hd confidence always in [0, 1]."""
         signals, hd, mask = _make_population(
-            n_cells=n_cells, n_frames=n_frames, kappa=3.0, noise=noise,
+            n_cells=n_cells,
+            n_frames=n_frames,
+            kappa=3.0,
+            noise=noise,
         )
         dec = build_decoder(signals, hd, mask)
         _, confidence = decode_hd(signals, dec)
@@ -507,10 +548,16 @@ class TestHypothesisDecoder:
     def test_cross_validated_decode_valid_errors(self, n_cells, n_frames, n_folds):
         """cross_validated_decode returns valid error metrics."""
         signals, hd, mask = _make_population(
-            n_cells=n_cells, n_frames=n_frames, kappa=3.0, noise=0.1,
+            n_cells=n_cells,
+            n_frames=n_frames,
+            kappa=3.0,
+            noise=0.1,
         )
         result = cross_validated_decode(
-            signals, hd, mask, n_folds=n_folds,
+            signals,
+            hd,
+            mask,
+            n_folds=n_folds,
             rng=np.random.default_rng(42),
         )
         errs = result["errors"]

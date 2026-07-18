@@ -45,13 +45,9 @@ def find_signal_channel(brain_dir: Path) -> Path:
             matches.append(p)
 
     if len(matches) == 0:
-        raise FileNotFoundError(
-            f"No file with 'green' in the name found under {brain_dir}"
-        )
+        raise FileNotFoundError(f"No file with 'green' in the name found under {brain_dir}")
     if len(matches) > 1:
-        raise RuntimeError(
-            f"Multiple green-channel files found under {brain_dir}: {matches}"
-        )
+        raise RuntimeError(f"Multiple green-channel files found under {brain_dir}: {matches}")
 
     logger.info("found_signal_channel", path=str(matches[0]))
     return matches[0]
@@ -145,9 +141,7 @@ def batch_register(
     """
     results: list[dict] = []
 
-    subdirs = sorted(
-        p for p in brains_dir.iterdir() if p.is_dir()
-    )
+    subdirs = sorted(p for p in brains_dir.iterdir() if p.is_dir())
 
     if not subdirs:
         logger.warning("no_brain_directories", brains_dir=str(brains_dir))

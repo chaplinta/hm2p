@@ -584,8 +584,10 @@ def classify(
     # (camera kept recording after imaging stopped) should not reduce
     # the overlap fraction — the resampled data within the imaging
     # window is unaffected.
-    ref_dur = img_dur if np.isfinite(img_dur) and img_dur > 0 else (
-        cam_dur if np.isfinite(cam_dur) and cam_dur > 0 else 0.0
+    ref_dur = (
+        img_dur
+        if np.isfinite(img_dur) and img_dur > 0
+        else (cam_dur if np.isfinite(cam_dur) and cam_dur > 0 else 0.0)
     )
     if ref_dur > 0:
         overlap_frac = scalars.cross.overlap_s / ref_dur

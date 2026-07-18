@@ -5,8 +5,6 @@ Uses synthetic WaveSurfer-like data structures — never real data files.
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import numpy as np
 import pytest
 
@@ -24,7 +22,6 @@ from hm2p.patching.protocols import (
     extract_sag,
     identify_protocol,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers: build synthetic WaveSurfer-like data
@@ -117,7 +114,7 @@ def _make_ws_data(
                 # 1kHz low-pass filtering. At 20kHz, 2ms = 40 samples.
                 rise_n = 10  # 0.5ms rise
                 fall_n = 15  # 0.75ms fall
-                ahp_n = 20   # 1ms AHP recovery
+                ahp_n = 20  # 1ms AHP recovery
                 # Rising phase
                 for k in range(rise_n):
                     frac = k / rise_n
@@ -166,8 +163,11 @@ class TestParseStimParams:
             "StimulusLibrary": {
                 "Stimuli": {
                     "element1": _make_stim_element(
-                        delay=0.5, pulse_dur=0.5, n_pulses=19,
-                        first_amp=-0.2, amp_change=0.025,
+                        delay=0.5,
+                        pulse_dur=0.5,
+                        n_pulses=19,
+                        first_amp=-0.2,
+                        amp_change=0.025,
                     )
                 }
             }

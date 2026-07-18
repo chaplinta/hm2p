@@ -19,7 +19,6 @@ from __future__ import annotations
 import numpy as np
 from scipy.ndimage import gaussian_filter, gaussian_filter1d
 
-
 # ---------------------------------------------------------------------------
 # HD tuning
 # ---------------------------------------------------------------------------
@@ -328,7 +327,12 @@ def compute_place_rate_map(
     # Filter out non-finite positions
     finite = np.isfinite(xm) & np.isfinite(ym)
     if finite.sum() < 2:
-        return np.full((1, 1), np.nan), np.zeros((1, 1)), np.array([0.0, 1.0]), np.array([0.0, 1.0])
+        return (
+            np.full((1, 1), np.nan),
+            np.zeros((1, 1)),
+            np.array([0.0, 1.0]),
+            np.array([0.0, 1.0]),
+        )
     xm, ym, sm = xm[finite], ym[finite], sm[finite]
 
     # Build bin edges — ensure at least one bin even for degenerate ranges
@@ -466,6 +470,7 @@ def spatial_coherence(rate_map: np.ndarray) -> float:
         return float("nan")
 
     from scipy.stats import spearmanr
+
     return float(spearmanr(values, neighbour_means)[0])
 
 

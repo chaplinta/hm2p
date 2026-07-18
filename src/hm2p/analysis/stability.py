@@ -55,11 +55,17 @@ def split_temporal_halves(
     mask2[:mid] = False
 
     tc1, bc = compute_hd_tuning_curve(
-        signal, hd_deg, mask1, n_bins=n_bins,
+        signal,
+        hd_deg,
+        mask1,
+        n_bins=n_bins,
         smoothing_sigma_deg=smoothing_sigma_deg,
     )
     tc2, _ = compute_hd_tuning_curve(
-        signal, hd_deg, mask2, n_bins=n_bins,
+        signal,
+        hd_deg,
+        mask2,
+        n_bins=n_bins,
         smoothing_sigma_deg=smoothing_sigma_deg,
     )
 
@@ -122,7 +128,10 @@ def sliding_window_stability(
             continue
 
         tc, bc = compute_hd_tuning_curve(
-            signal, hd_deg, win_mask, n_bins=n_bins,
+            signal,
+            hd_deg,
+            win_mask,
+            n_bins=n_bins,
             smoothing_sigma_deg=smoothing_sigma_deg,
         )
         centers.append(start + window_frames // 2)
@@ -169,11 +178,17 @@ def light_dark_stability(
     mask_dark = mask & ~light_on
 
     tc_light, bc = compute_hd_tuning_curve(
-        signal, hd_deg, mask_light, n_bins=n_bins,
+        signal,
+        hd_deg,
+        mask_light,
+        n_bins=n_bins,
         smoothing_sigma_deg=smoothing_sigma_deg,
     )
     tc_dark, _ = compute_hd_tuning_curve(
-        signal, hd_deg, mask_dark, n_bins=n_bins,
+        signal,
+        hd_deg,
+        mask_dark,
+        n_bins=n_bins,
         smoothing_sigma_deg=smoothing_sigma_deg,
     )
 
@@ -248,7 +263,10 @@ def drift_per_epoch(
             continue
 
         tc, bc = compute_hd_tuning_curve(
-            signal, hd_deg, epoch_mask, n_bins=n_bins,
+            signal,
+            hd_deg,
+            epoch_mask,
+            n_bins=n_bins,
             smoothing_sigma_deg=smoothing_sigma_deg,
         )
         centers.append((start + end) // 2)
@@ -330,7 +348,10 @@ def dark_drift_rate(
         light_frac = light_on[start:end].mean()
 
         tc, bc = compute_hd_tuning_curve(
-            signal, hd_deg, win_mask, n_bins=n_bins,
+            signal,
+            hd_deg,
+            win_mask,
+            n_bins=n_bins,
             smoothing_sigma_deg=smoothing_sigma_deg,
         )
         pd = preferred_direction(tc, bc)

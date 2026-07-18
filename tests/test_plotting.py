@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import numpy as np
 import plotly.graph_objects as go
-import pytest
 
 from hm2p.plotting import (
     celltype_comparison_box,
     format_pvalue,
     paired_condition_scatter,
 )
-
 
 # ---------------------------------------------------------------------------
 # format_pvalue
@@ -55,9 +53,7 @@ class TestCelltypeComparisonBox:
         penk = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
         nonpenk = np.array([3.0, 4.0, 5.0, 6.0, 7.0])
         _, result = celltype_comparison_box(penk, nonpenk, "MVL")
-        assert set(result.keys()) == {
-            "test", "U", "p", "n_penk", "n_nonpenk", "measure"
-        }
+        assert set(result.keys()) == {"test", "U", "p", "n_penk", "n_nonpenk", "measure"}
         assert result["test"] == "Mann-Whitney U"
         assert result["n_penk"] == 5
         assert result["n_nonpenk"] == 5
@@ -105,9 +101,7 @@ class TestCelltypeComparisonBox:
 
     def test_single_value_each(self):
         """Single value per group — Mann-Whitney still runs."""
-        fig, result = celltype_comparison_box(
-            np.array([1.0]), np.array([2.0]), "Single"
-        )
+        fig, result = celltype_comparison_box(np.array([1.0]), np.array([2.0]), "Single")
         assert isinstance(fig, go.Figure)
         assert result["n_penk"] == 1
         assert result["n_nonpenk"] == 1
@@ -124,8 +118,11 @@ class TestCelltypeComparisonBox:
         penk = np.array([1.0, 2.0])
         nonpenk = np.array([3.0, 4.0])
         fig, _ = celltype_comparison_box(
-            penk, nonpenk, "X",
-            penk_label="Group A", nonpenk_label="Group B",
+            penk,
+            nonpenk,
+            "X",
+            penk_label="Group A",
+            nonpenk_label="Group B",
         )
         names = [t.name for t in fig.data if isinstance(t, go.Box)]
         assert "Group A" in names
@@ -190,9 +187,7 @@ class TestPairedConditionScatter:
         assert fig.layout.yaxis.title.text == "MVL (Dark)"
 
     def test_empty_arrays(self):
-        fig, result = paired_condition_scatter(
-            np.array([]), np.array([]), "A", "B", "X"
-        )
+        fig, result = paired_condition_scatter(np.array([]), np.array([]), "A", "B", "X")
         assert isinstance(fig, go.Figure)
         assert np.isnan(result["W"])
         assert np.isnan(result["p"])
@@ -225,8 +220,6 @@ class TestPairedConditionScatter:
 
     def test_single_value(self):
         """Single paired value — Wilcoxon cannot run."""
-        fig, result = paired_condition_scatter(
-            np.array([1.0]), np.array([2.0]), "A", "B", "X"
-        )
+        fig, result = paired_condition_scatter(np.array([1.0]), np.array([2.0]), "A", "B", "X")
         assert isinstance(fig, go.Figure)
         assert result["n"] == 1

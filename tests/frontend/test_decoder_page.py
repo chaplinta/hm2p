@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.analysis.decoder import (
     build_decoder,
@@ -11,7 +10,6 @@ from hm2p.analysis.decoder import (
     decode_error,
     decode_hd,
 )
-from hm2p.analysis.tuning import compute_hd_tuning_curve
 
 
 def _make_population(n_cells=8, n_frames=3000, kappa=3.0, noise=0.15, seed=42):

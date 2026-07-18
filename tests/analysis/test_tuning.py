@@ -20,10 +20,10 @@ from hm2p.analysis.tuning import (
     tuning_width_fwhm,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_peaked_signal(peak_deg: float, n_frames: int = 3600, n_bins: int = 36):
     """Create a synthetic signal that peaks at *peak_deg*.
@@ -72,9 +72,7 @@ class TestComputeHdTuningCurve:
         hd_deg = np.linspace(0, 89, 1000)
         signal = np.ones(1000)
         mask = np.ones(1000, dtype=bool)
-        tc, _ = compute_hd_tuning_curve(
-            signal, hd_deg, mask, n_bins=36, smoothing_sigma_deg=0.0
-        )
+        tc, _ = compute_hd_tuning_curve(signal, hd_deg, mask, n_bins=36, smoothing_sigma_deg=0.0)
         # Bins outside [0, 90) should be NaN
         assert np.any(np.isnan(tc))
 
@@ -84,9 +82,7 @@ class TestComputeHdTuningCurve:
         signal = np.ones(n)
         mask = np.zeros(n, dtype=bool)
         mask[:900] = True  # only first quarter
-        tc, _ = compute_hd_tuning_curve(
-            signal, hd_deg, mask, n_bins=36, smoothing_sigma_deg=0.0
-        )
+        tc, _ = compute_hd_tuning_curve(signal, hd_deg, mask, n_bins=36, smoothing_sigma_deg=0.0)
         # Bins in the masked-out region should be NaN
         assert np.sum(np.isnan(tc)) > 0
 
@@ -98,12 +94,8 @@ class TestComputeHdTuningCurve:
         signal += rng.normal(0, 0.3, n)
         mask = np.ones(n, dtype=bool)
 
-        tc_raw, _ = compute_hd_tuning_curve(
-            signal, hd_deg, mask, smoothing_sigma_deg=0.0
-        )
-        tc_smooth, _ = compute_hd_tuning_curve(
-            signal, hd_deg, mask, smoothing_sigma_deg=15.0
-        )
+        tc_raw, _ = compute_hd_tuning_curve(signal, hd_deg, mask, smoothing_sigma_deg=0.0)
+        tc_smooth, _ = compute_hd_tuning_curve(signal, hd_deg, mask, smoothing_sigma_deg=15.0)
         # Smoothed curve should have lower variance
         assert np.nanstd(tc_smooth) <= np.nanstd(tc_raw) + 0.01
 
@@ -121,9 +113,7 @@ class TestComputeHdTuningCurve:
 
     def test_shape_mismatch_raises(self):
         with pytest.raises(ValueError, match="same shape"):
-            compute_hd_tuning_curve(
-                np.ones(10), np.ones(11), np.ones(10, dtype=bool)
-            )
+            compute_hd_tuning_curve(np.ones(10), np.ones(11), np.ones(10, dtype=bool))
 
 
 # ---------------------------------------------------------------------------
@@ -180,9 +170,7 @@ class TestMeanVectorLength:
         centers = np.linspace(5, 355, n_bins)
         theta = np.deg2rad(centers)
         tc = np.abs(np.cos(theta - np.deg2rad(90.0))) + 0.1
-        expected = float(
-            np.abs(np.sum(tc * np.exp(1j * theta))) / np.sum(tc)
-        )
+        expected = float(np.abs(np.sum(tc * np.exp(1j * theta))) / np.sum(tc))
         assert mean_vector_length(tc, centers) == pytest.approx(expected, abs=1e-12)
 
     def test_all_negative_returns_zero(self):
@@ -269,8 +257,14 @@ class TestComputePlaceRateMap:
         # Signal peaks near (25, 25)
         signal = np.exp(-0.5 * (((x - 25) ** 2 + (y - 25) ** 2) / 5**2))
         rate_map, occ, bx, by = compute_place_rate_map(
-            signal, x, y, mask,
-            bin_size=5.0, smoothing_sigma=0.0, min_occupancy_s=0.0, fps=30.0,
+            signal,
+            x,
+            y,
+            mask,
+            bin_size=5.0,
+            smoothing_sigma=0.0,
+            min_occupancy_s=0.0,
+            fps=30.0,
         )
         # Peak should be near the centre
         peak_iy, peak_ix = np.unravel_index(np.nanargmax(rate_map), rate_map.shape)
@@ -290,8 +284,14 @@ class TestComputePlaceRateMap:
         signal = np.ones(n + 1)
         mask = np.ones(n + 1, dtype=bool)
         rate_map, occ, _, _ = compute_place_rate_map(
-            signal, x, y, mask,
-            bin_size=5.0, smoothing_sigma=0.0, min_occupancy_s=1.0, fps=10.0,
+            signal,
+            x,
+            y,
+            mask,
+            bin_size=5.0,
+            smoothing_sigma=0.0,
+            min_occupancy_s=1.0,
+            fps=10.0,
         )
         # The outlier bin has 1 frame = 0.1s < 1.0s threshold → NaN
         assert np.any(np.isnan(rate_map))
@@ -303,8 +303,14 @@ class TestComputePlaceRateMap:
         signal = np.ones(n)
         mask = np.ones(n, dtype=bool)
         _, occ, _, _ = compute_place_rate_map(
-            signal, x, y, mask,
-            bin_size=5.0, smoothing_sigma=0.0, min_occupancy_s=0.0, fps=10.0,
+            signal,
+            x,
+            y,
+            mask,
+            bin_size=5.0,
+            smoothing_sigma=0.0,
+            min_occupancy_s=0.0,
+            fps=10.0,
         )
         # All 100 frames in one bin at 10 fps = 10 seconds
         assert np.nanmax(occ) == pytest.approx(10.0)
@@ -327,16 +333,28 @@ class TestSpatialInformation:
         # Localized signal
         sig_loc = np.exp(-0.5 * (((x - 50) ** 2 + (y - 50) ** 2) / 10**2))
         rm_loc, occ_loc, _, _ = compute_place_rate_map(
-            sig_loc, x, y, mask,
-            bin_size=5.0, smoothing_sigma=0.0, min_occupancy_s=0.0, fps=30.0,
+            sig_loc,
+            x,
+            y,
+            mask,
+            bin_size=5.0,
+            smoothing_sigma=0.0,
+            min_occupancy_s=0.0,
+            fps=30.0,
         )
         si_loc = spatial_information(rm_loc, occ_loc)
 
         # Uniform signal
         sig_unif = np.ones(n)
         rm_unif, occ_unif, _, _ = compute_place_rate_map(
-            sig_unif, x, y, mask,
-            bin_size=5.0, smoothing_sigma=0.0, min_occupancy_s=0.0, fps=30.0,
+            sig_unif,
+            x,
+            y,
+            mask,
+            bin_size=5.0,
+            smoothing_sigma=0.0,
+            min_occupancy_s=0.0,
+            fps=30.0,
         )
         si_unif = spatial_information(rm_unif, occ_unif)
 

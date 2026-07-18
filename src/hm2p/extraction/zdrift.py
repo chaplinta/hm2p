@@ -130,9 +130,7 @@ def load_zstack(zstack_path: Path) -> np.ndarray:
 
     data = tifffile.imread(str(zstack_path))
     if data.ndim != 3:
-        raise ValueError(
-            f"Expected 3-D z-stack (n_zplanes, Ly, Lx), got shape {data.shape}"
-        )
+        raise ValueError(f"Expected 3-D z-stack (n_zplanes, Ly, Lx), got shape {data.shape}")
     return data.astype(np.float32)
 
 

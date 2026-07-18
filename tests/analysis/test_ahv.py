@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from hypothesis.extra.numpy import arrays
 
 from hm2p.analysis.ahv import (
     ahv_modulation_index,
@@ -87,21 +85,21 @@ class TestAHVModulationIndex:
         """Symmetric tuning curve should have ~0 asymmetry."""
         n = 30
         bc = np.linspace(-600, 600, n)
-        tc = np.exp(-bc**2 / (2 * 200**2))
+        tc = np.exp(-(bc**2) / (2 * 200**2))
         result = ahv_modulation_index(tc, bc)
         assert abs(result["asymmetry_index"]) < 0.1
 
     def test_cw_biased(self):
         """CW-biased tuning should have positive asymmetry index."""
         bc = np.linspace(-600, 600, 30)
-        tc = np.exp(-(bc - 200)**2 / (2 * 100**2))  # Peak at +200
+        tc = np.exp(-((bc - 200) ** 2) / (2 * 100**2))  # Peak at +200
         result = ahv_modulation_index(tc, bc)
         assert result["asymmetry_index"] > 0
         assert result["preferred_ahv"] > 0
 
     def test_modulation_depth(self):
         bc = np.linspace(-600, 600, 30)
-        tc = np.array([0.1 + 0.9 * np.exp(-(b - 200)**2 / (2 * 100**2)) for b in bc])
+        tc = np.array([0.1 + 0.9 * np.exp(-((b - 200) ** 2) / (2 * 100**2)) for b in bc])
         result = ahv_modulation_index(tc, bc)
         assert result["modulation_depth"] > 0
         assert result["modulation_depth"] <= 1.0
@@ -184,8 +182,7 @@ class TestHypothesisAHV:
         inner = ahv[1:-1]
         if len(inner) > 0:
             assert np.all(np.abs(inner) < expected * 3), (
-                f"AHV spike detected: max={np.abs(inner).max():.1f}, "
-                f"expected ~{expected:.1f}"
+                f"AHV spike detected: max={np.abs(inner).max():.1f}, expected ~{expected:.1f}"
             )
 
     @given(

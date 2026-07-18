@@ -16,6 +16,7 @@ from hm2p.extraction.suite2p import (
 _suite2p_available = False
 try:
     import suite2p  # noqa: F401
+
     _suite2p_available = True
 except ImportError:
     pass

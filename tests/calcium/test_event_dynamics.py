@@ -12,8 +12,6 @@ import pytest
 from hm2p.calcium.events import (
     EventResult,
     characterize_events,
-    compute_event_rate,
-    compute_event_snr,
     detect_events_single,
     summarize_cell_dynamics,
 )

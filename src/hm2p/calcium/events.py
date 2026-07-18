@@ -32,7 +32,6 @@ from dataclasses import dataclass, field
 import numpy as np
 from scipy import ndimage, stats
 
-
 # Default parameters matching the legacy pipeline
 SMOOTH_SIGMA: int = 3
 PRC_MEAN: int = 40
@@ -59,12 +58,8 @@ class BatchEventResult:
     """Event detection results for all ROIs."""
 
     events: list[EventResult] = field(default_factory=list)
-    event_masks: np.ndarray = field(
-        default_factory=lambda: np.empty(0)
-    )  # (n_rois, n_frames)
-    noise_probs: np.ndarray = field(
-        default_factory=lambda: np.empty(0)
-    )  # (n_rois, n_frames)
+    event_masks: np.ndarray = field(default_factory=lambda: np.empty(0))  # (n_rois, n_frames)
+    noise_probs: np.ndarray = field(default_factory=lambda: np.empty(0))  # (n_rois, n_frames)
 
 
 def _get_crossings(data: np.ndarray, threshold: float) -> np.ndarray:
@@ -445,7 +440,11 @@ def detect_events_sd(
 
     for i in range(n_rois):
         result = detect_events_sd_single(
-            dff[i], fps, sd_threshold, min_duration_s, smooth_sigma,
+            dff[i],
+            fps,
+            sd_threshold,
+            min_duration_s,
+            smooth_sigma,
         )
         masks[i] = result.event_mask.astype(np.float32)
 
@@ -545,6 +544,7 @@ def detect_events_sd_single(
 # Event dynamics characterization
 # ---------------------------------------------------------------------------
 
+
 def characterize_events(
     dff_trace: np.ndarray,
     event_result: EventResult,
@@ -579,19 +579,21 @@ def characterize_events(
         duration_frames = offset - onset
         peak_idx_local = int(np.argmax(segment))
 
-        events.append({
-            "onset": int(onset),
-            "offset": int(offset),
-            "amplitude": float(amp),
-            "duration_frames": duration_frames,
-            "duration_s": duration_frames / fps,
-            "rise_frames": peak_idx_local,
-            "rise_time_s": peak_idx_local / fps,
-            "decay_frames": duration_frames - peak_idx_local,
-            "decay_time_s": (duration_frames - peak_idx_local) / fps,
-            "auc": float(np.sum(segment)) / fps,
-            "mean_dff": float(np.mean(segment)),
-        })
+        events.append(
+            {
+                "onset": int(onset),
+                "offset": int(offset),
+                "amplitude": float(amp),
+                "duration_frames": duration_frames,
+                "duration_s": duration_frames / fps,
+                "rise_frames": peak_idx_local,
+                "rise_time_s": peak_idx_local / fps,
+                "decay_frames": duration_frames - peak_idx_local,
+                "decay_time_s": (duration_frames - peak_idx_local) / fps,
+                "auc": float(np.sum(segment)) / fps,
+                "mean_dff": float(np.mean(segment)),
+            }
+        )
     return events
 
 
@@ -618,8 +620,9 @@ def summarize_cell_dynamics(
     n_events = len(events)
 
     rate = compute_event_rate(event_result.onsets, len(dff_trace), fps, bad_frames)
-    snr = compute_event_snr(dff_trace, event_result.event_mask,
-                            event_result.amplitudes, bad_frames)
+    snr = compute_event_snr(
+        dff_trace, event_result.event_mask, event_result.amplitudes, bad_frames
+    )
 
     if n_events == 0:
         return {

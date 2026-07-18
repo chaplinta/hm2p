@@ -86,9 +86,7 @@ class TestLoadRegisteredMovie:
 class TestSubtractFissaFromMovieValidation:
     def test_non_3d_movie_raises(self, tmp_path):
         with pytest.raises(ValueError, match="must be 3-D"):
-            subtract_fissa_from_movie(
-                np.zeros((4, 5)), [np.ones((4, 5), bool)], tmp_path
-            )
+            subtract_fissa_from_movie(np.zeros((4, 5)), [np.ones((4, 5), bool)], tmp_path)
 
     def test_mask_shape_mismatch_raises(self, tmp_path):
         movie = np.zeros((3, 4, 5), dtype=np.int16)
@@ -122,8 +120,7 @@ class TestRunFissaRoiFormat:
 
             def separate(self):
                 self.result = [
-                    [np.zeros((1, n_frames), dtype=np.float32)]
-                    for _ in range(self._n_roi)
+                    [np.zeros((1, n_frames), dtype=np.float32)] for _ in range(self._n_roi)
                 ]
 
         fake = types.ModuleType("fissa")

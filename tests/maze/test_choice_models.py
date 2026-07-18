@@ -85,8 +85,9 @@ def test_frontier_picks_arm_toward_unexplored():
     far = MAZE.cell_to_idx[(1, 4)]  # a dead-end far from junction (5,4)
     del last[far]
     # step-100 = 5 < window 10, so visited cells are NOT stale; only `far` is frontier.
-    pred = allocentric_frontier_choice(MAZE, CANDS, step=105, last_visit_step=last,
-                                       frontier_window=10)
+    pred = allocentric_frontier_choice(
+        MAZE, CANDS, step=105, last_visit_step=last, frontier_window=10
+    )
     # the predicted arm should be the candidate with smallest graph distance to `far`
     dists = {c: int(MAZE.dist[c, far]) for c in CANDS}
     assert pred == min(dists, key=dists.get)
@@ -94,16 +95,18 @@ def test_frontier_picks_arm_toward_unexplored():
 
 def test_frontier_none_when_all_recent():
     last = {i: 100 for i in range(MAZE.n_cells)}
-    pred = allocentric_frontier_choice(MAZE, CANDS, step=101, last_visit_step=last,
-                                       frontier_window=10)
+    pred = allocentric_frontier_choice(
+        MAZE, CANDS, step=101, last_visit_step=last, frontier_window=10
+    )
     assert pred is None
 
 
 def test_frontier_candidate_itself_stale_wins():
     # Candidate 19 never visited -> it is itself a frontier (distance 0) -> wins.
     last = {i: 100 for i in range(MAZE.n_cells) if i != 19}
-    pred = allocentric_frontier_choice(MAZE, CANDS, step=105, last_visit_step=last,
-                                       frontier_window=10)
+    pred = allocentric_frontier_choice(
+        MAZE, CANDS, step=105, last_visit_step=last, frontier_window=10
+    )
     assert pred == 19
 
 
@@ -149,7 +152,10 @@ def test_extract_condition_from_light():
 
 
 def test_extract_too_short_returns_empty():
-    assert extract_choice_events(np.array([20, 22]), np.array([0, 1]), MAZE, np.array([True, True])) == []
+    assert (
+        extract_choice_events(np.array([20, 22]), np.array([0, 1]), MAZE, np.array([True, True]))
+        == []
+    )
 
 
 def test_extract_keys_and_followed_domain():
@@ -160,8 +166,17 @@ def test_extract_keys_and_followed_domain():
     seq = rng.choice(cells, size=60)
     ev = extract_choice_events(seq, np.arange(60), MAZE, np.ones(60, bool))
     for e in ev:
-        assert set(e) >= {"junction", "prev", "chosen", "candidates", "condition",
-                          "ego_pred", "allo_pred", "conflict", "followed"}
+        assert set(e) >= {
+            "junction",
+            "prev",
+            "chosen",
+            "candidates",
+            "condition",
+            "ego_pred",
+            "allo_pred",
+            "conflict",
+            "followed",
+        }
         assert e["followed"] in {"ego", "allo", "both", "neither"}
         if e["conflict"]:
             assert e["ego_pred"] is not None and e["allo_pred"] is not None
@@ -174,8 +189,14 @@ def test_extract_keys_and_followed_domain():
 
 
 def _ev(condition, conflict, followed):
-    return {"condition": condition, "conflict": conflict, "followed": followed,
-            "ego_pred": 1, "allo_pred": 2, "chosen": 1}
+    return {
+        "condition": condition,
+        "conflict": conflict,
+        "followed": followed,
+        "ego_pred": 1,
+        "allo_pred": 2,
+        "chosen": 1,
+    }
 
 
 def test_conflict_follow_rate_counts():
@@ -183,7 +204,7 @@ def test_conflict_follow_rate_counts():
         _ev("light", True, "allo"),
         _ev("light", True, "ego"),
         _ev("light", True, "allo"),
-        _ev("light", False, "ego"),   # not a conflict -> excluded
+        _ev("light", False, "ego"),  # not a conflict -> excluded
         _ev("dark", True, "ego"),
     ]
     rate_l, n_l = conflict_follow_rate(events, "light")

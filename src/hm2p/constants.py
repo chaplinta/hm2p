@@ -7,8 +7,8 @@ All RGBA tuples use 0–1 floats. Named colours use matplotlib CSS4 names.
 from __future__ import annotations
 
 # ── Cell types ──────────────────────────────────────────────────────────
-COLOR_PENK = (0, 0, 1, 1)          # blue
-COLOR_NONPENK = (1, 0, 0, 1)       # red
+COLOR_PENK = (0, 0, 1, 1)  # blue
+COLOR_NONPENK = (1, 0, 0, 1)  # red
 
 # Hex equivalents for Plotly / Streamlit (no alpha channel)
 HEX_PENK = "#0000FF"
@@ -59,11 +59,11 @@ CELLTYPE_LABEL = {
 }
 
 LIGHT_HEX = {
-    "light": "#FFA500",   # orange
-    "dark": "#000000",    # black
+    "light": "#FFA500",  # orange
+    "dark": "#000000",  # black
 }
 
 ROI_TYPE_HEX = {
-    "soma": "#40E0D0",    # turquoise
-    "dendrite": "#9932CC", # darkorchid
+    "soma": "#40E0D0",  # turquoise
+    "dendrite": "#9932CC",  # darkorchid
 }

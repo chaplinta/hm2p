@@ -18,7 +18,6 @@ from hm2p.analysis.mixed_stats import (
     within_cell_test,
 )
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -36,18 +35,22 @@ def _make_nested_df(
     rows = []
     for i, mu in enumerate(penk_means):
         for _ in range(cells_per_animal):
-            rows.append({
-                "animal_id": f"penk_{i}",
-                "celltype": "penk",
-                "metric": mu + rng.normal(0, noise),
-            })
+            rows.append(
+                {
+                    "animal_id": f"penk_{i}",
+                    "celltype": "penk",
+                    "metric": mu + rng.normal(0, noise),
+                }
+            )
     for i, mu in enumerate(nonpenk_means):
         for _ in range(cells_per_animal):
-            rows.append({
-                "animal_id": f"nonpenk_{i}",
-                "celltype": "nonpenk",
-                "metric": mu + rng.normal(0, noise),
-            })
+            rows.append(
+                {
+                    "animal_id": f"nonpenk_{i}",
+                    "celltype": "nonpenk",
+                    "metric": mu + rng.normal(0, noise),
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -170,10 +173,12 @@ class TestWithinCellTest:
         """When col_a > col_b consistently, mean_diff is positive."""
         rng = np.random.default_rng(0)
         n = 30
-        df = pd.DataFrame({
-            "light": rng.normal(5.0, 0.1, n),
-            "dark": rng.normal(3.0, 0.1, n),
-        })
+        df = pd.DataFrame(
+            {
+                "light": rng.normal(5.0, 0.1, n),
+                "dark": rng.normal(3.0, 0.1, n),
+            }
+        )
         result = within_cell_test(df, "light", "dark")
         assert result["mean_diff"] > 0
         assert result["p_value"] < 0.05
@@ -206,12 +211,14 @@ class TestInteractionContrast:
 
     def test_correct_computation(self) -> None:
         """Verify (A1B1 - A2B1) - (A1B2 - A2B2) formula."""
-        df = pd.DataFrame({
-            "ml": [10.0, 20.0],  # moving_light
-            "sl": [4.0, 8.0],   # stationary_light
-            "md": [6.0, 12.0],  # moving_dark
-            "sd": [3.0, 6.0],   # stationary_dark
-        })
+        df = pd.DataFrame(
+            {
+                "ml": [10.0, 20.0],  # moving_light
+                "sl": [4.0, 8.0],  # stationary_light
+                "md": [6.0, 12.0],  # moving_dark
+                "sd": [3.0, 6.0],  # stationary_dark
+            }
+        )
         result = interaction_contrast(df, ["ml", "sl", "md", "sd"])
         # (10-4) - (6-3) = 6-3 = 3
         # (20-8) - (12-6) = 12-6 = 6
@@ -238,10 +245,12 @@ class TestConfoundCheck:
         rng = np.random.default_rng(0)
         n = 50
         x = rng.normal(0, 1, n)
-        df = pd.DataFrame({
-            "metric": x,
-            "confound": x * 2.0 + rng.normal(0, 0.01, n),
-        })
+        df = pd.DataFrame(
+            {
+                "metric": x,
+                "confound": x * 2.0 + rng.normal(0, 0.01, n),
+            }
+        )
         result = confound_check(df, "metric", ["confound"])
         assert len(result) == 1
         assert result[0]["flagged"] is True
@@ -251,10 +260,12 @@ class TestConfoundCheck:
         """Uncorrelated confound is not flagged."""
         rng = np.random.default_rng(1)
         n = 100
-        df = pd.DataFrame({
-            "metric": rng.normal(0, 1, n),
-            "confound": rng.normal(0, 1, n),
-        })
+        df = pd.DataFrame(
+            {
+                "metric": rng.normal(0, 1, n),
+                "confound": rng.normal(0, 1, n),
+            }
+        )
         result = confound_check(df, "metric", ["confound"])
         assert result[0]["flagged"] is False
 

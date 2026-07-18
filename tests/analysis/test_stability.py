@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.analysis.stability import (
     dark_drift_rate,
@@ -67,8 +66,15 @@ class TestSplitTemporalHalves:
     def test_output_keys(self):
         signal, hd, mask = _make_stable_cell()
         result = split_temporal_halves(signal, hd, mask)
-        expected = {"correlation", "pd_shift_deg", "mvl_half1", "mvl_half2",
-                    "tuning_curve_1", "tuning_curve_2", "bin_centers"}
+        expected = {
+            "correlation",
+            "pd_shift_deg",
+            "mvl_half1",
+            "mvl_half2",
+            "tuning_curve_1",
+            "tuning_curve_2",
+            "bin_centers",
+        }
         assert set(result.keys()) == expected
 
     def test_tuning_curve_shapes(self):
@@ -85,7 +91,11 @@ class TestSlidingWindowStability:
     def test_stable_cell_consistent_mvl(self):
         signal, hd, mask = _make_stable_cell(n=5000)
         result = sliding_window_stability(
-            signal, hd, mask, window_frames=1000, step_frames=500,
+            signal,
+            hd,
+            mask,
+            window_frames=1000,
+            step_frames=500,
         )
         assert result["n_windows"] > 0
         # MVL should be relatively consistent
@@ -95,7 +105,11 @@ class TestSlidingWindowStability:
     def test_stable_cell_consistent_pd(self):
         signal, hd, mask = _make_stable_cell(n=10000, pref=90.0)
         result = sliding_window_stability(
-            signal, hd, mask, window_frames=2000, step_frames=1000,
+            signal,
+            hd,
+            mask,
+            window_frames=2000,
+            step_frames=1000,
         )
         # Preferred directions should cluster near 90° (skip first unstable window)
         pds = result["preferred_dirs"]
@@ -107,7 +121,11 @@ class TestSlidingWindowStability:
     def test_window_centers_spacing(self):
         signal, hd, mask = _make_stable_cell(n=3000)
         result = sliding_window_stability(
-            signal, hd, mask, window_frames=500, step_frames=200,
+            signal,
+            hd,
+            mask,
+            window_frames=500,
+            step_frames=200,
         )
         if result["n_windows"] > 1:
             diffs = np.diff(result["window_centers"])
@@ -116,7 +134,11 @@ class TestSlidingWindowStability:
     def test_short_signal_few_windows(self):
         signal, hd, mask = _make_stable_cell(n=500)
         result = sliding_window_stability(
-            signal, hd, mask, window_frames=400, step_frames=200,
+            signal,
+            hd,
+            mask,
+            window_frames=400,
+            step_frames=200,
         )
         assert result["n_windows"] <= 2
 
@@ -131,23 +153,30 @@ class TestLightDarkStability:
         light_on = np.zeros(6000, dtype=bool)
         cycle = 30 * 60  # 1800 frames per cycle
         for start in range(0, 6000, 2 * cycle):
-            light_on[start:min(start + cycle, 6000)] = True
+            light_on[start : min(start + cycle, 6000)] = True
         result = light_dark_stability(signal, hd, mask, light_on)
         assert result["correlation"] > 0.5
 
     def test_output_keys(self):
         signal, hd, mask = _make_stable_cell()
         light_on = np.ones(len(signal), dtype=bool)
-        light_on[len(signal) // 2:] = False
+        light_on[len(signal) // 2 :] = False
         result = light_dark_stability(signal, hd, mask, light_on)
-        expected = {"correlation", "pd_shift_deg", "mvl_light", "mvl_dark",
-                    "tuning_curve_light", "tuning_curve_dark", "bin_centers"}
+        expected = {
+            "correlation",
+            "pd_shift_deg",
+            "mvl_light",
+            "mvl_dark",
+            "tuning_curve_light",
+            "tuning_curve_dark",
+            "bin_centers",
+        }
         assert set(result.keys()) == expected
 
     def test_mvl_values_valid(self):
         signal, hd, mask = _make_stable_cell()
         light_on = np.ones(len(signal), dtype=bool)
-        light_on[len(signal) // 2:] = False
+        light_on[len(signal) // 2 :] = False
         result = light_dark_stability(signal, hd, mask, light_on)
         assert 0 <= result["mvl_light"] <= 1
         assert 0 <= result["mvl_dark"] <= 1
@@ -165,7 +194,7 @@ def _make_light_on(n, cycle_frames=1800):
     """Alternating light/dark cycles (1 min at 30 Hz = 1800 frames)."""
     light_on = np.zeros(n, dtype=bool)
     for start in range(0, n, 2 * cycle_frames):
-        light_on[start:min(start + cycle_frames, n)] = True
+        light_on[start : min(start + cycle_frames, n)] = True
     return light_on
 
 
@@ -185,8 +214,14 @@ class TestDriftPerEpoch:
         signal, hd, mask = _make_stable_cell(n=6000)
         light_on = _make_light_on(6000)
         result = drift_per_epoch(signal, hd, mask, light_on)
-        expected = {"epoch_centers", "epoch_pds", "epoch_mvls",
-                    "epoch_is_light", "cumulative_drift", "n_epochs"}
+        expected = {
+            "epoch_centers",
+            "epoch_pds",
+            "epoch_mvls",
+            "epoch_is_light",
+            "cumulative_drift",
+            "n_epochs",
+        }
         assert set(result.keys()) == expected
 
     def test_epoch_is_light_alternates(self):
@@ -227,8 +262,14 @@ class TestDarkDriftRate:
         signal, hd, mask = _make_stable_cell(n=6000)
         light_on = _make_light_on(6000)
         result = dark_drift_rate(signal, hd, mask, light_on)
-        expected = {"dark_drift_deg_per_s", "light_drift_deg_per_s",
-                    "dark_pds", "light_pds", "dark_times_s", "light_times_s"}
+        expected = {
+            "dark_drift_deg_per_s",
+            "light_drift_deg_per_s",
+            "dark_pds",
+            "light_pds",
+            "dark_times_s",
+            "light_times_s",
+        }
         assert set(result.keys()) == expected
 
     def test_times_in_seconds(self):

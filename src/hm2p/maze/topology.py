@@ -13,19 +13,45 @@ Inspired by Rosenberg et al. (2021) eLife, adapted for the hm2p q-rose maze.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Sequence
 
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # Maze polygon (same as in kinematics/compute.py)
 # ---------------------------------------------------------------------------
 MAZE_POLYGON_COORDS: list[tuple[int, int]] = [
-    (0, 0), (3, 0), (3, 1), (2, 1), (2, 2), (5, 2), (5, 1), (4, 1),
-    (4, 0), (7, 0), (7, 1), (6, 1), (6, 4), (7, 4), (7, 5), (4, 5),
-    (4, 4), (5, 4), (5, 3), (4, 3), (4, 5), (3, 5), (3, 3), (2, 3),
-    (2, 4), (3, 4), (3, 5), (0, 5), (0, 4), (1, 4), (1, 1), (0, 1),
+    (0, 0),
+    (3, 0),
+    (3, 1),
+    (2, 1),
+    (2, 2),
+    (5, 2),
+    (5, 1),
+    (4, 1),
+    (4, 0),
+    (7, 0),
+    (7, 1),
+    (6, 1),
+    (6, 4),
+    (7, 4),
+    (7, 5),
+    (4, 5),
+    (4, 4),
+    (5, 4),
+    (5, 3),
+    (4, 3),
+    (4, 5),
+    (3, 5),
+    (3, 3),
+    (2, 3),
+    (2, 4),
+    (3, 4),
+    (3, 5),
+    (0, 5),
+    (0, 4),
+    (1, 4),
+    (1, 1),
+    (0, 1),
 ]
 
 # ---------------------------------------------------------------------------
@@ -45,6 +71,7 @@ MAZE_POLYGON_COORDS: list[tuple[int, int]] = [
 #
 # [_,_] = wall (inaccessible)
 
+
 def _compute_accessible_cells() -> set[tuple[int, int]]:
     """Compute the set of accessible cells using the maze polygon.
 
@@ -53,6 +80,7 @@ def _compute_accessible_cells() -> set[tuple[int, int]]:
     """
     try:
         from shapely.geometry import Point, Polygon
+
         poly = Polygon(MAZE_POLYGON_COORDS)
         cells = set()
         for col in range(7):
@@ -75,16 +103,33 @@ def _compute_accessible_cells() -> set[tuple[int, int]]:
 #         0 1 2 3 4 5 6
 _HARDCODED_CELLS: set[tuple[int, int]] = {
     # Row 0 (bottom): left arm [0-2] + right arm [4-6], wall at col 3
-    (0, 0), (1, 0), (2, 0),
-    (4, 0), (5, 0), (6, 0),
+    (0, 0),
+    (1, 0),
+    (2, 0),
+    (4, 0),
+    (5, 0),
+    (6, 0),
     # Row 1: two vertical corridors at x=1 and x=5
-    (1, 1), (5, 1),
+    (1, 1),
+    (5, 1),
     # Row 2: central horizontal corridor x=1..5
-    (1, 2), (2, 2), (3, 2), (4, 2), (5, 2),
+    (1, 2),
+    (2, 2),
+    (3, 2),
+    (4, 2),
+    (5, 2),
     # Row 3: three vertical pillars at x=1, x=3, x=5
-    (1, 3), (3, 3), (5, 3),
+    (1, 3),
+    (3, 3),
+    (5, 3),
     # Row 4 (top): full corridor x=0..6
-    (0, 4), (1, 4), (2, 4), (3, 4), (4, 4), (5, 4), (6, 4),
+    (0, 4),
+    (1, 4),
+    (2, 4),
+    (3, 4),
+    (4, 4),
+    (5, 4),
+    (6, 4),
 }
 
 
@@ -128,6 +173,7 @@ def build_adjacency(cells: set[tuple[int, int]]) -> dict[tuple[int, int], list[t
 # Junction classification
 # ---------------------------------------------------------------------------
 
+
 def classify_nodes(
     adj: dict[tuple[int, int], list[tuple[int, int]]],
 ) -> dict[tuple[int, int], str]:
@@ -156,6 +202,7 @@ def classify_nodes(
 # ---------------------------------------------------------------------------
 # Shortest-path distances (BFS on unweighted graph)
 # ---------------------------------------------------------------------------
+
 
 def compute_distances(
     cells: set[tuple[int, int]],
@@ -227,6 +274,7 @@ def shortest_path(
 # RoseMaze dataclass — complete topology
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class RoseMaze:
     """Complete q-rose maze topology.
@@ -254,7 +302,9 @@ class RoseMaze:
 
     def __post_init__(self) -> None:
         self.cell_to_idx = {c: i for i, c in enumerate(self.cell_list)}
-        self.junctions = [c for c, t in self.node_types.items() if t in ("t_junction", "crossroads")]
+        self.junctions = [
+            c for c, t in self.node_types.items() if t in ("t_junction", "crossroads")
+        ]
         self.dead_ends = [c for c, t in self.node_types.items() if t == "dead_end"]
         self.corridors = [c for c, t in self.node_types.items() if t == "corridor"]
 

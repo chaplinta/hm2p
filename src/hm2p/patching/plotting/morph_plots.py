@@ -28,7 +28,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 from scipy.sparse import issparse
 
 logger = logging.getLogger(__name__)
@@ -43,9 +42,9 @@ DEFAULT_PROCESSED_DIR = Path("/data/patching/processed")
 
 #: Colour scheme for compartments.
 COMPARTMENT_COLOURS: dict[str, str] = {
-    "apical": "#1f77b4",   # blue
-    "basal": "#d62728",    # red
-    "soma": "#111111",     # near-black
+    "apical": "#1f77b4",  # blue
+    "basal": "#d62728",  # red
+    "soma": "#111111",  # near-black
 }
 
 #: Colour scheme for cell types.
@@ -159,14 +158,16 @@ def load_morph_mat(mat_path: Path | str) -> dict[str, Any]:
         else:
             rows, cols = np.nonzero(dA)
             edges = np.column_stack([rows, cols]) if len(rows) > 0 else np.empty((0, 2), dtype=int)
-        trees.append({
-            "name": str(t.name),
-            "X": np.asarray(t.X, dtype=float),
-            "Y": np.asarray(t.Y, dtype=float),
-            "Z": np.asarray(t.Z, dtype=float),
-            "D": np.asarray(t.D, dtype=float),
-            "edges": edges,
-        })
+        trees.append(
+            {
+                "name": str(t.name),
+                "X": np.asarray(t.X, dtype=float),
+                "Y": np.asarray(t.Y, dtype=float),
+                "Z": np.asarray(t.Z, dtype=float),
+                "D": np.asarray(t.D, dtype=float),
+                "edges": edges,
+            }
+        )
 
     # --- Soma center ---
     ss = md.soma_stats
@@ -296,26 +297,30 @@ def plot_single_morphology_2d(
                 x_lines.extend([X[r], X[c], None])
                 y_lines.extend([Y[r], Y[c], None])
 
-            fig.add_trace(go.Scatter(
-                x=x_lines,
-                y=y_lines,
-                mode="lines",
-                line=dict(color=colour, width=1),
-                name=label,
-                hoverinfo="name",
-            ))
+            fig.add_trace(
+                go.Scatter(
+                    x=x_lines,
+                    y=y_lines,
+                    mode="lines",
+                    line=dict(color=colour, width=1),
+                    name=label,
+                    hoverinfo="name",
+                )
+            )
 
     # Draw soma as a dot at the soma center
     if show_soma:
         sc = morph_data["soma_center"]
-        fig.add_trace(go.Scatter(
-            x=[sc[0]],
-            y=[sc[1]],
-            mode="markers",
-            marker=dict(color=COMPARTMENT_COLOURS["soma"], size=8, symbol="circle"),
-            name="Soma center",
-            hoverinfo="name",
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=[sc[0]],
+                y=[sc[1]],
+                mode="markers",
+                marker=dict(color=COMPARTMENT_COLOURS["soma"], size=8, symbol="circle"),
+                name="Soma center",
+                hoverinfo="name",
+            )
+        )
 
     fig.update_layout(
         title=title,
@@ -380,24 +385,30 @@ def plot_population_overlay(
                     x_lines.extend([X[r], X[c], None])
                     y_lines.extend([Y[r], Y[c], None])
 
-                fig.add_trace(go.Scatter(
-                    x=x_lines,
-                    y=y_lines,
-                    mode="lines",
-                    line=dict(color=colour, width=0.5),
-                    opacity=alpha,
-                    name=cell_id,
-                    showlegend=(i == 0 and "apical" in name_lower) or (i == 0 and "basal" in name_lower),
-                    hoverinfo="name",
-                ))
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_lines,
+                        y=y_lines,
+                        mode="lines",
+                        line=dict(color=colour, width=0.5),
+                        opacity=alpha,
+                        name=cell_id,
+                        showlegend=(i == 0 and "apical" in name_lower)
+                        or (i == 0 and "basal" in name_lower),
+                        hoverinfo="name",
+                    )
+                )
 
     # Soma at origin
-    fig.add_trace(go.Scatter(
-        x=[0], y=[0],
-        mode="markers",
-        marker=dict(color="black", size=6),
-        name="Soma (origin)",
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=[0],
+            y=[0],
+            mode="markers",
+            marker=dict(color="black", size=6),
+            name="Soma (origin)",
+        )
+    )
 
     fig.update_layout(
         title="Population overlay (soma-centred)",
@@ -448,15 +459,17 @@ def plot_density_heatmap(
 
     fig = go.Figure()
     if all_x:
-        fig.add_trace(go.Histogram2d(
-            x=all_x,
-            y=all_y,
-            xbins=dict(size=bin_size),
-            ybins=dict(size=bin_size),
-            colorscale="Hot",
-            reversescale=True,
-            colorbar=dict(title="Node count"),
-        ))
+        fig.add_trace(
+            go.Histogram2d(
+                x=all_x,
+                y=all_y,
+                xbins=dict(size=bin_size),
+                ybins=dict(size=bin_size),
+                colorscale="Hot",
+                reversescale=True,
+                colorbar=dict(title="Node count"),
+            )
+        )
 
     fig.update_layout(
         title=f"{compartment.capitalize()} density (soma-centred, {bin_size} um bins)",
@@ -502,13 +515,15 @@ def plot_sholl_profile(
             continue
         radii = np.arange(1, len(profile) + 1)
         colour = COMPARTMENT_COLOURS[compartment.lower()]
-        fig.add_trace(go.Scatter(
-            x=radii,
-            y=profile,
-            mode="lines",
-            name=compartment,
-            line=dict(color=colour),
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=radii,
+                y=profile,
+                mode="lines",
+                name=compartment,
+                line=dict(color=colour),
+            )
+        )
 
     fig.update_layout(
         title=title or "Sholl analysis",
@@ -595,23 +610,27 @@ def plot_population_sholl(
     if len(radii) > 0:
         # SEM band — convert hex colour to rgba for transparency
         fill_rgba = _hex_to_rgba(colour, 0.2)
-        fig.add_trace(go.Scatter(
-            x=np.concatenate([radii, radii[::-1]]),
-            y=np.concatenate([mean_p + sem_p, (mean_p - sem_p)[::-1]]),
-            fill="toself",
-            fillcolor=fill_rgba,
-            line=dict(color="rgba(0,0,0,0)"),
-            showlegend=False,
-            hoverinfo="skip",
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=np.concatenate([radii, radii[::-1]]),
+                y=np.concatenate([mean_p + sem_p, (mean_p - sem_p)[::-1]]),
+                fill="toself",
+                fillcolor=fill_rgba,
+                line=dict(color="rgba(0,0,0,0)"),
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
         # Mean line
-        fig.add_trace(go.Scatter(
-            x=radii,
-            y=mean_p,
-            mode="lines",
-            name=f"{compartment.capitalize()} (n={len(all_morph)})",
-            line=dict(color=colour, width=2),
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=radii,
+                y=mean_p,
+                mode="lines",
+                name=f"{compartment.capitalize()} (n={len(all_morph)})",
+                line=dict(color=colour, width=2),
+            )
+        )
 
     fig.update_layout(
         title=f"Population Sholl -- {compartment.capitalize()} (mean +/- SEM)",
@@ -656,13 +675,15 @@ def build_metrics_dataframe(
             gs = md[key]
             for metric, val in gs.items():
                 if metric in GSTATS_LABELS:
-                    rows.append({
-                        "cell_id": cell_id,
-                        "compartment": compartment,
-                        "metric": metric,
-                        "value": val,
-                        "cell_type": ct,
-                    })
+                    rows.append(
+                        {
+                            "cell_id": cell_id,
+                            "compartment": compartment,
+                            "metric": metric,
+                            "value": val,
+                            "cell_type": ct,
+                        }
+                    )
     return pd.DataFrame(rows)
 
 
@@ -701,14 +722,16 @@ def plot_metric_comparison(
     for ct in sorted(df["cell_type"].unique()):
         subset = df[df["cell_type"] == ct]
         colour = CELLTYPE_COLOURS.get(ct, "#888888")
-        fig.add_trace(go.Box(
-            y=subset["value"],
-            name=ct,
-            marker_color=colour,
-            boxpoints="all",
-            jitter=0.3,
-            pointpos=-1.8,
-        ))
+        fig.add_trace(
+            go.Box(
+                y=subset["value"],
+                name=ct,
+                marker_color=colour,
+                boxpoints="all",
+                jitter=0.3,
+                pointpos=-1.8,
+            )
+        )
 
     fig.update_layout(
         title=f"{compartment.capitalize()} -- {label}",
@@ -744,10 +767,12 @@ def format_stats_table(morph_data: dict[str, Any]) -> pd.DataFrame:
         label, unit = GSTATS_LABELS[key]
         api_val = morph_data["apical_gstats"].get(key, np.nan)
         bas_val = morph_data["basal_gstats"].get(key, np.nan)
-        rows.append({
-            "Metric": label,
-            "Apical": round(api_val, 3) if np.isfinite(api_val) else "-",
-            "Basal": round(bas_val, 3) if np.isfinite(bas_val) else "-",
-            "Unit": unit,
-        })
+        rows.append(
+            {
+                "Metric": label,
+                "Apical": round(api_val, 3) if np.isfinite(api_val) else "-",
+                "Basal": round(bas_val, 3) if np.isfinite(bas_val) else "-",
+                "Unit": unit,
+            }
+        )
     return pd.DataFrame(rows)

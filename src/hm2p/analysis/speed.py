@@ -109,6 +109,7 @@ def speed_modulation_index(
     # Correlation
     if len(sig) > 2 and np.std(spd) > 0 and np.std(sig) > 0:
         from scipy.stats import spearmanr
+
         corr = float(spearmanr(spd, sig)[0])
     else:
         corr = 0.0
@@ -167,7 +168,7 @@ def hd_tuning_by_speed(
     for i in range(len(thresholds) - 1):
         mid_mask = mask & (speed >= thresholds[i]) & (speed < thresholds[i + 1])
         groups.append(mid_mask)
-        labels.append(f"Medium ({thresholds[i]:.1f}-{thresholds[i+1]:.1f})")
+        labels.append(f"Medium ({thresholds[i]:.1f}-{thresholds[i + 1]:.1f})")
 
     high_mask = mask & (speed >= thresholds[-1])
     groups.append(high_mask)
@@ -186,7 +187,10 @@ def hd_tuning_by_speed(
             continue
 
         tc, bc_i = compute_hd_tuning_curve(
-            signal, hd_deg, group_mask, n_bins=n_bins,
+            signal,
+            hd_deg,
+            group_mask,
+            n_bins=n_bins,
             smoothing_sigma_deg=smoothing_sigma_deg,
         )
         if bc is None:

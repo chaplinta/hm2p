@@ -188,9 +188,7 @@ class TestCorrectPerspective:
         h=st.floats(min_value=0.1, max_value=600, allow_nan=False),
     )
     @settings(max_examples=200)
-    def test_corrected_between_original_and_center(
-        self, px: float, py: float, h: float
-    ) -> None:
+    def test_corrected_between_original_and_center(self, px: float, py: float, h: float) -> None:
         """Corrected point should always lie between the original and camera centre."""
         cx, cy = 640.0, 512.0
         x = np.array([px])
@@ -208,9 +206,7 @@ class TestCorrectPerspective:
         h=st.floats(min_value=0.1, max_value=600, allow_nan=False),
     )
     @settings(max_examples=200)
-    def test_correction_preserves_direction(
-        self, px: float, py: float, h: float
-    ) -> None:
+    def test_correction_preserves_direction(self, px: float, py: float, h: float) -> None:
         """Corrected point should be on the same ray from camera centre."""
         cx, cy = 640.0, 512.0
         x = np.array([px])
@@ -292,9 +288,7 @@ class TestCorrectDatasetPerspective:
         ds = _make_pose_dataset(n_frames=n, pos_data=pos)
 
         heights = {"left_ear": 40.0, "right_ear": 40.0, "tail_base": 10.0}
-        ds_corr = correct_dataset_perspective(
-            ds, (400.0, 300.0), bodypart_heights=heights
-        )
+        ds_corr = correct_dataset_perspective(ds, (400.0, 300.0), bodypart_heights=heights)
 
         # Ears (h=40) should be corrected more than tail_base (h=10)
         ear_x = ds_corr.position.sel(keypoints="left_ear", space="x").values[0, 0]
@@ -312,9 +306,7 @@ class TestCorrectDatasetPerspective:
 
         # Only correct left_ear, leave everything else at h=0
         heights = {"left_ear": 40.0}
-        ds_corr = correct_dataset_perspective(
-            ds, (400.0, 300.0), bodypart_heights=heights
-        )
+        ds_corr = correct_dataset_perspective(ds, (400.0, 300.0), bodypart_heights=heights)
 
         # mid_back not in heights → should be unchanged
         mid_x_orig = ds.position.sel(keypoints="mid_back", space="x").values
@@ -325,12 +317,8 @@ class TestCorrectDatasetPerspective:
         """All heights = 0 → output equals input."""
         ds = _make_pose_dataset()
         heights = {kp: 0.0 for kp in KEYPOINTS}
-        ds_corr = correct_dataset_perspective(
-            ds, (400.0, 300.0), bodypart_heights=heights
-        )
-        np.testing.assert_array_equal(
-            ds_corr.position.values, ds.position.values
-        )
+        ds_corr = correct_dataset_perspective(ds, (400.0, 300.0), bodypart_heights=heights)
+        np.testing.assert_array_equal(ds_corr.position.values, ds.position.values)
 
     def test_default_heights_are_implant(self) -> None:
         """Default bodypart_heights should be BODYPART_HEIGHTS_IMPLANT."""
@@ -346,9 +334,7 @@ class TestCorrectDatasetPerspective:
         ds_explicit = correct_dataset_perspective(
             ds, (400.0, 300.0), bodypart_heights=BODYPART_HEIGHTS_IMPLANT
         )
-        np.testing.assert_array_equal(
-            ds_default.position.values, ds_explicit.position.values
-        )
+        np.testing.assert_array_equal(ds_default.position.values, ds_explicit.position.values)
 
     def test_nan_in_position(self) -> None:
         """NaN positions should be preserved through correction."""
@@ -359,11 +345,7 @@ class TestCorrectDatasetPerspective:
         ds = _make_pose_dataset(n_frames=n, pos_data=pos)
 
         ds_corr = correct_dataset_perspective(ds, (400.0, 300.0))
-        assert np.isnan(
-            ds_corr.position.sel(
-                keypoints="left_ear", space="x"
-            ).values[2, 0]
-        )
+        assert np.isnan(ds_corr.position.sel(keypoints="left_ear", space="x").values[2, 0])
 
 
 # ---------------------------------------------------------------------------

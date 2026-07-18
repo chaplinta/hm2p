@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from hm2p.patching.io import _apply_scaling, _crawl_h5_group
+from hm2p.patching.io import _apply_scaling
 
 
 class TestPatchingTraceIO:

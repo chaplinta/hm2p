@@ -168,9 +168,7 @@ def _median_filter_1d(arr: np.ndarray, win: int = 5) -> np.ndarray:
     return out
 
 
-def _savgol_filter_1d(
-    arr: np.ndarray, window: int, polyorder: int = 2
-) -> np.ndarray:
+def _savgol_filter_1d(arr: np.ndarray, window: int, polyorder: int = 2) -> np.ndarray:
     """Apply a Savitzky-Golay smoother to a 1D signal, preserving NaN.
 
     NaN values are linearly interpolated before filtering and restored
@@ -199,9 +197,7 @@ def _savgol_filter_1d(
     if window % 2 == 0:
         raise ValueError(f"savgol window must be odd, got {window}")
     if polyorder >= window:
-        raise ValueError(
-            f"polyorder ({polyorder}) must be < window ({window})"
-        )
+        raise ValueError(f"polyorder ({polyorder}) must be < window ({window})")
 
     nan_mask = np.isnan(arr)
     if nan_mask.all():
@@ -239,9 +235,9 @@ def median_filter_dataset(ds: xr.Dataset, window: int = 3) -> xr.Dataset:
     Returns:
         Dataset with median-filtered positions.
     """
-    from movement.filtering import rolling_filter
-
     import logging as _logging
+
+    from movement.filtering import rolling_filter
 
     try:
         filtered = rolling_filter(ds.position, window=window, statistic="median")
@@ -286,9 +282,7 @@ def _ear_perpendicular_angle(
 
     Returns (N,) float64. NaN where either ear is NaN.
     """
-    angle_rad = np.arctan2(
-        ear_left_x - ear_right_x, ear_left_y - ear_right_y
-    )
+    angle_rad = np.arctan2(ear_left_x - ear_right_x, ear_left_y - ear_right_y)
     return 180.0 + np.degrees(angle_rad)
 
 
@@ -328,9 +322,7 @@ def _unwrap_and_smooth(
     if nan_mask.any():
         idx = np.arange(len(angle_deg), dtype=float)
         valid = ~nan_mask
-        angle_filled[nan_mask] = np.interp(
-            idx[nan_mask], idx[valid], angle_deg[valid]
-        )
+        angle_filled[nan_mask] = np.interp(idx[nan_mask], idx[valid], angle_deg[valid])
 
     rad_unwrapped = np.unwrap(np.deg2rad(angle_filled), discont=np.pi)
     deg_unwrapped = np.degrees(rad_unwrapped)
@@ -358,9 +350,7 @@ def _compute_hd_deg(
 
     Kept for backwards compatibility and unit tests.
     """
-    angle_deg = _ear_perpendicular_angle(
-        ear_left_x, ear_left_y, ear_right_x, ear_right_y
-    )
+    angle_deg = _ear_perpendicular_angle(ear_left_x, ear_left_y, ear_right_x, ear_right_y)
     return _unwrap_and_smooth(angle_deg, median_filter_win)
 
 
@@ -418,18 +408,14 @@ def _fused_hd_wrapped(
         return np.minimum.reduce(valid)
 
     # Estimate 1: ear perpendicular (always available)
-    est_ear = _ear_perpendicular_angle(
-        ear_left_x, ear_left_y, ear_right_x, ear_right_y
-    )
+    est_ear = _ear_perpendicular_angle(ear_left_x, ear_left_y, ear_right_x, ear_right_y)
     w_ear = _min_conf(conf_ear_left, conf_ear_right)
 
     # Estimate 2: implant → nose
     est_implant_nose = np.full(n, np.nan)
     w_implant_nose = np.ones(n)
     if nose_x is not None and implant_x is not None:
-        est_implant_nose = _vector_angle_deg(
-            implant_x, implant_y, nose_x, nose_y
-        )
+        est_implant_nose = _vector_angle_deg(implant_x, implant_y, nose_x, nose_y)
         w_implant_nose = _min_conf(conf_nose, conf_implant)
 
     # Estimate 3: neck → nose
@@ -452,19 +438,23 @@ def _fused_hd_wrapped(
     est_neck_implant = np.full(n, np.nan)
     w_neck_implant = np.ones(n)
     if implant_x is not None and neck_x is not None:
-        est_neck_implant = _vector_angle_deg(
-            neck_x, neck_y, implant_x, implant_y
-        )
+        est_neck_implant = _vector_angle_deg(neck_x, neck_y, implant_x, implant_y)
         w_neck_implant = _min_conf(conf_neck, conf_implant)
 
     # Confidence-weighted circular mean of all available estimates.
     estimates = [
-        est_ear, est_implant_nose, est_neck_nose,
-        est_earmid_nose, est_neck_implant,
+        est_ear,
+        est_implant_nose,
+        est_neck_nose,
+        est_earmid_nose,
+        est_neck_implant,
     ]
     weights = [
-        w_ear, w_implant_nose, w_neck_nose,
-        w_earmid_nose, w_neck_implant,
+        w_ear,
+        w_implant_nose,
+        w_neck_nose,
+        w_earmid_nose,
+        w_neck_implant,
     ]
 
     sin_sum = np.zeros(n, dtype=np.float64)
@@ -485,7 +475,7 @@ def _fused_hd_wrapped(
     return fused
 
 
-def compute_head_centre(ds: "xr.Dataset") -> tuple[np.ndarray, np.ndarray]:
+def compute_head_centre(ds: xr.Dataset) -> tuple[np.ndarray, np.ndarray]:
     """Compute head centre position from available head keypoints.
 
     Uses confidence-weighted mean of all available head keypoints:
@@ -530,8 +520,8 @@ def compute_head_centre(ds: "xr.Dataset") -> tuple[np.ndarray, np.ndarray]:
         n = len(pos.coords["time"])
         return np.full(n, np.nan, dtype=np.float32), np.full(n, np.nan, dtype=np.float32)
 
-    xs_arr = np.stack(xs, axis=1)       # (N, K)
-    ys_arr = np.stack(ys, axis=1)       # (N, K)
+    xs_arr = np.stack(xs, axis=1)  # (N, K)
+    ys_arr = np.stack(ys, axis=1)  # (N, K)
     confs_arr = np.stack(confs, axis=1)  # (N, K)
 
     w_sum = confs_arr.sum(axis=1, keepdims=True)  # (N, 1)
@@ -547,7 +537,7 @@ def compute_head_centre(ds: "xr.Dataset") -> tuple[np.ndarray, np.ndarray]:
     return cx.astype(np.float32), cy.astype(np.float32)
 
 
-def compute_head_body_angle(ds: "xr.Dataset") -> np.ndarray:
+def compute_head_body_angle(ds: xr.Dataset) -> np.ndarray:
     """Compute the angle between head direction and body direction (degrees).
 
     Head direction: from implant/neck to nose (or ear perpendicular).
@@ -575,9 +565,7 @@ def compute_head_body_angle(ds: "xr.Dataset") -> np.ndarray:
         n = len(pos.coords["time"])
         return np.full(n, np.nan, dtype=np.float32)
 
-    hd = _ear_perpendicular_angle(
-        ear_left[0], ear_left[1], ear_right[0], ear_right[1]
-    )
+    hd = _ear_perpendicular_angle(ear_left[0], ear_left[1], ear_right[0], ear_right[1])
 
     # Body direction: tail_base → mid_back
     tail = _get_keypoint_xy(pos, "tail_base")
@@ -587,9 +575,7 @@ def compute_head_body_angle(ds: "xr.Dataset") -> np.ndarray:
         return np.full(n, np.nan, dtype=np.float32)
 
     # Use same convention as ear perpendicular (atan2(dx, dy) + 180)
-    body_dir = 180.0 + np.degrees(
-        np.arctan2(back[0] - tail[0], back[1] - tail[1])
-    )
+    body_dir = 180.0 + np.degrees(np.arctan2(back[0] - tail[0], back[1] - tail[1]))
 
     # Signed angular difference
     diff = hd - body_dir
@@ -599,7 +585,7 @@ def compute_head_body_angle(ds: "xr.Dataset") -> np.ndarray:
     return diff.astype(np.float32)
 
 
-def compute_neck_angle(ds: "xr.Dataset") -> np.ndarray:
+def compute_neck_angle(ds: xr.Dataset) -> np.ndarray:
     """Compute the neck flexion angle (degrees).
 
     Angle at the neck keypoint between the head axis (neck→implant or
@@ -766,9 +752,7 @@ def load_pose_dataset(pose_path: Path, tracker: str) -> xr.Dataset:
     from movement.io import load_poses
 
     if tracker not in _TRACKER_LOADERS:
-        raise ValueError(
-            f"Unknown tracker '{tracker}'. Known trackers: {list(_TRACKER_LOADERS)}"
-        )
+        raise ValueError(f"Unknown tracker '{tracker}'. Known trackers: {list(_TRACKER_LOADERS)}")
     loader = getattr(load_poses, _TRACKER_LOADERS[tracker])
     ds = loader(pose_path)
     # Normalise movement 0.17's singular dims back to the plural names this
@@ -787,9 +771,7 @@ def _normalise_dim_names(ds: xr.Dataset) -> xr.Dataset:
     <0.17), so the rest of the module can keep using the plural 0.14 names
     regardless of the installed movement version.
     """
-    rename = {
-        old: new for old, new in _SINGULAR_TO_PLURAL_DIMS.items() if old in ds.dims
-    }
+    rename = {old: new for old, new in _SINGULAR_TO_PLURAL_DIMS.items() if old in ds.dims}
     return ds.rename(rename) if rename else ds
 
 
@@ -904,9 +886,7 @@ def filter_by_keypoint_quantile(
 
     threshold_map: dict[str, float] = {}
     for kp_name in conf.coords["keypoints"].values.tolist():
-        threshold_map[str(kp_name)] = float(
-            thresholds.sel(keypoints=kp_name).values
-        )
+        threshold_map[str(kp_name)] = float(thresholds.sel(keypoints=kp_name).values)
 
     return ds.assign(position=filtered_pos), threshold_map
 
@@ -931,9 +911,7 @@ def interpolate_gaps(ds: xr.Dataset, max_gap_frames: int = 5) -> xr.Dataset:
     return ds.assign(position=interp_pos)
 
 
-def _get_keypoint_xy(
-    pos: "xr.DataArray", name: str
-) -> tuple[np.ndarray, np.ndarray] | None:
+def _get_keypoint_xy(pos: xr.DataArray, name: str) -> tuple[np.ndarray, np.ndarray] | None:
     """Extract (x, y) arrays for a keypoint, or None if not in the dataset."""
     kps = list(pos.coords["keypoints"].values)
     if name not in kps:
@@ -942,9 +920,7 @@ def _get_keypoint_xy(
     return kp.sel(space="x").values, kp.sel(space="y").values
 
 
-def _get_keypoint_conf(
-    ds: "xr.Dataset", name: str
-) -> np.ndarray | None:
+def _get_keypoint_conf(ds: xr.Dataset, name: str) -> np.ndarray | None:
     """Extract confidence array for a keypoint, or None if unavailable."""
     if "confidence" not in ds:
         return None
@@ -981,9 +957,7 @@ def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
     ear_left = _get_keypoint_xy(pos, _EAR_LEFT)
     ear_right = _get_keypoint_xy(pos, _EAR_RIGHT)
     if ear_left is None or ear_right is None:
-        raise ValueError(
-            f"Ears required for HD. Available keypoints: {available_kps}"
-        )
+        raise ValueError(f"Ears required for HD. Available keypoints: {available_kps}")
 
     nose = _get_keypoint_xy(pos, _NOSE)
     implant = _get_keypoint_xy(pos, _IMPLANT)
@@ -1009,7 +983,9 @@ def compute_head_direction(ds: xr.Dataset) -> np.ndarray:
     has_conf = conf_el is not None
     _log.info(
         "HD fusion: %d estimates %s, confidence-weighted=%s",
-        len(methods), methods, has_conf,
+        len(methods),
+        methods,
+        has_conf,
     )
 
     fused_wrapped = _fused_hd_wrapped(
@@ -1239,7 +1215,7 @@ def _windowed_speed(
 
 
 def compute_multipoint_speed(
-    ds: "xr.Dataset",
+    ds: xr.Dataset,
     keypoints: list[str],
     frame_times: np.ndarray,
     scale_mm_per_px: float,
@@ -1298,7 +1274,7 @@ def compute_multipoint_speed(
 
 
 def compute_locomotion_speed(
-    ds: "xr.Dataset",
+    ds: xr.Dataset,
     frame_times: np.ndarray,
     scale_mm_per_px: float,
     window_s: float = 0.2,
@@ -1318,12 +1294,16 @@ def compute_locomotion_speed(
         (N,) float32 — locomotion speed in cm/s.
     """
     return compute_multipoint_speed(
-        ds, list(_BODY_KEYPOINTS), frame_times, scale_mm_per_px, window_s,
+        ds,
+        list(_BODY_KEYPOINTS),
+        frame_times,
+        scale_mm_per_px,
+        window_s,
     )
 
 
 def compute_head_speed(
-    ds: "xr.Dataset",
+    ds: xr.Dataset,
     frame_times: np.ndarray,
     scale_mm_per_px: float,
     window_s: float = 0.2,
@@ -1345,7 +1325,11 @@ def compute_head_speed(
     """
     head_kps = [_NOSE, _EAR_LEFT, _EAR_RIGHT, _IMPLANT, _NECK]
     return compute_multipoint_speed(
-        ds, head_kps, frame_times, scale_mm_per_px, window_s,
+        ds,
+        head_kps,
+        frame_times,
+        scale_mm_per_px,
+        window_s,
     )
 
 
@@ -1421,9 +1405,9 @@ def compute_hd_multi(ds: xr.Dataset, scale_mm_per_px: float) -> dict[str, np.nda
                 # No confidence data → treat as full confidence
                 kp_xy = _get_keypoint_xy(pos, name)
                 if kp_xy is not None:
-                    c = np.where(
-                        np.isnan(kp_xy[0]) | np.isnan(kp_xy[1]), 0.0, 1.0
-                    ).astype(np.float64)
+                    c = np.where(np.isnan(kp_xy[0]) | np.isnan(kp_xy[1]), 0.0, 1.0).astype(
+                        np.float64
+                    )
                 else:
                     c = np.zeros(pos.sizes["time"], dtype=np.float64)
             arrays.append(c)
@@ -1437,9 +1421,7 @@ def compute_hd_multi(ds: xr.Dataset, scale_mm_per_px: float) -> dict[str, np.nda
     ear_left = _get_keypoint_xy(pos, _EAR_LEFT)
     ear_right = _get_keypoint_xy(pos, _EAR_RIGHT)
     if ear_left is None or ear_right is None:
-        raise ValueError(
-            f"left_ear and right_ear required for HD. Available: {available_kps}"
-        )
+        raise ValueError(f"left_ear and right_ear required for HD. Available: {available_kps}")
     hd_ears = _ear_perpendicular_angle(
         ear_left[0], ear_left[1], ear_right[0], ear_right[1]
     ).astype(np.float32)
@@ -1451,9 +1433,9 @@ def compute_hd_multi(ds: xr.Dataset, scale_mm_per_px: float) -> dict[str, np.nda
     nose = _get_keypoint_xy(pos, _NOSE)
     implant = _get_keypoint_xy(pos, _IMPLANT)
     if nose is not None and implant is not None:
-        hd_nose_head = _vector_angle_deg(
-            implant[0], implant[1], nose[0], nose[1]
-        ).astype(np.float32)
+        hd_nose_head = _vector_angle_deg(implant[0], implant[1], nose[0], nose[1]).astype(
+            np.float32
+        )
         w_nose_head = _mean_conf(_NOSE, _IMPLANT)
         w_nose_head = np.where(np.isnan(hd_nose_head), 0.0, w_nose_head)
     else:
@@ -1463,9 +1445,7 @@ def compute_hd_multi(ds: xr.Dataset, scale_mm_per_px: float) -> dict[str, np.nda
     # --- Estimate 3: neck → nose_tip ---
     neck = _get_keypoint_xy(pos, _NECK)
     if nose is not None and neck is not None:
-        hd_nose_neck = _vector_angle_deg(
-            neck[0], neck[1], nose[0], nose[1]
-        ).astype(np.float32)
+        hd_nose_neck = _vector_angle_deg(neck[0], neck[1], nose[0], nose[1]).astype(np.float32)
         w_nose_neck = _mean_conf(_NOSE, _NECK)
         w_nose_neck = np.where(np.isnan(hd_nose_neck), 0.0, w_nose_neck)
     else:
@@ -1474,9 +1454,9 @@ def compute_hd_multi(ds: xr.Dataset, scale_mm_per_px: float) -> dict[str, np.nda
 
     # --- Estimate 4: neck → head_midpoint ---
     if implant is not None and neck is not None:
-        hd_head_neck = _vector_angle_deg(
-            neck[0], neck[1], implant[0], implant[1]
-        ).astype(np.float32)
+        hd_head_neck = _vector_angle_deg(neck[0], neck[1], implant[0], implant[1]).astype(
+            np.float32
+        )
         w_head_neck = _mean_conf(_IMPLANT, _NECK)
         w_head_neck = np.where(np.isnan(hd_head_neck), 0.0, w_head_neck)
     else:
@@ -1500,9 +1480,7 @@ def compute_hd_multi(ds: xr.Dataset, scale_mm_per_px: float) -> dict[str, np.nda
 
     fused_wrapped = np.full(n, np.nan, dtype=np.float64)
     has_any = w_sum > 0
-    fused_wrapped[has_any] = (
-        np.degrees(np.arctan2(sin_sum[has_any], cos_sum[has_any])) % 360.0
-    )
+    fused_wrapped[has_any] = np.degrees(np.arctan2(sin_sum[has_any], cos_sum[has_any])) % 360.0
 
     # Unwrap fused HD so AHV can be computed via gradient
     hd_fused = _unwrap_and_smooth(fused_wrapped, median_filter_win=3)
@@ -1523,9 +1501,7 @@ def compute_hd_multi(ds: xr.Dataset, scale_mm_per_px: float) -> dict[str, np.nda
     }
 
 
-def compute_head_position(
-    ds: xr.Dataset, scale_mm_per_px: float
-) -> tuple[np.ndarray, np.ndarray]:
+def compute_head_position(ds: xr.Dataset, scale_mm_per_px: float) -> tuple[np.ndarray, np.ndarray]:
     """Confidence-weighted head position from 3 independent estimates.
 
     Estimates:
@@ -1588,9 +1564,7 @@ def compute_head_position(
     if nose_mm is not None and ear_l_mm is not None and ear_r_mm is not None:
         cx2 = (nose_mm[0] + ear_l_mm[0] + ear_r_mm[0]) / 3.0
         cy2 = (nose_mm[1] + ear_l_mm[1] + ear_r_mm[1]) / 3.0
-        w2 = (
-            _kp_conf(_NOSE) + _kp_conf(_EAR_LEFT) + _kp_conf(_EAR_RIGHT)
-        ) / 3.0
+        w2 = (_kp_conf(_NOSE) + _kp_conf(_EAR_LEFT) + _kp_conf(_EAR_RIGHT)) / 3.0
         valid = ~np.isnan(cx2) & ~np.isnan(cy2) & (w2 > 0)
         x_sum[valid] += w2[valid] * cx2[valid]
         y_sum[valid] += w2[valid] * cy2[valid]
@@ -1651,9 +1625,7 @@ def compute_body_position_unweighted(
     return (x_px * scale_mm_per_px).astype(np.float32), (y_px * scale_mm_per_px).astype(np.float32)
 
 
-def compute_body_position(
-    ds: xr.Dataset, scale_mm_per_px: float
-) -> tuple[np.ndarray, np.ndarray]:
+def compute_body_position(ds: xr.Dataset, scale_mm_per_px: float) -> tuple[np.ndarray, np.ndarray]:
     """Confidence-weighted body centroid from mid_back, mouse_center, tail_base.
 
     These keypoints lie along the body axis. Because the head rotates
@@ -1895,17 +1867,13 @@ def run(
     # confidence filtering / gap interpolation / median smoothing are skipped.
     ds_raw = ds.copy(deep=True)
     applied_thresholds: dict[str, float] | None = None
-    if isinstance(confidence_threshold, str) and confidence_threshold.startswith(
-        "quantile:"
-    ):
+    if isinstance(confidence_threshold, str) and confidence_threshold.startswith("quantile:"):
         q = float(confidence_threshold.split(":", 1)[1])
         ds, applied_thresholds = filter_by_keypoint_quantile(ds, quantile=q)
         _log.info(
             "Per-keypoint quantile=%g confidence filter applied: %s",
             q,
-            ", ".join(
-                f"{k}={v:.3f}" for k, v in sorted(applied_thresholds.items())
-            ),
+            ", ".join(f"{k}={v:.3f}" for k, v in sorted(applied_thresholds.items())),
         )
     else:
         ds = filter_low_confidence(ds, threshold=float(confidence_threshold))
@@ -1952,14 +1920,14 @@ def run(
         rot_x, rot_y = _rotate_xy(
             maze_corners_px[:, 0].astype(float),
             maze_corners_px[:, 1].astype(float),
-            orientation_deg, cx, cy,
+            orientation_deg,
+            cx,
+            cy,
         )
         maze_corners_px = np.column_stack([rot_x, rot_y])
 
     # Maze coords use body position (body centroid, not head).
-    x_maze, y_maze = compute_maze_coords(
-        x_body_mm, y_body_mm, maze_corners_px, scale_mm_per_px
-    )
+    x_maze, y_maze = compute_maze_coords(x_body_mm, y_body_mm, maze_corners_px, scale_mm_per_px)
 
     # Per-bodypart positions in mm and maze coords for skeleton visualisation
     pos = ds.position.isel(individuals=0)
@@ -1971,18 +1939,22 @@ def run(
         kp_x_mm = (kp_x_px * scale_mm_per_px).astype(np.float32)
         kp_y_mm = (kp_y_px * scale_mm_per_px).astype(np.float32)
         kp_x_mz, kp_y_mz = compute_maze_coords(
-            kp_x_mm, kp_y_mm, maze_corners_px, scale_mm_per_px,
+            kp_x_mm,
+            kp_y_mm,
+            maze_corners_px,
+            scale_mm_per_px,
         )
         bp_positions_maze[kp] = (kp_x_mz, kp_y_mz)
 
     # Raw (unfiltered) body position and per-bodypart maze coords.
     # No confidence filter, no gap interpolation, no median smoothing,
     # no confidence weighting — the user-facing "raw" view of the pose.
-    x_body_raw_mm, y_body_raw_mm = compute_body_position_unweighted(
-        ds_raw, scale_mm_per_px
-    )
+    x_body_raw_mm, y_body_raw_mm = compute_body_position_unweighted(ds_raw, scale_mm_per_px)
     x_maze_raw, y_maze_raw = compute_maze_coords(
-        x_body_raw_mm, y_body_raw_mm, maze_corners_px, scale_mm_per_px,
+        x_body_raw_mm,
+        y_body_raw_mm,
+        maze_corners_px,
+        scale_mm_per_px,
     )
     pos_raw = ds_raw.position.isel(individuals=0)
     bp_positions_maze_raw: dict[str, tuple[np.ndarray, np.ndarray]] = {}
@@ -1992,7 +1964,10 @@ def run(
         kp_x_mm = (kp_x_px * scale_mm_per_px).astype(np.float32)
         kp_y_mm = (kp_y_px * scale_mm_per_px).astype(np.float32)
         kp_x_mz, kp_y_mz = compute_maze_coords(
-            kp_x_mm, kp_y_mm, maze_corners_px, scale_mm_per_px,
+            kp_x_mm,
+            kp_y_mm,
+            maze_corners_px,
+            scale_mm_per_px,
         )
         bp_positions_maze_raw[kp] = (kp_x_mz, kp_y_mz)
 

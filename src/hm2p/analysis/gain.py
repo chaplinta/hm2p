@@ -52,11 +52,17 @@ def gain_modulation_index(
     mask_dark = mask & ~light_on
 
     tc_light, _ = compute_hd_tuning_curve(
-        signal, hd_deg, mask_light, n_bins=n_bins,
+        signal,
+        hd_deg,
+        mask_light,
+        n_bins=n_bins,
         smoothing_sigma_deg=smoothing_sigma_deg,
     )
     tc_dark, _ = compute_hd_tuning_curve(
-        signal, hd_deg, mask_dark, n_bins=n_bins,
+        signal,
+        hd_deg,
+        mask_dark,
+        n_bins=n_bins,
         smoothing_sigma_deg=smoothing_sigma_deg,
     )
 
@@ -67,8 +73,12 @@ def gain_modulation_index(
     denom = peak_light + peak_dark
     gain_index = (peak_light - peak_dark) / denom if denom > 0 else 0.0
 
-    dr_light = float(np.nanmax(tc_light) - np.nanmin(tc_light)) if not np.all(np.isnan(tc_light)) else 0.0
-    dr_dark = float(np.nanmax(tc_dark) - np.nanmin(tc_dark)) if not np.all(np.isnan(tc_dark)) else 0.0
+    dr_light = (
+        float(np.nanmax(tc_light) - np.nanmin(tc_light)) if not np.all(np.isnan(tc_light)) else 0.0
+    )
+    dr_dark = (
+        float(np.nanmax(tc_dark) - np.nanmin(tc_dark)) if not np.all(np.isnan(tc_dark)) else 0.0
+    )
 
     mean_light = float(np.mean(signal[mask_light])) if mask_light.any() else 0.0
     mean_dark = float(np.mean(signal[mask_dark])) if mask_dark.any() else 0.0
@@ -112,8 +122,12 @@ def population_gain_modulation(
     results = []
     for i in range(n_cells):
         result = gain_modulation_index(
-            signals[i], hd_deg, mask, light_on,
-            n_bins=n_bins, smoothing_sigma_deg=smoothing_sigma_deg,
+            signals[i],
+            hd_deg,
+            mask,
+            light_on,
+            n_bins=n_bins,
+            smoothing_sigma_deg=smoothing_sigma_deg,
         )
         results.append(result)
     return results
@@ -171,7 +185,10 @@ def epoch_gain_tracking(
             continue
 
         tc, bc = compute_hd_tuning_curve(
-            signal, hd_deg, epoch_mask, n_bins=n_bins,
+            signal,
+            hd_deg,
+            epoch_mask,
+            n_bins=n_bins,
             smoothing_sigma_deg=smoothing_sigma_deg,
         )
         centers.append((start + end) // 2)

@@ -274,18 +274,14 @@ def load_registered_movie(
     if n_frames is None:
         n_frames = inferred
     elif n_frames > inferred:
-        raise ValueError(
-            f"requested {n_frames} frames but file only holds {inferred}"
-        )
+        raise ValueError(f"requested {n_frames} frames but file only holds {inferred}")
 
     if mmap:
-        movie = np.memmap(
-            data_bin, dtype=np.int16, mode="r", shape=(n_frames, crop_ly, crop_lx)
-        )
+        movie = np.memmap(data_bin, dtype=np.int16, mode="r", shape=(n_frames, crop_ly, crop_lx))
     else:
-        movie = np.fromfile(
-            data_bin, dtype=np.int16, count=n_frames * crop_ly * crop_lx
-        ).reshape(n_frames, crop_ly, crop_lx)
+        movie = np.fromfile(data_bin, dtype=np.int16, count=n_frames * crop_ly * crop_lx).reshape(
+            n_frames, crop_ly, crop_lx
+        )
     return movie
 
 
@@ -349,9 +345,7 @@ def subtract_fissa_from_movie(
     spatial = movie.shape[1:]
     for i, m in enumerate(roi_masks):
         if m.shape != spatial:
-            raise ValueError(
-                f"roi_masks[{i}] shape {m.shape} != movie spatial dims {spatial}"
-            )
+            raise ValueError(f"roi_masks[{i}] shape {m.shape} != movie spatial dims {spatial}")
 
     return _run_fissa(
         images=[movie],

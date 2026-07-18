@@ -92,8 +92,12 @@ def load_model(
         with open(mtp) as f:
             meta = json.load(f)
 
-    log.info("Loaded ROI classifier from %s (v%s, %d features)",
-             mp, meta.get("version", "?"), len(medians))
+    log.info(
+        "Loaded ROI classifier from %s (v%s, %d features)",
+        mp,
+        meta.get("version", "?"),
+        len(medians),
+    )
     return model, medians, meta
 
 
@@ -146,8 +150,7 @@ def classify_session(
         labels = np.array([], dtype=np.int8)
         probs = np.zeros((0, 3), dtype=np.float32)
         _write_outputs(plane_dir, labels, probs)
-        return {"labels": labels, "probs": probs,
-                "n_soma": 0, "n_dend": 0, "n_artefact": 0}
+        return {"labels": labels, "probs": probs, "n_soma": 0, "n_dend": 0, "n_artefact": 0}
 
     # Load model
     model, medians, meta = load_model(model_path, medians_path)
@@ -172,7 +175,11 @@ def classify_session(
 
     log.info(
         "Classified %d ROIs in %s: %d soma, %d dend, %d artefact",
-        n_rois, plane_dir.name, n_soma, n_dend, n_artefact,
+        n_rois,
+        plane_dir.name,
+        n_soma,
+        n_dend,
+        n_artefact,
     )
 
     return {

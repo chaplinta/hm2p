@@ -18,7 +18,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -35,7 +34,6 @@ from render_exemplar_clips import (
     find_bouts,
     select_exemplar_bouts,
 )
-
 
 # ---------------------------------------------------------------------------
 # find_bouts
@@ -193,7 +191,7 @@ class TestSelectExemplarBouts:
 
     def test_min_duration_filter_removes_short_bouts(self):
         bouts = [
-            (0, 0, 1),   # too short
+            (0, 0, 1),  # too short
             (1, 10, 2),  # too short
             (2, 20, 5),  # valid
             (3, 30, 6),  # valid
@@ -227,8 +225,8 @@ class TestSelectExemplarBouts:
         # Scores: abs(10-50)=40, abs(100-50)=50, abs(50-50)=0.
         # Closest to median is duration 50 → should be selected first.
         bouts = [
-            (0, 0, 10),   # score 40 from median
-            (1, 10, 100), # score 50 from median
+            (0, 0, 10),  # score 40 from median
+            (1, 10, 100),  # score 50 from median
             (2, 20, 50),  # score  0 — exactly at median
         ]
         selected = select_exemplar_bouts(bouts, n_exemplars=1, min_duration=1)
@@ -685,17 +683,16 @@ class TestLoadExemplarSummary:
 
     def _import_load_fn(self):
         """Import load_exemplar_summary bypassing st.cache_data."""
-        import importlib
         import sys
 
         # Provide stub streamlit module so the import does not need a real Streamlit.
         if "streamlit" not in sys.modules:
             st_stub = MagicMock()
-            st_stub.cache_data = lambda *a, **kw: (lambda f: f)
+            st_stub.cache_data = lambda *a, **kw: lambda f: f
             sys.modules["streamlit"] = st_stub
         else:
             # Patch cache_data on the already-imported stub.
-            sys.modules["streamlit"].cache_data = lambda *a, **kw: (lambda f: f)
+            sys.modules["streamlit"].cache_data = lambda *a, **kw: lambda f: f
 
         frontend_path = str(Path(__file__).resolve().parent.parent.parent / "frontend")
         if frontend_path not in sys.path:

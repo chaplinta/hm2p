@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import json
 import sys
 from pathlib import Path
@@ -21,11 +20,7 @@ import importlib.util
 
 spec = importlib.util.spec_from_file_location(
     "downstream",
-    str(
-        Path(__file__).resolve().parent.parent.parent
-        / "scripts"
-        / "run_downstream_pipeline.py"
-    ),
+    str(Path(__file__).resolve().parent.parent.parent / "scripts" / "run_downstream_pipeline.py"),
 )
 downstream = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(downstream)
@@ -34,6 +29,7 @@ spec.loader.exec_module(downstream)
 # ---------------------------------------------------------------------------
 # Helpers shared across tests
 # ---------------------------------------------------------------------------
+
 
 def _make_session(
     pose: bool = True,
@@ -65,6 +61,7 @@ def _make_s3_mock() -> MagicMock:
 # TestGetSessions
 # ---------------------------------------------------------------------------
 
+
 class TestGetSessions:
     def test_parse_session_id(self):
         """Session IDs are converted to NeuroBlueprint sub/ses names."""
@@ -80,6 +77,7 @@ class TestGetSessions:
 # ---------------------------------------------------------------------------
 # TestCheckStageExists
 # ---------------------------------------------------------------------------
+
 
 class TestCheckStageExists:
     def test_returns_true_when_files_exist(self):
@@ -101,12 +99,15 @@ class TestCheckStageExists:
             "KeyCount": 1,
             "Contents": [{"Key": "kinematics/sub-1/ses-2/other.json"}],
         }
-        assert not downstream.check_stage_exists(s3, "sub-1", "ses-2", "kinematics", "kinematics.h5")
+        assert not downstream.check_stage_exists(
+            s3, "sub-1", "ses-2", "kinematics", "kinematics.h5"
+        )
 
 
 # ---------------------------------------------------------------------------
 # TestRunStageHelpers — return signature is now (bool, str)
 # ---------------------------------------------------------------------------
+
 
 class TestRunStageHelpers:
     def test_stage3_dry_run_returns_success_with_empty_stderr(self):
@@ -131,6 +132,7 @@ class TestRunStageHelpers:
 # ---------------------------------------------------------------------------
 # TestUpdateDownstreamProgress
 # ---------------------------------------------------------------------------
+
 
 class TestUpdateDownstreamProgress:
     def test_uploads_progress_json(self):
@@ -161,14 +163,13 @@ class TestUpdateDownstreamProgress:
         s3 = _make_s3_mock()
         s3.put_object.side_effect = Exception("network error")
         # Should not raise
-        downstream.update_downstream_progress(
-            s3, 1, 1, "dummy", "stage3", "done", 0, 0
-        )
+        downstream.update_downstream_progress(s3, 1, 1, "dummy", "stage3", "done", 0, 0)
 
 
 # ---------------------------------------------------------------------------
 # TestProcessSession — updated signature
 # ---------------------------------------------------------------------------
+
 
 class TestProcessSession:
     def test_skips_all_stages_when_all_done(self):
@@ -176,9 +177,12 @@ class TestProcessSession:
         s3 = _make_s3_mock()
         errors: list[dict] = []
         result = downstream.process_session(
-            session, s3,
-            session_idx=1, total=1,
-            completed_count=0, failed_count=0,
+            session,
+            s3,
+            session_idx=1,
+            total=1,
+            completed_count=0,
+            failed_count=0,
             error_records=errors,
             dry_run=True,
         )
@@ -192,9 +196,12 @@ class TestProcessSession:
         s3 = _make_s3_mock()
         errors: list[dict] = []
         result = downstream.process_session(
-            session, s3,
-            session_idx=1, total=1,
-            completed_count=0, failed_count=0,
+            session,
+            s3,
+            session_idx=1,
+            total=1,
+            completed_count=0,
+            failed_count=0,
             error_records=errors,
             dry_run=True,
         )
@@ -207,9 +214,12 @@ class TestProcessSession:
         s3 = _make_s3_mock()
         errors: list[dict] = []
         result = downstream.process_session(
-            session, s3,
-            session_idx=1, total=1,
-            completed_count=0, failed_count=0,
+            session,
+            s3,
+            session_idx=1,
+            total=1,
+            completed_count=0,
+            failed_count=0,
             error_records=errors,
             dry_run=True,
         )
@@ -225,9 +235,12 @@ class TestProcessSession:
             downstream, "run_stage3", return_value=(False, "subprocess stderr here")
         ):
             downstream.process_session(
-                session, s3,
-                session_idx=1, total=1,
-                completed_count=0, failed_count=0,
+                session,
+                s3,
+                session_idx=1,
+                total=1,
+                completed_count=0,
+                failed_count=0,
                 error_records=errors,
                 dry_run=False,
             )
@@ -246,24 +259,33 @@ class TestProcessSession:
         s3 = _make_s3_mock()
         errors: list[dict] = []
 
-        with patch.object(
-            downstream, "run_stage3", return_value=(False, "err")
-        ):
+        with patch.object(downstream, "run_stage3", return_value=(False, "err")):
             downstream.process_session(
-                session, s3,
-                session_idx=1, total=1,
-                completed_count=0, failed_count=0,
+                session,
+                s3,
+                session_idx=1,
+                total=1,
+                completed_count=0,
+                failed_count=0,
                 error_records=errors,
                 dry_run=False,
             )
 
-        required_keys = {"session", "stage", "error_type", "error_message", "traceback", "timestamp"}
+        required_keys = {
+            "session",
+            "stage",
+            "error_type",
+            "error_message",
+            "traceback",
+            "timestamp",
+        }
         assert required_keys.issubset(set(errors[0].keys()))
 
 
 # ---------------------------------------------------------------------------
 # TestGetInstanceId
 # ---------------------------------------------------------------------------
+
 
 class TestGetInstanceId:
     def test_returns_unknown_when_metadata_unavailable(self):
@@ -302,9 +324,7 @@ class TestS3UploadWithVerify:
 
         s3_upload_with_verify(s3, test_file, "my-bucket", "path/to/data.h5")
 
-        s3.upload_file.assert_called_once_with(
-            str(test_file), "my-bucket", "path/to/data.h5"
-        )
+        s3.upload_file.assert_called_once_with(str(test_file), "my-bucket", "path/to/data.h5")
         s3.head_object.assert_called_once_with(Bucket="my-bucket", Key="path/to/data.h5")
 
     def test_retries_on_upload_failure(self, tmp_path):

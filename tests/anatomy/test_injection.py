@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import math
-from pathlib import Path
-import sys
 import types
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
@@ -21,7 +20,6 @@ from hm2p.anatomy.injection import (
     mirror_to_right_hemisphere,
     update_animals_csv,
 )
-
 
 # ── mirror_to_right_hemisphere ──────────────────────────────────────
 
@@ -291,9 +289,7 @@ def test_update_animals_csv(tmp_path: Path) -> None:
 def test_update_animals_csv_missing_file(tmp_path: Path) -> None:
     """Raises FileNotFoundError when CSV does not exist."""
     with pytest.raises(FileNotFoundError):
-        update_animals_csv(
-            tmp_path / "nonexistent.csv", tmp_path / "brains"
-        )
+        update_animals_csv(tmp_path / "nonexistent.csv", tmp_path / "brains")
 
 
 # ── load_brainreg_volumes ────────────────────────────────────────

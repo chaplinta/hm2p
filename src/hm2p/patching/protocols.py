@@ -218,9 +218,7 @@ def extract_iv(ws_data: dict) -> IVResult:
     """
     sr = float(ws_data["header"]["StimulationSampleRate"])
     stim_params = _parse_stim_params(ws_data["header"], "element1", sr)
-    traces, stim_vec, filtered = _filter_and_deconcat(
-        ws_data["traces"], sr, stim_params
-    )
+    traces, stim_vec, filtered = _filter_and_deconcat(ws_data["traces"], sr, stim_params)
 
     spike_counts = count_spikes(traces, threshold_factor=0.5)
     rmp = compute_rmp(traces, baseline_samples=stim_params["delay"] // 2)
@@ -256,9 +254,7 @@ def extract_rheobase(ws_data: dict) -> RheobaseResult:
     """
     sr = float(ws_data["header"]["StimulationSampleRate"])
     stim_params = _parse_stim_params(ws_data["header"], "element9", sr)
-    traces, stim_vec, filtered = _filter_and_deconcat(
-        ws_data["traces"], sr, stim_params
-    )
+    traces, stim_vec, filtered = _filter_and_deconcat(ws_data["traces"], sr, stim_params)
 
     spike_counts = count_spikes(traces, threshold_factor=0.5)
 
@@ -300,9 +296,7 @@ def extract_passive(ws_data: dict) -> PassiveResult:
     sr = float(ws_data["header"]["StimulationSampleRate"])
     sr_khz = sr / 1000.0
     stim_params = _parse_stim_params(ws_data["header"], "element6", sr)
-    traces, stim_vec, filtered = _filter_and_deconcat(
-        ws_data["traces"], sr, stim_params
-    )
+    traces, stim_vec, filtered = _filter_and_deconcat(ws_data["traces"], sr, stim_params)
 
     delay = stim_params["delay"]
 

@@ -10,7 +10,6 @@ Covers:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -374,7 +373,7 @@ class TestNeuropilSomaCorrelation:
 
         For a monotone non-linear relationship, Spearman ≈ 1 while Pearson < 1.
         """
-        from scipy.stats import pearsonr, spearmanr
+        from scipy.stats import pearsonr
 
         n_frames = 500
         x = np.arange(1, n_frames + 1, dtype=np.float32)

@@ -100,9 +100,7 @@ def celltype_comparison_box(
 
     # --- Statistical test ---
     if len(penk_arr) > 0 and len(nonpenk_arr) > 0:
-        u_stat, p_val = stats.mannwhitneyu(
-            penk_arr, nonpenk_arr, alternative="two-sided"
-        )
+        u_stat, p_val = stats.mannwhitneyu(penk_arr, nonpenk_arr, alternative="two-sided")
     else:
         u_stat = float("nan")
         p_val = float("nan")
@@ -146,9 +144,11 @@ def celltype_comparison_box(
     )
 
     # --- P-value annotation bracket ---
-    all_vals = np.concatenate([penk_arr, nonpenk_arr]) if (
-        len(penk_arr) > 0 and len(nonpenk_arr) > 0
-    ) else (penk_arr if len(penk_arr) > 0 else nonpenk_arr)
+    all_vals = (
+        np.concatenate([penk_arr, nonpenk_arr])
+        if (len(penk_arr) > 0 and len(nonpenk_arr) > 0)
+        else (penk_arr if len(penk_arr) > 0 else nonpenk_arr)
+    )
 
     if len(all_vals) > 0:
         y_max = float(np.nanmax(all_vals))
@@ -161,23 +161,45 @@ def celltype_comparison_box(
 
     # Bracket lines
     fig.add_shape(
-        type="line", x0=0, x1=0, y0=bracket_y, y1=bracket_y * 0.98,
-        xref="x", yref="y", line=dict(color="black", width=1.5),
+        type="line",
+        x0=0,
+        x1=0,
+        y0=bracket_y,
+        y1=bracket_y * 0.98,
+        xref="x",
+        yref="y",
+        line=dict(color="black", width=1.5),
     )
     fig.add_shape(
-        type="line", x0=0, x1=1, y0=bracket_y, y1=bracket_y,
-        xref="x", yref="y", line=dict(color="black", width=1.5),
+        type="line",
+        x0=0,
+        x1=1,
+        y0=bracket_y,
+        y1=bracket_y,
+        xref="x",
+        yref="y",
+        line=dict(color="black", width=1.5),
     )
     fig.add_shape(
-        type="line", x0=1, x1=1, y0=bracket_y, y1=bracket_y * 0.98,
-        xref="x", yref="y", line=dict(color="black", width=1.5),
+        type="line",
+        x0=1,
+        x1=1,
+        y0=bracket_y,
+        y1=bracket_y * 0.98,
+        xref="x",
+        yref="y",
+        line=dict(color="black", width=1.5),
     )
 
     # P-value text
     fig.add_annotation(
-        x=0.5, y=text_y, xref="x", yref="y",
+        x=0.5,
+        y=text_y,
+        xref="x",
+        yref="y",
         text=format_pvalue(p_val),
-        showarrow=False, font=dict(size=13),
+        showarrow=False,
+        font=dict(size=13),
     )
 
     fig.update_layout(
@@ -308,12 +330,19 @@ def paired_condition_scatter(
 
     # P-value annotation
     fig.add_annotation(
-        x=0.05, y=0.95, xref="paper", yref="paper",
+        x=0.05,
+        y=0.95,
+        xref="paper",
+        yref="paper",
         text=format_pvalue(p_val),
-        showarrow=False, font=dict(size=13),
-        xanchor="left", yanchor="top",
+        showarrow=False,
+        font=dict(size=13),
+        xanchor="left",
+        yanchor="top",
         bgcolor="rgba(255,255,255,0.8)",
-        bordercolor="gray", borderwidth=1, borderpad=4,
+        bordercolor="gray",
+        borderwidth=1,
+        borderpad=4,
     )
 
     fig.update_layout(

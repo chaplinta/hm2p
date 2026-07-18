@@ -243,7 +243,8 @@ class TestShortCircuits:
     def test_main_mutual_exclusion(self, monkeypatch, capsys):
         monkeypatch.setattr(launcher.boto3, "client", lambda n, region_name="": MagicMock())
         monkeypatch.setattr(
-            sys, "argv",
+            sys,
+            "argv",
             ["launch_dlc_finetune_ec2.py", "--infer-only", "--train-only"],
         )
         with pytest.raises(SystemExit):
@@ -255,7 +256,8 @@ class TestShortCircuits:
         ec2, s3 = _make_mock_clients()
         _patched_clients(monkeypatch, ec2, s3)
         monkeypatch.setattr(
-            sys, "argv",
+            sys,
+            "argv",
             ["launch_dlc_finetune_ec2.py", "--sa-finetune"],
         )
         launcher.main()

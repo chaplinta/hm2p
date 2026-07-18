@@ -58,6 +58,7 @@ def test_run_vame_not_implemented() -> None:
 # append_syllables_to_h5 tests
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def kin_h5(tmp_path):
     """Create a minimal kinematics.h5 with frame_times."""

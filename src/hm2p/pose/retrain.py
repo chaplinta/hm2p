@@ -57,8 +57,7 @@ def extract_frames_from_video(
         import cv2
     except ImportError as exc:
         raise ImportError(
-            "OpenCV required for frame extraction. "
-            "Install: pip install opencv-python-headless"
+            "OpenCV required for frame extraction. Install: pip install opencv-python-headless"
         ) from exc
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -127,11 +126,13 @@ def prepare_retraining_manifest(
                 if int(idx) in bin_idx.tolist():
                     bin_label = label
                     break
-        frames.append({
-            "frame_index": int(idx),
-            "image_path": str(path),
-            "quality_bin": bin_label,
-        })
+        frames.append(
+            {
+                "frame_index": int(idx),
+                "image_path": str(path),
+                "quality_bin": bin_label,
+            }
+        )
 
     manifest = {
         "session_id": session_id,
@@ -180,7 +181,9 @@ def select_retraining_frames(
     elif method == "stratified":
         n_per_bin = max(1, n_frames // 4)
         result = stratified_frame_selection(
-            likelihood, n_per_bin=n_per_bin, min_spacing=min_spacing,
+            likelihood,
+            n_per_bin=n_per_bin,
+            min_spacing=min_spacing,
         )
         return {
             "indices": result["indices"],

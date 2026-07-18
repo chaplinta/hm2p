@@ -29,18 +29,20 @@ def db(tmp_path):
 def _sample_cell_results(n=5, n_hd=3):
     cells = []
     for i in range(n):
-        cells.append({
-            "cell": i,
-            "is_hd": i < n_hd,
-            "grade": "A" if i < n_hd else "D",
-            "mvl": 0.4 + 0.1 * i if i < n_hd else 0.05,
-            "p_value": 0.001 if i < n_hd else 0.5,
-            "reliability": 0.8 if i < n_hd else 0.2,
-            "mi": 0.5 if i < n_hd else 0.05,
-            "preferred_direction": 60.0 * i,
-            "gain_index": 0.1,
-            "smi": 0.05,
-        })
+        cells.append(
+            {
+                "cell": i,
+                "is_hd": i < n_hd,
+                "grade": "A" if i < n_hd else "D",
+                "mvl": 0.4 + 0.1 * i if i < n_hd else 0.05,
+                "p_value": 0.001 if i < n_hd else 0.5,
+                "reliability": 0.8 if i < n_hd else 0.2,
+                "mi": 0.5 if i < n_hd else 0.05,
+                "preferred_direction": 60.0 * i,
+                "gain_index": 0.1,
+                "smi": 0.05,
+            }
+        )
     return cells
 
 
@@ -69,18 +71,20 @@ class TestCacheBasics:
     def test_load_all_cells(self, db):
         cells = _sample_cell_results(5, 3)
         cache_session_results(db, "ses1", "a1", "penk", cells, _sample_summary())
-        cache_session_results(db, "ses2", "a2", "nonpenk",
-                              _sample_cell_results(3, 1),
-                              _sample_summary(3, 1))
+        cache_session_results(
+            db, "ses2", "a2", "nonpenk", _sample_cell_results(3, 1), _sample_summary(3, 1)
+        )
 
         all_cells = load_all_cells(db)
         assert len(all_cells) == 8  # 5 + 3
 
     def test_filter_by_celltype(self, db):
-        cache_session_results(db, "ses1", "a1", "penk",
-                              _sample_cell_results(4, 2), _sample_summary(4, 2))
-        cache_session_results(db, "ses2", "a2", "nonpenk",
-                              _sample_cell_results(3, 1), _sample_summary(3, 1))
+        cache_session_results(
+            db, "ses1", "a1", "penk", _sample_cell_results(4, 2), _sample_summary(4, 2)
+        )
+        cache_session_results(
+            db, "ses2", "a2", "nonpenk", _sample_cell_results(3, 1), _sample_summary(3, 1)
+        )
 
         penk = load_all_cells(db, celltype="penk")
         assert len(penk) == 4
@@ -88,19 +92,21 @@ class TestCacheBasics:
         assert len(nonpenk) == 3
 
     def test_filter_by_animal(self, db):
-        cache_session_results(db, "ses1", "a1", "penk",
-                              _sample_cell_results(4, 2), _sample_summary(4, 2))
-        cache_session_results(db, "ses2", "a2", "penk",
-                              _sample_cell_results(3, 1), _sample_summary(3, 1))
+        cache_session_results(
+            db, "ses1", "a1", "penk", _sample_cell_results(4, 2), _sample_summary(4, 2)
+        )
+        cache_session_results(
+            db, "ses2", "a2", "penk", _sample_cell_results(3, 1), _sample_summary(3, 1)
+        )
 
         a1_cells = load_all_cells(db, animal_id="a1")
         assert len(a1_cells) == 4
 
     def test_load_all_sessions(self, db):
-        cache_session_results(db, "ses1", "a1", "penk",
-                              _sample_cell_results(), _sample_summary())
-        cache_session_results(db, "ses2", "a2", "nonpenk",
-                              _sample_cell_results(3, 1), _sample_summary(3, 1))
+        cache_session_results(db, "ses1", "a1", "penk", _sample_cell_results(), _sample_summary())
+        cache_session_results(
+            db, "ses2", "a2", "nonpenk", _sample_cell_results(3, 1), _sample_summary(3, 1)
+        )
 
         sessions = load_all_sessions(db)
         assert len(sessions) == 2
@@ -117,8 +123,7 @@ class TestTuningCurves:
                 "tuning_curve": np.random.rand(36),
             },
         ]
-        cache_session_results(db, "ses1", "a1", "penk", cells, summary,
-                              tuning_data=tc_data)
+        cache_session_results(db, "ses1", "a1", "penk", cells, summary, tuning_data=tc_data)
 
         tc = load_tuning_curve(db, "ses1", 0)
         assert tc is not None
@@ -135,10 +140,12 @@ class TestTuningCurves:
 
 class TestSummaryStats:
     def test_aggregate_stats(self, db):
-        cache_session_results(db, "ses1", "a1", "penk",
-                              _sample_cell_results(5, 3), _sample_summary(5, 3))
-        cache_session_results(db, "ses2", "a2", "nonpenk",
-                              _sample_cell_results(4, 2), _sample_summary(4, 2))
+        cache_session_results(
+            db, "ses1", "a1", "penk", _sample_cell_results(5, 3), _sample_summary(5, 3)
+        )
+        cache_session_results(
+            db, "ses2", "a2", "nonpenk", _sample_cell_results(4, 2), _sample_summary(4, 2)
+        )
 
         stats = get_summary_stats(db)
         assert stats["n_cells"] == 9
@@ -146,10 +153,12 @@ class TestSummaryStats:
         assert stats["n_hd"] == 5
 
     def test_celltype_breakdown(self, db):
-        cache_session_results(db, "ses1", "a1", "penk",
-                              _sample_cell_results(5, 3), _sample_summary(5, 3))
-        cache_session_results(db, "ses2", "a2", "nonpenk",
-                              _sample_cell_results(4, 2), _sample_summary(4, 2))
+        cache_session_results(
+            db, "ses1", "a1", "penk", _sample_cell_results(5, 3), _sample_summary(5, 3)
+        )
+        cache_session_results(
+            db, "ses2", "a2", "nonpenk", _sample_cell_results(4, 2), _sample_summary(4, 2)
+        )
 
         breakdown = get_celltype_breakdown(db)
         assert len(breakdown) == 2
@@ -160,8 +169,7 @@ class TestSummaryStats:
 
 class TestCacheClear:
     def test_clear(self, db):
-        cache_session_results(db, "ses1", "a1", "penk",
-                              _sample_cell_results(), _sample_summary())
+        cache_session_results(db, "ses1", "a1", "penk", _sample_cell_results(), _sample_summary())
         assert is_session_cached(db, "ses1")
 
         clear_cache(db)

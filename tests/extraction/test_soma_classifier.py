@@ -286,9 +286,7 @@ def _build_fitted_pipeline() -> object:
     n_total = n_per * 3
 
     # Generate all features from FEATURE_COLUMNS dynamically.
-    X = pd.DataFrame({
-        col: rng.normal(0, 1, n_total) for col in FEATURE_COLUMNS
-    })
+    X = pd.DataFrame({col: rng.normal(0, 1, n_total) for col in FEATURE_COLUMNS})
     y = np.array(["soma"] * n_per + ["dend"] * n_per + ["artefact"] * n_per)
 
     pipe = Pipeline(

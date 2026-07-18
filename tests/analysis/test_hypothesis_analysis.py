@@ -7,30 +7,37 @@ auto-generated adversarial inputs.
 from __future__ import annotations
 
 import numpy as np
-import pytest
-from hypothesis import given, settings, assume
+from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
+from hm2p.analysis.gain import gain_modulation_index
 from hm2p.analysis.information import (
     mutual_information_binned,
     skaggs_info_rate,
 )
-from hm2p.analysis.gain import gain_modulation_index
 from hm2p.analysis.tuning import (
     compute_hd_tuning_curve,
     mean_vector_length,
 )
 
-
 # --- Strategy helpers ---
+
 
 def hd_signal_strategy(min_frames=100, max_frames=500):
     """Strategy for (signal, hd_deg, mask) tuples."""
     return st.integers(min_value=min_frames, max_value=max_frames).flatmap(
         lambda n: st.tuples(
-            arrays(np.float64, n, elements=st.floats(0, 10, allow_nan=False, allow_infinity=False)),
-            arrays(np.float64, n, elements=st.floats(0, 360, allow_nan=False, allow_infinity=False, exclude_max=True)),
+            arrays(
+                np.float64, n, elements=st.floats(0, 10, allow_nan=False, allow_infinity=False)
+            ),
+            arrays(
+                np.float64,
+                n,
+                elements=st.floats(
+                    0, 360, allow_nan=False, allow_infinity=False, exclude_max=True
+                ),
+            ),
             st.just(np.ones(n, dtype=bool)),
         )
     )
@@ -84,7 +91,9 @@ class TestSkaggsInvariants:
     """Property-based tests for Skaggs information rate."""
 
     @given(
-        arrays(np.float64, 36, elements=st.floats(0.001, 100, allow_nan=False, allow_infinity=False)),
+        arrays(
+            np.float64, 36, elements=st.floats(0.001, 100, allow_nan=False, allow_infinity=False)
+        ),
         arrays(np.float64, 36, elements=st.floats(1, 1000, allow_nan=False, allow_infinity=False)),
     )
     @settings(max_examples=50, deadline=5000)
@@ -93,7 +102,9 @@ class TestSkaggsInvariants:
         si = skaggs_info_rate(tuning_curve, occupancy)
         assert si >= -1e-9
 
-    @given(arrays(np.float64, 36, elements=st.floats(1, 1000, allow_nan=False, allow_infinity=False)))
+    @given(
+        arrays(np.float64, 36, elements=st.floats(1, 1000, allow_nan=False, allow_infinity=False))
+    )
     @settings(max_examples=30, deadline=5000)
     def test_uniform_tuning_zero_si(self, occupancy):
         """Flat tuning curve should give SI = 0."""
@@ -111,7 +122,7 @@ class TestGainInvariants:
         """Gain modulation index should be in [-1, 1]."""
         signal, hd, mask = data
         light_on = np.zeros_like(mask)
-        light_on[:len(mask)//2] = True
+        light_on[: len(mask) // 2] = True
         result = gain_modulation_index(signal, hd, mask, light_on, n_bins=18)
         assert -1 <= result["gain_index"] <= 1
 
@@ -121,7 +132,7 @@ class TestGainInvariants:
         """Peak values should be non-negative."""
         signal, hd, mask = data
         light_on = np.zeros_like(mask)
-        light_on[:len(mask)//2] = True
+        light_on[: len(mask) // 2] = True
         result = gain_modulation_index(signal, hd, mask, light_on, n_bins=18)
         assert result["peak_light"] >= 0
         assert result["peak_dark"] >= 0

@@ -116,9 +116,7 @@ class TestCircularShiftSignificance:
             n_shuffles=20,
             rng=np.random.default_rng(42),
         )
-        np.testing.assert_array_equal(
-            r1["shuffle_distribution"], r2["shuffle_distribution"]
-        )
+        np.testing.assert_array_equal(r1["shuffle_distribution"], r2["shuffle_distribution"])
 
 
 class TestHdTuningSignificance:
@@ -132,9 +130,7 @@ class TestHdTuningSignificance:
         hd_deg = rng.uniform(0, 360, n).astype(np.float64)
         mask = np.ones(n, dtype=bool)
 
-        result = hd_tuning_significance(
-            signal, hd_deg, mask, n_shuffles=10, n_bins=12, rng=rng
-        )
+        result = hd_tuning_significance(signal, hd_deg, mask, n_shuffles=10, n_bins=12, rng=rng)
         assert "tuning_curve" in result
         assert "bin_centers" in result
         assert len(result["tuning_curve"]) == 12
@@ -148,9 +144,7 @@ class TestHdTuningSignificance:
         hd_deg = rng.uniform(0, 360, n).astype(np.float64)
         mask = np.ones(n, dtype=bool)
 
-        result = hd_tuning_significance(
-            signal, hd_deg, mask, n_shuffles=50, rng=rng
-        )
+        result = hd_tuning_significance(signal, hd_deg, mask, n_shuffles=50, rng=rng)
         # Should not be significant (p > 0.05 typically)
         assert result["p_value"] > 0.01
 

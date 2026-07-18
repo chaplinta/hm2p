@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.analysis.stability import (
     dark_drift_rate,
@@ -16,12 +15,13 @@ from hm2p.analysis.stability import (
 def _make_light_on(n, cycle=1800):
     light_on = np.zeros(n, dtype=bool)
     for start in range(0, n, 2 * cycle):
-        light_on[start:min(start + cycle, n)] = True
+        light_on[start : min(start + cycle, n)] = True
     return light_on
 
 
-def _make_drifting_cell(n=9000, pref=90.0, kappa=3.0, drift_deg=30.0,
-                        cycle=1800, noise=0.15, seed=42):
+def _make_drifting_cell(
+    n=9000, pref=90.0, kappa=3.0, drift_deg=30.0, cycle=1800, noise=0.15, seed=42
+):
     """Cell that drifts in dark, snaps back in light."""
     rng = np.random.default_rng(seed)
     hd = np.cumsum(rng.normal(0, 5, n)) % 360.0
@@ -70,8 +70,7 @@ class TestDriftPageWorkflow:
     def test_sliding_window_provides_time_series(self):
         """Sliding window should give time series for MVL/PD plots."""
         signal, hd, mask, _ = _make_drifting_cell()
-        sw = sliding_window_stability(signal, hd, mask,
-                                       window_frames=1000, step_frames=200)
+        sw = sliding_window_stability(signal, hd, mask, window_frames=1000, step_frames=200)
         assert sw["n_windows"] > 0
         assert len(sw["mvls"]) == sw["n_windows"]
         assert len(sw["preferred_dirs"]) == sw["n_windows"]

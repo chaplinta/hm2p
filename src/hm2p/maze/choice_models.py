@@ -177,8 +177,7 @@ def extract_choice_events(
             chosen = int(vc[k + 1])
             cands = neighbours(maze, cur)
             recency = {
-                c: (k - last_visit_step[c]) if c in last_visit_step else math.inf
-                for c in cands
+                c: (k - last_visit_step[c]) if c in last_visit_step else math.inf for c in cands
             }
             ego = egocentric_choice(maze, prev_idx, cur, cands, last_turn)
             if allo_rule == "frontier":
@@ -198,18 +197,20 @@ def extract_choice_events(
             elif hit_allo:
                 followed = "allo"
             frame = int(vf[k]) if vf[k] < light.size else light.size - 1
-            events.append({
-                "junction": cur,
-                "prev": prev_idx,
-                "chosen": chosen,
-                "candidates": cands,
-                "condition": "light" if light[frame] else "dark",
-                "last_turn": last_turn,
-                "ego_pred": ego,
-                "allo_pred": allo,
-                "conflict": conflict,
-                "followed": followed,
-            })
+            events.append(
+                {
+                    "junction": cur,
+                    "prev": prev_idx,
+                    "chosen": chosen,
+                    "candidates": cands,
+                    "condition": "light" if light[frame] else "dark",
+                    "last_turn": last_turn,
+                    "ego_pred": ego,
+                    "allo_pred": allo,
+                    "conflict": conflict,
+                    "followed": followed,
+                }
+            )
             # Update the alternation memory with the realised turn.
             turn = _turn_label(maze, prev_idx, cur, chosen)
             if turn in ("left", "right"):
@@ -246,11 +247,17 @@ def rule_accuracies(events: list[dict[str, Any]], condition: str) -> dict[str, f
     allo_def = [e for e in ev if e["allo_pred"] is not None]
     ego_acc = (
         sum(1 for e in ego_def if e["chosen"] == e["ego_pred"]) / len(ego_def)
-        if ego_def else float("nan")
+        if ego_def
+        else float("nan")
     )
     allo_acc = (
         sum(1 for e in allo_def if e["chosen"] == e["allo_pred"]) / len(allo_def)
-        if allo_def else float("nan")
+        if allo_def
+        else float("nan")
     )
-    return {"ego_acc": ego_acc, "allo_acc": allo_acc,
-            "n_ego": len(ego_def), "n_allo": len(allo_def)}
+    return {
+        "ego_acc": ego_acc,
+        "allo_acc": allo_acc,
+        "n_ego": len(ego_def),
+        "n_allo": len(allo_def),
+    }

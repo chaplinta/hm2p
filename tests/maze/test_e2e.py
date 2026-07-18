@@ -7,7 +7,6 @@ Uses synthetic trajectories that simulate realistic mouse behaviour.
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.maze.analysis import (
     cell_occupancy,
@@ -27,7 +26,6 @@ from hm2p.maze.discretize import (
     discretize_position_fast,
     node_sequence,
 )
-from hm2p.maze.topology import build_rose_maze
 
 
 def generate_random_walk(maze, n_steps: int, seed: int = 42) -> np.ndarray:
@@ -49,8 +47,11 @@ def generate_random_walk(maze, n_steps: int, seed: int = 42) -> np.ndarray:
 
 
 def generate_goal_directed_walk(
-    maze, start_cell: tuple[int, int], goal_cell: tuple[int, int],
-    noise_prob: float = 0.1, seed: int = 42,
+    maze,
+    start_cell: tuple[int, int],
+    goal_cell: tuple[int, int],
+    noise_prob: float = 0.1,
+    seed: int = 42,
 ) -> np.ndarray:
     """Generate a mostly goal-directed walk with occasional random steps.
 
@@ -157,7 +158,11 @@ class TestE2EGoalDirected:
     def test_goal_directed_finds_monotonic_path(self, maze):
         """Goal-directed walk should contain a monotonic path to target."""
         traj = generate_goal_directed_walk(
-            maze, start_cell=(0, 0), goal_cell=(6, 4), noise_prob=0.05, seed=42,
+            maze,
+            start_cell=(0, 0),
+            goal_cell=(6, 4),
+            noise_prob=0.05,
+            seed=42,
         )
         nodes, ntimes = node_sequence(traj, maze)
 
@@ -170,7 +175,10 @@ class TestE2EGoalDirected:
     def test_goal_directed_higher_efficiency(self, maze):
         """Goal-directed walk should have higher path efficiency than random."""
         goal_traj = generate_goal_directed_walk(
-            maze, start_cell=(0, 0), goal_cell=(6, 4), noise_prob=0.05,
+            maze,
+            start_cell=(0, 0),
+            goal_cell=(6, 4),
+            noise_prob=0.05,
         )
         rand_traj = generate_random_walk(maze, len(goal_traj))
 
@@ -187,7 +195,10 @@ class TestE2EGoalDirected:
     def test_mode_segmentation_detects_directed(self, maze):
         """Mode segmentation should find directed segments in goal-directed walk."""
         traj = generate_goal_directed_walk(
-            maze, start_cell=(0, 0), goal_cell=(6, 4), noise_prob=0.0,
+            maze,
+            start_cell=(0, 0),
+            goal_cell=(6, 4),
+            noise_prob=0.0,
         )
         nodes, ntimes = node_sequence(traj, maze)
         segments = segment_modes(nodes, ntimes, maze)
@@ -318,11 +329,19 @@ class TestE2EEntropy:
         biased_traj = []
         for _ in range(50):
             t = generate_goal_directed_walk(
-                maze, (0, 0), (6, 4), noise_prob=0.0, seed=33,
+                maze,
+                (0, 0),
+                (6, 4),
+                noise_prob=0.0,
+                seed=33,
             )
             biased_traj.extend(t.tolist())
             t = generate_goal_directed_walk(
-                maze, (6, 4), (0, 0), noise_prob=0.0, seed=34,
+                maze,
+                (6, 4),
+                (0, 0),
+                noise_prob=0.0,
+                seed=34,
             )
             biased_traj.extend(t.tolist())
         biased_traj = np.array(biased_traj, dtype=np.int32)

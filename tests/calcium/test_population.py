@@ -10,7 +10,6 @@ Covers:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -323,7 +322,6 @@ class TestRegressMovement:
     def test_uses_spearman_not_pearson(self) -> None:
         """Verify speed_corr is Spearman (non-parametric) by checking
         it differs from Pearson for a non-monotonic relationship."""
-        from scipy.stats import pearsonr, spearmanr
 
         rng = np.random.default_rng(7)
         n = 300

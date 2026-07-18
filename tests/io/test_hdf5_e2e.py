@@ -22,20 +22,17 @@ import pytest
 from hm2p.io.hdf5 import (
     read_h5,
     validate_ca_h5,
-    validate_kinematics_h5,
     validate_sync_h5,
     validate_timestamps_h5,
     write_h5,
 )
 
-
 # ---------------------------------------------------------------------------
 # Synthetic data builders
 # ---------------------------------------------------------------------------
 
-def _build_timestamps_arrays(
-    n_cam: int = 3000, n_img: int = 900
-) -> dict[str, np.ndarray]:
+
+def _build_timestamps_arrays(n_cam: int = 3000, n_img: int = 900) -> dict[str, np.ndarray]:
     """Build a valid timestamps.h5 dict matching Stage 0 output."""
     return {
         "frame_times_camera": np.linspace(0.0, 30.0, n_cam, dtype=np.float64),
@@ -144,9 +141,9 @@ class TestCaH5E2E:
         """ca.h5 with optional spikes array passes validation."""
         n_rois, T = 5, 500
         arrays = _build_ca_arrays(n_rois=n_rois, T=T)
-        arrays["spikes"] = np.abs(
-            np.random.default_rng(2).standard_normal((n_rois, T))
-        ).astype(np.float32)
+        arrays["spikes"] = np.abs(np.random.default_rng(2).standard_normal((n_rois, T))).astype(
+            np.float32
+        )
         path = tmp_path / "ca.h5"
 
         write_h5(path, arrays)
@@ -374,13 +371,22 @@ class TestAnalysisH5E2E:
                 CellResult(
                     roi_idx=i,
                     activity={"mean_rate": float(i)},
-                    hd_all={"tuning_curve": np.ones(n_bins, dtype=np.float32), "mvl": 0.5,
-                            "preferred_direction": 180.0, "tuning_width": 45.0,
-                            "p_value": 0.01, "significant": True,
-                            "bin_centers": np.linspace(5, 355, n_bins, dtype=np.float32)},
-                    hd_light={}, hd_dark={},
-                    hd_comparison={}, place_all={}, place_light={},
-                    place_dark={}, place_comparison={},
+                    hd_all={
+                        "tuning_curve": np.ones(n_bins, dtype=np.float32),
+                        "mvl": 0.5,
+                        "preferred_direction": 180.0,
+                        "tuning_width": 45.0,
+                        "p_value": 0.01,
+                        "significant": True,
+                        "bin_centers": np.linspace(5, 355, n_bins, dtype=np.float32),
+                    },
+                    hd_light={},
+                    hd_dark={},
+                    hd_comparison={},
+                    place_all={},
+                    place_light={},
+                    place_dark={},
+                    place_comparison={},
                 )
                 for i in range(n_rois)
             ]

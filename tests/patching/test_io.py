@@ -17,7 +17,6 @@ from hm2p.patching.io import (
     load_wavesurfer,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers: create minimal WaveSurfer-like HDF5 files
 # ---------------------------------------------------------------------------
@@ -52,12 +51,8 @@ def _create_ws_h5(
             data=np.full(n_channels, channel_scale, dtype=np.float64),
         )
         hdr.create_dataset("AIScalingCoefficients", data=scaling_coeffs)
-        hdr.create_dataset(
-            "IsAIChannelActive", data=np.ones(n_channels, dtype=np.uint8)
-        )
-        hdr.create_dataset(
-            "AcquisitionSampleRate", data=np.float64(20000.0)
-        )
+        hdr.create_dataset("IsAIChannelActive", data=np.ones(n_channels, dtype=np.uint8))
+        hdr.create_dataset("AcquisitionSampleRate", data=np.float64(20000.0))
 
         for sw in range(1, n_sweeps + 1):
             sweep = f.create_group(f"sweep_{sw:04d}")

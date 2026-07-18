@@ -212,27 +212,19 @@ def compute_cell_activity(
 
     result: dict[str, float] = {}
     for cond_name, cond_mask in conditions.items():
-        result[f"{cond_name}_event_rate"] = condition_event_rate(
-            event_mask, cond_mask, fps
-        )
+        result[f"{cond_name}_event_rate"] = condition_event_rate(event_mask, cond_mask, fps)
         result[f"{cond_name}_mean_signal"] = condition_mean_signal(signal, cond_mask)
         result[f"{cond_name}_mean_amplitude"] = condition_mean_amplitude(
             signal, event_mask, cond_mask
         )
 
     # Aggregate rates across light conditions for modulation indices.
-    moving_rate = (
-        result["moving_light_event_rate"] + result["moving_dark_event_rate"]
-    ) / 2.0
+    moving_rate = (result["moving_light_event_rate"] + result["moving_dark_event_rate"]) / 2.0
     stationary_rate = (
         result["stationary_light_event_rate"] + result["stationary_dark_event_rate"]
     ) / 2.0
-    light_rate = (
-        result["moving_light_event_rate"] + result["stationary_light_event_rate"]
-    ) / 2.0
-    dark_rate = (
-        result["moving_dark_event_rate"] + result["stationary_dark_event_rate"]
-    ) / 2.0
+    light_rate = (result["moving_light_event_rate"] + result["stationary_light_event_rate"]) / 2.0
+    dark_rate = (result["moving_dark_event_rate"] + result["stationary_dark_event_rate"]) / 2.0
 
     result["movement_modulation"] = modulation_index(moving_rate, stationary_rate)
     result["light_modulation"] = modulation_index(light_rate, dark_rate)

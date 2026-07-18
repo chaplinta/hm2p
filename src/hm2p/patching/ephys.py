@@ -55,9 +55,7 @@ def lowpass_filter(
 
     nyq = fs / 2.0
     if cutoff >= nyq:
-        raise ValueError(
-            f"Cutoff ({cutoff} Hz) must be below the Nyquist frequency ({nyq} Hz)."
-        )
+        raise ValueError(f"Cutoff ({cutoff} Hz) must be below the Nyquist frequency ({nyq} Hz).")
 
     b, a = butter(order, cutoff / nyq, btype="low")
     # padlen must be < signal length; filtfilt default is 3 * max(len(a), len(b))
@@ -122,9 +120,7 @@ def deconcat_traces(
     return traces
 
 
-def build_stim_vector(
-    first_amp: float, amp_change: float, n_pulses: int
-) -> np.ndarray:
+def build_stim_vector(first_amp: float, amp_change: float, n_pulses: int) -> np.ndarray:
     """Build the stimulus amplitude vector for a step protocol.
 
     Matches the MATLAB expression::
@@ -148,9 +144,7 @@ def build_stim_vector(
     return np.arange(n_pulses) * amp_change + first_amp
 
 
-def detect_spikes(
-    trace: np.ndarray, threshold_factor: float = 0.5
-) -> np.ndarray:
+def detect_spikes(trace: np.ndarray, threshold_factor: float = 0.5) -> np.ndarray:
     """Detect spike times by threshold crossing of the membrane potential.
 
     Reimplements ``spike_times.m`` (Berg 2006). The threshold is set at
@@ -203,9 +197,7 @@ def detect_spikes(
     return spike_peaks
 
 
-def count_spikes(
-    traces: np.ndarray, threshold_factor: float = 0.5
-) -> np.ndarray:
+def count_spikes(traces: np.ndarray, threshold_factor: float = 0.5) -> np.ndarray:
     """Count spikes in each column of a 2-D traces array.
 
     Parameters

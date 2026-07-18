@@ -79,9 +79,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
 
 def is_session_cached(conn: duckdb.DuckDBPyConnection, exp_id: str) -> bool:
     """Check if a session's analysis results are already cached."""
-    result = conn.execute(
-        "SELECT COUNT(*) FROM sessions WHERE exp_id = ?", [exp_id]
-    ).fetchone()
+    result = conn.execute("SELECT COUNT(*) FROM sessions WHERE exp_id = ?", [exp_id]).fetchone()
     return result[0] > 0
 
 
@@ -118,50 +116,68 @@ def cache_session_results(
 
     # Insert cells
     for cell in cell_results:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO cells (exp_id, animal_id, celltype, cell_idx,
                 is_hd, grade, mvl, p_value, reliability, mi,
                 preferred_direction, gain_index, speed_modulation_index, n_frames)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, [
-            exp_id, animal_id, celltype, cell.get("cell", 0),
-            cell.get("is_hd", False), cell.get("grade", "D"),
-            cell.get("mvl", 0.0), cell.get("p_value", 1.0),
-            cell.get("reliability", 0.0), cell.get("mi", 0.0),
-            cell.get("preferred_direction", 0.0),
-            cell.get("gain_index", 0.0),
-            cell.get("smi", 0.0),
-            session_summary.get("n_frames", 0),
-        ])
+        """,
+            [
+                exp_id,
+                animal_id,
+                celltype,
+                cell.get("cell", 0),
+                cell.get("is_hd", False),
+                cell.get("grade", "D"),
+                cell.get("mvl", 0.0),
+                cell.get("p_value", 1.0),
+                cell.get("reliability", 0.0),
+                cell.get("mi", 0.0),
+                cell.get("preferred_direction", 0.0),
+                cell.get("gain_index", 0.0),
+                cell.get("smi", 0.0),
+                session_summary.get("n_frames", 0),
+            ],
+        )
 
     # Insert session summary
-    conn.execute("""
+    conn.execute(
+        """
         INSERT INTO sessions (exp_id, animal_id, celltype, n_rois, n_frames,
             n_hd, n_non_hd, fraction_hd, mean_mvl, mean_gain_index, mean_smi)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, [
-        exp_id, animal_id, celltype,
-        session_summary.get("n_rois", 0),
-        session_summary.get("n_frames", 0),
-        session_summary.get("n_hd", 0),
-        session_summary.get("n_non_hd", 0),
-        session_summary.get("fraction_hd", 0.0),
-        session_summary.get("mean_mvl", 0.0),
-        session_summary.get("mean_gain_index", 0.0),
-        session_summary.get("mean_smi", 0.0),
-    ])
+    """,
+        [
+            exp_id,
+            animal_id,
+            celltype,
+            session_summary.get("n_rois", 0),
+            session_summary.get("n_frames", 0),
+            session_summary.get("n_hd", 0),
+            session_summary.get("n_non_hd", 0),
+            session_summary.get("fraction_hd", 0.0),
+            session_summary.get("mean_mvl", 0.0),
+            session_summary.get("mean_gain_index", 0.0),
+            session_summary.get("mean_smi", 0.0),
+        ],
+    )
 
     # Insert tuning curves
     if tuning_data:
         for tc_row in tuning_data:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO tuning_curves (exp_id, cell_idx, bin_centers, tuning_curve)
                 VALUES (?, ?, ?, ?)
-            """, [
-                exp_id, tc_row["cell_idx"],
-                tc_row["bin_centers"].tolist(),
-                tc_row["tuning_curve"].tolist(),
-            ])
+            """,
+                [
+                    exp_id,
+                    tc_row["cell_idx"],
+                    tc_row["bin_centers"].tolist(),
+                    tc_row["tuning_curve"].tolist(),
+                ],
+            )
 
     conn.commit()
     log.info("Cached %d cells for %s", len(cell_results), exp_id)
@@ -205,9 +221,7 @@ def load_all_sessions(
     conn: duckdb.DuckDBPyConnection,
 ) -> list[dict]:
     """Load all cached session summaries."""
-    result = conn.execute(
-        "SELECT * FROM sessions ORDER BY exp_id"
-    ).fetchdf()
+    result = conn.execute("SELECT * FROM sessions ORDER BY exp_id").fetchdf()
     return result.to_dict("records")
 
 
@@ -218,8 +232,7 @@ def load_tuning_curve(
 ) -> dict | None:
     """Load a single cell's tuning curve."""
     result = conn.execute(
-        "SELECT bin_centers, tuning_curve FROM tuning_curves "
-        "WHERE exp_id = ? AND cell_idx = ?",
+        "SELECT bin_centers, tuning_curve FROM tuning_curves WHERE exp_id = ? AND cell_idx = ?",
         [exp_id, cell_idx],
     ).fetchone()
     if result is None:

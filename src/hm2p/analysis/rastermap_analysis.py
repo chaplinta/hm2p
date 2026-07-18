@@ -80,7 +80,7 @@ def compute_superneurons(
 
     superneurons = np.zeros((n_super, sorted_dff.shape[1]), dtype=np.float32)
     for i in range(n_super):
-        superneurons[i] = np.nanmean(sorted_dff[i * bin_size:(i + 1) * bin_size], axis=0)
+        superneurons[i] = np.nanmean(sorted_dff[i * bin_size : (i + 1) * bin_size], axis=0)
 
     return superneurons
 

@@ -13,7 +13,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from hm2p.patching.config import PatchConfig, SAMPLE_RATE
+from hm2p.patching.config import SAMPLE_RATE, PatchConfig
 from hm2p.patching.metrics import (
     build_cell_metrics,
     build_metrics_table,
@@ -142,9 +142,7 @@ def _extract_active_features(
     stim_start = time_ms[len(time_ms) // 10]
     stim_end = time_ms[-1]
 
-    features = extract_spike_features(
-        trace, time_ms, stim_start, stim_end, spike_index=1
-    )
+    features = extract_spike_features(trace, time_ms, stim_start, stim_end, spike_index=1)
     if features is None:
         return None
 
@@ -207,9 +205,7 @@ def _build_morph_data(
         if "surface" in neurons:
             surface_xy = neurons["surface"]["nodes"][["x", "y"]].values
             dendrite_xy = api["nodes"][["x", "y"]].values
-            result["apical_surface_dist"] = compute_surface_distance(
-                surface_xy, dendrite_xy
-            )
+            result["apical_surface_dist"] = compute_surface_distance(surface_xy, dendrite_xy)
         else:
             result["apical_surface_dist"] = {}
     else:
@@ -230,9 +226,7 @@ def _build_morph_data(
         if "surface" in neurons:
             surface_xy = neurons["surface"]["nodes"][["x", "y"]].values
             dendrite_xy = bas["nodes"][["x", "y"]].values
-            result["basal_surface_dist"] = compute_surface_distance(
-                surface_xy, dendrite_xy
-            )
+            result["basal_surface_dist"] = compute_surface_distance(surface_xy, dendrite_xy)
         else:
             result["basal_surface_dist"] = {}
     else:
@@ -295,9 +289,7 @@ def process_cell(cell_row: pd.Series, config: PatchConfig) -> dict | None:
     has_morph = False
 
     ephys_id = cell_row.get("ephys_id", "")
-    if isinstance(ephys_id, str) and ephys_id.strip():
-        has_ephys = True
-    elif not pd.isna(ephys_id) and str(ephys_id).strip():
+    if isinstance(ephys_id, str) and ephys_id.strip() or not pd.isna(ephys_id) and str(ephys_id).strip():
         has_ephys = True
 
     good_morph = cell_row.get("good_morph", False)
@@ -326,9 +318,7 @@ def process_cell(cell_row: pd.Series, config: PatchConfig) -> dict | None:
                     if active_features is not None:
                         ephys_data["active"] = active_features
                 except Exception:
-                    logger.exception(
-                        "Failed to extract spike features for cell %s", cell_id
-                    )
+                    logger.exception("Failed to extract spike features for cell %s", cell_id)
             else:
                 logger.warning("No protocols extracted for cell %s", cell_id)
         except Exception:
@@ -387,13 +377,9 @@ def run_pipeline(config: PatchConfig | None = None) -> pd.DataFrame:
             if result is not None:
                 cell_metrics.append(result)
         except Exception:
-            logger.exception(
-                "Unexpected error processing cell at index %s", idx
-            )
+            logger.exception("Unexpected error processing cell at index %s", idx)
 
-    logger.info(
-        "Processed %d / %d cells successfully", len(cell_metrics), len(metadata)
-    )
+    logger.info("Processed %d / %d cells successfully", len(cell_metrics), len(metadata))
 
     df = build_metrics_table(cell_metrics)
     df = compute_derived_metrics(df)
@@ -433,12 +419,21 @@ def run_statistics(metrics_df: pd.DataFrame, config: PatchConfig) -> None:
 
     # Auto-detect numeric metric columns (exclude metadata columns)
     meta_cols = {
-        "cell_index", "animal_id", "slice_id", "cell_slice_id",
-        "hemisphere", "cell_type", "area", "layer", "ephys_id",
-        "has_morph", "good_morph",
+        "cell_index",
+        "animal_id",
+        "slice_id",
+        "cell_slice_id",
+        "hemisphere",
+        "cell_type",
+        "area",
+        "layer",
+        "ephys_id",
+        "has_morph",
+        "good_morph",
     }
     metric_cols = [
-        c for c in metrics_df.columns
+        c
+        for c in metrics_df.columns
         if c not in meta_cols and metrics_df[c].dtype.kind in ("f", "i")
     ]
 

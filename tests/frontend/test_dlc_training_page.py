@@ -17,13 +17,13 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 # ── Mock streamlit before importing any frontend code ──────────────────
 _st_mock = MagicMock()
-_st_mock.cache_data = lambda *a, **kw: (a[0] if a and callable(a[0]) else (lambda fn: fn))
+_st_mock.cache_data = lambda *a, **kw: a[0] if a and callable(a[0]) else (lambda fn: fn)
 _st_mock.title = MagicMock()
 _st_mock.header = MagicMock()
 _st_mock.caption = MagicMock()
@@ -63,7 +63,9 @@ sys.modules["frontend.data"] = _data_mock
 import importlib
 import types
 
-_page_path = Path(__file__).resolve().parent.parent.parent / "frontend" / "pages" / "dlc_training_page.py"
+_page_path = (
+    Path(__file__).resolve().parent.parent.parent / "frontend" / "pages" / "dlc_training_page.py"
+)
 
 
 def _load_page_functions() -> types.ModuleType:
@@ -426,10 +428,10 @@ class TestParseTrainingCurves:
                 return None
             if "_run_log.txt" in key:
                 return (
-                    "Epoch 1/100 (lr=0.001), train loss 0.01500\n"
-                    "Epoch 2/100 (lr=0.001), train loss 0.01200, valid loss 0.01400\n"
-                    "Epoch 3/100 (lr=0.0005), train loss 0.01000\n"
-                ).encode()
+                    b"Epoch 1/100 (lr=0.001), train loss 0.01500\n"
+                    b"Epoch 2/100 (lr=0.001), train loss 0.01200, valid loss 0.01400\n"
+                    b"Epoch 3/100 (lr=0.0005), train loss 0.01000\n"
+                )
             return None
 
         _data_mock.download_s3_bytes.side_effect = mock_download

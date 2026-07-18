@@ -33,12 +33,8 @@ _SA_KEY = f"{_PFX}/video_DLC_SuperAnimalTopViewMouse.h5"  # no snapshot in filen
 _FT_290 = f"{_PFX}/videoDLC_HrnetW32_hm2p-retrainMar20_shuffle1_snapshot-best-290.h5"
 _FT_110 = f"{_PFX}/videoDLC_HrnetW32_hm2p-retrainMar20_shuffle1_snapshot-best-110.h5"
 _FT_50 = f"{_PFX}/videoDLC_Resnet50_hm2p-retrainMar20_shuffle1_snapshot-best-50.h5"
-_FILTERED = (
-    f"{_PFX}/videoDLC_HrnetW32_hm2p-retrainMar20_shuffle1_snapshot-best-290_filtered.h5"
-)
-_SINGLE = (
-    f"{_PFX}/videoDLC_HrnetW32_hm2p-retrainMar20_shuffle1_snapshot-best-290_single.h5"
-)
+_FILTERED = f"{_PFX}/videoDLC_HrnetW32_hm2p-retrainMar20_shuffle1_snapshot-best-290_filtered.h5"
+_SINGLE = f"{_PFX}/videoDLC_HrnetW32_hm2p-retrainMar20_shuffle1_snapshot-best-290_single.h5"
 
 
 # ---------------------------------------------------------------------------
@@ -138,9 +134,7 @@ def _make_s3_client(keys: list[str], promoted: dict | None = None) -> MagicMock:
 
     # list_objects_v2 paginator
     paginator = MagicMock()
-    paginator.paginate.return_value = [
-        {"Contents": [{"Key": k} for k in keys]}
-    ]
+    paginator.paginate.return_value = [{"Contents": [{"Key": k} for k in keys]}]
     client.get_paginator.return_value = paginator
 
     # get_object for promoted.json
@@ -288,6 +282,7 @@ def test_extract_architecture_returns_none_for_baseline():
 # extract_architecture: init source agnostic (SA-finetune design §1.5)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "filename, expected_arch",
     [
@@ -336,7 +331,9 @@ def test_compute_champion_id_format():
 
 def test_compute_champion_id_lowercases_architecture():
     cid = compute_champion_id(
-        model_name="x", architecture="Resnet50", snapshot="100",
+        model_name="x",
+        architecture="Resnet50",
+        snapshot="100",
         training_date="2026-01-01",
     )
     assert "resnet50" in cid and "Resnet" not in cid
@@ -352,6 +349,7 @@ def test_compute_champion_id_deterministic():
 def test_compute_champion_id_uses_today_if_no_date():
     """When training_date is None, today's UTC date is used. Just verify form."""
     import datetime
+
     today = datetime.datetime.now(datetime.UTC).date().isoformat().replace("-", "")
     cid = compute_champion_id("x", "HrnetW32", "10")
     assert cid == f"dlc-{today}-hrnetw32-snap10"
@@ -390,7 +388,8 @@ def test_get_champion_manifest_returns_dict():
     got = get_champion_manifest(s3, "hm2p-derivatives")
     assert got == expected
     s3.get_object.assert_called_once_with(
-        Bucket="hm2p-derivatives", Key=CHAMPION_MANIFEST_KEY,
+        Bucket="hm2p-derivatives",
+        Key=CHAMPION_MANIFEST_KEY,
     )
 
 
@@ -422,48 +421,90 @@ _MANIFEST = {
 
 
 def test_resolve_champion_id_full_match():
-    assert resolve_champion_id(
-        "hm2p_hrnetw32_shuffle1", "HrnetW32", "290", _MANIFEST,
-    ) == "dlc-20260423-hrnetw32-snap290"
+    assert (
+        resolve_champion_id(
+            "hm2p_hrnetw32_shuffle1",
+            "HrnetW32",
+            "290",
+            _MANIFEST,
+        )
+        == "dlc-20260423-hrnetw32-snap290"
+    )
 
 
 def test_resolve_champion_id_snapshot_mismatch_returns_unknown():
-    assert resolve_champion_id(
-        "hm2p_hrnetw32_shuffle1", "HrnetW32", "100", _MANIFEST,
-    ) == "unknown"
+    assert (
+        resolve_champion_id(
+            "hm2p_hrnetw32_shuffle1",
+            "HrnetW32",
+            "100",
+            _MANIFEST,
+        )
+        == "unknown"
+    )
 
 
 def test_resolve_champion_id_architecture_mismatch_returns_unknown():
-    assert resolve_champion_id(
-        "hm2p_hrnetw32_shuffle1", "Resnet50", "290", _MANIFEST,
-    ) == "unknown"
+    assert (
+        resolve_champion_id(
+            "hm2p_hrnetw32_shuffle1",
+            "Resnet50",
+            "290",
+            _MANIFEST,
+        )
+        == "unknown"
+    )
 
 
 def test_resolve_champion_id_model_name_mismatch_returns_unknown():
-    assert resolve_champion_id(
-        "different_model", "HrnetW32", "290", _MANIFEST,
-    ) == "unknown"
+    assert (
+        resolve_champion_id(
+            "different_model",
+            "HrnetW32",
+            "290",
+            _MANIFEST,
+        )
+        == "unknown"
+    )
 
 
 def test_resolve_champion_id_no_manifest_returns_unknown():
-    assert resolve_champion_id(
-        "any_model", "HrnetW32", "290", None,
-    ) == "unknown"
+    assert (
+        resolve_champion_id(
+            "any_model",
+            "HrnetW32",
+            "290",
+            None,
+        )
+        == "unknown"
+    )
 
 
 def test_resolve_champion_id_no_architecture_returns_unknown():
     """SuperAnimal baseline files have no architecture marker → unknown."""
-    assert resolve_champion_id(
-        "superanimal_topviewmouse", None, "superanimal", _MANIFEST,
-    ) == "unknown"
+    assert (
+        resolve_champion_id(
+            "superanimal_topviewmouse",
+            None,
+            "superanimal",
+            _MANIFEST,
+        )
+        == "unknown"
+    )
 
 
 def test_resolve_champion_id_handles_int_snapshot_in_manifest():
     """Manifest snapshots may sometimes be JSON-int; comparison must coerce."""
     manifest = {**_MANIFEST, "snapshot": 290}
-    assert resolve_champion_id(
-        "hm2p_hrnetw32_shuffle1", "HrnetW32", "290", manifest,
-    ) == "dlc-20260423-hrnetw32-snap290"
+    assert (
+        resolve_champion_id(
+            "hm2p_hrnetw32_shuffle1",
+            "HrnetW32",
+            "290",
+            manifest,
+        )
+        == "dlc-20260423-hrnetw32-snap290"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -541,9 +582,7 @@ def test_select_champion_h5_bad_champion_id_format():
 
 def test_select_champion_h5_underscore_snapshot_separator():
     """Matches snapshot with underscore separators (snapshot_best_290)."""
-    key_underscore = (
-        "pose/s/a/videoDLC_HrnetW32_proj_shuffle1_snapshot_best_290.h5"
-    )
+    key_underscore = "pose/s/a/videoDLC_HrnetW32_proj_shuffle1_snapshot_best_290.h5"
     result = select_champion_h5([key_underscore], _CHAMP_ID_290)
     assert result == key_underscore
 
@@ -565,9 +604,7 @@ def _make_s3_for_champion(keys: list[str]) -> MagicMock:
     client = MagicMock()
     client.exceptions = MagicMock()
     paginator = MagicMock()
-    paginator.paginate.return_value = [
-        {"Contents": [{"Key": k} for k in keys]}
-    ]
+    paginator.paginate.return_value = [{"Contents": [{"Key": k} for k in keys]}]
     client.get_paginator.return_value = paginator
     return client
 
@@ -577,7 +614,10 @@ def test_select_champion_h5_s3_finds_match():
     keys = [_FT_110, _FT_290]
     client = _make_s3_for_champion(keys)
     result = select_champion_h5_s3(
-        client, "hm2p-derivatives", "pose/s/a/", _CHAMP_ID_290,
+        client,
+        "hm2p-derivatives",
+        "pose/s/a/",
+        _CHAMP_ID_290,
     )
     assert result == _FT_290
 
@@ -587,7 +627,10 @@ def test_select_champion_h5_s3_raises_when_no_h5():
     client = _make_s3_for_champion([])
     with pytest.raises(ChampionMismatchError, match="No .h5 files found"):
         select_champion_h5_s3(
-            client, "hm2p-derivatives", "pose/s/a/", _CHAMP_ID_290,
+            client,
+            "hm2p-derivatives",
+            "pose/s/a/",
+            _CHAMP_ID_290,
         )
 
 
@@ -597,7 +640,10 @@ def test_select_champion_h5_s3_raises_when_no_match():
     client = _make_s3_for_champion(keys)
     with pytest.raises(ChampionMismatchError, match="snapshot-best-290"):
         select_champion_h5_s3(
-            client, "hm2p-derivatives", "pose/s/a/", _CHAMP_ID_290,
+            client,
+            "hm2p-derivatives",
+            "pose/s/a/",
+            _CHAMP_ID_290,
         )
 
 

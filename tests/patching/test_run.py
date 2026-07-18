@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
@@ -22,7 +22,6 @@ from hm2p.patching.run import (
     run_pipeline,
     run_statistics,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -381,9 +380,7 @@ class TestProcessCell:
         assert result["morph_api_shlpeakcr"] == 10
 
     @patch("hm2p.patching.run.process_all_protocols")
-    def test_ephys_exception_doesnt_crash(
-        self, mock_protocols, tmp_config: PatchConfig, caplog
-    ):
+    def test_ephys_exception_doesnt_crash(self, mock_protocols, tmp_config: PatchConfig, caplog):
         mock_protocols.side_effect = RuntimeError("disk failure")
         row = pd.Series(
             {
@@ -399,9 +396,7 @@ class TestProcessCell:
         assert result is None
 
     @patch("hm2p.patching.run._build_morph_data")
-    def test_morph_exception_doesnt_crash(
-        self, mock_morph, tmp_config: PatchConfig, caplog
-    ):
+    def test_morph_exception_doesnt_crash(self, mock_morph, tmp_config: PatchConfig, caplog):
         mock_morph.side_effect = ValueError("corrupt SWC")
         row = pd.Series(
             {
@@ -425,9 +420,7 @@ class TestProcessCell:
 class TestRunPipeline:
     @patch("hm2p.patching.run.process_cell")
     @patch("hm2p.patching.run.load_metadata")
-    def test_full_orchestration(
-        self, mock_meta, mock_process, tmp_config: PatchConfig
-    ):
+    def test_full_orchestration(self, mock_meta, mock_process, tmp_config: PatchConfig):
         mock_meta.return_value = pd.DataFrame(
             {
                 "cell_index": [1, 2],
@@ -476,9 +469,7 @@ class TestRunPipeline:
 
     @patch("hm2p.patching.run.process_cell")
     @patch("hm2p.patching.run.load_metadata")
-    def test_all_cells_return_none(
-        self, mock_meta, mock_process, tmp_config: PatchConfig
-    ):
+    def test_all_cells_return_none(self, mock_meta, mock_process, tmp_config: PatchConfig):
         mock_meta.return_value = pd.DataFrame(
             {"cell_index": [1, 2], "animal_id": ["A001", "A002"]}
         )
@@ -489,9 +480,7 @@ class TestRunPipeline:
     @patch("hm2p.patching.run.process_cell")
     @patch("hm2p.patching.run.load_metadata")
     def test_saves_csv(self, mock_meta, mock_process, tmp_config: PatchConfig):
-        mock_meta.return_value = pd.DataFrame(
-            {"cell_index": [1], "animal_id": ["A001"]}
-        )
+        mock_meta.return_value = pd.DataFrame({"cell_index": [1], "animal_id": ["A001"]})
         mock_process.return_value = {
             "cell_index": 1,
             "animal_id": "A001",
@@ -542,10 +531,12 @@ class TestRunPcaAnalysis:
         mock_result.scores = mock_scores
         mock_pca_module.run_pca = MagicMock(return_value=mock_result)
 
-        metrics_df = pd.DataFrame({
-            "ephys_passive_RMP": [-65.0],
-            "morph_soma_area": [150.0],
-        })
+        metrics_df = pd.DataFrame(
+            {
+                "ephys_passive_RMP": [-65.0],
+                "morph_soma_area": [150.0],
+            }
+        )
 
         with patch.dict(
             "sys.modules",
@@ -560,9 +551,7 @@ class TestRunPcaAnalysis:
         assert mock_pca_module.run_pca.call_count == 3
 
     @patch("hm2p.patching.pca", create=True)
-    def test_one_subset_failure_doesnt_stop_others(
-        self, mock_pca_module, tmp_config: PatchConfig
-    ):
+    def test_one_subset_failure_doesnt_stop_others(self, mock_pca_module, tmp_config: PatchConfig):
         ok_scores = pd.DataFrame({"PC1": [0.1]})
         ok_result = MagicMock()
         ok_result.scores = ok_scores
@@ -574,10 +563,12 @@ class TestRunPcaAnalysis:
             return ok_result
 
         mock_pca_module.run_pca = MagicMock(side_effect=side_effect)
-        metrics_df = pd.DataFrame({
-            "ephys_passive_RMP": [-65.0],
-            "morph_soma_area": [150.0],
-        })
+        metrics_df = pd.DataFrame(
+            {
+                "ephys_passive_RMP": [-65.0],
+                "morph_soma_area": [150.0],
+            }
+        )
 
         with patch.dict(
             "sys.modules",

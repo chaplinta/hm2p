@@ -92,7 +92,10 @@ def _install_mock_movement() -> tuple[MagicMock, MagicMock, MagicMock, MagicMock
 def _remove_mock_movement() -> None:
     """Remove mock movement modules from sys.modules."""
     for key in [
-        "movement", "movement.io", "movement.io.load_poses", "movement.filtering",
+        "movement",
+        "movement.io",
+        "movement.io.load_poses",
+        "movement.filtering",
     ]:
         sys.modules.pop(key, None)
 
@@ -157,9 +160,7 @@ class TestNormaliseDimNames:
         """movement 0.17 singular dims are renamed to the plural 0.14 names."""
         from hm2p.kinematics.compute import _normalise_dim_names
 
-        ds = _make_ds(10).rename(
-            {"keypoints": "keypoint", "individuals": "individual"}
-        )
+        ds = _make_ds(10).rename({"keypoints": "keypoint", "individuals": "individual"})
         out = _normalise_dim_names(ds)
         assert "keypoints" in out.dims
         assert "individuals" in out.dims
@@ -225,9 +226,7 @@ class TestFilterLowConfidence:
 class TestFilterByKeypointQuantile:
     """Per-keypoint quantile threshold replaces the bottom Q fraction with NaN."""
 
-    def _make_ds_with_conf(
-        self, conf_per_kp: dict[str, np.ndarray]
-    ) -> xr.Dataset:
+    def _make_ds_with_conf(self, conf_per_kp: dict[str, np.ndarray]) -> xr.Dataset:
         """Build a Dataset where each keypoint has a custom 1D confidence array."""
         keypoints = list(conf_per_kp.keys())
         n_frames = len(next(iter(conf_per_kp.values())))
@@ -288,17 +287,13 @@ class TestFilterByKeypointQuantile:
         for kp in ["left_ear", "right_ear"]:
             x = out.position.sel(keypoints=kp, space="x").values.squeeze()
             n_nan = int(np.isnan(x).sum())
-            assert 24 <= n_nan <= 26, (
-                f"{kp}: expected ~25 NaN frames, got {n_nan}"
-            )
+            assert 24 <= n_nan <= 26, f"{kp}: expected ~25 NaN frames, got {n_nan}"
 
     def test_quantile_zero_drops_nothing(self) -> None:
         from hm2p.kinematics.compute import filter_by_keypoint_quantile
 
         n = 50
-        ds = self._make_ds_with_conf(
-            {"left_ear": np.linspace(0.1, 1.0, n)}
-        )
+        ds = self._make_ds_with_conf({"left_ear": np.linspace(0.1, 1.0, n)})
         out, thresholds = filter_by_keypoint_quantile(ds, quantile=0.0)
         # Threshold equals the minimum value; nothing strictly below it.
         x = out.position.sel(keypoints="left_ear", space="x").values.squeeze()
@@ -309,9 +304,7 @@ class TestFilterByKeypointQuantile:
         from hm2p.kinematics.compute import filter_by_keypoint_quantile
 
         n = 50
-        ds = self._make_ds_with_conf(
-            {"left_ear": np.linspace(0.1, 1.0, n)}
-        )
+        ds = self._make_ds_with_conf({"left_ear": np.linspace(0.1, 1.0, n)})
         out, _ = filter_by_keypoint_quantile(ds, quantile=1.0)
         # Threshold is max; only the single frame at max survives.
         x = out.position.sel(keypoints="left_ear", space="x").values.squeeze()
@@ -347,12 +340,8 @@ class TestFilterByKeypointQuantile:
         n = 50
         # All confidences below 0.05; quantile 0.25 ≈ 0.025, but floor=0.1
         # forces the threshold higher.
-        ds = self._make_ds_with_conf(
-            {"tail_base": np.linspace(0.0, 0.05, n)}
-        )
-        out, thresholds = filter_by_keypoint_quantile(
-            ds, quantile=0.25, floor=0.1
-        )
+        ds = self._make_ds_with_conf({"tail_base": np.linspace(0.0, 0.05, n)})
+        out, thresholds = filter_by_keypoint_quantile(ds, quantile=0.25, floor=0.1)
         assert thresholds["tail_base"] == 0.1
         # All frames are below 0.1 so all should be NaN.
         x = out.position.sel(keypoints="tail_base", space="x").values.squeeze()
@@ -370,16 +359,12 @@ class TestFilterByKeypointQuantile:
     def test_returns_dataset_with_position_var(self) -> None:
         from hm2p.kinematics.compute import filter_by_keypoint_quantile
 
-        ds = self._make_ds_with_conf(
-            {"left_ear": np.linspace(0.0, 1.0, 20)}
-        )
+        ds = self._make_ds_with_conf({"left_ear": np.linspace(0.0, 1.0, 20)})
         out, _ = filter_by_keypoint_quantile(ds, quantile=0.5)
         assert "position" in out.data_vars
         assert "confidence" in out.data_vars
         # Confidence array is unchanged.
-        np.testing.assert_array_equal(
-            out.confidence.values, ds.confidence.values
-        )
+        np.testing.assert_array_equal(out.confidence.values, ds.confidence.values)
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +496,9 @@ class TestKinematicsRun:
         conf_data = np.ones((n_frames, len(KEYPOINTS), 1), dtype=np.float64)
         return _make_ds(n_frames, pos_data, conf_data)
 
-    def _setup_mocks(self, pose_ds: xr.Dataset) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
+    def _setup_mocks(
+        self, pose_ds: xr.Dataset
+    ) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
         _, mock_io, mock_lp, mock_filtering = _install_mock_movement()
         mock_lp.from_dlc_file.return_value = pose_ds
         mock_lp.from_sleap_file.return_value = pose_ds

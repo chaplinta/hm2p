@@ -3,18 +3,15 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.analysis.classify import (
     classification_summary_table,
     classify_population,
-    classify_single_cell,
 )
 from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length
 
 
-def _make_population(n_hd=4, n_noise=4, n_frames=3000, kappa=3.0,
-                     noise=0.2, seed=42):
+def _make_population(n_hd=4, n_noise=4, n_frames=3000, kappa=3.0, noise=0.2, seed=42):
     """Reproduce the page's synthetic population generator."""
     rng = np.random.default_rng(seed)
     hd = np.cumsum(rng.normal(0, 5, n_frames)) % 360.0
@@ -75,7 +72,10 @@ class TestClassificationIntegration:
         """Full classify -> table pipeline mirrors page logic."""
         signals, hd, mask = _make_population(n_hd=3, n_noise=3, kappa=4.0, noise=0.1)
         pop = classify_population(
-            signals, hd, mask, n_shuffles=100,
+            signals,
+            hd,
+            mask,
+            n_shuffles=100,
             rng=np.random.default_rng(42),
         )
         table = classification_summary_table(pop)
@@ -90,13 +90,23 @@ class TestClassificationIntegration:
         signals, hd, mask = _make_population(kappa=2.0, noise=0.2)
 
         pop_lenient = classify_population(
-            signals, hd, mask, mvl_threshold=0.05, p_threshold=0.1,
-            reliability_threshold=0.2, n_shuffles=100,
+            signals,
+            hd,
+            mask,
+            mvl_threshold=0.05,
+            p_threshold=0.1,
+            reliability_threshold=0.2,
+            n_shuffles=100,
             rng=np.random.default_rng(42),
         )
         pop_strict = classify_population(
-            signals, hd, mask, mvl_threshold=0.4, p_threshold=0.01,
-            reliability_threshold=0.8, n_shuffles=100,
+            signals,
+            hd,
+            mask,
+            mvl_threshold=0.4,
+            p_threshold=0.01,
+            reliability_threshold=0.8,
+            n_shuffles=100,
             rng=np.random.default_rng(42),
         )
         assert pop_lenient["n_hd"] >= pop_strict["n_hd"]
@@ -105,7 +115,10 @@ class TestClassificationIntegration:
         """Grades should be valid characters."""
         signals, hd, mask = _make_population()
         pop = classify_population(
-            signals, hd, mask, n_shuffles=50,
+            signals,
+            hd,
+            mask,
+            n_shuffles=50,
             rng=np.random.default_rng(42),
         )
         table = classification_summary_table(pop)
@@ -116,7 +129,10 @@ class TestClassificationIntegration:
         """MVL, p-value, reliability arrays match cell count (page scatter plot)."""
         signals, hd, mask = _make_population()
         pop = classify_population(
-            signals, hd, mask, n_shuffles=50,
+            signals,
+            hd,
+            mask,
+            n_shuffles=50,
             rng=np.random.default_rng(42),
         )
         cells = pop["cells"]
@@ -131,7 +147,10 @@ class TestClassificationIntegration:
         """Tuning curves can be computed for all classified cells."""
         signals, hd, mask = _make_population(n_hd=3, n_noise=2)
         pop = classify_population(
-            signals, hd, mask, n_shuffles=50,
+            signals,
+            hd,
+            mask,
+            n_shuffles=50,
             rng=np.random.default_rng(42),
         )
         for idx in range(5):

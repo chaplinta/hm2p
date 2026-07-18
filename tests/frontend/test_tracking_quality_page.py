@@ -8,11 +8,7 @@ import pytest
 from hm2p.pose.quality import (
     body_length_consistency,
     detect_ear_distance_outliers,
-    detect_frozen_keypoint,
-    detect_jumps,
     session_quality_report,
-    stratified_frame_selection,
-    worst_frames,
 )
 from hm2p.pose.retrain import select_retraining_frames
 
@@ -163,7 +159,9 @@ class TestVerdictDisplay:
 
         return (
             Path(__file__).resolve().parent.parent.parent
-            / "frontend" / "pages" / "tracking_quality_page.py"
+            / "frontend"
+            / "pages"
+            / "tracking_quality_page.py"
         ).read_text()
 
     def test_uses_load_verdict_helper(self):
@@ -201,7 +199,8 @@ class TestLoadVerdict:
 
         payload = {"schema_version": "1.0", "baseline_id": "b", "candidate_id": "c"}
         monkeypatch.setattr(
-            fdata, "download_s3_bytes",
+            fdata,
+            "download_s3_bytes",
             lambda b, k: json.dumps(payload).encode(),
         )
         loaded = fdata.load_verdict()

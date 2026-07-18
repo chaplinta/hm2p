@@ -233,11 +233,17 @@ def split_half_reliability(
     mask_even[valid_idx[1::2]] = True
 
     tc1, bc1 = compute_hd_tuning_curve(
-        signal, hd_deg, mask_odd, n_bins=n_bins,
+        signal,
+        hd_deg,
+        mask_odd,
+        n_bins=n_bins,
         smoothing_sigma_deg=smoothing_sigma_deg,
     )
     tc2, bc2 = compute_hd_tuning_curve(
-        signal, hd_deg, mask_even, n_bins=n_bins,
+        signal,
+        hd_deg,
+        mask_even,
+        n_bins=n_bins,
         smoothing_sigma_deg=smoothing_sigma_deg,
     )
 
@@ -334,8 +340,11 @@ def rayleigh_test(
     # Correction for small samples
     if n_eff >= 2:
         if n_eff < 50:
-            p = p * (1 + (2 * Z - Z**2) / (4 * n_eff) -
-                     (24 * Z - 132 * Z**2 + 76 * Z**3 - 9 * Z**4) / (288 * n_eff**2))
+            p = p * (
+                1
+                + (2 * Z - Z**2) / (4 * n_eff)
+                - (24 * Z - 132 * Z**2 + 76 * Z**3 - 9 * Z**4) / (288 * n_eff**2)
+            )
     # Mardia & Jupp correction can overshoot for large Z / small n_eff; clamp to 0.
     p = max(0.0, min(1.0, float(p)))
 

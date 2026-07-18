@@ -7,19 +7,22 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from hm2p.extraction.roi_classify import LABEL_NAMES, _write_outputs
+from hm2p.extraction.roi_classify import _write_outputs
 
 
 class TestWriteOutputs:
     def test_writes_all_files(self, tmp_path: Path) -> None:
         labels = np.array([0, 1, 2, 1, 0], dtype=np.int8)
-        probs = np.array([
-            [0.9, 0.05, 0.05],
-            [0.1, 0.8, 0.1],
-            [0.1, 0.1, 0.8],
-            [0.05, 0.9, 0.05],
-            [0.85, 0.1, 0.05],
-        ], dtype=np.float32)
+        probs = np.array(
+            [
+                [0.9, 0.05, 0.05],
+                [0.1, 0.8, 0.1],
+                [0.1, 0.1, 0.8],
+                [0.05, 0.9, 0.05],
+                [0.85, 0.1, 0.05],
+            ],
+            dtype=np.float32,
+        )
 
         _write_outputs(tmp_path, labels, probs)
 
@@ -38,13 +41,16 @@ class TestWriteOutputs:
     def test_iscell_soma_only(self, tmp_path: Path) -> None:
         """iscell marks only soma (label=1) as cells."""
         labels = np.array([0, 1, 2, 1, 0], dtype=np.int8)
-        probs = np.array([
-            [0.9, 0.05, 0.05],
-            [0.1, 0.8, 0.1],
-            [0.1, 0.1, 0.8],
-            [0.05, 0.9, 0.05],
-            [0.85, 0.1, 0.05],
-        ], dtype=np.float32)
+        probs = np.array(
+            [
+                [0.9, 0.05, 0.05],
+                [0.1, 0.8, 0.1],
+                [0.1, 0.1, 0.8],
+                [0.05, 0.9, 0.05],
+                [0.85, 0.1, 0.05],
+            ],
+            dtype=np.float32,
+        )
         _write_outputs(tmp_path, labels, probs)
 
         iscell = np.load(tmp_path / "iscell.npy")

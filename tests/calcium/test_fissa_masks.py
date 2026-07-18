@@ -15,7 +15,6 @@ from hm2p.calcium.fissa_masks import (
     crop_masks_to_window,
 )
 
-
 # ---------------------------------------------------------------------------
 # build_roi_mask
 # ---------------------------------------------------------------------------
@@ -60,8 +59,8 @@ class TestBuildRoiMask:
     @pytest.mark.parametrize(
         "ypix,xpix",
         [
-            (np.array([5]), np.array([0])),   # y == Ly
-            (np.array([0]), np.array([6])),   # x == Lx
+            (np.array([5]), np.array([0])),  # y == Ly
+            (np.array([0]), np.array([6])),  # x == Lx
             (np.array([-1]), np.array([0])),  # y < 0
             (np.array([0]), np.array([-1])),  # x < 0
         ],
@@ -126,8 +125,8 @@ class TestBuildRoiMasksFromStat:
 class TestCropMasksToWindow:
     def test_crop_dimensions_and_content(self):
         m = np.zeros((10, 12), dtype=bool)
-        m[5, 6] = True   # inside window
-        m[0, 0] = True   # outside window (edge)
+        m[5, 6] = True  # inside window
+        m[0, 0] = True  # outside window (edge)
         cropped = crop_masks_to_window([m], yrange=(2, 8), xrange=(3, 9))
         assert len(cropped) == 1
         assert cropped[0].shape == (6, 6)

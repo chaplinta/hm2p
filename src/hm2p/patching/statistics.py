@@ -19,7 +19,6 @@ import pandas as pd
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
 
-
 # ============================================================================
 # Descriptive statistics
 # ============================================================================
@@ -137,14 +136,10 @@ def mann_whitney_comparison(
         b = df.loc[df[group_col] == g2, metric].dropna().values
 
         if len(a) < 1 or len(b) < 1:
-            rows.append(
-                {"metric": metric, "statistic": np.nan, "p_value": np.nan}
-            )
+            rows.append({"metric": metric, "statistic": np.nan, "p_value": np.nan})
         else:
             u_stat, p_val = stats.mannwhitneyu(a, b, alternative="two-sided")
-            rows.append(
-                {"metric": metric, "statistic": float(u_stat), "p_value": float(p_val)}
-            )
+            rows.append({"metric": metric, "statistic": float(u_stat), "p_value": float(p_val)})
 
     result = pd.DataFrame(rows)
 
@@ -156,9 +151,7 @@ def mann_whitney_comparison(
     significant = np.full(len(p_vals), False)
 
     if valid_mask.any():
-        reject, corrected, _, _ = multipletests(
-            p_vals[valid_mask], alpha=0.05, method="fdr_bh"
-        )
+        reject, corrected, _, _ = multipletests(p_vals[valid_mask], alpha=0.05, method="fdr_bh")
         p_fdr[valid_mask] = corrected
         significant[valid_mask] = reject
 
@@ -226,11 +219,18 @@ def mixed_model_comparison(
 
         # Need ≥2 cell types and ≥2 animals to fit a mixed model
         if len(groups) < 2 or n_random < 2 or len(sub) < 5:
-            rows.append({
-                "metric": metric, "beta": np.nan, "se": np.nan,
-                "z": np.nan, "lmm_p_supplementary": np.nan, "icc": np.nan,
-                "n_groups": n_random, "converged": False,
-            })
+            rows.append(
+                {
+                    "metric": metric,
+                    "beta": np.nan,
+                    "se": np.nan,
+                    "z": np.nan,
+                    "lmm_p_supplementary": np.nan,
+                    "icc": np.nan,
+                    "n_groups": n_random,
+                    "converged": False,
+                }
+            )
             continue
 
         # Rename metric to safe formula name
@@ -262,17 +262,31 @@ def mixed_model_comparison(
             var_resid = float(result.scale)
             icc = var_animal / (var_animal + var_resid) if (var_animal + var_resid) > 0 else 0.0
 
-            rows.append({
-                "metric": metric, "beta": beta, "se": se, "z": z,
-                "lmm_p_supplementary": p, "icc": icc, "n_groups": n_random,
-                "converged": result.converged,
-            })
+            rows.append(
+                {
+                    "metric": metric,
+                    "beta": beta,
+                    "se": se,
+                    "z": z,
+                    "lmm_p_supplementary": p,
+                    "icc": icc,
+                    "n_groups": n_random,
+                    "converged": result.converged,
+                }
+            )
         except Exception:
-            rows.append({
-                "metric": metric, "beta": np.nan, "se": np.nan,
-                "z": np.nan, "lmm_p_supplementary": np.nan, "icc": np.nan,
-                "n_groups": n_random, "converged": False,
-            })
+            rows.append(
+                {
+                    "metric": metric,
+                    "beta": np.nan,
+                    "se": np.nan,
+                    "z": np.nan,
+                    "lmm_p_supplementary": np.nan,
+                    "icc": np.nan,
+                    "n_groups": n_random,
+                    "converged": False,
+                }
+            )
 
     result_df = pd.DataFrame(rows)
 
@@ -282,9 +296,7 @@ def mixed_model_comparison(
     p_fdr = np.full(len(p_vals), np.nan)
     sig = np.full(len(p_vals), False)
     if valid.any():
-        reject, corrected, _, _ = multipletests(
-            p_vals[valid], alpha=0.05, method="fdr_bh"
-        )
+        reject, corrected, _, _ = multipletests(p_vals[valid], alpha=0.05, method="fdr_bh")
         p_fdr[valid] = corrected
         sig[valid] = reject
     result_df["lmm_p_fdr"] = p_fdr
@@ -329,8 +341,7 @@ def spearman_correlation(
     subset = df[[x_col, y_col]].dropna()
     if len(subset) < 3:
         raise ValueError(
-            f"Need at least 3 valid pairs for Spearman correlation, "
-            f"got {len(subset)}"
+            f"Need at least 3 valid pairs for Spearman correlation, got {len(subset)}"
         )
     rho, p_val = stats.spearmanr(subset[x_col], subset[y_col])
     return float(rho), float(p_val)
@@ -366,9 +377,7 @@ def correlation_matrix(
         for j in range(i + 1, n):
             subset = df[[metric_cols[i], metric_cols[j]]].dropna()
             if len(subset) >= 3:
-                rho, p_val = stats.spearmanr(
-                    subset[metric_cols[i]], subset[metric_cols[j]]
-                )
+                rho, p_val = stats.spearmanr(subset[metric_cols[i]], subset[metric_cols[j]])
                 rho_arr[i, j] = rho_arr[j, i] = float(rho)
                 p_arr[i, j] = p_arr[j, i] = float(p_val)
 

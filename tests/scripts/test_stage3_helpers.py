@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts"
 
 from run_stage3_kinematics import _extract_dlc_provenance, parse_bad_behav_times, parse_meta_txt
 
-
 # ---------------------------------------------------------------------------
 # parse_bad_behav_times
 # ---------------------------------------------------------------------------
@@ -213,13 +212,17 @@ class TestParseMetaTxt:
 
     def test_missing_scale_section_raises(self, tmp_path):
         meta = tmp_path / "meta.txt"
-        meta.write_text("[crop]\nx = 0\ny = 0\nwidth = 100\nheight = 100\n[roi]\nx1 = 10\ny1 = 20\nx2 = 30\ny2 = 40\nx3 = 50\ny3 = 60\nx4 = 70\ny4 = 80\n")
+        meta.write_text(
+            "[crop]\nx = 0\ny = 0\nwidth = 100\nheight = 100\n[roi]\nx1 = 10\ny1 = 20\nx2 = 30\ny2 = 40\nx3 = 50\ny3 = 60\nx4 = 70\ny4 = 80\n"
+        )
         with pytest.raises(KeyError):
             parse_meta_txt(meta)
 
     def test_missing_roi_section_raises(self, tmp_path):
         meta = tmp_path / "meta.txt"
-        meta.write_text("[crop]\nx = 0\ny = 0\nwidth = 100\nheight = 100\n[scale]\nmm_per_pix = 0.1\n")
+        meta.write_text(
+            "[crop]\nx = 0\ny = 0\nwidth = 100\nheight = 100\n[scale]\nmm_per_pix = 0.1\n"
+        )
         with pytest.raises(KeyError):
             parse_meta_txt(meta)
 
@@ -253,7 +256,6 @@ class TestParseMetaTxt:
 # Need configparser for the raises test
 import configparser
 
-
 # ---------------------------------------------------------------------------
 # _extract_dlc_provenance
 # ---------------------------------------------------------------------------
@@ -280,18 +282,13 @@ class TestExtractDlcProvenance:
     def test_finetuned_hrnet_snapshot_with_project_name(self):
         # Realistic DLC output from the actual project.
         # DLC appends shuffleN directly to the project name.
-        fname = (
-            "20220804DLC_HrnetW32_hm2p-retrainMar20-trainset80shuffle1"
-            "_snapshot-best-200000.h5"
-        )
+        fname = "20220804DLC_HrnetW32_hm2p-retrainMar20-trainset80shuffle1_snapshot-best-200000.h5"
         model, snap = _extract_dlc_provenance(fname)
         assert snap == "200000"
         assert isinstance(model, str)
 
     def test_finetuned_resnet_snapshot(self):
-        fname = (
-            "sessionDLC_Resnet50_myproject-johnshuffle2_snapshot-best-50000.h5"
-        )
+        fname = "sessionDLC_Resnet50_myproject-johnshuffle2_snapshot-best-50000.h5"
         model, snap = _extract_dlc_provenance(fname)
         assert snap == "50000"
         assert isinstance(model, str)

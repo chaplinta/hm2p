@@ -19,7 +19,6 @@ from hm2p.patching.morphology import (
     soma_subtract,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures: synthetic SWC data
 # ---------------------------------------------------------------------------
@@ -168,14 +167,26 @@ class TestLoadMorphology:
 class TestSomaSubtract:
     def test_centres_on_soma(self) -> None:
         nodes_soma = pd.DataFrame(
-            {"id": [1, 2], "type": [1, 1], "x": [10.0, 12.0],
-             "y": [20.0, 22.0], "z": [5.0, 7.0], "radius": [1.0, 1.0],
-             "parent_id": [-1, 1]}
+            {
+                "id": [1, 2],
+                "type": [1, 1],
+                "x": [10.0, 12.0],
+                "y": [20.0, 22.0],
+                "z": [5.0, 7.0],
+                "radius": [1.0, 1.0],
+                "parent_id": [-1, 1],
+            }
         )
         nodes_apical = pd.DataFrame(
-            {"id": [1, 2], "type": [3, 3], "x": [10.0, 10.0],
-             "y": [30.0, 40.0], "z": [5.0, 5.0], "radius": [0.5, 0.5],
-             "parent_id": [-1, 1]}
+            {
+                "id": [1, 2],
+                "type": [3, 3],
+                "x": [10.0, 10.0],
+                "y": [30.0, 40.0],
+                "z": [5.0, 5.0],
+                "radius": [0.5, 0.5],
+                "parent_id": [-1, 1],
+            }
         )
         neurons = {
             "soma": {"nodes": nodes_soma, "edges": np.array([[1, 2]])},
@@ -190,8 +201,15 @@ class TestSomaSubtract:
 
     def test_y_flipped(self) -> None:
         nodes = pd.DataFrame(
-            {"id": [1], "type": [1], "x": [0.0], "y": [10.0], "z": [0.0],
-             "radius": [1.0], "parent_id": [-1]}
+            {
+                "id": [1],
+                "type": [1],
+                "x": [0.0],
+                "y": [10.0],
+                "z": [0.0],
+                "radius": [1.0],
+                "parent_id": [-1],
+            }
         )
         neurons = {"soma": {"nodes": nodes, "edges": np.empty((0, 2), dtype=int)}}
         result = soma_subtract(neurons, soma_center=np.array([0.0, 0.0, 0.0]))
@@ -200,8 +218,15 @@ class TestSomaSubtract:
 
     def test_explicit_soma_center(self) -> None:
         nodes = pd.DataFrame(
-            {"id": [1], "type": [3], "x": [5.0], "y": [5.0], "z": [5.0],
-             "radius": [0.5], "parent_id": [-1]}
+            {
+                "id": [1],
+                "type": [3],
+                "x": [5.0],
+                "y": [5.0],
+                "z": [5.0],
+                "radius": [0.5],
+                "parent_id": [-1],
+            }
         )
         neurons = {"apical": {"nodes": nodes, "edges": np.empty((0, 2), dtype=int)}}
         result = soma_subtract(neurons, soma_center=np.array([5.0, 5.0, 5.0]))
@@ -212,8 +237,15 @@ class TestSomaSubtract:
 
     def test_no_soma_raises(self) -> None:
         nodes = pd.DataFrame(
-            {"id": [1], "type": [3], "x": [5.0], "y": [5.0], "z": [5.0],
-             "radius": [0.5], "parent_id": [-1]}
+            {
+                "id": [1],
+                "type": [3],
+                "x": [5.0],
+                "y": [5.0],
+                "z": [5.0],
+                "radius": [0.5],
+                "parent_id": [-1],
+            }
         )
         neurons = {"apical": {"nodes": nodes, "edges": np.empty((0, 2), dtype=int)}}
         with pytest.raises(ValueError, match="No soma"):
@@ -231,9 +263,15 @@ class TestRotateToSurface:
         # Surface: horizontal line at y=100
         surface_pts = np.array([[x, 100.0] for x in range(-200, 201)])
         nodes = pd.DataFrame(
-            {"id": [1, 2], "type": [3, 3], "x": [0.0, 0.0],
-             "y": [0.0, -50.0], "z": [0.0, 0.0], "radius": [0.5, 0.5],
-             "parent_id": [-1, 1]}
+            {
+                "id": [1, 2],
+                "type": [3, 3],
+                "x": [0.0, 0.0],
+                "y": [0.0, -50.0],
+                "z": [0.0, 0.0],
+                "radius": [0.5, 0.5],
+                "parent_id": [-1, 1],
+            }
         )
         neurons = {"apical": {"nodes": nodes, "edges": np.array([[1, 2]])}}
         _, angle = rotate_to_surface(neurons, surface_pts)
@@ -247,8 +285,15 @@ class TestRotateToSurface:
         xs = np.linspace(-200, 200, 1001)
         surface_pts = np.column_stack([xs, xs + 50])  # shifted up
         nodes = pd.DataFrame(
-            {"id": [1], "type": [3], "x": [0.0], "y": [0.0], "z": [0.0],
-             "radius": [0.5], "parent_id": [-1]}
+            {
+                "id": [1],
+                "type": [3],
+                "x": [0.0],
+                "y": [0.0],
+                "z": [0.0],
+                "radius": [0.5],
+                "parent_id": [-1],
+            }
         )
         neurons = {"apical": {"nodes": nodes, "edges": np.empty((0, 2), dtype=int)}}
         _, angle = rotate_to_surface(neurons, surface_pts)
@@ -260,9 +305,15 @@ class TestRotateToSurface:
         """Rotation should actually change coordinates."""
         surface_pts = np.array([[x, x + 50.0] for x in range(-200, 201)])
         nodes = pd.DataFrame(
-            {"id": [1, 2], "type": [3, 3], "x": [0.0, 0.0],
-             "y": [0.0, -50.0], "z": [0.0, 0.0], "radius": [0.5, 0.5],
-             "parent_id": [-1, 1]}
+            {
+                "id": [1, 2],
+                "type": [3, 3],
+                "x": [0.0, 0.0],
+                "y": [0.0, -50.0],
+                "z": [0.0, 0.0],
+                "radius": [0.5, 0.5],
+                "parent_id": [-1, 1],
+            }
         )
         neurons = {"apical": {"nodes": nodes, "edges": np.array([[1, 2]])}}
         rotated, _ = rotate_to_surface(neurons, surface_pts)
@@ -360,11 +411,13 @@ class TestComputeSurfaceDistance:
     def test_known_distances(self) -> None:
         # Dense surface so nearest-neighbour distances are accurate
         surface = np.array([[float(x), 100.0] for x in range(21)])
-        dendrite = np.array([
-            [0.0, 90.0],   # 10 from surface
-            [10.0, 50.0],  # 50 from surface
-            [5.0, 95.0],   # 5 from surface (nearest: (5, 100))
-        ])
+        dendrite = np.array(
+            [
+                [0.0, 90.0],  # 10 from surface
+                [10.0, 50.0],  # 50 from surface
+                [5.0, 95.0],  # 5 from surface (nearest: (5, 100))
+            ]
+        )
         result = compute_surface_distance(surface, dendrite)
         assert result["dist_superficial"] == pytest.approx(5.0, abs=0.1)
         assert result["dist_deep"] == pytest.approx(50.0, abs=0.1)

@@ -165,7 +165,9 @@ def _concatenate_trees(trees: list[dict[str, Any]]) -> dict[str, Any]:
     to the closest node in the accumulated tree (by Euclidean distance).
     """
     combined_nodes = trees[0]["nodes"].copy()
-    combined_edges = trees[0]["edges"].copy() if len(trees[0]["edges"]) > 0 else np.empty((0, 2), dtype=int)
+    combined_edges = (
+        trees[0]["edges"].copy() if len(trees[0]["edges"]) > 0 else np.empty((0, 2), dtype=int)
+    )
 
     for t in trees[1:]:
         offset = combined_nodes["id"].max() + 1
@@ -189,7 +191,9 @@ def _concatenate_trees(trees: list[dict[str, Any]]) -> dict[str, Any]:
         )
 
         # New edges
-        new_edges = new_nodes.loc[new_nodes["parent_id"] != -1, ["parent_id", "id"]].values.astype(int)
+        new_edges = new_nodes.loc[new_nodes["parent_id"] != -1, ["parent_id", "id"]].values.astype(
+            int
+        )
         # The former root now has closest_id as parent — add that edge
         former_root_new_id = old_to_new[int(root_row["id"])]
         root_edge = np.array([[closest_id, former_root_new_id]])
@@ -309,9 +313,7 @@ def rotate_to_surface(
     return rotated, angle_deg
 
 
-def _rotate_tree_2d(
-    nodes: pd.DataFrame, angle_rad: float, y_offset: float
-) -> pd.DataFrame:
+def _rotate_tree_2d(nodes: pd.DataFrame, angle_rad: float, y_offset: float) -> pd.DataFrame:
     """Apply 2D rotation to X, Y columns of a node DataFrame.
 
     Implements ``rotate_tree.m``:
@@ -377,9 +379,7 @@ def _segment_lengths(nodes: pd.DataFrame, edges: np.ndarray) -> np.ndarray:
     return lengths
 
 
-def _path_lengths_from_root(
-    nodes: pd.DataFrame, edges: np.ndarray
-) -> dict[int, float]:
+def _path_lengths_from_root(nodes: pd.DataFrame, edges: np.ndarray) -> dict[int, float]:
     """Compute cumulative path length from root to every node via BFS."""
     children = _build_adjacency(nodes, edges)
     root_id = _find_root(nodes)
@@ -391,18 +391,14 @@ def _path_lengths_from_root(
     while queue:
         nid = queue.pop(0)
         for cid in children.get(nid, []):
-            dist = float(np.linalg.norm(
-                xyz[id_to_idx[cid]] - xyz[id_to_idx[nid]]
-            ))
+            dist = float(np.linalg.norm(xyz[id_to_idx[cid]] - xyz[id_to_idx[nid]]))
             path_len[cid] = path_len[nid] + dist
             queue.append(cid)
 
     return path_len
 
 
-def _branch_order_per_node(
-    nodes: pd.DataFrame, edges: np.ndarray
-) -> dict[int, int]:
+def _branch_order_per_node(nodes: pd.DataFrame, edges: np.ndarray) -> dict[int, int]:
     """Compute branch order for each node (number of branch points on path to root)."""
     children = _build_adjacency(nodes, edges)
     root_id = _find_root(nodes)
@@ -421,9 +417,7 @@ def _branch_order_per_node(
     return bo
 
 
-def _dissect_into_branches(
-    nodes: pd.DataFrame, edges: np.ndarray
-) -> list[list[int]]:
+def _dissect_into_branches(nodes: pd.DataFrame, edges: np.ndarray) -> list[list[int]]:
     """Dissect tree into branches (sequences of nodes between branch/terminal points).
 
     Returns a list of branches, each being a list of node ids from start to end.
@@ -456,9 +450,7 @@ def _dissect_into_branches(
     return branches
 
 
-def compute_tree_stats(
-    nodes: pd.DataFrame, edges: np.ndarray
-) -> dict[str, float]:
+def compute_tree_stats(nodes: pd.DataFrame, edges: np.ndarray) -> dict[str, float]:
     """Compute morphological statistics for a single tree.
 
     Implements the global stats from ``stats_tree_sw.m``:
@@ -626,11 +618,18 @@ def compute_sholl(
         edge_indices = np.array(edge_list, dtype=int) if edge_list else np.empty((0, 2), dtype=int)
     else:
         id_to_idx = {int(nid): i for i, nid in enumerate(nodes["id"])}
-        edge_indices = np.array(
-            [[id_to_idx[int(e[0])], id_to_idx[int(e[1])]] for e in edges
-             if int(e[0]) in id_to_idx and int(e[1]) in id_to_idx],
-            dtype=int,
-        ) if len(edges) > 0 else np.empty((0, 2), dtype=int)
+        edge_indices = (
+            np.array(
+                [
+                    [id_to_idx[int(e[0])], id_to_idx[int(e[1])]]
+                    for e in edges
+                    if int(e[0]) in id_to_idx and int(e[1]) in id_to_idx
+                ],
+                dtype=int,
+            )
+            if len(edges) > 0
+            else np.empty((0, 2), dtype=int)
+        )
 
     counts = np.zeros(len(radii), dtype=int)
     if len(edge_indices) == 0:

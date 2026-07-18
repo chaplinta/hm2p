@@ -150,9 +150,7 @@ class TestSiRatio:
         """If SI of map_a is zero (uniform map), should return NaN."""
         uniform = np.ones((4, 4), dtype=np.float64) * 2.0
         occ = np.ones((4, 4), dtype=np.float64)
-        tuned = np.array(
-            [[5.0, 1.0, 1.0, 1.0]] * 4, dtype=np.float64
-        )
+        tuned = np.array([[5.0, 1.0, 1.0, 1.0]] * 4, dtype=np.float64)
         # Uniform map has SI = 0
         ratio = si_ratio(uniform, occ, tuned, occ)
         assert np.isnan(ratio)

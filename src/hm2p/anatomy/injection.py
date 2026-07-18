@@ -117,9 +117,7 @@ def extract_injection_sites(
 
         Returns an empty list when no segmentation data is found.
     """
-    seg_dir = (
-        brainreg_output_dir / "segmentation" / "atlas_space" / "regions"
-    )
+    seg_dir = brainreg_output_dir / "segmentation" / "atlas_space" / "regions"
 
     if not seg_dir.exists():
         logger.warning(
@@ -147,9 +145,7 @@ def extract_injection_sites(
             dv_mm = row["axis_1_center_um"] / 1000.0
             ml_mm = row["axis_2_center_um"] / 1000.0
 
-            ap_mm, dv_mm, ml_mm = mirror_to_right_hemisphere(
-                ap_mm, dv_mm, ml_mm
-            )
+            ap_mm, dv_mm, ml_mm = mirror_to_right_hemisphere(ap_mm, dv_mm, ml_mm)
 
             volume_mm3 = float(row["volume_mm3"])
             radius_mm = _radius_from_volume(volume_mm3)
@@ -183,9 +179,7 @@ def extract_injection_sites(
         coords = np.argwhere(data > 0)
 
         if coords.shape[0] == 0:
-            logger.warning(
-                "no_segmented_voxels", path=str(tiff_path)
-            )
+            logger.warning("no_segmented_voxels", path=str(tiff_path))
             return []
 
         # Convert voxel indices to mm (25 um voxels).
@@ -259,8 +253,7 @@ def get_injection_coords_for_animal(
 
     if len(matching) > 1:
         raise RuntimeError(
-            f"Multiple brainreg directories found for animal {animal_id}: "
-            f"{matching}"
+            f"Multiple brainreg directories found for animal {animal_id}: {matching}"
         )
 
     sites = extract_injection_sites(matching[0])
@@ -324,9 +317,7 @@ def get_rsp_volume(volumes_df: pd.DataFrame) -> dict:
         Dict with keys ``rsp_total_mm3``, ``rsp_left_mm3``, ``rsp_right_mm3``,
         ``rsp_regions`` (list of matching region names).
     """
-    rsp_mask = volumes_df["structure_name"].str.contains(
-        "Retrosplenial|RSP", case=False, na=False
-    )
+    rsp_mask = volumes_df["structure_name"].str.contains("Retrosplenial|RSP", case=False, na=False)
     rsp_df = volumes_df[rsp_mask]
 
     return {
@@ -359,9 +350,7 @@ def update_animals_csv(
         FileNotFoundError: If *animals_csv_path* does not exist.
     """
     if not animals_csv_path.exists():
-        raise FileNotFoundError(
-            f"animals.csv not found at {animals_csv_path}"
-        )
+        raise FileNotFoundError(f"animals.csv not found at {animals_csv_path}")
 
     df = pd.read_csv(animals_csv_path)
 
@@ -372,9 +361,7 @@ def update_animals_csv(
 
     updated = 0
     for animal_id in df["animal_id"].unique():
-        coords = get_injection_coords_for_animal(
-            brainreg_base_dir, str(animal_id)
-        )
+        coords = get_injection_coords_for_animal(brainreg_base_dir, str(animal_id))
         if coords is None:
             continue
 

@@ -126,7 +126,13 @@ _STAT_DEFAULTS: dict[str, float] = {
 }
 
 _STAT_FEATURE_KEYS: tuple[str, ...] = (
-    "radius", "compact", "aspect_ratio", "npix", "npix_norm", "skew", "std",
+    "radius",
+    "compact",
+    "aspect_ratio",
+    "npix",
+    "npix_norm",
+    "skew",
+    "std",
     "solidity",
 )
 
@@ -199,7 +205,7 @@ def _autocorr_halfwidth_s(
     while nfft < 2 * n:
         nfft *= 2
     xf = np.fft.rfft(x, n=nfft)
-    ac_full = np.fft.irfft(xf * np.conj(xf), n=nfft)[:n_lag_max + 1]
+    ac_full = np.fft.irfft(xf * np.conj(xf), n=nfft)[: n_lag_max + 1]
     ac_full = ac_full / var  # normalize so lag-0 = 1
 
     # Find first lag where ac drops below 0.5
@@ -242,8 +248,8 @@ def _fneu_corr_batch(dff: np.ndarray, Fneu: np.ndarray) -> np.ndarray:
     fneu_c = Fneu - Fneu.mean(axis=1, keepdims=True)
 
     # Norms
-    dff_norm = np.sqrt(np.sum(dff_c ** 2, axis=1))
-    fneu_norm = np.sqrt(np.sum(fneu_c ** 2, axis=1))
+    dff_norm = np.sqrt(np.sum(dff_c**2, axis=1))
+    fneu_norm = np.sqrt(np.sum(fneu_c**2, axis=1))
 
     # Avoid division by zero for constant traces
     valid = (dff_norm > 0) & (fneu_norm > 0)
@@ -274,7 +280,7 @@ def _max_pairwise_corr_batch(dff: np.ndarray) -> np.ndarray:
 
     # Center and normalize rows
     dff_c = dff - dff.mean(axis=1, keepdims=True)
-    norms = np.sqrt(np.sum(dff_c ** 2, axis=1))
+    norms = np.sqrt(np.sum(dff_c**2, axis=1))
     valid = norms > 0
     result = np.full(n_rois, np.nan)
 
@@ -393,8 +399,8 @@ def _power_slope(dff_trace: np.ndarray, fps: float) -> float:
 
 def _eccentricity(stat_entry: dict) -> float:
     """Eccentricity from eigenvalues of pixel coordinate covariance."""
-    xpix = stat_entry.get("xpix", None)
-    ypix = stat_entry.get("ypix", None)
+    xpix = stat_entry.get("xpix")
+    ypix = stat_entry.get("ypix")
     if xpix is None or ypix is None:
         return float("nan")
     if len(xpix) < 3:
@@ -422,8 +428,8 @@ def _mask_topology(stat_entry: dict) -> tuple[int, int, float]:
     """
     from scipy import ndimage
 
-    xpix = stat_entry.get("xpix", None)
-    ypix = stat_entry.get("ypix", None)
+    xpix = stat_entry.get("xpix")
+    ypix = stat_entry.get("ypix")
     if xpix is None or ypix is None or len(xpix) < 3:
         return (0, 0, float("nan"))
 
@@ -445,6 +451,7 @@ def _mask_topology(stat_entry: dict) -> tuple[int, int, float]:
     # A branch point has >2 neighbors in the skeleton.
     try:
         from skimage.morphology import skeletonize
+
         skel = skeletonize(mask > 0)
         # Count pixels with >2 neighbors (branch points)
         kernel = np.ones((3, 3), dtype=np.uint8)
@@ -472,7 +479,7 @@ def _mask_topology(stat_entry: dict) -> tuple[int, int, float]:
 
 def _lam_cv(stat_entry: dict) -> float:
     """Coefficient of variation of pixel intensity weights (lam)."""
-    lam = stat_entry.get("lam", None)
+    lam = stat_entry.get("lam")
     if lam is None or len(lam) < 2:
         return float("nan")
     mean_lam = float(np.mean(lam))
@@ -554,9 +561,7 @@ def extract_soma_features(
         row["soma_crop_fraction"] = npix_soma / npix
 
         npix_norm = float(s.get("npix_norm", _STAT_DEFAULTS["npix_norm"]))
-        npix_norm_no_crop = float(
-            s.get("npix_norm_no_crop", _STAT_DEFAULTS["npix_norm_no_crop"])
-        )
+        npix_norm_no_crop = float(s.get("npix_norm_no_crop", _STAT_DEFAULTS["npix_norm_no_crop"]))
         denom = max(abs(npix_norm_no_crop), 1e-6)
         row["npix_norm_ratio"] = npix_norm / denom
 
@@ -592,6 +597,9 @@ def extract_soma_features(
     df = pd.DataFrame(rows, columns=list(FEATURE_COLUMNS))
     log.info(
         "Extracted soma features for %d ROIs (n_frames=%d, fps=%.2f Hz, %d features)",
-        n_rois, n_frames, fps, len(FEATURE_COLUMNS),
+        n_rois,
+        n_frames,
+        fps,
+        len(FEATURE_COLUMNS),
     )
     return df

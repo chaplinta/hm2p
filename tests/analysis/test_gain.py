@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.analysis.gain import (
     epoch_gain_tracking,
@@ -26,7 +25,7 @@ def _make_cell(n=6000, pref=90.0, kappa=3.0, noise=0.15, seed=42):
 def _make_light_on(n, cycle=1800):
     light_on = np.zeros(n, dtype=bool)
     for start in range(0, n, 2 * cycle):
-        light_on[start:min(start + cycle, n)] = True
+        light_on[start : min(start + cycle, n)] = True
     return light_on
 
 
@@ -44,9 +43,15 @@ class TestGainModulationIndex:
         signal, hd, mask = _make_cell()
         light_on = _make_light_on(len(signal))
         result = gain_modulation_index(signal, hd, mask, light_on)
-        expected = {"gain_index", "peak_light", "peak_dark",
-                    "dynamic_range_light", "dynamic_range_dark",
-                    "mean_rate_light", "mean_rate_dark"}
+        expected = {
+            "gain_index",
+            "peak_light",
+            "peak_dark",
+            "dynamic_range_light",
+            "dynamic_range_dark",
+            "mean_rate_light",
+            "mean_rate_dark",
+        }
         assert set(result.keys()) == expected
 
     def test_gain_index_bounded(self):
@@ -119,8 +124,14 @@ class TestEpochGainTracking:
         signal, hd, mask = _make_cell()
         light_on = _make_light_on(len(signal))
         result = epoch_gain_tracking(signal, hd, mask, light_on)
-        expected = {"epoch_centers", "epoch_peaks", "epoch_dynamic_ranges",
-                    "epoch_mvls", "epoch_is_light", "n_epochs"}
+        expected = {
+            "epoch_centers",
+            "epoch_peaks",
+            "epoch_dynamic_ranges",
+            "epoch_mvls",
+            "epoch_is_light",
+            "n_epochs",
+        }
         assert set(result.keys()) == expected
 
     def test_epochs_found(self):

@@ -16,7 +16,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-
 # ============================================================================
 # Metric column definitions (matching MATLAB naming)
 # ============================================================================
@@ -95,11 +94,7 @@ _BASAL_MORPH_COLS = _morph_cols("morph_bas")
 
 #: Complete ordered list of all metric columns
 ALL_METRIC_COLS = (
-    _META_COLS
-    + _PASSIVE_EPHYS_COLS
-    + _ACTIVE_EPHYS_COLS
-    + _APICAL_MORPH_COLS
-    + _BASAL_MORPH_COLS
+    _META_COLS + _PASSIVE_EPHYS_COLS + _ACTIVE_EPHYS_COLS + _APICAL_MORPH_COLS + _BASAL_MORPH_COLS
 )
 
 # ============================================================================

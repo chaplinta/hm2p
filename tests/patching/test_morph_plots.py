@@ -10,7 +10,6 @@ import plotly.graph_objects as go
 import pytest
 
 from hm2p.patching.plotting.morph_plots import (
-    COMPARTMENT_COLOURS,
     GSTATS_LABELS,
     _hex_to_rgba,
     build_metrics_dataframe,
@@ -25,7 +24,6 @@ from hm2p.patching.plotting.morph_plots import (
     plot_sholl_profile,
     plot_single_morphology_2d,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers: synthetic morph_data dicts mimicking load_morph_mat output
@@ -91,8 +89,12 @@ def _make_morph_data(
         "soma_center": np.array([10.0, 20.0, 5.0]),
         "apical_gstats": _make_gstats(len=500.0) if include_apical else {},
         "basal_gstats": _make_gstats(len=300.0) if include_basal else {},
-        "apical_dsholl": rng.integers(0, 20, size=sholl_len).astype(float) if include_apical else np.array([]),
-        "basal_dsholl": rng.integers(0, 15, size=sholl_len).astype(float) if include_basal else np.array([]),
+        "apical_dsholl": rng.integers(0, 20, size=sholl_len).astype(float)
+        if include_apical
+        else np.array([]),
+        "basal_dsholl": rng.integers(0, 15, size=sholl_len).astype(float)
+        if include_basal
+        else np.array([]),
         "apical_dstats": {"blen": rng.standard_normal(15)} if include_apical else {},
         "basal_dstats": {"blen": rng.standard_normal(10)} if include_basal else {},
         "surface_stats": {"dist_soma": 120.0, "angle_soma_deg": 45.0},
@@ -263,9 +265,7 @@ class TestComputePopulationSholl:
         """Profiles of different lengths should be zero-padded."""
         md1 = _make_morph_data(sholl_len=5, seed=0)
         md2 = _make_morph_data(sholl_len=15, seed=1)
-        radii, mean_p, _ = compute_population_sholl(
-            {"a": md1, "b": md2}, "apical"
-        )
+        radii, mean_p, _ = compute_population_sholl({"a": md1, "b": md2}, "apical")
         assert len(radii) == 15
 
 

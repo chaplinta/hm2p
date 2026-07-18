@@ -290,9 +290,7 @@ def test_hd_statistic_mvl_matches_direct():
     from hm2p.analysis.matched_tuning import hd_tuning_statistic
 
     tc, bc = compute_hd_tuning_curve(sig, hd, m)
-    assert np.isclose(
-        hd_tuning_statistic(sig, hd, m, statistic="mvl"), mean_vector_length(tc, bc)
-    )
+    assert np.isclose(hd_tuning_statistic(sig, hd, m, statistic="mvl"), mean_vector_length(tc, bc))
 
 
 def test_hd_statistic_skaggs_tuned_gt_untuned():
@@ -372,8 +370,16 @@ def test_matched_condition_skaggs_runs():
     sig_a = _tuned_signal(hd_a, pd_deg=90, kappa=3.0)
     sig_b = _tuned_signal(hd_b, pd_deg=90, kappa=3.0)
     out = matched_condition_mvl(
-        sig_a, hd_a, sig_b, hd_b, match="occupancy",
-        statistic="skaggs", n_boot=8, n_shuffles=25, debias=True, rng=rng,
+        sig_a,
+        hd_a,
+        sig_b,
+        hd_b,
+        match="occupancy",
+        statistic="skaggs",
+        n_boot=8,
+        n_shuffles=25,
+        debias=True,
+        rng=rng,
     )
     # same underlying code -> matched info similar across conditions
     assert np.isfinite(out["mvl_a"]) and np.isfinite(out["mvl_b"])

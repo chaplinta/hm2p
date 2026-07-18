@@ -101,6 +101,7 @@ class TestAutocorrHalfwidth:
 
     def test_smooth_signal_has_longer_halfwidth(self) -> None:
         from scipy.ndimage import gaussian_filter1d
+
         rng = np.random.default_rng(3)
         x = rng.normal(0, 1, size=2000)
         x_smooth = gaussian_filter1d(x, sigma=20.0)
@@ -258,6 +259,7 @@ class TestPowerSlope:
 
     def test_smooth_signal_steeper(self) -> None:
         from scipy.ndimage import gaussian_filter1d
+
         rng = np.random.default_rng(61)
         white = rng.normal(0, 1, size=2000)
         smooth = gaussian_filter1d(white, sigma=30.0)
@@ -276,22 +278,24 @@ def _make_stat(n: int, rng: np.random.Generator) -> list[dict]:
         npix = int(rng.integers(50, 500))
         xpix = rng.integers(0, 200, size=npix).astype(np.int64)
         ypix = rng.integers(0, 200, size=npix).astype(np.int64)
-        results.append({
-            "radius": float(rng.uniform(3.0, 10.0)),
-            "compact": float(rng.uniform(0.95, 2.0)),
-            "aspect_ratio": float(rng.uniform(1.0, 3.0)),
-            "npix": npix,
-            "npix_norm": float(rng.uniform(0.5, 3.0)),
-            "skew": float(rng.uniform(-1.0, 5.0)),
-            "std": float(rng.uniform(0.1, 5.0)),
-            "solidity": float(rng.uniform(0.5, 1.2)),
-            "npix_soma": int(rng.integers(30, 400)),
-            "npix_norm_no_crop": float(rng.uniform(0.4, 3.0)),
-            "overlap": rng.choice([True, False], size=npix),
-            "xpix": xpix,
-            "ypix": ypix,
-            "lam": rng.uniform(0.1, 5.0, size=npix).astype(np.float32),
-        })
+        results.append(
+            {
+                "radius": float(rng.uniform(3.0, 10.0)),
+                "compact": float(rng.uniform(0.95, 2.0)),
+                "aspect_ratio": float(rng.uniform(1.0, 3.0)),
+                "npix": npix,
+                "npix_norm": float(rng.uniform(0.5, 3.0)),
+                "skew": float(rng.uniform(-1.0, 5.0)),
+                "std": float(rng.uniform(0.1, 5.0)),
+                "solidity": float(rng.uniform(0.5, 1.2)),
+                "npix_soma": int(rng.integers(30, 400)),
+                "npix_norm_no_crop": float(rng.uniform(0.4, 3.0)),
+                "overlap": rng.choice([True, False], size=npix),
+                "xpix": xpix,
+                "ypix": ypix,
+                "lam": rng.uniform(0.1, 5.0, size=npix).astype(np.float32),
+            }
+        )
     return results
 
 
@@ -349,9 +353,16 @@ class TestExtractSomaFeatures:
         F = rng.uniform(100, 500, size=(5, 500)).astype(np.float32)
         Fneu = rng.uniform(50, 200, size=(5, 500)).astype(np.float32)
         df = extract_soma_features(stat, F, Fneu, fps=10.0)
-        for col in ["eccentricity", "lam_cv", "signal_to_background",
-                     "event_rate", "derivative_skew", "trace_sparsity",
-                     "power_slope", "max_pairwise_corr"]:
+        for col in [
+            "eccentricity",
+            "lam_cv",
+            "signal_to_background",
+            "event_rate",
+            "derivative_skew",
+            "trace_sparsity",
+            "power_slope",
+            "max_pairwise_corr",
+        ]:
             assert col in df.columns, f"Missing column: {col}"
 
     def test_neucoeff_affects_activity_features(self) -> None:

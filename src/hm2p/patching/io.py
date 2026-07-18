@@ -26,7 +26,6 @@ from typing import Any
 import h5py
 import numpy as np
 
-
 # ---------------------------------------------------------------------------
 # WaveSurfer HDF5 loading
 # ---------------------------------------------------------------------------
@@ -171,7 +170,9 @@ def load_wavesurfer(path: Path) -> dict[str, Any]:
 
     # Ensure scaling_coefficients is (n_coeff, n_channels) for _apply_scaling.
     # WaveSurfer stores it as (n_channels, n_coeff) — transpose if needed.
-    if scaling_coefficients.shape[0] == len(channel_scales) and scaling_coefficients.shape[1] != len(channel_scales):
+    if scaling_coefficients.shape[0] == len(channel_scales) and scaling_coefficients.shape[
+        1
+    ] != len(channel_scales):
         scaling_coefficients = scaling_coefficients.T
 
     # --- Scale sweep analog data ---
@@ -184,11 +185,13 @@ def load_wavesurfer(path: Path) -> dict[str, Any]:
                     raw = raw[:, np.newaxis]
                 # WaveSurfer stores analogScans as (n_channels, n_scans).
                 # _apply_scaling expects (n_scans, n_channels).
-                if raw.ndim == 2 and raw.shape[0] == len(channel_scales) and raw.shape[1] > raw.shape[0]:
+                if (
+                    raw.ndim == 2
+                    and raw.shape[0] == len(channel_scales)
+                    and raw.shape[1] > raw.shape[0]
+                ):
                     raw = raw.T
-                sweep["analogScans"] = _apply_scaling(
-                    raw, channel_scales, scaling_coefficients
-                )
+                sweep["analogScans"] = _apply_scaling(raw, channel_scales, scaling_coefficients)
 
     # Build a concatenated "traces" array (channel 0 from all sweeps).
     # Protocol extractors expect ws_data["traces"] as a 1-D float64 array

@@ -588,7 +588,7 @@ class TestComputeBodyPositionUnweighted:
         pos_data[:, 1, :, 0] = 0.0
         # Confidence pattern that would skew a weighted mean toward keypoint 2.0
         conf_data = np.zeros((n, len(KEYPOINTS), 1), dtype=np.float64)
-        conf_data[:, kp_idx["mid_back"], 0] = 1.0     # high
+        conf_data[:, kp_idx["mid_back"], 0] = 1.0  # high
         conf_data[:, kp_idx["mouse_center"], 0] = 0.001
         conf_data[:, kp_idx["tail_base"], 0] = 0.001
         ds = _make_pose_dataset(n_frames=n, pos_data=pos_data, conf_data=conf_data)
@@ -668,9 +668,7 @@ class TestComputeMazeCoords:
         # 90° CCW around centre maps:
         #   (0,0)→(W,0), (W,0)→(W,H), (W,H)→(0,H), (0,H)→(0,0)
         W, H = 600.0, 400.0
-        corners_rot = np.array(
-            [[W, 0.0], [W, H], [0.0, H], [0.0, 0.0]], dtype=np.float64
-        )
+        corners_rot = np.array([[W, 0.0], [W, H], [0.0, H], [0.0, 0.0]], dtype=np.float64)
         # Centre point of the maze in mm
         x_mm = np.array([W / 2.0], dtype=np.float32)
         y_mm = np.array([H / 2.0], dtype=np.float32)
@@ -685,9 +683,7 @@ class TestComputeMazeCoords:
         points must yield identical maze coords as the axis-aligned case."""
         pytest.importorskip("shapely")
         W, H = 600.0, 400.0
-        corners_aa = np.array(
-            [[0.0, 0.0], [W, 0.0], [W, H], [0.0, H]], dtype=np.float64
-        )
+        corners_aa = np.array([[0.0, 0.0], [W, 0.0], [W, H], [0.0, H]], dtype=np.float64)
         # Some interior points
         x_mm = np.array([100.0, 300.0, 500.0], dtype=np.float32)
         y_mm = np.array([100.0, 200.0, 300.0], dtype=np.float32)
@@ -695,14 +691,18 @@ class TestComputeMazeCoords:
 
         # Rotate corners and query points by 90° CCW around (W/2, H/2)
         cx, cy = W / 2.0, H / 2.0
+
         def rot90ccw(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
             return cx - (y - cy), cy + (x - cx)
+
         cx_rot, cy_rot = rot90ccw(corners_aa[:, 0], corners_aa[:, 1])
         corners_rot = np.column_stack([cx_rot, cy_rot])
         x_rot, y_rot = rot90ccw(x_mm.astype(np.float64), y_mm.astype(np.float64))
         xm_rot, ym_rot = compute_maze_coords(
-            x_rot.astype(np.float32), y_rot.astype(np.float32),
-            corners_rot, scale_mm_per_px=1.0,
+            x_rot.astype(np.float32),
+            y_rot.astype(np.float32),
+            corners_rot,
+            scale_mm_per_px=1.0,
         )
         np.testing.assert_allclose(xm_rot, xm_aa, atol=1e-4)
         np.testing.assert_allclose(ym_rot, ym_aa, atol=1e-4)
@@ -828,48 +828,60 @@ class TestVectorAngleDeg:
     def test_east_direction(self) -> None:
         """Vector pointing east: raw 270° - 90° correction = 180°."""
         angle = _vector_angle_deg(
-            np.array([0.0]), np.array([0.0]),
-            np.array([1.0]), np.array([0.0]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([1.0]),
+            np.array([0.0]),
         )
         np.testing.assert_allclose(angle, [180.0], atol=1e-6)
 
     def test_west_direction(self) -> None:
         """Vector pointing west: raw 90° - 90° correction = 0°."""
         angle = _vector_angle_deg(
-            np.array([0.0]), np.array([0.0]),
-            np.array([-1.0]), np.array([0.0]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([-1.0]),
+            np.array([0.0]),
         )
         np.testing.assert_allclose(angle, [0.0], atol=1e-6)
 
     def test_north_direction(self) -> None:
         """Vector pointing north: raw 360° - 90° correction = 270°."""
         angle = _vector_angle_deg(
-            np.array([0.0]), np.array([0.0]),
-            np.array([0.0]), np.array([-1.0]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([-1.0]),
         )
         np.testing.assert_allclose(angle, [270.0], atol=1e-6)
 
     def test_south_direction(self) -> None:
         """Vector pointing south: raw 180° - 90° correction = 90°."""
         angle = _vector_angle_deg(
-            np.array([0.0]), np.array([0.0]),
-            np.array([0.0]), np.array([1.0]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([1.0]),
         )
         np.testing.assert_allclose(angle, [90.0], atol=1e-6)
 
     def test_nan_from_point_propagates(self) -> None:
         """NaN in from_x propagates to output."""
         angle = _vector_angle_deg(
-            np.array([np.nan]), np.array([0.0]),
-            np.array([1.0]), np.array([0.0]),
+            np.array([np.nan]),
+            np.array([0.0]),
+            np.array([1.0]),
+            np.array([0.0]),
         )
         assert np.isnan(angle[0])
 
     def test_nan_to_point_propagates(self) -> None:
         """NaN in to_y propagates to output."""
         angle = _vector_angle_deg(
-            np.array([0.0]), np.array([0.0]),
-            np.array([1.0]), np.array([np.nan]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([1.0]),
+            np.array([np.nan]),
         )
         assert np.isnan(angle[0])
 
@@ -877,8 +889,10 @@ class TestVectorAngleDeg:
         """Output shape matches input length."""
         n = 20
         angle = _vector_angle_deg(
-            np.zeros(n), np.zeros(n),
-            np.ones(n), np.zeros(n),
+            np.zeros(n),
+            np.zeros(n),
+            np.ones(n),
+            np.zeros(n),
         )
         assert angle.shape == (n,)
 
@@ -886,16 +900,20 @@ class TestVectorAngleDeg:
         """All frames with the same direction return the same angle."""
         n = 15
         angle = _vector_angle_deg(
-            np.zeros(n), np.zeros(n),
-            np.ones(n), np.zeros(n),
+            np.zeros(n),
+            np.zeros(n),
+            np.ones(n),
+            np.zeros(n),
         )
         assert np.all(angle == angle[0])
 
     def test_diagonal_northeast(self) -> None:
         """Vector pointing northeast: raw 315° - 90° correction = 225°."""
         angle = _vector_angle_deg(
-            np.array([0.0]), np.array([0.0]),
-            np.array([1.0]), np.array([-1.0]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([1.0]),
+            np.array([-1.0]),
         )
         np.testing.assert_allclose(angle, [225.0], atol=1e-6)
 
@@ -909,8 +927,10 @@ class TestVectorAngleDeg:
         if dx == 0.0 and dy == 0.0:
             return  # zero vector → atan2(0,0) is implementation-defined
         angle = _vector_angle_deg(
-            np.array([0.0]), np.array([0.0]),
-            np.array([dx]), np.array([dy]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([dx]),
+            np.array([dy]),
         )
         assert np.isfinite(angle[0])
         # Result is 180 + atan2 - 90 → range is (-90, 270] but wraps
@@ -931,46 +951,54 @@ class TestEarPerpendicularAngle:
         which uses atan2(lx-rx, ly-ry) = atan2(0,-2) = π → 180+180 = 360.
         """
         angle = _ear_perpendicular_angle(
-            np.array([5.0]), np.array([0.0]),
-            np.array([5.0]), np.array([2.0]),
+            np.array([5.0]),
+            np.array([0.0]),
+            np.array([5.0]),
+            np.array([2.0]),
         )
         np.testing.assert_allclose(angle, [360.0], atol=1e-6)
 
     def test_ears_same_y_left_is_left(self) -> None:
         """Left ear left of right ear (lx < rx, same y): atan2(lx-rx, 0) = atan2(-1,0) = -90 → 90."""
         angle = _ear_perpendicular_angle(
-            np.array([0.0]), np.array([0.0]),
-            np.array([1.0]), np.array([0.0]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([1.0]),
+            np.array([0.0]),
         )
         np.testing.assert_allclose(angle, [90.0], atol=1e-6)
 
     def test_nan_left_ear_returns_nan(self) -> None:
         angle = _ear_perpendicular_angle(
-            np.array([np.nan]), np.array([0.0]),
-            np.array([1.0]), np.array([0.0]),
+            np.array([np.nan]),
+            np.array([0.0]),
+            np.array([1.0]),
+            np.array([0.0]),
         )
         assert np.isnan(angle[0])
 
     def test_nan_right_ear_returns_nan(self) -> None:
         angle = _ear_perpendicular_angle(
-            np.array([0.0]), np.array([0.0]),
-            np.array([np.nan]), np.array([0.0]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([np.nan]),
+            np.array([0.0]),
         )
         assert np.isnan(angle[0])
 
     def test_output_shape(self) -> None:
         n = 30
-        angle = _ear_perpendicular_angle(
-            np.ones(n), np.zeros(n), np.zeros(n), np.zeros(n)
-        )
+        angle = _ear_perpendicular_angle(np.ones(n), np.zeros(n), np.zeros(n), np.zeros(n))
         assert angle.shape == (n,)
 
     def test_constant_configuration_constant_output(self) -> None:
         """Same ear positions every frame → same HD every frame."""
         n = 20
         angle = _ear_perpendicular_angle(
-            np.full(n, 2.0), np.zeros(n),
-            np.zeros(n), np.zeros(n),
+            np.full(n, 2.0),
+            np.zeros(n),
+            np.zeros(n),
+            np.zeros(n),
         )
         assert np.allclose(angle, angle[0])
 
@@ -988,8 +1016,10 @@ class TestEarPerpendicularAngle:
         if lx == rx and ly == ry:
             return  # degenerate: both ears at same point
         angle = _ear_perpendicular_angle(
-            np.array([lx]), np.array([ly]),
-            np.array([rx]), np.array([ry]),
+            np.array([lx]),
+            np.array([ly]),
+            np.array([rx]),
+            np.array([ry]),
         )
         assert np.isfinite(angle[0])
 
@@ -1031,10 +1061,16 @@ class TestFusedHdWrapped:
 
         fused_default = _fused_hd_wrapped(lx, ly, rx, ry)
         fused_explicit_none = _fused_hd_wrapped(
-            lx, ly, rx, ry,
-            nose_x=None, nose_y=None,
-            implant_x=None, implant_y=None,
-            neck_x=None, neck_y=None,
+            lx,
+            ly,
+            rx,
+            ry,
+            nose_x=None,
+            nose_y=None,
+            implant_x=None,
+            implant_y=None,
+            neck_x=None,
+            neck_y=None,
         )
         np.testing.assert_array_equal(fused_default, fused_explicit_none)
 
@@ -1063,13 +1099,15 @@ class TestFusedHdWrapped:
         rx = np.ones(n)
         ry = np.zeros(n)
         nose_x = np.zeros(n)
-        nose_y = np.full(n, 2.0)    # nose at (0, +2)
+        nose_y = np.full(n, 2.0)  # nose at (0, +2)
         implant_x = np.zeros(n)
-        implant_y = np.zeros(n)     # implant at origin
+        implant_y = np.zeros(n)  # implant at origin
         neck_x = np.zeros(n)
-        neck_y = np.full(n, -1.0)   # neck at (0, -1)
+        neck_y = np.full(n, -1.0)  # neck at (0, -1)
 
-        fused = _fused_hd_wrapped(lx, ly, rx, ry, nose_x, nose_y, implant_x, implant_y, neck_x, neck_y)
+        fused = _fused_hd_wrapped(
+            lx, ly, rx, ry, nose_x, nose_y, implant_x, implant_y, neck_x, neck_y
+        )
         # All 5 estimates should give ~90°.
         np.testing.assert_allclose(fused, 90.0, atol=2.0)
 
@@ -1091,7 +1129,9 @@ class TestFusedHdWrapped:
         neck_x = np.zeros(n)
         neck_y = np.ones(n)
 
-        fused = _fused_hd_wrapped(lx, ly, rx, ry, nose_x, nose_y, implant_x, implant_y, neck_x, neck_y)
+        fused = _fused_hd_wrapped(
+            lx, ly, rx, ry, nose_x, nose_y, implant_x, implant_y, neck_x, neck_y
+        )
         # Result should be finite (ear estimate is NaN but the other two are not)
         assert np.all(np.isfinite(fused))
 
@@ -1123,8 +1163,10 @@ class TestFusedHdWrapped:
     def test_single_frame_all_nan(self) -> None:
         """Single NaN frame returns NaN."""
         fused = _fused_hd_wrapped(
-            np.array([np.nan]), np.array([np.nan]),
-            np.array([np.nan]), np.array([np.nan]),
+            np.array([np.nan]),
+            np.array([np.nan]),
+            np.array([np.nan]),
+            np.array([np.nan]),
         )
         assert np.isnan(fused[0])
 
@@ -1184,9 +1226,7 @@ class TestFusedHdWrapped:
     def test_output_dtype_float64(self) -> None:
         """Fused result is float64 (unwrapping converts to float32 later)."""
         n = 5
-        fused = _fused_hd_wrapped(
-            np.ones(n), np.zeros(n), np.zeros(n), np.zeros(n)
-        )
+        fused = _fused_hd_wrapped(np.ones(n), np.zeros(n), np.zeros(n), np.zeros(n))
         assert fused.dtype == np.float64
 
     def test_partial_nan_nose_implant_frames(self) -> None:
@@ -1219,8 +1259,10 @@ class TestFusedHdWrapped:
         if lx == rx and ly == ry:
             return  # degenerate
         fused = _fused_hd_wrapped(
-            np.array([lx]), np.array([ly]),
-            np.array([rx]), np.array([ry]),
+            np.array([lx]),
+            np.array([ly]),
+            np.array([rx]),
+            np.array([ry]),
         )
         assert np.isfinite(fused[0])
         # The function returns mean_angle % 360 but floating-point can produce exactly
@@ -1273,8 +1315,7 @@ class TestSavgolFilter1D:
         rmse_noisy = float(np.sqrt(np.mean((noisy - truth) ** 2)))
         rmse_out = float(np.sqrt(np.mean((out - truth) ** 2)))
         assert rmse_out < rmse_noisy * 0.6, (
-            f"SG should reduce RMSE substantially: noisy={rmse_noisy:.3f}, "
-            f"smoothed={rmse_out:.3f}"
+            f"SG should reduce RMSE substantially: noisy={rmse_noisy:.3f}, smoothed={rmse_out:.3f}"
         )
 
     def test_nan_preserved(self) -> None:
@@ -1448,9 +1489,7 @@ class TestUnwrapAndSmooth:
         truth = np.linspace(0.0, 200.0, n)
         # Add high-frequency tracking jitter (5° standard deviation)
         noisy = truth + rng.normal(0.0, 5.0, size=n)
-        out_med_only = _unwrap_and_smooth(
-            noisy, median_filter_win=3, savgol_window=1
-        )
+        out_med_only = _unwrap_and_smooth(noisy, median_filter_win=3, savgol_window=1)
         out_med_sg = _unwrap_and_smooth(
             noisy, median_filter_win=3, savgol_window=5, savgol_polyorder=2
         )
@@ -1505,8 +1544,14 @@ class TestUnwrapAndSmooth:
 
 # Full keypoint set used by compute_hd_multi, compute_head_position, compute_body_position
 _ALL_KEYPOINTS = [
-    "nose_tip", "left_ear", "right_ear", "head_midpoint", "neck",
-    "mid_back", "mouse_center", "tail_base",
+    "nose_tip",
+    "left_ear",
+    "right_ear",
+    "head_midpoint",
+    "neck",
+    "mid_back",
+    "mouse_center",
+    "tail_base",
 ]
 
 
@@ -1591,8 +1636,12 @@ class TestComputeHdMulti:
         ds = _make_full_dataset()
         result = compute_hd_multi(ds, scale_mm_per_px=0.1)
         required_keys = {
-            "hd_deg", "hd_ears", "hd_nose_head", "hd_nose_neck",
-            "hd_head_neck", "hd_confidence",
+            "hd_deg",
+            "hd_ears",
+            "hd_nose_head",
+            "hd_nose_neck",
+            "hd_head_neck",
+            "hd_confidence",
         }
         assert set(result.keys()) == required_keys
 
@@ -1661,8 +1710,10 @@ class TestComputeHdMulti:
         # left_ear at (0,0), right_ear at (1,0): ear vector → dx=0-1=-1, dy=0-0=0
         # atan2(-1, 0) = -pi/2 → 180 + degrees(-pi/2) = 180 - 90 = 90°
         ds = _make_full_dataset(
-            left_ear_x=0.0, left_ear_y=0.0,
-            right_ear_x=1.0, right_ear_y=0.0,
+            left_ear_x=0.0,
+            left_ear_y=0.0,
+            right_ear_x=1.0,
+            right_ear_y=0.0,
         )
         result = compute_hd_multi(ds, scale_mm_per_px=1.0)
         np.testing.assert_allclose(result["hd_ears"], 90.0, atol=1e-4)
@@ -1671,14 +1722,26 @@ class TestComputeHdMulti:
         """If ears are missing from the dataset, raise ValueError."""
         # Build a dataset without left_ear
         n = 5
-        kps = ["nose_tip", "right_ear", "head_midpoint", "neck", "mid_back", "mouse_center", "tail_base"]
+        kps = [
+            "nose_tip",
+            "right_ear",
+            "head_midpoint",
+            "neck",
+            "mid_back",
+            "mouse_center",
+            "tail_base",
+        ]
         pos_data = np.ones((n, 2, len(kps), 1), dtype=np.float64)
         conf_data = np.ones((n, len(kps), 1), dtype=np.float64)
         position = xr.DataArray(
             pos_data,
             dims=["time", "space", "keypoints", "individuals"],
-            coords={"time": np.arange(n, dtype=float), "space": ["x", "y"],
-                    "keypoints": kps, "individuals": ["mouse"]},
+            coords={
+                "time": np.arange(n, dtype=float),
+                "space": ["x", "y"],
+                "keypoints": kps,
+                "individuals": ["mouse"],
+            },
         )
         confidence = xr.DataArray(
             conf_data,
@@ -1726,11 +1789,16 @@ class TestComputeHeadPosition:
     def test_scale_applied_correctly(self) -> None:
         """Output in mm should equal pixel coordinates times scale."""
         ds = _make_full_dataset(
-            implant_x=10.0, implant_y=20.0,
-            nose_x=10.0, nose_y=20.0,
-            left_ear_x=10.0, left_ear_y=20.0,
-            right_ear_x=10.0, right_ear_y=20.0,
-            neck_x=10.0, neck_y=20.0,
+            implant_x=10.0,
+            implant_y=20.0,
+            nose_x=10.0,
+            nose_y=20.0,
+            left_ear_x=10.0,
+            left_ear_y=20.0,
+            right_ear_x=10.0,
+            right_ear_y=20.0,
+            neck_x=10.0,
+            neck_y=20.0,
         )
         scale = 0.5
         x_mm, y_mm = compute_head_position(ds, scale_mm_per_px=scale)
@@ -1755,11 +1823,16 @@ class TestComputeHeadPosition:
         """When all head keypoints agree on position, output equals that position."""
         px, py = 100.0, 200.0
         ds = _make_full_dataset(
-            nose_x=px, nose_y=py,
-            implant_x=px, implant_y=py,
-            left_ear_x=px, left_ear_y=py,
-            right_ear_x=px, right_ear_y=py,
-            neck_x=px, neck_y=py,
+            nose_x=px,
+            nose_y=py,
+            implant_x=px,
+            implant_y=py,
+            left_ear_x=px,
+            left_ear_y=py,
+            right_ear_x=px,
+            right_ear_y=py,
+            neck_x=px,
+            neck_y=py,
         )
         scale = 0.3
         x_mm, y_mm = compute_head_position(ds, scale_mm_per_px=scale)
@@ -1775,7 +1848,9 @@ class TestComputeHeadPosition:
         conf[:, neck_idx, :] = 0.0
         ds2 = ds.assign(
             confidence=xr.DataArray(
-                conf, dims=ds.confidence.dims, coords=ds.confidence.coords,
+                conf,
+                dims=ds.confidence.dims,
+                coords=ds.confidence.coords,
             )
         )
         x_mm, y_mm = compute_head_position(ds2, scale_mm_per_px=1.0)
@@ -1808,9 +1883,12 @@ class TestComputeBodyPosition:
         """When mid_back, mouse_center, tail_base all agree, output equals that position."""
         px, py = 50.0, 75.0
         ds = _make_full_dataset(
-            mid_back_x=px, mid_back_y=py,
-            mouse_center_x=px, mouse_center_y=py,
-            tail_base_x=px, tail_base_y=py,
+            mid_back_x=px,
+            mid_back_y=py,
+            mouse_center_x=px,
+            mouse_center_y=py,
+            tail_base_x=px,
+            tail_base_y=py,
         )
         scale = 0.4
         x_mm, y_mm = compute_body_position(ds, scale_mm_per_px=scale)
@@ -1820,9 +1898,12 @@ class TestComputeBodyPosition:
     def test_scale_applied_correctly(self) -> None:
         """Output should be in mm, not pixels."""
         ds = _make_full_dataset(
-            mid_back_x=10.0, mid_back_y=10.0,
-            mouse_center_x=10.0, mouse_center_y=10.0,
-            tail_base_x=10.0, tail_base_y=10.0,
+            mid_back_x=10.0,
+            mid_back_y=10.0,
+            mouse_center_x=10.0,
+            mouse_center_y=10.0,
+            tail_base_x=10.0,
+            tail_base_y=10.0,
         )
         scale = 0.2
         x_mm, y_mm = compute_body_position(ds, scale_mm_per_px=scale)
@@ -1836,9 +1917,12 @@ class TestComputeBodyPosition:
         n = 5
         ds = _make_full_dataset(
             n=n,
-            mid_back_x=0.0, mid_back_y=5.0,
-            mouse_center_x=10.0, mouse_center_y=5.0,
-            tail_base_x=20.0, tail_base_y=5.0,
+            mid_back_x=0.0,
+            mid_back_y=5.0,
+            mouse_center_x=10.0,
+            mouse_center_y=5.0,
+            tail_base_x=20.0,
+            tail_base_y=5.0,
         )
         conf = ds.confidence.values.copy()
         mc_idx = _ALL_KEYPOINTS.index("mouse_center")
@@ -1847,7 +1931,9 @@ class TestComputeBodyPosition:
         conf[:, tb_idx, :] = 0.0
         ds2 = ds.assign(
             confidence=xr.DataArray(
-                conf, dims=ds.confidence.dims, coords=ds.confidence.coords,
+                conf,
+                dims=ds.confidence.dims,
+                coords=ds.confidence.coords,
             )
         )
         x_mm, _ = compute_body_position(ds2, scale_mm_per_px=1.0)
@@ -1862,7 +1948,9 @@ class TestComputeBodyPosition:
             conf[:, _ALL_KEYPOINTS.index(kp), :] = 0.0
         ds2 = ds.assign(
             confidence=xr.DataArray(
-                conf, dims=ds.confidence.dims, coords=ds.confidence.coords,
+                conf,
+                dims=ds.confidence.dims,
+                coords=ds.confidence.coords,
             )
         )
         x_mm, y_mm = compute_body_position(ds2, scale_mm_per_px=1.0)
@@ -1874,12 +1962,18 @@ class TestComputeBodyPosition:
         n = 5
         ds = _make_full_dataset(
             n=n,
-            mid_back_x=5.0, mid_back_y=5.0,
-            mouse_center_x=5.0, mouse_center_y=5.0,
-            tail_base_x=5.0, tail_base_y=5.0,
-            nose_x=9999.0, nose_y=9999.0,  # head far away
-            left_ear_x=9999.0, left_ear_y=9999.0,
-            right_ear_x=9999.0, right_ear_y=9999.0,
+            mid_back_x=5.0,
+            mid_back_y=5.0,
+            mouse_center_x=5.0,
+            mouse_center_y=5.0,
+            tail_base_x=5.0,
+            tail_base_y=5.0,
+            nose_x=9999.0,
+            nose_y=9999.0,  # head far away
+            left_ear_x=9999.0,
+            left_ear_y=9999.0,
+            right_ear_x=9999.0,
+            right_ear_y=9999.0,
         )
         x_mm, y_mm = compute_body_position(ds, scale_mm_per_px=1.0)
         np.testing.assert_allclose(x_mm, 5.0, atol=1e-4)
@@ -2043,9 +2137,7 @@ class TestComputeAhv:
         hd_truth = 50.0 * times  # 50 deg/s
         hd_noisy = hd_truth + rng.normal(0.0, 3.0, size=n)
         ahv_med = compute_ahv(hd_noisy, times, savgol_window=1)
-        ahv_med_sg = compute_ahv(
-            hd_noisy, times, savgol_window=7, savgol_polyorder=2
-        )
+        ahv_med_sg = compute_ahv(hd_noisy, times, savgol_window=7, savgol_polyorder=2)
         # The SG-smoothed AHV should be much closer to the true 50 deg/s.
         rmse_med = float(np.sqrt(np.mean((ahv_med[10:-10] - 50.0) ** 2)))
         rmse_med_sg = float(np.sqrt(np.mean((ahv_med_sg[10:-10] - 50.0) ** 2)))
@@ -2068,15 +2160,11 @@ class TestComputeAhv:
                 130.0 + 10.0 * (times - 3.5),  # back to 10 deg/s
             ),
         )
-        ahv = compute_ahv(
-            hd_deg, times, savgol_window=5, savgol_polyorder=2
-        )
+        ahv = compute_ahv(hd_deg, times, savgol_window=5, savgol_polyorder=2)
         # Peak AHV should still be large (within ~30% of 200 deg/s)
         peak_idx_range = (times >= 3.05) & (times <= 3.45)
         peak = float(np.nanmax(np.abs(ahv[peak_idx_range])))
-        assert peak > 130.0, (
-            f"SG smoothed away the fast turn: peak AHV was only {peak:.1f} deg/s"
-        )
+        assert peak > 130.0, f"SG smoothed away the fast turn: peak AHV was only {peak:.1f} deg/s"
 
 
 # ---------------------------------------------------------------------------
@@ -2114,7 +2202,7 @@ def _make_minimal_pose_dataset(n_frames: int = 20) -> xr.Dataset:
     return xr.Dataset({"position": position, "confidence": confidence})
 
 
-def _build_fake_timestamps_h5(tmp_path: "Path", n_frames: int = 20) -> "Path":
+def _build_fake_timestamps_h5(tmp_path: Path, n_frames: int = 20) -> Path:
     """Write a synthetic timestamps.h5 with frame_times_camera."""
     from hm2p.io.hdf5 import write_h5
 
@@ -2135,11 +2223,11 @@ class TestKinematicsRunProvenanceAttrs:
 
     def _call_run(
         self,
-        tmp_path: "Path",
+        tmp_path: Path,
         dlc_model_name: str = "test-model",
         dlc_snapshot: str = "12345",
         n_frames: int = 20,
-    ) -> "Path":
+    ) -> Path:
         """Call run() with mocked I/O and return the output path."""
         from unittest.mock import patch
 
@@ -2196,6 +2284,7 @@ class TestKinematicsRunProvenanceAttrs:
         fake_corners = np.array([[0, 0], [640, 0], [640, 480], [0, 480]], dtype=float)
 
         from unittest.mock import patch
+
         with patch("hm2p.kinematics.compute.load_pose_dataset", return_value=fake_ds):
             # Call without dlc_model_name / dlc_snapshot — defaults apply
             run(
@@ -2240,6 +2329,11 @@ class TestKinematicsRunProvenanceAttrs:
 
         output_path = self._call_run(tmp_path)
         with h5py.File(output_path, "r") as f:
-            for attr in ("session_id", "tracker", "confidence_threshold",
-                         "scale_mm_per_px", "orientation_deg"):
+            for attr in (
+                "session_id",
+                "tracker",
+                "confidence_threshold",
+                "scale_mm_per_px",
+                "orientation_deg",
+            ):
                 assert attr in f.attrs, f"Required attr '{attr}' missing from kinematics.h5"

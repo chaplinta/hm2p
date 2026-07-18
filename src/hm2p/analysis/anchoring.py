@@ -109,7 +109,10 @@ def anchoring_time_course(
         mask_light = mask & light_on
         if mask_light.sum() >= n_bins:
             tc, bc = compute_hd_tuning_curve(
-                signal, hd_deg, mask_light, n_bins=n_bins,
+                signal,
+                hd_deg,
+                mask_light,
+                n_bins=n_bins,
                 smoothing_sigma_deg=smoothing_sigma_deg,
             )
             reference_pd = preferred_direction(tc, bc)
@@ -152,7 +155,10 @@ def anchoring_time_course(
                 continue
 
             tc, bc = compute_hd_tuning_curve(
-                signal, hd_deg, win_mask, n_bins=n_bins,
+                signal,
+                hd_deg,
+                win_mask,
+                n_bins=n_bins,
                 smoothing_sigma_deg=smoothing_sigma_deg,
             )
             pd = preferred_direction(tc, bc)

@@ -9,7 +9,6 @@ Covers:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from scipy.stats import mannwhitneyu
@@ -150,11 +149,19 @@ class TestPopulationRateByCondition:
         speed = _make_speed()
         light_on = _make_light_on()
         active = _make_active()
-        result_low = population_rate_by_condition(dff, speed, light_on, active, speed_threshold=1.0)
-        result_high = population_rate_by_condition(dff, speed, light_on, active, speed_threshold=10.0)
+        result_low = population_rate_by_condition(
+            dff, speed, light_on, active, speed_threshold=1.0
+        )
+        result_high = population_rate_by_condition(
+            dff, speed, light_on, active, speed_threshold=10.0
+        )
         # At speed_threshold=1 more frames are "moving"
-        n_moving_low = result_low["moving_light"]["n_frames"] + result_low["moving_dark"]["n_frames"]
-        n_moving_high = result_high["moving_light"]["n_frames"] + result_high["moving_dark"]["n_frames"]
+        n_moving_low = (
+            result_low["moving_light"]["n_frames"] + result_low["moving_dark"]["n_frames"]
+        )
+        n_moving_high = (
+            result_high["moving_light"]["n_frames"] + result_high["moving_dark"]["n_frames"]
+        )
         assert n_moving_low >= n_moving_high
 
     def test_single_roi(self) -> None:
@@ -185,7 +192,7 @@ class TestPopulationRateByCondition:
         rng = np.random.default_rng(0)
         dff = rng.standard_normal((n_rois, n_frames)).astype(np.float32)
         speed = np.abs(rng.standard_normal(n_frames)).astype(np.float32)
-        light_on = (rng.uniform(size=n_frames) > 0.5)
+        light_on = rng.uniform(size=n_frames) > 0.5
         active = np.ones(n_frames, dtype=bool)
         result = population_rate_by_condition(dff, speed, light_on, active)
         for cond in result:
@@ -203,8 +210,15 @@ class TestCompareCelltypes:
         penk = rng.standard_normal(30).astype(np.float32)
         nonpenk = rng.standard_normal(25).astype(np.float32)
         result = compare_celltypes(penk, nonpenk)
-        expected = {"statistic", "p_value", "effect_size", "n_penk", "n_nonpenk",
-                    "penk_median", "nonpenk_median"}
+        expected = {
+            "statistic",
+            "p_value",
+            "effect_size",
+            "n_penk",
+            "n_nonpenk",
+            "penk_median",
+            "nonpenk_median",
+        }
         assert expected == set(result.keys())
 
     def test_uses_mann_whitney_u(self) -> None:
@@ -335,7 +349,11 @@ class TestCelltypeDynamicsSummary:
         sessions = self._make_sessions()
         result = celltype_dynamics_summary(sessions)
         expected = {
-            "moving_light", "moving_dark", "stationary_light", "stationary_dark", "overall"
+            "moving_light",
+            "moving_dark",
+            "stationary_light",
+            "stationary_dark",
+            "overall",
         }
         assert expected == set(result["comparisons"].keys())
 

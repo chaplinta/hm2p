@@ -488,7 +488,9 @@ def run_suite2p(
         result = classify_session(plane0, fps=fps)
         log.info(
             "ROI classification: %d soma, %d dend, %d artefact",
-            result["n_soma"], result["n_dend"], result["n_artefact"],
+            result["n_soma"],
+            result["n_dend"],
+            result["n_artefact"],
         )
     except FileNotFoundError:
         log.warning(

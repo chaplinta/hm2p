@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
-from pathlib import Path
 
 from hm2p.analysis.run import AnalysisParams, CellResult
 from hm2p.analysis.save import load_analysis_results, save_analysis_results

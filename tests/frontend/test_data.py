@@ -11,7 +11,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Mock streamlit before importing the module under test.
 # st.cache_data must act as a passthrough decorator (with optional kwargs).
@@ -23,9 +22,11 @@ def _passthrough_decorator(*args, **kwargs):
     if args and callable(args[0]):
         # Called as @st.cache_data (no parens)
         return args[0]
+
     # Called as @st.cache_data(ttl=300) — return identity decorator
     def wrapper(fn):
         return fn
+
     return wrapper
 
 
@@ -191,6 +192,7 @@ class TestStagePrefixes:
 
     def test_dlc_training_is_inference_dependency(self):
         from frontend.data import DOWNSTREAM_DEPS
+
         assert "pose" in DOWNSTREAM_DEPS["dlc_training"]
 
     def test_pose_label_says_inference(self):
@@ -717,9 +719,7 @@ class TestCheckStaleDataWarning:
         assert result is True
 
     @patch("frontend.data._get_rerun_status")
-    def test_returns_false_when_rerunning_stage_does_not_affect_checked_stages(
-        self, mock_rerun
-    ):
+    def test_returns_false_when_rerunning_stage_does_not_affect_checked_stages(self, mock_rerun):
         """A calcium re-run does not affect kinematics pages."""
         mock_rerun.return_value = {
             "rerunning": ["calcium"],
@@ -759,9 +759,7 @@ class TestLoadAllSyncDataStalenessCheck:
 
     @patch("frontend.data._fetch_all_sync_data")
     @patch("frontend.data.check_stale_data_warning")
-    def test_staleness_check_is_called_before_fetch(
-        self, mock_staleness, mock_fetch
-    ):
+    def test_staleness_check_is_called_before_fetch(self, mock_staleness, mock_fetch):
         """load_all_sync_data calls check_stale_data_warning(stages=['sync'], block=True)."""
         mock_staleness.return_value = False
         mock_fetch.return_value = {"sessions": [], "n_sessions": 0, "n_total_rois": 0}
@@ -775,9 +773,7 @@ class TestLoadAllSyncDataStalenessCheck:
 
     @patch("frontend.data._fetch_all_sync_data")
     @patch("frontend.data.check_stale_data_warning")
-    def test_staleness_check_called_even_when_cached(
-        self, mock_staleness, mock_fetch
-    ):
+    def test_staleness_check_called_even_when_cached(self, mock_staleness, mock_fetch):
         """Staleness check runs even if data is already in session_state cache."""
         mock_staleness.return_value = False
 
@@ -799,7 +795,7 @@ class TestLoadAllSyncDataStalenessCheck:
 # ===================================================================
 
 
-def _build_sync_h5(tmp_path: "Path", include_optional: bool = True) -> "Path":
+def _build_sync_h5(tmp_path: Path, include_optional: bool = True) -> Path:
     """Write a minimal synthetic sync.h5 matching the Stage 5 write contract."""
     import numpy as np
 
@@ -830,7 +826,7 @@ def _build_sync_h5(tmp_path: "Path", include_optional: bool = True) -> "Path":
     return out
 
 
-def _read_sync_h5_like_frontend(path: "Path") -> dict:
+def _read_sync_h5_like_frontend(path: Path) -> dict:
     """Simulate _fetch_all_sync_data's HDF5 reading logic on a local file."""
     import io as _io
 
@@ -850,8 +846,14 @@ def _read_sync_h5_like_frontend(path: "Path") -> dict:
         result["light_on"] = f["light_on"][:] if "light_on" in f else np.ones(n, dtype=bool)
         result["active"] = f["active"][:] if "active" in f else np.ones(n, dtype=bool)
         result["bad_behav"] = f["bad_behav"][:] if "bad_behav" in f else np.zeros(n, dtype=bool)
-        result["frame_times"] = f["frame_times"][:] if "frame_times" in f else np.arange(n, dtype=float)
-        result["roi_types"] = f["roi_types"][:] if "roi_types" in f else np.zeros(result["dff"].shape[0], dtype=np.uint8)
+        result["frame_times"] = (
+            f["frame_times"][:] if "frame_times" in f else np.arange(n, dtype=float)
+        )
+        result["roi_types"] = (
+            f["roi_types"][:]
+            if "roi_types" in f
+            else np.zeros(result["dff"].shape[0], dtype=np.uint8)
+        )
         result["deconv"] = f["deconv"][:] if "deconv" in f else None
         result["spikes"] = f["spikes"][:] if "spikes" in f else None
         result["event_masks"] = f["event_masks"][:] if "event_masks" in f else None
@@ -866,12 +868,23 @@ class TestSyncH5KeyContract:
     """T5 — sync.h5 structure matches the frontend read contract."""
 
     REQUIRED_KEYS = (
-        "dff", "hd_deg", "speed_cm_s", "light_on", "active",
-        "bad_behav", "frame_times", "roi_types",
+        "dff",
+        "hd_deg",
+        "speed_cm_s",
+        "light_on",
+        "active",
+        "bad_behav",
+        "frame_times",
+        "roi_types",
     )
     OPTIONAL_KEYS = (
-        "deconv", "spikes", "event_masks", "event_masks_sd",
-        "x_mm", "y_mm", "ahv_deg_s",
+        "deconv",
+        "spikes",
+        "event_masks",
+        "event_masks_sd",
+        "x_mm",
+        "y_mm",
+        "ahv_deg_s",
     )
 
     def test_required_keys_all_present_and_non_none(self, tmp_path):
@@ -912,9 +925,7 @@ class TestSyncH5KeyContract:
         session = _read_sync_h5_like_frontend(path)
         n = len(session["hd_deg"])
         for key in ("speed_cm_s", "light_on", "active", "bad_behav", "frame_times"):
-            assert len(session[key]) == n, (
-                f"Length mismatch for {key}: {len(session[key])} != {n}"
-            )
+            assert len(session[key]) == n, f"Length mismatch for {key}: {len(session[key])} != {n}"
 
     def test_roi_types_length_matches_dff_rows(self, tmp_path):
         """roi_types has one entry per ROI (matches dff.shape[0])."""
@@ -1012,8 +1023,15 @@ class TestDownstreamDeps:
     def test_all_expected_keys_present(self):
         """DOWNSTREAM_DEPS has an entry for every pipeline stage."""
         expected_keys = {
-            "dlc_training", "pose", "ca_extraction", "kinematics",
-            "kpms", "calcium", "cascade", "sync", "analysis",
+            "dlc_training",
+            "pose",
+            "ca_extraction",
+            "kinematics",
+            "kpms",
+            "calcium",
+            "cascade",
+            "sync",
+            "analysis",
         }
         assert set(DOWNSTREAM_DEPS.keys()) == expected_keys
 
@@ -1023,7 +1041,6 @@ class TestDownstreamDeps:
 # ---------------------------------------------------------------------------
 
 from frontend.data import is_session_current  # noqa: E402
-
 
 _MANIFEST = {
     "champion_id": "dlc-20260423-hrnetw32-snap290",
@@ -1042,13 +1059,15 @@ class TestIsSessionCurrent:
 
     def test_matching_id_is_current(self):
         ok, _ = is_session_current(
-            {"dlc_champion_id": _MANIFEST["champion_id"]}, _MANIFEST,
+            {"dlc_champion_id": _MANIFEST["champion_id"]},
+            _MANIFEST,
         )
         assert ok is True
 
     def test_mismatched_id_is_stale(self):
         ok, reason = is_session_current(
-            {"dlc_champion_id": "dlc-20260101-resnet50-snap50"}, _MANIFEST,
+            {"dlc_champion_id": "dlc-20260101-resnet50-snap50"},
+            _MANIFEST,
         )
         assert ok is False
         assert _MANIFEST["champion_id"] in reason
@@ -1062,7 +1081,8 @@ class TestIsSessionCurrent:
     def test_unknown_id_is_stale(self):
         """The 'unknown' sentinel value must read as stale, not current."""
         ok, reason = is_session_current(
-            {"dlc_champion_id": "unknown"}, _MANIFEST,
+            {"dlc_champion_id": "unknown"},
+            _MANIFEST,
         )
         assert ok is False
         assert "predates" in reason.lower()

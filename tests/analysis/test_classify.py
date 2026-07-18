@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.analysis.classify import (
     classification_summary_table,
@@ -40,7 +39,11 @@ class TestClassifySingleCell:
         """Strongly tuned cell should be classified as HD."""
         signal, hd, mask = _make_hd_cell(kappa=4.0, noise=0.05)
         result = classify_single_cell(
-            signal, hd, mask, n_shuffles=200, rng=np.random.default_rng(0),
+            signal,
+            hd,
+            mask,
+            n_shuffles=200,
+            rng=np.random.default_rng(0),
         )
         assert result["is_hd"] is True
         assert result["mvl"] > 0.15
@@ -50,7 +53,11 @@ class TestClassifySingleCell:
         """Random noise cell should not be classified as HD."""
         signal, hd, mask = _make_random_cell()
         result = classify_single_cell(
-            signal, hd, mask, n_shuffles=200, rng=np.random.default_rng(0),
+            signal,
+            hd,
+            mask,
+            n_shuffles=200,
+            rng=np.random.default_rng(0),
         )
         assert result["is_hd"] is False
 
@@ -58,7 +65,11 @@ class TestClassifySingleCell:
         """Result dict should have all expected keys."""
         signal, hd, mask = _make_hd_cell()
         result = classify_single_cell(
-            signal, hd, mask, n_shuffles=50, rng=np.random.default_rng(0),
+            signal,
+            hd,
+            mask,
+            n_shuffles=50,
+            rng=np.random.default_rng(0),
         )
         assert "is_hd" in result
         assert "mvl" in result
@@ -72,7 +83,11 @@ class TestClassifySingleCell:
         """Criteria dict should have mvl, significance, reliability."""
         signal, hd, mask = _make_hd_cell()
         result = classify_single_cell(
-            signal, hd, mask, n_shuffles=50, rng=np.random.default_rng(0),
+            signal,
+            hd,
+            mask,
+            n_shuffles=50,
+            rng=np.random.default_rng(0),
         )
         criteria = result["criteria_passed"]
         assert "mvl" in criteria
@@ -83,7 +98,11 @@ class TestClassifySingleCell:
         """Preferred direction should be in [0, 360)."""
         signal, hd, mask = _make_hd_cell()
         result = classify_single_cell(
-            signal, hd, mask, n_shuffles=50, rng=np.random.default_rng(0),
+            signal,
+            hd,
+            mask,
+            n_shuffles=50,
+            rng=np.random.default_rng(0),
         )
         assert 0 <= result["preferred_direction"] < 360
 
@@ -91,7 +110,11 @@ class TestClassifySingleCell:
         """Tuned cell should have positive MI."""
         signal, hd, mask = _make_hd_cell(kappa=4.0)
         result = classify_single_cell(
-            signal, hd, mask, n_shuffles=50, rng=np.random.default_rng(0),
+            signal,
+            hd,
+            mask,
+            n_shuffles=50,
+            rng=np.random.default_rng(0),
         )
         assert result["mi"] > 0
 
@@ -99,7 +122,9 @@ class TestClassifySingleCell:
         """High MVL threshold should reject weakly tuned cell."""
         signal, hd, mask = _make_hd_cell(kappa=1.0, noise=0.3)
         result = classify_single_cell(
-            signal, hd, mask,
+            signal,
+            hd,
+            mask,
             mvl_threshold=0.6,  # Very strict
             n_shuffles=50,
             rng=np.random.default_rng(0),
@@ -111,7 +136,9 @@ class TestClassifySingleCell:
         """Lenient threshold should accept moderately tuned cell."""
         signal, hd, mask = _make_hd_cell(kappa=2.0, noise=0.15)
         result = classify_single_cell(
-            signal, hd, mask,
+            signal,
+            hd,
+            mask,
             mvl_threshold=0.05,
             reliability_threshold=0.2,
             n_shuffles=200,
@@ -143,7 +170,10 @@ class TestClassifyPopulation:
 
         signals = np.vstack([tuned1, tuned2, random])
         result = classify_population(
-            signals, hd, mask, n_shuffles=200,
+            signals,
+            hd,
+            mask,
+            n_shuffles=200,
             rng=np.random.default_rng(0),
         )
         assert result["n_hd"] >= 1  # At least one tuned cell detected
@@ -157,7 +187,10 @@ class TestClassifyPopulation:
         signal, hd, mask = _make_hd_cell()
         signals = np.vstack([signal, signal])
         result = classify_population(
-            signals, hd, mask, n_shuffles=50,
+            signals,
+            hd,
+            mask,
+            n_shuffles=50,
             rng=np.random.default_rng(0),
         )
         assert 0.0 <= result["fraction_hd"] <= 1.0
@@ -167,7 +200,10 @@ class TestClassifyPopulation:
         signal, hd, mask = _make_hd_cell()
         signals = signal[np.newaxis, :]
         result = classify_population(
-            signals, hd, mask, n_shuffles=50,
+            signals,
+            hd,
+            mask,
+            n_shuffles=50,
             rng=np.random.default_rng(0),
         )
         assert len(result["cells"]) == 1
@@ -181,7 +217,10 @@ class TestClassificationSummaryTable:
         signal, hd, mask = _make_hd_cell()
         signals = np.vstack([signal, signal])
         pop = classify_population(
-            signals, hd, mask, n_shuffles=50,
+            signals,
+            hd,
+            mask,
+            n_shuffles=50,
             rng=np.random.default_rng(0),
         )
         table = classification_summary_table(pop)
@@ -192,7 +231,10 @@ class TestClassificationSummaryTable:
         signal, hd, mask = _make_hd_cell()
         signals = signal[np.newaxis, :]
         pop = classify_population(
-            signals, hd, mask, n_shuffles=50,
+            signals,
+            hd,
+            mask,
+            n_shuffles=50,
             rng=np.random.default_rng(0),
         )
         table = classification_summary_table(pop)
@@ -211,7 +253,10 @@ class TestClassificationSummaryTable:
         random = np.abs(rng_gen.normal(1, 0.5, n))
         signals = random[np.newaxis, :]
         pop = classify_population(
-            signals, hd, mask, n_shuffles=100,
+            signals,
+            hd,
+            mask,
+            n_shuffles=100,
             rng=np.random.default_rng(0),
         )
         table = classification_summary_table(pop)

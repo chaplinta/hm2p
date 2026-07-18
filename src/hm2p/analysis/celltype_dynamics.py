@@ -11,7 +11,7 @@ Wilcoxon signed-rank for paired comparisons).
 from __future__ import annotations
 
 import numpy as np
-from scipy.stats import mannwhitneyu, wilcoxon
+from scipy.stats import mannwhitneyu
 
 
 def population_rate_by_condition(
@@ -82,8 +82,13 @@ def compare_celltypes(
     nonpenk_valid = nonpenk_rates[np.isfinite(nonpenk_rates)]
 
     if len(penk_valid) < 2 or len(nonpenk_valid) < 2:
-        return {"statistic": np.nan, "p_value": np.nan, "effect_size": np.nan,
-                "n_penk": len(penk_valid), "n_nonpenk": len(nonpenk_valid)}
+        return {
+            "statistic": np.nan,
+            "p_value": np.nan,
+            "effect_size": np.nan,
+            "n_penk": len(penk_valid),
+            "n_nonpenk": len(nonpenk_valid),
+        }
 
     U, p = mannwhitneyu(penk_valid, nonpenk_valid, alternative="two-sided")
 
@@ -146,7 +151,11 @@ def celltype_dynamics_summary(
         celltype = ses.get("celltype", "unknown")
 
         cond_rates = population_rate_by_condition(
-            np.nan_to_num(signal), speed, light_on, active_mask, speed_threshold,
+            np.nan_to_num(signal),
+            speed,
+            light_on,
+            active_mask,
+            speed_threshold,
         )
 
         for cond in conditions:
@@ -160,16 +169,24 @@ def celltype_dynamics_summary(
     comparisons = {}
     for cond in conditions:
         penk_all = np.concatenate(penk_by_cond[cond]) if penk_by_cond[cond] else np.array([])
-        nonpenk_all = np.concatenate(nonpenk_by_cond[cond]) if nonpenk_by_cond[cond] else np.array([])
+        nonpenk_all = (
+            np.concatenate(nonpenk_by_cond[cond]) if nonpenk_by_cond[cond] else np.array([])
+        )
         comparisons[cond] = compare_celltypes(penk_all, nonpenk_all)
 
     # Overall (all conditions pooled)
-    penk_overall = np.concatenate([
-        np.concatenate(penk_by_cond[c]) for c in conditions if penk_by_cond[c]
-    ]) if any(penk_by_cond[c] for c in conditions) else np.array([])
-    nonpenk_overall = np.concatenate([
-        np.concatenate(nonpenk_by_cond[c]) for c in conditions if nonpenk_by_cond[c]
-    ]) if any(nonpenk_by_cond[c] for c in conditions) else np.array([])
+    penk_overall = (
+        np.concatenate([np.concatenate(penk_by_cond[c]) for c in conditions if penk_by_cond[c]])
+        if any(penk_by_cond[c] for c in conditions)
+        else np.array([])
+    )
+    nonpenk_overall = (
+        np.concatenate(
+            [np.concatenate(nonpenk_by_cond[c]) for c in conditions if nonpenk_by_cond[c]]
+        )
+        if any(nonpenk_by_cond[c] for c in conditions)
+        else np.array([])
+    )
     comparisons["overall"] = compare_celltypes(penk_overall, nonpenk_overall)
 
     return {

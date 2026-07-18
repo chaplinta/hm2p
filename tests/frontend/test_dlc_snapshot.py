@@ -8,14 +8,11 @@ from __future__ import annotations
 
 import re
 import sys
-from pathlib import Path
 from unittest.mock import MagicMock
-
-import pytest
 
 # Mock streamlit before importing any frontend page module.
 _st_mock = MagicMock()
-_st_mock.cache_data = lambda *a, **kw: (a[0] if a and callable(a[0]) else (lambda fn: fn))
+_st_mock.cache_data = lambda *a, **kw: a[0] if a and callable(a[0]) else (lambda fn: fn)
 _st_mock.title = MagicMock()
 _st_mock.caption = MagicMock()
 _st_mock.markdown = MagicMock()

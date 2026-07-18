@@ -24,7 +24,6 @@ from __future__ import annotations
 import numpy as np
 from scipy.stats import spearmanr
 
-
 # ── 1. Population signals from SVD/PCA ─────────────────────────────────
 
 
@@ -242,7 +241,7 @@ def compare_spikes_to_fluorescence(
         if max_lag > 0:
             xcorr = np.correlate(d_norm, s_norm, mode="full")
             mid = len(d_norm) - 1
-            xcorr_window = xcorr[mid - max_lag:mid + max_lag + 1]
+            xcorr_window = xcorr[mid - max_lag : mid + max_lag + 1]
             peak_idx = np.argmax(xcorr_window)
             peak_lag_frames[i] = float(peak_idx - max_lag)
 
@@ -264,7 +263,7 @@ def compare_spikes_to_fluorescence(
         if len(peaks) < 3:
             continue
         # Average dF/F around peaks
-        snippets = np.array([d[p - eta_window:p + eta_window + 1] for p in peaks[:100]])
+        snippets = np.array([d[p - eta_window : p + eta_window + 1] for p in peaks[:100]])
         eta_traces.append(np.nanmean(snippets, axis=0))
 
     eta_mean = np.nanmean(np.array(eta_traces), axis=0) if eta_traces else None

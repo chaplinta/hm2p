@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.maze.topology import (
-    RoseMaze,
     _HARDCODED_CELLS,
     build_adjacency,
-    build_rose_maze,
     classify_nodes,
     compute_distances,
     get_accessible_cells,
@@ -115,8 +112,7 @@ class TestClassifyNodes:
         adj = build_adjacency(cells)
         types = classify_nodes(adj)
         # Bottom corners + top corners + (3,4) which is walled off on row 4
-        for de in [(0, 0), (2, 0), (4, 0), (6, 0), (0, 4), (6, 4),
-                   (2, 4), (3, 4), (4, 4)]:
+        for de in [(0, 0), (2, 0), (4, 0), (6, 0), (0, 4), (6, 4), (2, 4), (3, 4), (4, 4)]:
             assert types[de] == "dead_end", f"{de} should be dead_end"
 
     def test_known_t_junctions(self):

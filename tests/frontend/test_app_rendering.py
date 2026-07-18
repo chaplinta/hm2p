@@ -9,13 +9,9 @@ All tests use synthetic data only — no real experimental data.
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import numpy as np
-import pytest
 
 # Ensure repo root is on path
 _repo_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -29,44 +25,163 @@ from streamlit.testing.v1 import AppTest
 # ---------------------------------------------------------------------------
 
 MOCK_EXPERIMENTS = [
-    {"exp_id": "20220804_13_52_02_1117646", "lens": "16x", "orientation": "15",
-     "fibre": "", "primary_exp": "1", "bad_2p_frames": "", "bad_behav_times": "",
-     "exclude": "0", "zstack_id": "", "Notes": ""},
-    {"exp_id": "20221015_10_00_00_1116663", "lens": "16x", "orientation": "0",
-     "fibre": "", "primary_exp": "1", "bad_2p_frames": "", "bad_behav_times": "",
-     "exclude": "0", "zstack_id": "", "Notes": ""},
+    {
+        "exp_id": "20220804_13_52_02_1117646",
+        "lens": "16x",
+        "orientation": "15",
+        "fibre": "",
+        "primary_exp": "1",
+        "bad_2p_frames": "",
+        "bad_behav_times": "",
+        "exclude": "0",
+        "zstack_id": "",
+        "Notes": "",
+    },
+    {
+        "exp_id": "20221015_10_00_00_1116663",
+        "lens": "16x",
+        "orientation": "0",
+        "fibre": "",
+        "primary_exp": "1",
+        "bad_2p_frames": "",
+        "bad_behav_times": "",
+        "exclude": "0",
+        "zstack_id": "",
+        "Notes": "",
+    },
 ]
 
 MOCK_ANIMALS = [
-    {"animal_id": "1117646", "celltype": "penk", "strain": "Penk-Cre",
-     "gcamp": "GCaMP7f", "virus_id": "ADD3", "hemisphere": "right", "sex": "M"},
-    {"animal_id": "1116663", "celltype": "nonpenk", "strain": "Penk-Cre",
-     "gcamp": "GCaMP8f", "virus_id": "344", "hemisphere": "left", "sex": "F"},
+    {
+        "animal_id": "1117646",
+        "celltype": "penk",
+        "strain": "Penk-Cre",
+        "gcamp": "GCaMP7f",
+        "virus_id": "ADD3",
+        "hemisphere": "right",
+        "sex": "M",
+    },
+    {
+        "animal_id": "1116663",
+        "celltype": "nonpenk",
+        "strain": "Penk-Cre",
+        "gcamp": "GCaMP8f",
+        "virus_id": "344",
+        "hemisphere": "left",
+        "sex": "F",
+    },
 ]
 
 MOCK_PIPELINE_STATUS = {
     "20220804_13_52_02_1117646": {
-        "ca_extraction": True, "dlc_training": True, "pose": True, "kinematics": True,
-        "calcium": True, "sync": True, "analysis": True,
+        "ca_extraction": True,
+        "dlc_training": True,
+        "pose": True,
+        "kinematics": True,
+        "calcium": True,
+        "sync": True,
+        "analysis": True,
     },
     "20221015_10_00_00_1116663": {
-        "ca_extraction": True, "dlc_training": True, "pose": True, "kinematics": False,
-        "calcium": True, "sync": False, "analysis": False,
+        "ca_extraction": True,
+        "dlc_training": True,
+        "pose": True,
+        "kinematics": False,
+        "calcium": True,
+        "sync": False,
+        "analysis": False,
     },
 }
 
 MOCK_STAGE_SUMMARY = {
-    "ingest": {"label": "Stage 0 — Ingest", "short": "Ingest", "expected": 26, "done": 26, "status": "Complete", "color": "green"},
-    "ca_extraction": {"label": "Stage 1 — Suite2p", "short": "Suite2p", "expected": 26, "done": 26, "status": "Complete", "color": "green"},
-    "dlc_training": {"label": "Stage 2a — DLC Training", "short": "DLC Train", "expected": 1, "done": 1, "status": "Complete", "color": "green"},
-    "pose": {"label": "Stage 2b — DLC Inference", "short": "DLC Infer", "expected": 26, "done": 26, "status": "Complete", "color": "green"},
-    "kinematics": {"label": "Stage 3 — Kinematics", "short": "Kinematics", "expected": 21, "done": 21, "status": "Complete", "color": "green"},
-    "calcium": {"label": "Stage 4 — Calcium", "short": "Calcium", "expected": 26, "done": 26, "status": "Complete", "color": "green"},
-    "sync": {"label": "Stage 5 — Sync", "short": "Sync", "expected": 21, "done": 21, "status": "Complete", "color": "green"},
-    "analysis": {"label": "Stage 6 — Analysis", "short": "Analysis", "expected": 21, "done": 21, "status": "Complete", "color": "green"},
-    "kpms": {"label": "Stage 3b — MoSeq", "short": "MoSeq", "expected": 26, "done": 0, "status": "Not started", "color": "red"},
-    "cascade": {"label": "Stage 4b — CASCADE", "short": "CASCADE", "expected": 26, "done": 0, "status": "Not started", "color": "red"},
-    "pose_finetuned": {"label": "Stage 2b' — DLC Re-inference", "short": "DLC Retrain Infer", "expected": 26, "done": 0, "status": "Not started", "color": "red"},
+    "ingest": {
+        "label": "Stage 0 — Ingest",
+        "short": "Ingest",
+        "expected": 26,
+        "done": 26,
+        "status": "Complete",
+        "color": "green",
+    },
+    "ca_extraction": {
+        "label": "Stage 1 — Suite2p",
+        "short": "Suite2p",
+        "expected": 26,
+        "done": 26,
+        "status": "Complete",
+        "color": "green",
+    },
+    "dlc_training": {
+        "label": "Stage 2a — DLC Training",
+        "short": "DLC Train",
+        "expected": 1,
+        "done": 1,
+        "status": "Complete",
+        "color": "green",
+    },
+    "pose": {
+        "label": "Stage 2b — DLC Inference",
+        "short": "DLC Infer",
+        "expected": 26,
+        "done": 26,
+        "status": "Complete",
+        "color": "green",
+    },
+    "kinematics": {
+        "label": "Stage 3 — Kinematics",
+        "short": "Kinematics",
+        "expected": 21,
+        "done": 21,
+        "status": "Complete",
+        "color": "green",
+    },
+    "calcium": {
+        "label": "Stage 4 — Calcium",
+        "short": "Calcium",
+        "expected": 26,
+        "done": 26,
+        "status": "Complete",
+        "color": "green",
+    },
+    "sync": {
+        "label": "Stage 5 — Sync",
+        "short": "Sync",
+        "expected": 21,
+        "done": 21,
+        "status": "Complete",
+        "color": "green",
+    },
+    "analysis": {
+        "label": "Stage 6 — Analysis",
+        "short": "Analysis",
+        "expected": 21,
+        "done": 21,
+        "status": "Complete",
+        "color": "green",
+    },
+    "kpms": {
+        "label": "Stage 3b — MoSeq",
+        "short": "MoSeq",
+        "expected": 26,
+        "done": 0,
+        "status": "Not started",
+        "color": "red",
+    },
+    "cascade": {
+        "label": "Stage 4b — CASCADE",
+        "short": "CASCADE",
+        "expected": 26,
+        "done": 0,
+        "status": "Not started",
+        "color": "red",
+    },
+    "pose_finetuned": {
+        "label": "Stage 2b' — DLC Re-inference",
+        "short": "DLC Retrain Infer",
+        "expected": 26,
+        "done": 0,
+        "status": "Not started",
+        "color": "red",
+    },
 }
 
 
@@ -138,9 +253,11 @@ class TestHomePageRendering:
         page_path = str(_pages_dir() / "home_page.py")
         at = AppTest.from_file(page_path, default_timeout=10)
 
-        with patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS), \
-             patch("frontend.data.load_animals", return_value=MOCK_ANIMALS), \
-             patch("frontend.data.get_stage_summary", return_value=MOCK_STAGE_SUMMARY):
+        with (
+            patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS),
+            patch("frontend.data.load_animals", return_value=MOCK_ANIMALS),
+            patch("frontend.data.get_stage_summary", return_value=MOCK_STAGE_SUMMARY),
+        ):
             at.run()
 
         err = _has_real_exception(at)
@@ -150,9 +267,11 @@ class TestHomePageRendering:
         page_path = str(_pages_dir() / "home_page.py")
         at = AppTest.from_file(page_path, default_timeout=10)
 
-        with patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS), \
-             patch("frontend.data.load_animals", return_value=MOCK_ANIMALS), \
-             patch("frontend.data.get_stage_summary", return_value=MOCK_STAGE_SUMMARY):
+        with (
+            patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS),
+            patch("frontend.data.load_animals", return_value=MOCK_ANIMALS),
+            patch("frontend.data.get_stage_summary", return_value=MOCK_STAGE_SUMMARY),
+        ):
             at.run()
 
         titles = [t.value for t in at.title]
@@ -162,9 +281,11 @@ class TestHomePageRendering:
         page_path = str(_pages_dir() / "home_page.py")
         at = AppTest.from_file(page_path, default_timeout=10)
 
-        with patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS), \
-             patch("frontend.data.load_animals", return_value=MOCK_ANIMALS), \
-             patch("frontend.data.get_stage_summary", return_value=MOCK_STAGE_SUMMARY):
+        with (
+            patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS),
+            patch("frontend.data.load_animals", return_value=MOCK_ANIMALS),
+            patch("frontend.data.get_stage_summary", return_value=MOCK_STAGE_SUMMARY),
+        ):
             at.run()
 
         # Should have metrics for sessions, animals, etc.
@@ -178,11 +299,13 @@ class TestPipelinePageRendering:
         page_path = str(_pages_dir() / "pipeline_page.py")
         at = AppTest.from_file(page_path, default_timeout=10)
 
-        with patch("frontend.data.get_stage_summary", return_value=MOCK_STAGE_SUMMARY), \
-             patch("frontend.data.get_ec2_instances", return_value=[]), \
-             patch("frontend.data.get_progress", return_value=None), \
-             patch("frontend.data.get_pipeline_status", return_value=MOCK_PIPELINE_STATUS), \
-             patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS):
+        with (
+            patch("frontend.data.get_stage_summary", return_value=MOCK_STAGE_SUMMARY),
+            patch("frontend.data.get_ec2_instances", return_value=[]),
+            patch("frontend.data.get_progress", return_value=None),
+            patch("frontend.data.get_pipeline_status", return_value=MOCK_PIPELINE_STATUS),
+            patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS),
+        ):
             at.run()
 
         assert not at.exception, f"Pipeline page raised: {at.exception}"
@@ -195,9 +318,11 @@ class TestSessionsPageRendering:
         page_path = str(_pages_dir() / "sessions_page.py")
         at = AppTest.from_file(page_path, default_timeout=10)
 
-        with patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS), \
-             patch("frontend.data.load_animals", return_value=MOCK_ANIMALS), \
-             patch("frontend.data.get_pipeline_status", return_value=MOCK_PIPELINE_STATUS):
+        with (
+            patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS),
+            patch("frontend.data.load_animals", return_value=MOCK_ANIMALS),
+            patch("frontend.data.get_pipeline_status", return_value=MOCK_PIPELINE_STATUS),
+        ):
             at.run()
 
         assert not at.exception, f"Sessions page raised: {at.exception}"
@@ -210,9 +335,11 @@ class TestAnimalsPageRendering:
         page_path = str(_pages_dir() / "animals_page.py")
         at = AppTest.from_file(page_path, default_timeout=10)
 
-        with patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS), \
-             patch("frontend.data.load_animals", return_value=MOCK_ANIMALS), \
-             patch("frontend.data.get_pipeline_status", return_value=MOCK_PIPELINE_STATUS):
+        with (
+            patch("frontend.data.load_experiments", return_value=MOCK_EXPERIMENTS),
+            patch("frontend.data.load_animals", return_value=MOCK_ANIMALS),
+            patch("frontend.data.get_pipeline_status", return_value=MOCK_PIPELINE_STATUS),
+        ):
             at.run()
 
         assert not at.exception, f"Animals page raised: {at.exception}"

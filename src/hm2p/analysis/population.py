@@ -138,6 +138,7 @@ def population_vector_correlation(
             std_j = np.std(vj)
             if std_i > 0 and std_j > 0:
                 from scipy.stats import spearmanr
+
                 pv_corr[i, j] = float(spearmanr(vi, vj)[0])
             else:
                 pv_corr[i, j] = 0.0
@@ -171,6 +172,7 @@ def ensemble_coherence(
         end = start + window_frames
         chunk = signals[:, start:end]
         from scipy.stats import spearmanr
+
         corr, _ = spearmanr(chunk, axis=1)
         if np.ndim(corr) == 0:
             corr = np.array([[1.0, float(corr)], [float(corr), 1.0]])

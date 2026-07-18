@@ -92,7 +92,7 @@ class TestComputeBaseline:
         # Add positive transients
         for _ in range(10):
             start = rng.integers(0, n_frames - 100)
-            F[0, start:start + 50] += rng.uniform(50, 200)
+            F[0, start : start + 50] += rng.uniform(50, 200)
 
         F0 = compute_baseline(F, fps=10.0)
         # Baseline should be <= signal for most frames

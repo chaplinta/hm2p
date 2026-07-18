@@ -20,16 +20,15 @@ from __future__ import annotations
 
 import json
 import re
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from hm2p.pose.select import (
     CHAMPION_MANIFEST_KEY,
-    _snapshot_number,
     compute_champion_id,
     extract_architecture,
     extract_dlc_provenance,
@@ -37,7 +36,6 @@ from hm2p.pose.select import (
     resolve_champion_id,
     select_best_dlc_h5,
 )
-
 
 # ---------------------------------------------------------------------------
 # Realistic DLC output filenames used across tests.
@@ -50,8 +48,7 @@ _CHAMP_SNAP = "100"
 _CHAMP_ARCH = "HrnetW32"
 _CHAMP_MODEL = "hm2p-retrainMay14"
 _CHAMP_FILE = (
-    f"{_PFX}/videoDLC_{_CHAMP_ARCH}_{_CHAMP_MODEL}"
-    f"_shuffle1_snapshot-best-{_CHAMP_SNAP}.h5"
+    f"{_PFX}/videoDLC_{_CHAMP_ARCH}_{_CHAMP_MODEL}_shuffle1_snapshot-best-{_CHAMP_SNAP}.h5"
 )
 _CHAMP_MANIFEST = {
     "champion_id": "dlc-20260514-hrnetw32-snap100",
@@ -64,29 +61,19 @@ _CHAMP_MANIFEST = {
 # Old model: HrnetW32, snapshot 110, ImageNet-init (higher snapshot number!)
 _OLD_SNAP = "110"
 _OLD_MODEL = "hm2p-retrainMar20"
-_OLD_FILE = (
-    f"{_PFX}/videoDLC_HrnetW32_{_OLD_MODEL}"
-    f"_shuffle1_snapshot-best-{_OLD_SNAP}.h5"
-)
+_OLD_FILE = f"{_PFX}/videoDLC_HrnetW32_{_OLD_MODEL}_shuffle1_snapshot-best-{_OLD_SNAP}.h5"
 
 # Another old model: Resnet50, snapshot 290
-_OLD_RESNET = (
-    f"{_PFX}/videoDLC_Resnet50_hm2p-retrainMar20"
-    "_shuffle1_snapshot-best-290.h5"
-)
+_OLD_RESNET = f"{_PFX}/videoDLC_Resnet50_hm2p-retrainMar20_shuffle1_snapshot-best-290.h5"
 
 # SuperAnimal baseline (no architecture marker)
 _SA_BASELINE = f"{_PFX}/video_DLC_SuperAnimalTopViewMouse.h5"
 
 # Filtered/single variants that must be excluded
 _FILTERED = (
-    f"{_PFX}/videoDLC_HrnetW32_{_CHAMP_MODEL}"
-    f"_shuffle1_snapshot-best-{_CHAMP_SNAP}_filtered.h5"
+    f"{_PFX}/videoDLC_HrnetW32_{_CHAMP_MODEL}_shuffle1_snapshot-best-{_CHAMP_SNAP}_filtered.h5"
 )
-_SINGLE = (
-    f"{_PFX}/videoDLC_HrnetW32_{_CHAMP_MODEL}"
-    f"_shuffle1_snapshot-best-{_CHAMP_SNAP}_single.h5"
-)
+_SINGLE = f"{_PFX}/videoDLC_HrnetW32_{_CHAMP_MODEL}_shuffle1_snapshot-best-{_CHAMP_SNAP}_single.h5"
 
 
 # ---------------------------------------------------------------------------
@@ -104,10 +91,12 @@ class ChampionMismatchError(RuntimeError):
         self.expected = expected
         self.found = found
         self.prefix = prefix
-        found_desc = ", ".join(
-            f"{f['filename']} (arch={f['architecture']}, snap={f['snapshot']})"
-            for f in found
-        ) or "(none)"
+        found_desc = (
+            ", ".join(
+                f"{f['filename']} (arch={f['architecture']}, snap={f['snapshot']})" for f in found
+            )
+            or "(none)"
+        )
         super().__init__(
             f"No pose file matches champion "
             f"{expected.get('champion_id', '?')} "
@@ -120,6 +109,7 @@ class ChampionMismatchError(RuntimeError):
 
 class NoPoseDataError(FileNotFoundError):
     """Raised when no .h5 files exist under a pose prefix at all."""
+
     pass
 
 
@@ -136,15 +126,14 @@ def select_champion_h5(
     Raises NoPoseDataError if h5_keys is empty after filtering.
     """
     filtered = [
-        k for k in h5_keys
+        k
+        for k in h5_keys
         if k.endswith(".h5")
         and "_single" not in k.split("/")[-1]
         and "_filtered" not in k.split("/")[-1]
     ]
     if not filtered:
-        raise NoPoseDataError(
-            f"No usable .h5 files in list of {len(h5_keys)} keys"
-        )
+        raise NoPoseDataError(f"No usable .h5 files in list of {len(h5_keys)} keys")
 
     expected_arch = champion_manifest.get("architecture")
     expected_snap = str(champion_manifest.get("snapshot"))
@@ -197,9 +186,7 @@ def select_champion_h5_s3(
                 all_h5.append(key)
 
     if not all_h5:
-        raise NoPoseDataError(
-            f"No .h5 files found under s3://{bucket}/{prefix}"
-        )
+        raise NoPoseDataError(f"No .h5 files found under s3://{bucket}/{prefix}")
 
     return select_champion_h5(all_h5, champion_manifest)
 
@@ -218,20 +205,14 @@ def load_champion_manifest(
         resp = s3_client.get_object(Bucket=bucket, Key=key)
         data = json.loads(resp["Body"].read())
     except s3_client.exceptions.NoSuchKey:
-        raise FileNotFoundError(
-            f"Champion manifest not found at s3://{bucket}/{key}"
-        )
+        raise FileNotFoundError(f"Champion manifest not found at s3://{bucket}/{key}")
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"Invalid JSON in champion manifest at s3://{bucket}/{key}"
-        ) from exc
+        raise ValueError(f"Invalid JSON in champion manifest at s3://{bucket}/{key}") from exc
 
     required = {"champion_id", "model_name", "snapshot"}
     missing = required - set(data.keys())
     if missing:
-        raise ValueError(
-            f"Champion manifest missing required fields: {missing}"
-        )
+        raise ValueError(f"Champion manifest missing required fields: {missing}")
     return data
 
 
@@ -304,7 +285,9 @@ class TestChampionMismatchError:
     def test_can_be_raised_and_caught(self):
         with pytest.raises(ChampionMismatchError):
             raise ChampionMismatchError(
-                expected=_CHAMP_MANIFEST, found=[], prefix=_PFX,
+                expected=_CHAMP_MANIFEST,
+                found=[],
+                prefix=_PFX,
             )
 
 
@@ -438,16 +421,14 @@ class TestSelectChampionH5Properties:
             "snapshot": champ_snap,
         }
         champion_file = (
-            f"pose/sub-1/ses-A/videoDLC_HrnetW32_proj"
-            f"_shuffle1_snapshot-best-{champ_snap}.h5"
+            f"pose/sub-1/ses-A/videoDLC_HrnetW32_proj_shuffle1_snapshot-best-{champ_snap}.h5"
         )
         # Build other files with different snapshots
         other_files = []
         for i in range(n_others):
             other_snap = snapshot + i + 1  # always different from champion
             other_files.append(
-                f"pose/sub-1/ses-A/videoDLC_HrnetW32_proj"
-                f"_shuffle1_snapshot-best-{other_snap}.h5"
+                f"pose/sub-1/ses-A/videoDLC_HrnetW32_proj_shuffle1_snapshot-best-{other_snap}.h5"
             )
 
         # With the champion file present, must return it
@@ -477,8 +458,7 @@ class TestSelectChampionH5Properties:
             "snapshot": str(champ_snap),
         }
         keys = [
-            f"pose/sub-1/ses-A/videoDLC_HrnetW32_proj"
-            f"_shuffle1_snapshot-best-{s}.h5"
+            f"pose/sub-1/ses-A/videoDLC_HrnetW32_proj_shuffle1_snapshot-best-{s}.h5"
             for s in other_snaps_filtered
         ]
         with pytest.raises(ChampionMismatchError):
@@ -502,9 +482,7 @@ def _make_s3_client_with_keys(keys: list[str]) -> MagicMock:
 
     paginator = MagicMock()
     if keys:
-        paginator.paginate.return_value = [
-            {"Contents": [{"Key": k} for k in keys]}
-        ]
+        paginator.paginate.return_value = [{"Contents": [{"Key": k} for k in keys]}]
     else:
         paginator.paginate.return_value = [{}]  # no Contents
     client.get_paginator.return_value = paginator
@@ -517,7 +495,10 @@ class TestSelectChampionH5S3:
     def test_returns_correct_key_when_champion_exists(self):
         client = _make_s3_client_with_keys([_OLD_FILE, _CHAMP_FILE, _SA_BASELINE])
         result = select_champion_h5_s3(
-            client, "hm2p-derivatives", _PFX + "/", _CHAMP_MANIFEST,
+            client,
+            "hm2p-derivatives",
+            _PFX + "/",
+            _CHAMP_MANIFEST,
         )
         assert result == _CHAMP_FILE
 
@@ -525,14 +506,20 @@ class TestSelectChampionH5S3:
         client = _make_s3_client_with_keys([_OLD_FILE, _SA_BASELINE])
         with pytest.raises(ChampionMismatchError):
             select_champion_h5_s3(
-                client, "hm2p-derivatives", _PFX + "/", _CHAMP_MANIFEST,
+                client,
+                "hm2p-derivatives",
+                _PFX + "/",
+                _CHAMP_MANIFEST,
             )
 
     def test_raises_no_pose_data_on_empty_prefix(self):
         client = _make_s3_client_with_keys([])
         with pytest.raises(NoPoseDataError):
             select_champion_h5_s3(
-                client, "hm2p-derivatives", _PFX + "/", _CHAMP_MANIFEST,
+                client,
+                "hm2p-derivatives",
+                _PFX + "/",
+                _CHAMP_MANIFEST,
             )
 
     def test_ignores_non_h5_files_from_s3(self):
@@ -544,7 +531,10 @@ class TestSelectChampionH5S3:
         ]
         client = _make_s3_client_with_keys(keys)
         result = select_champion_h5_s3(
-            client, "hm2p-derivatives", _PFX + "/", _CHAMP_MANIFEST,
+            client,
+            "hm2p-derivatives",
+            _PFX + "/",
+            _CHAMP_MANIFEST,
         )
         assert result == _CHAMP_FILE
 
@@ -703,7 +693,10 @@ class TestStage3ChampionEnforcement:
     def test_champion_id_unknown_when_no_manifest(self):
         """Without a manifest, resolve_champion_id returns 'unknown'."""
         cid = resolve_champion_id(
-            _CHAMP_MODEL, _CHAMP_ARCH, _CHAMP_SNAP, manifest=None,
+            _CHAMP_MODEL,
+            _CHAMP_ARCH,
+            _CHAMP_SNAP,
+            manifest=None,
         )
         assert cid == "unknown"
 
@@ -773,9 +766,7 @@ class TestStage5ChampionEnforcement:
 
         # Read provenance (same logic as _read_kin_provenance)
         kin_attrs = read_attrs(kin_path)
-        provenance = {
-            k: kin_attrs[k] for k in _KIN_PROVENANCE_KEYS if k in kin_attrs
-        }
+        provenance = {k: kin_attrs[k] for k in _KIN_PROVENANCE_KEYS if k in kin_attrs}
 
         assert provenance["dlc_champion_id"] == _CHAMP_MANIFEST["champion_id"]
 
@@ -885,12 +876,12 @@ class TestPromotionContract:
 
         # Simulate listing old files
         old_files = [
-            f"pose/sub-1/ses-A/old_snapshot-best-110.h5",
-            f"pose/sub-1/ses-A/old_snapshot-best-110_filtered.h5",
-            f"pose/sub-1/ses-A/old_labelled_30fps.mp4",
+            "pose/sub-1/ses-A/old_snapshot-best-110.h5",
+            "pose/sub-1/ses-A/old_snapshot-best-110_filtered.h5",
+            "pose/sub-1/ses-A/old_labelled_30fps.mp4",
         ]
         new_files = [
-            f"pose-finetuned/sub-1/ses-A/new_snapshot-best-100.h5",
+            "pose-finetuned/sub-1/ses-A/new_snapshot-best-100.h5",
         ]
 
         # Simulate the promotion flow: delete old, then copy new
@@ -1045,7 +1036,9 @@ class TestComputeChampionIdEdgeCases:
     @given(
         arch=st.sampled_from(["HrnetW32", "HrnetW48", "Resnet50", "Resnet101"]),
         snapshot=st.text(
-            alphabet="0123456789", min_size=1, max_size=6,
+            alphabet="0123456789",
+            min_size=1,
+            max_size=6,
         ),
         date=st.dates(
             min_value=__import__("datetime").date(2024, 1, 1),
@@ -1082,7 +1075,10 @@ class TestResolveChampionIdEdgeCases:
             # no champion_id key
         }
         result = resolve_champion_id(
-            _CHAMP_MODEL, _CHAMP_ARCH, _CHAMP_SNAP, manifest,
+            _CHAMP_MODEL,
+            _CHAMP_ARCH,
+            _CHAMP_SNAP,
+            manifest,
         )
         assert result == "unknown"
 
@@ -1095,14 +1091,20 @@ class TestResolveChampionIdEdgeCases:
             "snapshot": 100,  # int, not str
         }
         result = resolve_champion_id(
-            _CHAMP_MODEL, _CHAMP_ARCH, "100", manifest,
+            _CHAMP_MODEL,
+            _CHAMP_ARCH,
+            "100",
+            manifest,
         )
         assert result == "dlc-20260514-hrnetw32-snap100"
 
     def test_all_fields_match_but_different_model_name(self):
         """Architecture and snapshot match but model_name differs -> unknown."""
         result = resolve_champion_id(
-            "different_model", _CHAMP_ARCH, _CHAMP_SNAP, _CHAMP_MANIFEST,
+            "different_model",
+            _CHAMP_ARCH,
+            _CHAMP_SNAP,
+            _CHAMP_MANIFEST,
         )
         assert result == "unknown"
 

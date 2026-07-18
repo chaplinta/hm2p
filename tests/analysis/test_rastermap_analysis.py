@@ -9,7 +9,6 @@ Covers:
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -27,9 +26,7 @@ RNG = np.random.default_rng(42)
 # ---------------------------------------------------------------------------
 
 
-def _make_dff(
-    n_rois: int = 40, n_frames: int = 500, seed: int = 42
-) -> np.ndarray:
+def _make_dff(n_rois: int = 40, n_frames: int = 500, seed: int = 42) -> np.ndarray:
     rng = np.random.default_rng(seed)
     return rng.standard_normal((n_rois, n_frames)).astype(np.float32) * 0.3
 
@@ -39,9 +36,7 @@ def _make_isort(n_rois: int = 40, seed: int = 0) -> np.ndarray:
     return rng.permutation(n_rois).astype(np.int64)
 
 
-def _make_superneurons(
-    n_super: int = 4, n_frames: int = 500, seed: int = 42
-) -> np.ndarray:
+def _make_superneurons(n_super: int = 4, n_frames: int = 500, seed: int = 42) -> np.ndarray:
     rng = np.random.default_rng(seed)
     return rng.standard_normal((n_super, n_frames)).astype(np.float32)
 
@@ -166,7 +161,7 @@ class TestComputeSuperneurons:
         # Manual computation
         expected = np.zeros((n_rois // bin_size, n_frames), dtype=np.float32)
         for i in range(n_rois // bin_size):
-            expected[i] = np.nanmean(dff[i * bin_size:(i + 1) * bin_size], axis=0)
+            expected[i] = np.nanmean(dff[i * bin_size : (i + 1) * bin_size], axis=0)
         np.testing.assert_allclose(result, expected, rtol=1e-5)
 
     def test_bin_size_one_returns_all_rois(self) -> None:
@@ -226,15 +221,13 @@ class TestComputeSuperneurons:
 
 
 class TestSuperneuronBehaviourCorrelations:
-    def _make_inputs(
-        self, n_super: int = 5, n_frames: int = 400, seed: int = 42
-    ):
+    def _make_inputs(self, n_super: int = 5, n_frames: int = 400, seed: int = 42):
         rng = np.random.default_rng(seed)
         superneurons = rng.standard_normal((n_super, n_frames)).astype(np.float32)
         hd_deg = np.cumsum(rng.normal(0, 5, n_frames)) % 360.0
         speed = np.abs(rng.standard_normal(n_frames)).astype(np.float32) * 5.0
         light_on = np.zeros(n_frames, dtype=bool)
-        light_on[:n_frames // 2] = True
+        light_on[: n_frames // 2] = True
         return superneurons, hd_deg, speed, light_on
 
     def test_speed_corr_present_when_speed_provided(self) -> None:
@@ -298,7 +291,6 @@ class TestSuperneuronBehaviourCorrelations:
 
     def test_uses_spearman_not_pearson_for_speed(self) -> None:
         """Verify non-parametric Spearman is used for speed correlation."""
-        from scipy.stats import spearmanr
 
         rng = np.random.default_rng(5)
         n_frames = 500

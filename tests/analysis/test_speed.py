@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
@@ -15,8 +14,7 @@ from hm2p.analysis.speed import (
 )
 
 
-def _make_speed_cell(n=5000, pref=90.0, kappa=3.0, speed_gain=0.5,
-                     noise=0.15, seed=42):
+def _make_speed_cell(n=5000, pref=90.0, kappa=3.0, speed_gain=0.5, noise=0.15, seed=42):
     """Cell with HD tuning and speed modulation."""
     rng = np.random.default_rng(seed)
     hd = np.cumsum(rng.normal(0, 5, n)) % 360.0
@@ -24,7 +22,7 @@ def _make_speed_cell(n=5000, pref=90.0, kappa=3.0, speed_gain=0.5,
     signal = 0.1 + np.exp(kappa * np.cos(np.deg2rad(hd) - np.deg2rad(pref)))
     signal /= signal.max()
     # Add speed modulation
-    signal *= (1 + speed_gain * speed / np.max(speed))
+    signal *= 1 + speed_gain * speed / np.max(speed)
     signal += rng.normal(0, noise, n)
     signal = np.clip(signal, 0, None)
     mask = np.ones(n, dtype=bool)
@@ -61,8 +59,12 @@ class TestSpeedModulationIndex:
     def test_output_keys(self):
         signal, _, speed, mask = _make_speed_cell()
         result = speed_modulation_index(signal, speed, mask)
-        expected = {"speed_modulation_index", "mean_signal_fast",
-                    "mean_signal_slow", "speed_correlation"}
+        expected = {
+            "speed_modulation_index",
+            "mean_signal_fast",
+            "mean_signal_slow",
+            "speed_correlation",
+        }
         assert set(result.keys()) == expected
 
     def test_smi_bounded(self):
@@ -95,8 +97,14 @@ class TestHDTuningBySpeed:
     def test_output_keys(self):
         signal, hd, speed, mask = _make_speed_cell()
         result = hd_tuning_by_speed(signal, hd, speed, mask)
-        expected = {"tuning_curves", "bin_centers", "mvls", "pds",
-                    "speed_labels", "speed_thresholds"}
+        expected = {
+            "tuning_curves",
+            "bin_centers",
+            "mvls",
+            "pds",
+            "speed_labels",
+            "speed_thresholds",
+        }
         assert set(result.keys()) == expected
 
     def test_three_speed_groups(self):
@@ -123,8 +131,7 @@ class TestHDTuningBySpeed:
 
     def test_custom_quantiles(self):
         signal, hd, speed, mask = _make_speed_cell()
-        result = hd_tuning_by_speed(signal, hd, speed, mask,
-                                    speed_quantiles=(0.25, 0.5, 0.75))
+        result = hd_tuning_by_speed(signal, hd, speed, mask, speed_quantiles=(0.25, 0.5, 0.75))
         assert len(result["tuning_curves"]) == 4  # 4 groups from 3 quantiles
 
 
@@ -142,7 +149,9 @@ class TestHypothesisSpeed:
     def test_speed_correlation_in_range(self, n, speed_gain):
         """speed_correlation (Pearson r) always in [-1, 1]."""
         signal, _, speed, mask = _make_speed_cell(
-            n=n, speed_gain=speed_gain, seed=42,
+            n=n,
+            speed_gain=speed_gain,
+            seed=42,
         )
         result = speed_modulation_index(signal, speed, mask)
         rho = result["speed_correlation"]

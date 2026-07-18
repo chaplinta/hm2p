@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.analysis.anchoring import (
     anchoring_speed,
@@ -15,12 +14,11 @@ from hm2p.analysis.anchoring import (
 def _make_light_on(n, cycle=1800):
     light_on = np.zeros(n, dtype=bool)
     for start in range(0, n, 2 * cycle):
-        light_on[start:min(start + cycle, n)] = True
+        light_on[start : min(start + cycle, n)] = True
     return light_on
 
 
-def _make_anchored_cell(n=9000, pref=90.0, kappa=3.0, drift=30.0,
-                        cycle=1800, noise=0.15, seed=42):
+def _make_anchored_cell(n=9000, pref=90.0, kappa=3.0, drift=30.0, cycle=1800, noise=0.15, seed=42):
     rng = np.random.default_rng(seed)
     hd = np.cumsum(rng.normal(0, 5, n)) % 360.0
     light_on = _make_light_on(n, cycle)
@@ -59,7 +57,8 @@ class TestAnchoringPageWorkflow:
         strengths = []
         for i, d in enumerate(drifts):
             signal, hd, mask, light_on = _make_anchored_cell(
-                drift=d, seed=i + 42,
+                drift=d,
+                seed=i + 42,
             )
             result = anchoring_time_course(signal, hd, mask, light_on)
             if result["n_transitions"] > 0:
@@ -80,8 +79,12 @@ class TestAnchoringPageWorkflow:
         """Time offsets should span before and after transition."""
         signal, hd, mask, light_on = _make_anchored_cell()
         result = anchoring_time_course(
-            signal, hd, mask, light_on,
-            pre_transition_s=15.0, post_transition_s=30.0,
+            signal,
+            hd,
+            mask,
+            light_on,
+            pre_transition_s=15.0,
+            post_transition_s=30.0,
         )
         if result["n_transitions"] > 0:
             assert np.min(result["time_offsets_s"]) < 0

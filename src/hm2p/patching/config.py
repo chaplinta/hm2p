@@ -42,18 +42,10 @@ class PatchConfig(BaseSettings):
     Fields mirror the MATLAB ``loadPCDirs.m`` output struct.
     """
 
-    metadata_dir: Path = Field(
-        ..., description="Directory containing animals.csv and cells.csv"
-    )
-    morph_dir: Path = Field(
-        ..., description="Root directory for confocal morphology data"
-    )
-    ephys_dir: Path = Field(
-        ..., description="Root directory for WaveSurfer H5 ephys files"
-    )
-    processed_dir: Path = Field(
-        ..., description="Directory for intermediate processed outputs"
-    )
+    metadata_dir: Path = Field(..., description="Directory containing animals.csv and cells.csv")
+    morph_dir: Path = Field(..., description="Root directory for confocal morphology data")
+    ephys_dir: Path = Field(..., description="Root directory for WaveSurfer H5 ephys files")
+    processed_dir: Path = Field(..., description="Directory for intermediate processed outputs")
     analysis_dir: Path = Field(
         ..., description="Directory for final analysis outputs (metrics, plots)"
     )

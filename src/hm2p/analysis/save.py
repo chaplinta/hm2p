@@ -99,7 +99,9 @@ def save_analysis_results(
 
     log.info(
         "Saved analysis results to %s (%d signal types, %d ROIs)",
-        output_path, len(results_by_signal), n_rois,
+        output_path,
+        len(results_by_signal),
+        n_rois,
     )
 
 
@@ -151,7 +153,8 @@ def _save_signal_results(
 
         if tuning_curves:
             cg.create_dataset(
-                "tuning_curves", data=np.array(tuning_curves, dtype=np.float32),
+                "tuning_curves",
+                data=np.array(tuning_curves, dtype=np.float32),
                 compression="gzip",
             )
             # Store bin centers (same for all)

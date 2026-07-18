@@ -72,7 +72,10 @@ def classify_single_cell(
 
     # Tuning curve and MVL
     tc, bc = compute_hd_tuning_curve(
-        signal, hd_deg, mask, n_bins=n_bins,
+        signal,
+        hd_deg,
+        mask,
+        n_bins=n_bins,
         smoothing_sigma_deg=smoothing_sigma_deg,
     )
     mvl = mean_vector_length(tc, bc)
@@ -82,17 +85,24 @@ def classify_single_cell(
 
     # Shuffle significance
     sig_result = hd_tuning_significance(
-        signal, hd_deg, mask,
-        n_shuffles=n_shuffles, metric="mvl",
-        n_bins=n_bins, smoothing_sigma_deg=smoothing_sigma_deg,
+        signal,
+        hd_deg,
+        mask,
+        n_shuffles=n_shuffles,
+        metric="mvl",
+        n_bins=n_bins,
+        smoothing_sigma_deg=smoothing_sigma_deg,
         rng=rng,
     )
     p_value = sig_result["p_value"]
 
     # Split-half reliability
     rel = split_half_reliability(
-        signal, hd_deg, mask,
-        n_bins=n_bins, smoothing_sigma_deg=smoothing_sigma_deg,
+        signal,
+        hd_deg,
+        mask,
+        n_bins=n_bins,
+        smoothing_sigma_deg=smoothing_sigma_deg,
     )
     reliability = rel["correlation"]
 
@@ -160,7 +170,9 @@ def classify_population(
     cells = []
     for i in range(n_cells):
         result = classify_single_cell(
-            signals[i], hd_deg, mask,
+            signals[i],
+            hd_deg,
+            mask,
             mvl_threshold=mvl_threshold,
             p_threshold=p_threshold,
             reliability_threshold=reliability_threshold,
@@ -212,14 +224,16 @@ def classification_summary_table(
         else:
             grade = "D"
 
-        rows.append({
-            "cell": i,
-            "is_hd": cell["is_hd"],
-            "mvl": cell["mvl"],
-            "p_value": cell["p_value"],
-            "reliability": cell["reliability"],
-            "mi": cell["mi"],
-            "preferred_direction": cell["preferred_direction"],
-            "grade": grade,
-        })
+        rows.append(
+            {
+                "cell": i,
+                "is_hd": cell["is_hd"],
+                "mvl": cell["mvl"],
+                "p_value": cell["p_value"],
+                "reliability": cell["reliability"],
+                "mi": cell["mi"],
+                "preferred_direction": cell["preferred_direction"],
+                "grade": grade,
+            }
+        )
     return rows

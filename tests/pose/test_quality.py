@@ -67,7 +67,7 @@ class TestDetectJumps:
         jumps = detect_jumps(x, y, threshold_px=50.0)
         assert not jumps[1]  # 10px
         assert not jumps[2]  # 10px
-        assert jumps[3]      # 80px
+        assert jumps[3]  # 80px
 
 
 class TestDetectFrozenKeypoint:
@@ -95,15 +95,19 @@ class TestEarDistance:
     def test_known_distance(self):
         # Ears 10px apart horizontally
         dist = ear_distance(
-            np.array([10.0]), np.array([0.0]),
-            np.array([0.0]), np.array([0.0]),
+            np.array([10.0]),
+            np.array([0.0]),
+            np.array([0.0]),
+            np.array([0.0]),
         )
         assert dist[0] == pytest.approx(10.0)
 
     def test_diagonal_distance(self):
         dist = ear_distance(
-            np.array([3.0]), np.array([4.0]),
-            np.array([0.0]), np.array([0.0]),
+            np.array([3.0]),
+            np.array([4.0]),
+            np.array([0.0]),
+            np.array([0.0]),
         )
         assert dist[0] == pytest.approx(5.0)
 
@@ -134,8 +138,10 @@ class TestEarDistanceOutliers:
 
     def test_too_few_frames(self):
         result = detect_ear_distance_outliers(
-            np.array([1.0]), np.array([1.0]),
-            np.array([2.0]), np.array([2.0]),
+            np.array([1.0]),
+            np.array([1.0]),
+            np.array([2.0]),
+            np.array([2.0]),
         )
         assert result["n_outliers"] == 0
         assert np.isnan(result["median"])

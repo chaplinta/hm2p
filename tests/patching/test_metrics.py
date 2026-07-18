@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
-import pandas as pd
 import pytest
 
 from hm2p.patching.metrics import (
@@ -14,7 +12,6 @@ from hm2p.patching.metrics import (
     build_metrics_table,
     compute_derived_metrics,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -162,14 +159,19 @@ class TestBuildCellMetrics:
         assert m["ephys_passive_RMP"] == -65.0
 
     def test_no_ephys_no_morph(self) -> None:
-        m = build_cell_metrics(
-            ephys_data=None, morph_data=None, cell_info=_make_cell_info()
-        )
+        m = build_cell_metrics(ephys_data=None, morph_data=None, cell_info=_make_cell_info())
         for col in ALL_METRIC_COLS:
             if col in (
-                "cell_index", "animal_id", "slice_id", "cell_slice_id",
-                "hemisphere", "cell_type", "depth_slice", "depth_pial",
-                "area", "layer",
+                "cell_index",
+                "animal_id",
+                "slice_id",
+                "cell_slice_id",
+                "hemisphere",
+                "cell_type",
+                "depth_slice",
+                "depth_pial",
+                "area",
+                "layer",
             ):
                 continue
             assert math.isnan(m[col]), f"{col} should be NaN"
@@ -177,9 +179,7 @@ class TestBuildCellMetrics:
     def test_incap_zero_rin(self) -> None:
         ephys = _make_ephys_data()
         ephys["passive"]["rin"] = 0.0
-        m = build_cell_metrics(
-            ephys_data=ephys, morph_data=None, cell_info=_make_cell_info()
-        )
+        m = build_cell_metrics(ephys_data=ephys, morph_data=None, cell_info=_make_cell_info())
         assert math.isnan(m["ephys_passive_incap"])
 
 
@@ -195,9 +195,7 @@ class TestBuildMetricsTable:
         assert list(df.columns) == ALL_METRIC_COLS
 
     def test_single_cell(self) -> None:
-        m = build_cell_metrics(
-            _make_ephys_data(), _make_morph_data(), _make_cell_info()
-        )
+        m = build_cell_metrics(_make_ephys_data(), _make_morph_data(), _make_cell_info())
         df = build_metrics_table([m])
         assert len(df) == 1
         assert df.iloc[0]["cell_index"] == 1
@@ -205,7 +203,8 @@ class TestBuildMetricsTable:
     def test_multiple_cells(self) -> None:
         cells = [
             build_cell_metrics(
-                _make_ephys_data(), _make_morph_data(),
+                _make_ephys_data(),
+                _make_morph_data(),
                 _make_cell_info(cell_index=i, cell_type="penkpos" if i % 2 == 0 else "penkneg"),
             )
             for i in range(5)
@@ -215,9 +214,7 @@ class TestBuildMetricsTable:
         assert set(df["cell_type"].unique()) == {"penkpos", "penkneg"}
 
     def test_column_order(self) -> None:
-        m = build_cell_metrics(
-            _make_ephys_data(), _make_morph_data(), _make_cell_info()
-        )
+        m = build_cell_metrics(_make_ephys_data(), _make_morph_data(), _make_cell_info())
         df = build_metrics_table([m])
         # Standard columns should appear in the expected order
         standard_cols_in_df = [c for c in df.columns if c in ALL_METRIC_COLS]
@@ -232,11 +229,7 @@ class TestBuildMetricsTable:
 
 class TestComputeDerivedMetrics:
     def test_incap_recomputed(self) -> None:
-        cells = [
-            build_cell_metrics(
-                _make_ephys_data(), _make_morph_data(), _make_cell_info()
-            )
-        ]
+        cells = [build_cell_metrics(_make_ephys_data(), _make_morph_data(), _make_cell_info())]
         df = build_metrics_table(cells)
         # Manually set incap to something wrong
         df.loc[0, "ephys_passive_incap"] = 999.0
@@ -245,44 +238,28 @@ class TestComputeDerivedMetrics:
         assert result.loc[0, "ephys_passive_incap"] == pytest.approx(expected)
 
     def test_incap_nan_when_rin_zero(self) -> None:
-        cells = [
-            build_cell_metrics(
-                _make_ephys_data(), _make_morph_data(), _make_cell_info()
-            )
-        ]
+        cells = [build_cell_metrics(_make_ephys_data(), _make_morph_data(), _make_cell_info())]
         df = build_metrics_table(cells)
         df.loc[0, "ephys_passive_rin"] = 0.0
         result = compute_derived_metrics(df)
         assert math.isnan(result.loc[0, "ephys_passive_incap"])
 
     def test_wh_ratio_recomputed(self) -> None:
-        cells = [
-            build_cell_metrics(
-                _make_ephys_data(), _make_morph_data(), _make_cell_info()
-            )
-        ]
+        cells = [build_cell_metrics(_make_ephys_data(), _make_morph_data(), _make_cell_info())]
         df = build_metrics_table(cells)
         result = compute_derived_metrics(df)
         expected_wh = 300.0 / 400.0
         assert result.loc[0, "morph_api_wh"] == pytest.approx(expected_wh)
 
     def test_wd_ratio_zero_depth(self) -> None:
-        cells = [
-            build_cell_metrics(
-                _make_ephys_data(), _make_morph_data(), _make_cell_info()
-            )
-        ]
+        cells = [build_cell_metrics(_make_ephys_data(), _make_morph_data(), _make_cell_info())]
         df = build_metrics_table(cells)
         df.loc[0, "morph_api_depth"] = 0.0
         result = compute_derived_metrics(df)
         assert result.loc[0, "morph_api_wd"] == 0.0
 
     def test_does_not_mutate_input(self) -> None:
-        cells = [
-            build_cell_metrics(
-                _make_ephys_data(), _make_morph_data(), _make_cell_info()
-            )
-        ]
+        cells = [build_cell_metrics(_make_ephys_data(), _make_morph_data(), _make_cell_info())]
         df = build_metrics_table(cells)
         original_val = df.loc[0, "ephys_passive_incap"]
         df.loc[0, "ephys_passive_incap"] = 999.0

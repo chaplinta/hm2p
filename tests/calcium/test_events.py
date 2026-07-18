@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -18,7 +17,6 @@ from hm2p.calcium.events import (
     detect_events_single,
     estimate_noise_probability,
 )
-
 
 # ---------------------------------------------------------------------------
 # _get_crossings
@@ -369,6 +367,7 @@ class TestDetectEventsSdSingle:
 
     def test_flat_trace_no_events(self):
         from hm2p.calcium.events import detect_events_sd_single
+
         trace = np.zeros(500)
         result = detect_events_sd_single(trace, fps=10.0)
         assert len(result.onsets) == 0
@@ -376,6 +375,7 @@ class TestDetectEventsSdSingle:
 
     def test_detects_large_transient(self):
         from hm2p.calcium.events import detect_events_sd_single
+
         rng = np.random.default_rng(42)
         trace = rng.normal(0, 0.05, 500)
         # Insert a clear event: 10x noise SD
@@ -388,6 +388,7 @@ class TestDetectEventsSdSingle:
     def test_detects_small_transient(self):
         """SD method should catch events V&H might miss."""
         from hm2p.calcium.events import detect_events_sd_single
+
         rng = np.random.default_rng(42)
         trace = rng.normal(0, 0.02, 1000)
         # Insert a small but clear event: 3x noise SD, 5 frames
@@ -397,6 +398,7 @@ class TestDetectEventsSdSingle:
 
     def test_min_duration_filters_short_events(self):
         from hm2p.calcium.events import detect_events_sd_single
+
         rng = np.random.default_rng(42)
         trace = rng.normal(0, 0.02, 500)
         # Insert a 1-frame spike (too short for min_duration=0.3s at 10Hz = 3 frames)
@@ -408,6 +410,7 @@ class TestDetectEventsSdSingle:
     def test_noise_sd_from_negative_values(self):
         """Noise SD should be estimated from below-zero values."""
         from hm2p.calcium.events import detect_events_sd_single
+
         rng = np.random.default_rng(42)
         # Trace with known noise SD (~0.05) and large events
         trace = rng.normal(0, 0.05, 1000)
@@ -420,6 +423,7 @@ class TestDetectEventsSdSingle:
 
     def test_returns_correct_types(self):
         from hm2p.calcium.events import detect_events_sd_single
+
         trace = np.random.default_rng(42).normal(0, 0.1, 100)
         result = detect_events_sd_single(trace, fps=10.0)
         assert isinstance(result, EventResult)
@@ -428,6 +432,7 @@ class TestDetectEventsSdSingle:
 
     def test_with_smoothing(self):
         from hm2p.calcium.events import detect_events_sd_single
+
         rng = np.random.default_rng(42)
         trace = rng.normal(0, 0.05, 500)
         trace[200:220] += 0.5
@@ -436,6 +441,7 @@ class TestDetectEventsSdSingle:
 
     def test_event_at_end_of_trace(self):
         from hm2p.calcium.events import detect_events_sd_single
+
         trace = np.zeros(100)
         trace[90:] += 0.5  # event at end
         result = detect_events_sd_single(trace, fps=10.0, sd_threshold=2.0, min_duration_s=0.3)
@@ -448,6 +454,7 @@ class TestDetectEventsSdBatch:
 
     def test_batch_shape(self):
         from hm2p.calcium.events import detect_events_sd
+
         rng = np.random.default_rng(42)
         dff = rng.normal(0, 0.05, (5, 500)).astype(np.float32)
         masks = detect_events_sd(dff, fps=10.0)
@@ -456,6 +463,7 @@ class TestDetectEventsSdBatch:
 
     def test_batch_detects_events(self):
         from hm2p.calcium.events import detect_events_sd
+
         rng = np.random.default_rng(42)
         dff = rng.normal(0, 0.02, (3, 500)).astype(np.float32)
         dff[0, 200:220] += 0.5  # event in ROI 0
@@ -471,11 +479,12 @@ class TestSdVsVhSensitivity:
     def test_sd_catches_more_small_events(self):
         """SD method should detect more events than V&H on a trace with small transients."""
         from hm2p.calcium.events import detect_events_sd_single, detect_events_single
+
         rng = np.random.default_rng(42)
         trace = rng.normal(0, 0.03, 2000).astype(np.float64)
         # Insert 5 small events (3-4x noise SD, ~10 frames each)
         for start in [200, 500, 800, 1200, 1600]:
-            trace[start:start + 10] += 0.10
+            trace[start : start + 10] += 0.10
 
         vh = detect_events_single(trace)
         sd = detect_events_sd_single(trace, fps=10.0, sd_threshold=2.0, min_duration_s=0.3)

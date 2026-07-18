@@ -26,7 +26,6 @@ import numpy as np
 
 from hm2p.maze.topology import RoseMaze, build_rose_maze
 
-
 # ---------------------------------------------------------------------------
 # Occupancy analysis
 # ---------------------------------------------------------------------------
@@ -273,15 +272,17 @@ def find_monotonic_paths(
             start_cell = maze.cell_list[node_seq[k]]
             opt_len = maze.distance(start_cell, maze.cell_list[target_idx])
             actual_len = j - k
-            paths.append({
-                "start_idx": k,
-                "end_idx": j,
-                "length": actual_len,
-                "start_time": int(node_times[k]),
-                "end_time": int(node_times[j]),
-                "optimal_length": opt_len,
-                "efficiency": opt_len / actual_len if actual_len > 0 else 1.0,
-            })
+            paths.append(
+                {
+                    "start_idx": k,
+                    "end_idx": j,
+                    "length": actual_len,
+                    "start_time": int(node_times[k]),
+                    "end_time": int(node_times[j]),
+                    "optimal_length": opt_len,
+                    "efficiency": opt_len / actual_len if actual_len > 0 else 1.0,
+                }
+            )
 
     return paths
 
@@ -392,27 +393,31 @@ def segment_modes(
             start = i
             while i < n and labeled[i] == target:
                 i += 1
-            segments.append({
-                "mode": "directed",
-                "start_idx": start,
-                "end_idx": i - 1,
-                "start_time": int(node_times[start]),
-                "end_time": int(node_times[i - 1]),
-                "target": int(target),
-            })
+            segments.append(
+                {
+                    "mode": "directed",
+                    "start_idx": start,
+                    "end_idx": i - 1,
+                    "start_time": int(node_times[start]),
+                    "end_time": int(node_times[i - 1]),
+                    "target": int(target),
+                }
+            )
         else:
             # Explore segment
             start = i
             while i < n and labeled[i] == -1:
                 i += 1
-            segments.append({
-                "mode": "explore",
-                "start_idx": start,
-                "end_idx": i - 1,
-                "start_time": int(node_times[start]),
-                "end_time": int(node_times[i - 1]),
-                "target": -1,
-            })
+            segments.append(
+                {
+                    "mode": "explore",
+                    "start_idx": start,
+                    "end_idx": i - 1,
+                    "start_time": int(node_times[start]),
+                    "end_time": int(node_times[i - 1]),
+                    "target": -1,
+                }
+            )
 
     return segments
 
@@ -854,11 +859,13 @@ def markov_order_comparison(
 
     # Count observed states and pairs for free-parameter calculation
     observed_states = len(set(int(c) for c in cell_seq if 0 <= c < n_cells))
-    observed_pairs = len(set(
-        (int(cell_seq[t]), int(cell_seq[t + 1]))
-        for t in range(len(cell_seq) - 1)
-        if 0 <= cell_seq[t] < n_cells and 0 <= cell_seq[t + 1] < n_cells
-    ))
+    observed_pairs = len(
+        set(
+            (int(cell_seq[t]), int(cell_seq[t + 1]))
+            for t in range(len(cell_seq) - 1)
+            if 0 <= cell_seq[t] < n_cells and 0 <= cell_seq[t + 1] < n_cells
+        )
+    )
 
     # Free parameters: each observed row has (n_cells - 1) free probs
     k1 = observed_states * (n_cells - 1)
@@ -1054,9 +1061,17 @@ def maze_exploration_summary(
             coverage.append(len(seen) / maze.n_cells)
 
     # Turn bias
-    tb = turn_bias(cells_visited, maze) if len(cells_visited) > 2 else {
-        "left": 0, "right": 0, "back": 0, "forward": 0, "left_frac": 0.5,
-    }
+    tb = (
+        turn_bias(cells_visited, maze)
+        if len(cells_visited) > 2
+        else {
+            "left": 0,
+            "right": 0,
+            "back": 0,
+            "forward": 0,
+            "left_frac": 0.5,
+        }
+    )
 
     return {
         "total_frames": len(cell_indices),

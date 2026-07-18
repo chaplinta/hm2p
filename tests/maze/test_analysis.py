@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -32,7 +31,6 @@ from hm2p.maze.analysis import (
     turn_bias,
 )
 from hm2p.maze.topology import build_rose_maze
-
 
 # ---------------------------------------------------------------------------
 # Occupancy
@@ -175,9 +173,7 @@ class TestMonotonicPaths:
 
     def test_empty_input(self, maze):
         paths = find_monotonic_paths(
-            np.array([], dtype=np.int32),
-            np.array([], dtype=np.int32),
-            0, maze
+            np.array([], dtype=np.int32), np.array([], dtype=np.int32), 0, maze
         )
         assert len(paths) == 0
 
@@ -193,17 +189,13 @@ class TestPathEfficiency:
         path_cells = list(maze.path((0, 0), (6, 4)))
         node_seq = np.array([maze.cell_to_idx[c] for c in path_cells])
         node_times = np.arange(len(node_seq))
-        times, eff = path_efficiency_over_time(
-            node_seq, node_times, maze, window=len(node_seq)
-        )
+        times, eff = path_efficiency_over_time(node_seq, node_times, maze, window=len(node_seq))
         if len(eff) > 0:
             assert eff[0] == pytest.approx(1.0)
 
     def test_empty_input(self, maze):
         times, eff = path_efficiency_over_time(
-            np.array([], dtype=np.int32),
-            np.array([], dtype=np.int32),
-            maze
+            np.array([], dtype=np.int32), np.array([], dtype=np.int32), maze
         )
         assert len(times) == 0
 
@@ -229,11 +221,7 @@ class TestSegmentModes:
             assert seg["mode"] in ("directed", "explore")
 
     def test_empty_input(self, maze):
-        segments = segment_modes(
-            np.array([], dtype=np.int32),
-            np.array([], dtype=np.int32),
-            maze
-        )
+        segments = segment_modes(np.array([], dtype=np.int32), np.array([], dtype=np.int32), maze)
         assert len(segments) == 0
 
 
@@ -397,7 +385,9 @@ class TestTransitionMatrix2ndOrder:
 
     @given(
         seq=st.lists(
-            st.integers(min_value=0, max_value=4), min_size=5, max_size=100,
+            st.integers(min_value=0, max_value=4),
+            min_size=5,
+            max_size=100,
         ).map(np.array),
     )
     @settings(max_examples=50, deadline=None)
@@ -464,11 +454,13 @@ class TestStationaryDistribution:
     def test_doubly_stochastic_uniform(self):
         """Doubly stochastic matrix should give uniform distribution."""
         # Circulant matrix: each row and column sums to 1
-        tm = np.array([
-            [0.0, 0.5, 0.5],
-            [0.5, 0.0, 0.5],
-            [0.5, 0.5, 0.0],
-        ])
+        tm = np.array(
+            [
+                [0.0, 0.5, 0.5],
+                [0.5, 0.0, 0.5],
+                [0.5, 0.5, 0.0],
+            ]
+        )
         pi = stationary_distribution(tm)
         np.testing.assert_allclose(pi, 1.0 / 3, atol=1e-10)
 
@@ -599,7 +591,9 @@ class TestMazeExplorationSummary:
 class TestHypothesisSequenceEntropy:
     @given(
         seq=st.lists(
-            st.integers(min_value=0, max_value=9), min_size=2, max_size=200,
+            st.integers(min_value=0, max_value=9),
+            min_size=2,
+            max_size=200,
         ).map(np.array),
     )
     @settings(max_examples=100, deadline=None)
@@ -623,9 +617,7 @@ class TestHypothesisTurnBias:
         total = tb["left"] + tb["right"] + tb["back"] + tb["forward"]
         # If there are any turns, left_frac should be in [0, 1]
         if tb["left"] + tb["right"] > 0:
-            assert 0.0 <= tb["left_frac"] <= 1.0, (
-                f"left_frac={tb['left_frac']} out of [0, 1]"
-            )
+            assert 0.0 <= tb["left_frac"] <= 1.0, f"left_frac={tb['left_frac']} out of [0, 1]"
         # Verify counts are non-negative integers
         assert tb["left"] >= 0
         assert tb["right"] >= 0

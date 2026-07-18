@@ -13,6 +13,7 @@ class TestPipelineStagesConsistency:
     @pytest.fixture(autouse=True)
     def _load_stages(self):
         from frontend.data import PIPELINE_STAGES
+
         self.stages = PIPELINE_STAGES
 
     def test_all_stages_have_required_keys(self):
@@ -44,11 +45,7 @@ class TestPipelineStagesConsistency:
 
     def test_stage_prefixes_for_cost_page(self):
         """Cost page builds unique prefix list — verify deduplication."""
-        prefixes = [
-            info["s3_prefix"]
-            for info in self.stages.values()
-            if info.get("s3_prefix")
-        ]
+        prefixes = [info["s3_prefix"] for info in self.stages.values() if info.get("s3_prefix")]
         unique = list(dict.fromkeys(prefixes))
         assert len(unique) > 0
         assert prefixes.count("kinematics") == 2
@@ -57,8 +54,16 @@ class TestPipelineStagesConsistency:
     def test_known_stages_present(self):
         """All expected pipeline stages should exist."""
         expected = {
-            "ingest", "ca_extraction", "dlc_training", "pose",
-            "kinematics", "calcium", "sync", "analysis", "kpms", "cascade",
+            "ingest",
+            "ca_extraction",
+            "dlc_training",
+            "pose",
+            "kinematics",
+            "calcium",
+            "sync",
+            "analysis",
+            "kpms",
+            "cascade",
         }
         assert set(self.stages.keys()) == expected
 

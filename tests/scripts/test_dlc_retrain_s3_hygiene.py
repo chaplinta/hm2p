@@ -17,11 +17,9 @@ from __future__ import annotations
 
 import json
 import sys
-from io import BytesIO
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
-import pytest
 import yaml
 
 # ---------------------------------------------------------------------------
@@ -36,7 +34,6 @@ sys.modules.setdefault("dlclibrary", MagicMock())
 
 import run_dlc_retrain as rdr  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -48,9 +45,7 @@ def _make_paginator(pages: list[list[dict]]) -> MagicMock:
     Each inner list is the ``Contents`` value for one page.
     """
     paginator = MagicMock()
-    paginator.paginate.return_value = [
-        {"Contents": page} for page in pages
-    ]
+    paginator.paginate.return_value = [{"Contents": page} for page in pages]
     return paginator
 
 
@@ -91,21 +86,22 @@ def _make_work_dir(tmp_path: Path) -> tuple[Path, Path]:
     work = tmp_path / "dlc-retrain"
     work.mkdir(parents=True, exist_ok=True)
     cfg_path = work / "config.yaml"
-    cfg_path.write_text(yaml.dump({
-        "project_path": str(work),
-        "bodyparts": list(rdr.PROJECT_BODYPARTS),
-        "TrainingFraction": [0.8],
-        "default_net_type": "hrnet_w32",
-    }))
+    cfg_path.write_text(
+        yaml.dump(
+            {
+                "project_path": str(work),
+                "bodyparts": list(rdr.PROJECT_BODYPARTS),
+                "TrainingFraction": [0.8],
+                "default_net_type": "hrnet_w32",
+            }
+        )
+    )
     return work, cfg_path
 
 
 def _collect_delete_keys(s3_mock: MagicMock) -> list[str]:
     """Extract all S3 keys passed to ``delete_object`` calls."""
-    return [
-        c.kwargs["Key"]
-        for c in s3_mock.delete_object.call_args_list
-    ]
+    return [c.kwargs["Key"] for c in s3_mock.delete_object.call_args_list]
 
 
 def _collect_upload_keys(s3_mock: MagicMock) -> list[str]:
@@ -141,11 +137,13 @@ class TestS3CleanupScope:
             {"Key": "dlc-retrain/training-datasets/some_file.pickle"},
         ]
 
-        s3 = _make_s3_client({
-            "dlc-retrain/training-datasets/": [td_keys],
-            "dlc-retrain/models/": [models_keys],
-            "dlc-retrain/labeled-data/": [[]],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/training-datasets/": [td_keys],
+                "dlc-retrain/models/": [models_keys],
+                "dlc-retrain/labeled-data/": [[]],
+            }
+        )
 
         dlc_mock = MagicMock()
         monkeypatch.setitem(sys.modules, "deeplabcut", dlc_mock)
@@ -153,12 +151,16 @@ class TestS3CleanupScope:
         work = tmp_path / "dlc-retrain"
         work.mkdir(parents=True, exist_ok=True)
         cfg_path = work / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "project_path": str(work),
-            "bodyparts": list(rdr.PROJECT_BODYPARTS),
-            "default_net_type": "hrnet_w32",
-            "TrainingFraction": [0.8],
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "project_path": str(work),
+                    "bodyparts": list(rdr.PROJECT_BODYPARTS),
+                    "default_net_type": "hrnet_w32",
+                    "TrainingFraction": [0.8],
+                }
+            )
+        )
 
         dlc_mock.create_training_dataset.side_effect = RuntimeError("stop-after-cleanup")
 
@@ -192,9 +194,11 @@ class TestS3CleanupScope:
             {"Key": "dlc-retrain/models/evaluation-results/eval.csv"},
             {"Key": "dlc-retrain/models/models/nested/weights.pt"},
         ]
-        s3 = _make_s3_client({
-            "dlc-retrain/models/": [old_keys],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/models/": [old_keys],
+            }
+        )
 
         work, _ = _make_work_dir(tmp_path)
         # Create a minimal dlc-models-pytorch dir so something gets uploaded
@@ -206,9 +210,7 @@ class TestS3CleanupScope:
 
         deleted = _collect_delete_keys(s3)
         for key_obj in old_keys:
-            assert key_obj["Key"] in deleted, (
-                f"Key {key_obj['Key']} was not deleted during upload"
-            )
+            assert key_obj["Key"] in deleted, f"Key {key_obj['Key']} was not deleted during upload"
 
     def test_train_deletes_all_training_datasets(self, tmp_path, monkeypatch):
         """All keys under training-datasets/ are deleted during train()."""
@@ -217,11 +219,13 @@ class TestS3CleanupScope:
             {"Key": "dlc-retrain/training-datasets/iter0/file2.mat"},
             {"Key": "dlc-retrain/training-datasets/Documentation_data.pickle"},
         ]
-        s3 = _make_s3_client({
-            "dlc-retrain/training-datasets/": [td_keys],
-            "dlc-retrain/models/": [[]],
-            "dlc-retrain/labeled-data/": [[]],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/training-datasets/": [td_keys],
+                "dlc-retrain/models/": [[]],
+                "dlc-retrain/labeled-data/": [[]],
+            }
+        )
 
         dlc_mock = MagicMock()
         dlc_mock.create_training_dataset.side_effect = RuntimeError("stop")
@@ -230,12 +234,16 @@ class TestS3CleanupScope:
         work = tmp_path / "dlc-retrain"
         work.mkdir(parents=True, exist_ok=True)
         cfg = work / "config.yaml"
-        cfg.write_text(yaml.dump({
-            "project_path": str(work),
-            "bodyparts": list(rdr.PROJECT_BODYPARTS),
-            "default_net_type": "hrnet_w32",
-            "TrainingFraction": [0.8],
-        }))
+        cfg.write_text(
+            yaml.dump(
+                {
+                    "project_path": str(work),
+                    "bodyparts": list(rdr.PROJECT_BODYPARTS),
+                    "default_net_type": "hrnet_w32",
+                    "TrainingFraction": [0.8],
+                }
+            )
+        )
 
         with patch("run_dlc_retrain.shutil") as shutil_mock:
             shutil_mock.rmtree = MagicMock()
@@ -263,18 +271,22 @@ class TestDownloadSelectivity:
     """
 
     def test_train_downloads_only_config_and_labeled_data(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         """train() should NOT download models/ or training-datasets/."""
         ld_keys = [
             {"Key": "dlc-retrain/labeled-data/s1/CollectedData_t.h5"},
             {"Key": "dlc-retrain/labeled-data/s1/img001.png"},
         ]
-        s3 = _make_s3_client({
-            "dlc-retrain/training-datasets/": [[]],
-            "dlc-retrain/models/": [[]],
-            "dlc-retrain/labeled-data/": [ld_keys],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/training-datasets/": [[]],
+                "dlc-retrain/models/": [[]],
+                "dlc-retrain/labeled-data/": [ld_keys],
+            }
+        )
 
         dlc_mock = MagicMock()
         dlc_mock.create_training_dataset.side_effect = RuntimeError("stop")
@@ -283,12 +295,16 @@ class TestDownloadSelectivity:
         work = tmp_path / "dlc-retrain"
         work.mkdir(parents=True, exist_ok=True)
         cfg = work / "config.yaml"
-        cfg.write_text(yaml.dump({
-            "project_path": str(work),
-            "bodyparts": list(rdr.PROJECT_BODYPARTS),
-            "default_net_type": "hrnet_w32",
-            "TrainingFraction": [0.8],
-        }))
+        cfg.write_text(
+            yaml.dump(
+                {
+                    "project_path": str(work),
+                    "bodyparts": list(rdr.PROJECT_BODYPARTS),
+                    "default_net_type": "hrnet_w32",
+                    "TrainingFraction": [0.8],
+                }
+            )
+        )
 
         with patch("run_dlc_retrain.shutil") as shutil_mock:
             shutil_mock.rmtree = MagicMock()
@@ -299,8 +315,7 @@ class TestDownloadSelectivity:
 
         # Collect all downloaded keys
         downloaded = [
-            c.args[1] if len(c.args) >= 2 else c[0][1]
-            for c in s3.download_file.call_args_list
+            c.args[1] if len(c.args) >= 2 else c[0][1] for c in s3.download_file.call_args_list
         ]
         # config.yaml must be downloaded
         assert any("config.yaml" in k for k in downloaded)
@@ -309,12 +324,12 @@ class TestDownloadSelectivity:
         # models/ and training-datasets/ must NOT be downloaded
         for k in downloaded:
             assert "models/" not in k, f"models/ key was downloaded: {k}"
-            assert "training-datasets/" not in k, (
-                f"training-datasets/ key was downloaded: {k}"
-            )
+            assert "training-datasets/" not in k, f"training-datasets/ key was downloaded: {k}"
 
     def test_eval_only_downloads_config_labeled_data_and_models(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         """--eval-only should download config + labeled-data + models."""
         ld_keys = [
@@ -324,10 +339,12 @@ class TestDownloadSelectivity:
             {"Key": "dlc-retrain/models/iteration-0/train/snapshot.pt"},
             {"Key": "dlc-retrain/models/eval/results.csv"},
         ]
-        s3 = _make_s3_client({
-            "dlc-retrain/labeled-data/": [ld_keys],
-            "dlc-retrain/models/": [model_keys],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/labeled-data/": [ld_keys],
+                "dlc-retrain/models/": [model_keys],
+            }
+        )
 
         dlc_mock = MagicMock()
         monkeypatch.setitem(sys.modules, "deeplabcut", dlc_mock)
@@ -335,11 +352,15 @@ class TestDownloadSelectivity:
         work = tmp_path / "dlc-retrain"
         work.mkdir(parents=True, exist_ok=True)
         cfg_path = work / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "project_path": str(work),
-            "bodyparts": list(rdr.PROJECT_BODYPARTS),
-            "default_net_type": "hrnet_w32",
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "project_path": str(work),
+                    "bodyparts": list(rdr.PROJECT_BODYPARTS),
+                    "default_net_type": "hrnet_w32",
+                }
+            )
+        )
 
         # Mock _compute_per_bodypart_rmse to avoid complex setup
         with (
@@ -351,16 +372,19 @@ class TestDownloadSelectivity:
             # Simulate the eval-only path (lines 1900-1970 in main())
             # We call the relevant code directly since main() parses args.
             # The eval-only path is inline in main(), so we test its logic.
-            import run_dlc_retrain as rdr_fresh
 
             # Build the work dir as main() would
             work2 = tmp_path / "eval-work"
             work2.mkdir(parents=True, exist_ok=True)
             cfg2 = work2 / "config.yaml"
-            cfg2.write_text(yaml.dump({
-                "project_path": str(work2),
-                "bodyparts": list(rdr.PROJECT_BODYPARTS),
-            }))
+            cfg2.write_text(
+                yaml.dump(
+                    {
+                        "project_path": str(work2),
+                        "bodyparts": list(rdr.PROJECT_BODYPARTS),
+                    }
+                )
+            )
 
             # Directly exercise the eval-only download logic
             s3.download_file(
@@ -376,7 +400,7 @@ class TestDownloadSelectivity:
             ):
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
-                    rel = key[len(f"{rdr.RETRAIN_PREFIX}/"):]
+                    rel = key[len(f"{rdr.RETRAIN_PREFIX}/") :]
                     if not rel or rel.startswith("_"):
                         continue
                     dest = work2 / rel
@@ -390,7 +414,7 @@ class TestDownloadSelectivity:
             ):
                 for obj in page.get("Contents", []):
                     key = obj["Key"]
-                    rel = key[len(f"{rdr.RETRAIN_PREFIX}/models/"):]
+                    rel = key[len(f"{rdr.RETRAIN_PREFIX}/models/") :]
                     if not rel or rel.startswith("_") or rel.startswith("models/"):
                         continue
                     dest = work2 / "dlc-models-pytorch" / rel
@@ -398,8 +422,7 @@ class TestDownloadSelectivity:
                     s3.download_file(rdr.DERIVATIVES_BUCKET, key, str(dest))
 
         downloaded = [
-            c.args[1] if len(c.args) >= 2 else c[0][1]
-            for c in s3.download_file.call_args_list
+            c.args[1] if len(c.args) >= 2 else c[0][1] for c in s3.download_file.call_args_list
         ]
         assert any("config.yaml" in k for k in downloaded)
         assert any("labeled-data/" in k for k in downloaded)
@@ -419,20 +442,26 @@ class TestDownloadSelectivity:
             {"Key": "dlc-retrain/training-datasets/file.pickle"},
         ]
 
-        s3 = _make_s3_client({
-            "dlc-retrain/models/": [model_keys],
-            "dlc-retrain/training-datasets/": [td_keys],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/models/": [model_keys],
+                "dlc-retrain/training-datasets/": [td_keys],
+            }
+        )
 
         # The infer-only path (lines 1988-2041) downloads config + models +
         # training-datasets but NOT labeled-data.
         work = tmp_path / "dlc-retrain"
         work.mkdir(parents=True, exist_ok=True)
         cfg = work / "config.yaml"
-        cfg.write_text(yaml.dump({
-            "project_path": str(work),
-            "bodyparts": list(rdr.PROJECT_BODYPARTS),
-        }))
+        cfg.write_text(
+            yaml.dump(
+                {
+                    "project_path": str(work),
+                    "bodyparts": list(rdr.PROJECT_BODYPARTS),
+                }
+            )
+        )
 
         # Simulate the infer-only download path from main()
         s3.download_file(
@@ -448,7 +477,7 @@ class TestDownloadSelectivity:
         ):
             for obj in page.get("Contents", []):
                 key = obj["Key"]
-                rel = key[len(f"{rdr.RETRAIN_PREFIX}/models/"):]
+                rel = key[len(f"{rdr.RETRAIN_PREFIX}/models/") :]
                 if not rel or rel.startswith("_") or rel.startswith("models/"):
                     continue
                 dest = work / "dlc-models-pytorch" / rel
@@ -456,16 +485,13 @@ class TestDownloadSelectivity:
                 s3.download_file(rdr.DERIVATIVES_BUCKET, key, str(dest))
 
         downloaded = [
-            c.args[1] if len(c.args) >= 2 else c[0][1]
-            for c in s3.download_file.call_args_list
+            c.args[1] if len(c.args) >= 2 else c[0][1] for c in s3.download_file.call_args_list
         ]
         assert any("config.yaml" in k for k in downloaded)
         assert any("models/" in k for k in downloaded)
         # labeled-data must NOT be downloaded in infer-only
         for k in downloaded:
-            assert "labeled-data/" not in k, (
-                f"labeled-data/ downloaded in infer-only: {k}"
-            )
+            assert "labeled-data/" not in k, f"labeled-data/ downloaded in infer-only: {k}"
 
     def test_download_skips_nested_models_keys(self, tmp_path):
         """Keys like ``models/models/...`` are skipped in both --eval-only and --infer-only.
@@ -480,9 +506,11 @@ class TestDownloadSelectivity:
             {"Key": "dlc-retrain/models/models/iteration-0/snapshot.pt"},
             {"Key": "dlc-retrain/models/models/nested/deep.pt"},
         ]
-        s3 = _make_s3_client({
-            "dlc-retrain/models/": [model_keys],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/models/": [model_keys],
+            }
+        )
 
         work = tmp_path / "dlc-retrain"
         work.mkdir(parents=True, exist_ok=True)
@@ -496,7 +524,7 @@ class TestDownloadSelectivity:
         ):
             for obj in page.get("Contents", []):
                 key = obj["Key"]
-                rel = key[len(f"{rdr.RETRAIN_PREFIX}/models/"):]
+                rel = key[len(f"{rdr.RETRAIN_PREFIX}/models/") :]
                 if not rel or rel.startswith("_"):
                     continue
                 # This is the fix: skip nested models/models/ keys
@@ -512,9 +540,7 @@ class TestDownloadSelectivity:
         assert "eval/results.csv" in downloaded_rels
         # Nested keys must NOT appear
         for rel in downloaded_rels:
-            assert not rel.startswith("models/"), (
-                f"Nested models/ key was downloaded: {rel}"
-            )
+            assert not rel.startswith("models/"), f"Nested models/ key was downloaded: {rel}"
 
 
 # ===================================================================
@@ -530,9 +556,11 @@ class TestUploadHygiene:
 
     def test_eval_csv_upload_uses_flat_keys(self, tmp_path):
         """Eval CSV S3 keys must be ``models/eval/{filename}``, not nested."""
-        s3 = _make_s3_client({
-            "dlc-retrain/models/": [[]],  # empty, nothing to delete
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/models/": [[]],  # empty, nothing to delete
+            }
+        )
 
         work, _ = _make_work_dir(tmp_path)
         # Create a DLC-style evaluation results CSV in the standard location
@@ -559,9 +587,11 @@ class TestUploadHygiene:
 
     def test_upload_does_not_create_models_models_nesting(self, tmp_path):
         """Uploaded S3 keys must never contain ``models/models/``."""
-        s3 = _make_s3_client({
-            "dlc-retrain/models/": [[]],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/models/": [[]],
+            }
+        )
 
         work, _ = _make_work_dir(tmp_path)
         # Create dlc-models-pytorch with evaluation-results-pytorch inside
@@ -570,8 +600,7 @@ class TestUploadHygiene:
         (model_dir / "snapshot.pt").write_text("fake")
 
         eval_dir = (
-            work / "dlc-models-pytorch" / "evaluation-results-pytorch"
-            / "iteration-0" / "shuffle1"
+            work / "dlc-models-pytorch" / "evaluation-results-pytorch" / "iteration-0" / "shuffle1"
         )
         eval_dir.mkdir(parents=True)
         (eval_dir / "results.csv").write_text("data")
@@ -580,9 +609,7 @@ class TestUploadHygiene:
 
         uploaded_keys = _collect_upload_keys(s3)
         for k in uploaded_keys:
-            assert "models/models/" not in k, (
-                f"Nested models/models/ found in uploaded key: {k}"
-            )
+            assert "models/models/" not in k, f"Nested models/models/ found in uploaded key: {k}"
 
     def test_imagenet_path_uses_shared_upload(self, tmp_path, monkeypatch):
         """The ImageNet path calls ``_upload_model_artifacts`` (not inline upload).
@@ -593,21 +620,27 @@ class TestUploadHygiene:
         dlc_mock = MagicMock()
         monkeypatch.setitem(sys.modules, "deeplabcut", dlc_mock)
 
-        s3 = _make_s3_client({
-            "dlc-retrain/training-datasets/": [[]],
-            "dlc-retrain/models/": [[]],
-            "dlc-retrain/labeled-data/": [[]],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/training-datasets/": [[]],
+                "dlc-retrain/models/": [[]],
+                "dlc-retrain/labeled-data/": [[]],
+            }
+        )
 
         work = tmp_path / "dlc-retrain"
         work.mkdir(parents=True, exist_ok=True)
         cfg = work / "config.yaml"
-        cfg.write_text(yaml.dump({
-            "project_path": str(work),
-            "bodyparts": list(rdr.PROJECT_BODYPARTS),
-            "default_net_type": "hrnet_w32",
-            "TrainingFraction": [0.8],
-        }))
+        cfg.write_text(
+            yaml.dump(
+                {
+                    "project_path": str(work),
+                    "bodyparts": list(rdr.PROJECT_BODYPARTS),
+                    "default_net_type": "hrnet_w32",
+                    "TrainingFraction": [0.8],
+                }
+            )
+        )
 
         # Make DLC calls succeed but produce minimal output
         dlc_mock.create_training_dataset = MagicMock()
@@ -618,13 +651,17 @@ class TestUploadHygiene:
         model_dir = work / "dlc-models-pytorch" / "iteration-0" / "train"
         model_dir.mkdir(parents=True)
         pcfg = model_dir / "pytorch_config.yaml"
-        pcfg.write_text(yaml.dump({
-            "data": {"train": {"affine": {}, "input_size": [256, 256]}},
-            "model": {"backbone": {"model_name": "resnet_50"}, "heads": {}},
-            "train_settings": {},
-            "metadata": {"bodyparts": list(rdr.PROJECT_BODYPARTS)},
-            "net_type": "resnet_50",
-        }))
+        pcfg.write_text(
+            yaml.dump(
+                {
+                    "data": {"train": {"affine": {}, "input_size": [256, 256]}},
+                    "model": {"backbone": {"model_name": "resnet_50"}, "heads": {}},
+                    "train_settings": {},
+                    "metadata": {"bodyparts": list(rdr.PROJECT_BODYPARTS)},
+                    "net_type": "resnet_50",
+                }
+            )
+        )
         (model_dir / "snapshot.pt").write_text("fake")
 
         # Make download_file write real config.yaml to the hard-coded work dir
@@ -634,6 +671,7 @@ class TestUploadHygiene:
             Path(dest).parent.mkdir(parents=True, exist_ok=True)
             if key.endswith("config.yaml"):
                 import shutil as _sh
+
                 _sh.copy2(str(cfg), dest)
 
         s3.download_file = MagicMock(side_effect=_fake_download)
@@ -651,6 +689,7 @@ class TestUploadHygiene:
                 pass  # May fail on DLC calls — we only care about upload
             finally:
                 import shutil
+
                 shutil.rmtree(real_work, ignore_errors=True)
 
         # _upload_model_artifacts must have been called
@@ -793,11 +832,13 @@ class TestLocalCleanliness:
         dlc_mock.create_training_dataset.side_effect = RuntimeError("stop")
         monkeypatch.setitem(sys.modules, "deeplabcut", dlc_mock)
 
-        s3 = _make_s3_client({
-            "dlc-retrain/training-datasets/": [[]],
-            "dlc-retrain/models/": [[]],
-            "dlc-retrain/labeled-data/": [[]],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/training-datasets/": [[]],
+                "dlc-retrain/models/": [[]],
+                "dlc-retrain/labeled-data/": [[]],
+            }
+        )
 
         # Pre-populate /tmp/dlc-retrain with stale files
         work = Path("/tmp/dlc-retrain")
@@ -812,12 +853,12 @@ class TestLocalCleanliness:
             pass
 
         # After train() setup, stale file must be gone
-        assert not stale_file.exists(), (
-            "Stale file was not cleaned before training"
-        )
+        assert not stale_file.exists(), "Stale file was not cleaned before training"
 
     def test_work_dir_contains_only_config_and_labeled_data(
-        self, tmp_path, monkeypatch,
+        self,
+        tmp_path,
+        monkeypatch,
     ):
         """After the download phase, only config.yaml and labeled-data/ exist."""
         dlc_mock = MagicMock()
@@ -827,11 +868,13 @@ class TestLocalCleanliness:
             {"Key": "dlc-retrain/labeled-data/s1/CollectedData.h5"},
             {"Key": "dlc-retrain/labeled-data/s1/frame000.png"},
         ]
-        s3 = _make_s3_client({
-            "dlc-retrain/training-datasets/": [[]],
-            "dlc-retrain/models/": [[]],
-            "dlc-retrain/labeled-data/": [ld_keys],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/training-datasets/": [[]],
+                "dlc-retrain/models/": [[]],
+                "dlc-retrain/labeled-data/": [ld_keys],
+            }
+        )
 
         # The download phase creates files at work / relative_path.
         # After download but before DLC calls, only config.yaml +
@@ -846,15 +889,12 @@ class TestLocalCleanliness:
 
         # All download_file calls should target only config.yaml or labeled-data/
         downloaded_keys = [
-            c.args[1] if len(c.args) >= 2 else c[0][1]
-            for c in s3.download_file.call_args_list
+            c.args[1] if len(c.args) >= 2 else c[0][1] for c in s3.download_file.call_args_list
         ]
         for k in downloaded_keys:
             is_config = "config.yaml" in k
             is_labeled = "labeled-data/" in k
-            assert is_config or is_labeled, (
-                f"Unexpected download during train setup: {k}"
-            )
+            assert is_config or is_labeled, f"Unexpected download during train setup: {k}"
 
 
 # ===================================================================
@@ -879,26 +919,28 @@ class TestIdempotency:
         first_keys = [
             {"Key": "dlc-retrain/models/iteration-0/train/snapshot.pt"},
         ]
-        s3 = _make_s3_client({
-            "dlc-retrain/models/": [first_keys],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/models/": [first_keys],
+            }
+        )
 
         rdr._upload_model_artifacts(s3, work)
         first_upload_keys = _collect_upload_keys(s3)
 
         # Second call: the paginator now returns what the first call uploaded
         second_existing = [{"Key": k} for k in first_upload_keys]
-        s3_2 = _make_s3_client({
-            "dlc-retrain/models/": [second_existing],
-        })
+        s3_2 = _make_s3_client(
+            {
+                "dlc-retrain/models/": [second_existing],
+            }
+        )
 
         rdr._upload_model_artifacts(s3_2, work)
         second_upload_keys = _collect_upload_keys(s3_2)
 
         for k in second_upload_keys:
-            assert "models/models/" not in k, (
-                f"Second upload created nested key: {k}"
-            )
+            assert "models/models/" not in k, f"Second upload created nested key: {k}"
 
     def test_nuke_before_upload_prevents_accumulation(self, tmp_path):
         """Old keys in S3 must be deleted before new keys are uploaded."""
@@ -906,9 +948,11 @@ class TestIdempotency:
             {"Key": "dlc-retrain/models/old-iter/old-snapshot.pt"},
             {"Key": "dlc-retrain/models/old-eval/old-results.csv"},
         ]
-        s3 = _make_s3_client({
-            "dlc-retrain/models/": [old_keys],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/models/": [old_keys],
+            }
+        )
 
         work, _ = _make_work_dir(tmp_path)
         model_dir = work / "dlc-models-pytorch" / "iteration-0" / "train"
@@ -929,9 +973,7 @@ class TestIdempotency:
 
         # Old keys must NOT appear in uploads
         old_in_uploads = [k for k in uploaded if "old-" in k]
-        assert len(old_in_uploads) == 0, (
-            f"Old keys re-uploaded: {old_in_uploads}"
-        )
+        assert len(old_in_uploads) == 0, f"Old keys re-uploaded: {old_in_uploads}"
 
 
 # ===================================================================
@@ -949,14 +991,8 @@ class TestEdgeCases:
         instead of ``get_paginator`` for --eval-only model download.
         """
         # Two pages of model keys
-        page1 = [
-            {"Key": f"dlc-retrain/models/iter-0/snapshot-{i}.pt"}
-            for i in range(3)
-        ]
-        page2 = [
-            {"Key": f"dlc-retrain/models/iter-1/snapshot-{i}.pt"}
-            for i in range(2)
-        ]
+        page1 = [{"Key": f"dlc-retrain/models/iter-0/snapshot-{i}.pt"} for i in range(3)]
+        page2 = [{"Key": f"dlc-retrain/models/iter-1/snapshot-{i}.pt"} for i in range(2)]
 
         s3 = MagicMock()
         paginator = MagicMock()
@@ -983,7 +1019,7 @@ class TestEdgeCases:
         ):
             for obj in page.get("Contents", []):
                 key = obj["Key"]
-                rel = key[len(f"{rdr.RETRAIN_PREFIX}/models/"):]
+                rel = key[len(f"{rdr.RETRAIN_PREFIX}/models/") :]
                 if not rel or rel.startswith("_") or rel.startswith("models/"):
                     continue
                 dest = work / "dlc-models-pytorch" / rel
@@ -992,27 +1028,31 @@ class TestEdgeCases:
                 n_downloaded += 1
 
         # Must have consumed both pages: 3 + 2 = 5 files
-        assert n_downloaded == 5, (
-            f"Expected 5 files across 2 pages, got {n_downloaded}"
-        )
+        assert n_downloaded == 5, f"Expected 5 files across 2 pages, got {n_downloaded}"
 
     def test_train_continues_if_no_stale_artifacts(self, tmp_path, monkeypatch):
         """Cleanup must not crash when S3 has no models/ or training-datasets/."""
-        s3 = _make_s3_client({
-            "dlc-retrain/training-datasets/": [[]],
-            "dlc-retrain/models/": [[]],
-            "dlc-retrain/labeled-data/": [[]],
-        })
+        s3 = _make_s3_client(
+            {
+                "dlc-retrain/training-datasets/": [[]],
+                "dlc-retrain/models/": [[]],
+                "dlc-retrain/labeled-data/": [[]],
+            }
+        )
 
         # Make download_file write a minimal config.yaml
         def _fake_download(bucket, key, dest):
             Path(dest).parent.mkdir(parents=True, exist_ok=True)
             if key.endswith("config.yaml"):
-                Path(dest).write_text(yaml.dump({
-                    "project_path": "/tmp/dlc-retrain",
-                    "bodyparts": list(rdr.PROJECT_BODYPARTS),
-                    "TrainingFraction": [0.9],
-                }))
+                Path(dest).write_text(
+                    yaml.dump(
+                        {
+                            "project_path": "/tmp/dlc-retrain",
+                            "bodyparts": list(rdr.PROJECT_BODYPARTS),
+                            "TrainingFraction": [0.9],
+                        }
+                    )
+                )
 
         s3.download_file = MagicMock(side_effect=_fake_download)
 
@@ -1023,6 +1063,7 @@ class TestEdgeCases:
         work = Path("/tmp/dlc-retrain")
         if work.exists():
             import shutil
+
             shutil.rmtree(work)
 
         try:
@@ -1037,4 +1078,5 @@ class TestEdgeCases:
         # Clean up
         if work.exists():
             import shutil
+
             shutil.rmtree(work)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.maze.discretize import (
     cell_sequence,
@@ -11,6 +10,8 @@ from hm2p.maze.discretize import (
     discretize_position_fast,
     node_sequence,
 )
+
+
 class TestDiscretizePosition:
     """Test continuous → discrete position mapping."""
 

@@ -132,8 +132,11 @@ def information_per_cell(
     info = np.zeros(n_cells, dtype=np.float64)
     for i in range(n_cells):
         info[i] = mutual_information_binned(
-            signals[i], hd_deg, mask,
-            n_hd_bins=n_hd_bins, n_signal_bins=n_signal_bins,
+            signals[i],
+            hd_deg,
+            mask,
+            n_hd_bins=n_hd_bins,
+            n_signal_bins=n_signal_bins,
         )
     return info
 
@@ -173,10 +176,18 @@ def synergy_redundancy(
         ``"redundancy"`` — I(A) + I(B) - I(A,B). Positive = redundant.
     """
     info_a = mutual_information_binned(
-        signals[cell_a], hd_deg, mask, n_hd_bins, n_signal_bins,
+        signals[cell_a],
+        hd_deg,
+        mask,
+        n_hd_bins,
+        n_signal_bins,
     )
     info_b = mutual_information_binned(
-        signals[cell_b], hd_deg, mask, n_hd_bins, n_signal_bins,
+        signals[cell_b],
+        hd_deg,
+        mask,
+        n_hd_bins,
+        n_signal_bins,
     )
 
     # Joint signal: concatenate bins

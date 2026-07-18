@@ -16,7 +16,7 @@ References:
 from __future__ import annotations
 
 import numpy as np
-from scipy.stats import spearmanr, mannwhitneyu
+from scipy.stats import mannwhitneyu, spearmanr
 
 
 def compute_mean_neuropil(
@@ -116,7 +116,8 @@ def neuropil_behaviour_correlation(
             denom = result["mean_fneu_light"] + result["mean_fneu_dark"]
             result["light_mod_index"] = (
                 (result["mean_fneu_light"] - result["mean_fneu_dark"]) / denom
-                if denom > 0 else 0.0
+                if denom > 0
+                else 0.0
             )
 
     # Moving vs stationary
@@ -128,7 +129,8 @@ def neuropil_behaviour_correlation(
         denom = result["mean_fneu_moving"] + result["mean_fneu_stationary"]
         result["movement_mod_index"] = (
             (result["mean_fneu_moving"] - result["mean_fneu_stationary"]) / denom
-            if denom > 0 else 0.0
+            if denom > 0
+            else 0.0
         )
 
     return result

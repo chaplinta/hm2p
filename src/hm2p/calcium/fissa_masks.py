@@ -30,8 +30,9 @@ https://github.com/MouseLand/suite2p
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -147,9 +148,7 @@ def build_roi_masks_from_stat(
         indices = [int(i) for i in roi_indices]
         for i in indices:
             if i < 0 or i >= n_stat:
-                raise ValueError(
-                    f"roi index {i} out of range for stat of length {n_stat}"
-                )
+                raise ValueError(f"roi index {i} out of range for stat of length {n_stat}")
 
     masks: list[np.ndarray] = []
     for i in indices:
@@ -210,9 +209,7 @@ def crop_masks_to_window(
     cropped: list[np.ndarray] = []
     for i, m in enumerate(masks):
         if y1 > m.shape[0] or x1 > m.shape[1]:
-            raise ValueError(
-                f"crop window {yrange}x{xrange} exceeds mask {i} bounds {m.shape}"
-            )
+            raise ValueError(f"crop window {yrange}x{xrange} exceeds mask {i} bounds {m.shape}")
         sub = np.asarray(m, dtype=bool)[y0:y1, x0:x1].copy()
         if not sub.any():
             log.warning(

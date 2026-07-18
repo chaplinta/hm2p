@@ -136,7 +136,8 @@ def select_champion_h5(h5_keys: list[str], champion_id: str) -> str:
 
     # Filter to valid .h5 files (same filter as select_best_dlc_h5).
     filtered = [
-        k for k in h5_keys
+        k
+        for k in h5_keys
         if k.endswith(".h5")
         and "_single" not in k.split("/")[-1]
         and "_filtered" not in k.split("/")[-1]
@@ -144,7 +145,8 @@ def select_champion_h5(h5_keys: list[str], champion_id: str) -> str:
 
     # Find keys that match the champion's snapshot.
     matches = [
-        k for k in filtered
+        k
+        for k in filtered
         if f"snapshot-best-{champion_snapshot}" in k
         or f"snapshot_best_{champion_snapshot}" in k
         or f"snapshot_best-{champion_snapshot}" in k
@@ -254,7 +256,8 @@ def select_best_dlc_h5(h5_keys: list[str]) -> str | None:
         The selected key, or ``None`` if *h5_keys* is empty after filtering.
     """
     filtered = [
-        k for k in h5_keys
+        k
+        for k in h5_keys
         if k.endswith(".h5")
         and "_single" not in k.split("/")[-1]
         and "_filtered" not in k.split("/")[-1]
@@ -391,7 +394,7 @@ def compute_champion_id(
     import datetime
 
     if training_date is None:
-        training_date = datetime.datetime.now(datetime.timezone.utc).date().isoformat()
+        training_date = datetime.datetime.now(datetime.UTC).date().isoformat()
     date_compact = training_date.replace("-", "")
     arch_lower = architecture.lower()
     return f"dlc-{date_compact}-{arch_lower}-snap{snapshot}"

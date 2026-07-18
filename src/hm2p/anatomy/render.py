@@ -17,14 +17,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from hm2p.constants import CELLTYPE_HEX
-
 log = logging.getLogger(__name__)
 
 # brainrender cell-type colours (RGB 0-1 tuples for vedo/VTK)
 _CELLTYPE_RGB = {
-    "penk": (0, 0, 1),      # blue
-    "nonpenk": (1, 0, 0),   # red
+    "penk": (0, 0, 1),  # blue
+    "nonpenk": (1, 0, 0),  # red
 }
 
 # RSP sub-region names in the Allen CCFv3 atlas
@@ -108,10 +106,7 @@ def render_injection_sites(
         from brainrender import Scene, settings
         from brainrender.actors import Point
     except ImportError:
-        log.warning(
-            "brainrender is not installed. Install with: "
-            "pip install brainrender"
-        )
+        log.warning("brainrender is not installed. Install with: pip install brainrender")
         return None
 
     output_path = Path(output_path)
@@ -234,13 +229,17 @@ def render_single_animal(
         Paths to generated PNG files, or ``None`` if brainrender is
         unavailable.
     """
-    df = pd.DataFrame([{
-        "animal_id": animal_id,
-        "celltype": celltype,
-        "inj_ap": ap_mm,
-        "inj_ml": ml_mm,
-        "inj_dv": dv_mm,
-    }])
+    df = pd.DataFrame(
+        [
+            {
+                "animal_id": animal_id,
+                "celltype": celltype,
+                "inj_ap": ap_mm,
+                "inj_ml": ml_mm,
+                "inj_dv": dv_mm,
+            }
+        ]
+    )
     return render_injection_sites(
         df,
         output_path,

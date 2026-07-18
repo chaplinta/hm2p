@@ -150,9 +150,7 @@ def correct_dataset_perspective(
         x = kp_pos.sel(space="x").values  # (time, individuals) or (time,)
         y = kp_pos.sel(space="y").values
 
-        x_corr, y_corr = correct_perspective(
-            x, y, camera_center_px, camera_height_mm, h
-        )
+        x_corr, y_corr = correct_perspective(x, y, camera_center_px, camera_height_mm, h)
 
         # Write back into the position array
         pos.loc[dict(keypoints=kp, space="x")] = x_corr

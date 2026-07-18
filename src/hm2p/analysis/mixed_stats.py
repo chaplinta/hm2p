@@ -24,10 +24,8 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-from numpy.typing import NDArray
 from scipy import stats
 from statsmodels.stats.multitest import multipletests
-
 
 # ============================================================================
 # Approach 1: Animal-level summary statistics
@@ -70,20 +68,13 @@ def animal_summary_test(
     """
     _validate_columns(df, [metric_col, group_col, animal_col])
 
-    animal_means = (
-        df.groupby([animal_col, group_col])[metric_col].mean().reset_index()
-    )
-    penk = animal_means.loc[
-        animal_means[group_col] == "penk", metric_col
-    ].values
-    nonpenk = animal_means.loc[
-        animal_means[group_col] == "nonpenk", metric_col
-    ].values
+    animal_means = df.groupby([animal_col, group_col])[metric_col].mean().reset_index()
+    penk = animal_means.loc[animal_means[group_col] == "penk", metric_col].values
+    nonpenk = animal_means.loc[animal_means[group_col] == "nonpenk", metric_col].values
 
     if len(penk) < 1 or len(nonpenk) < 1:
         raise ValueError(
-            f"Need at least 1 animal per group, got penk={len(penk)}, "
-            f"nonpenk={len(nonpenk)}"
+            f"Need at least 1 animal per group, got penk={len(penk)}, nonpenk={len(nonpenk)}"
         )
 
     u_stat, p_val = stats.mannwhitneyu(penk, nonpenk, alternative="two-sided")
@@ -152,9 +143,7 @@ def cluster_permutation_test(
     nonpenk_vals = df.loc[df[group_col] == "nonpenk", metric_col].dropna().values
 
     if len(penk_vals) < 1 or len(nonpenk_vals) < 1:
-        raise ValueError(
-            "Need at least 1 observation per group for permutation test"
-        )
+        raise ValueError("Need at least 1 observation per group for permutation test")
 
     observed = float(np.mean(penk_vals) - np.mean(nonpenk_vals))
 
@@ -170,12 +159,8 @@ def cluster_permutation_test(
         perm_idx = rng.choice(len(cluster_ids), size=n_nonpenk, replace=False)
         perm_nonpenk = set(cluster_ids[perm_idx])
 
-        a_vals = df.loc[
-            ~df[cluster_col].isin(perm_nonpenk), metric_col
-        ].dropna().values
-        b_vals = df.loc[
-            df[cluster_col].isin(perm_nonpenk), metric_col
-        ].dropna().values
+        a_vals = df.loc[~df[cluster_col].isin(perm_nonpenk), metric_col].dropna().values
+        b_vals = df.loc[df[cluster_col].isin(perm_nonpenk), metric_col].dropna().values
 
         if len(a_vals) == 0 or len(b_vals) == 0:
             null_stats[i] = 0.0
@@ -183,9 +168,7 @@ def cluster_permutation_test(
             null_stats[i] = float(np.mean(a_vals) - np.mean(b_vals))
 
     # Two-sided p-value with continuity correction (+1)
-    p_value = float(
-        (np.sum(np.abs(null_stats) >= np.abs(observed)) + 1) / (n_perms + 1)
-    )
+    p_value = float((np.sum(np.abs(null_stats) >= np.abs(observed)) + 1) / (n_perms + 1))
 
     return {
         "observed": observed,
@@ -236,9 +219,7 @@ def within_cell_test(
     diffs = (subset[col_a] - subset[col_b]).values
 
     if len(diffs) < 2:
-        raise ValueError(
-            f"Need at least 2 valid pairs, got {len(diffs)}"
-        )
+        raise ValueError(f"Need at least 2 valid pairs, got {len(diffs)}")
 
     # Remove zero differences (Wilcoxon discards them)
     nonzero = diffs[diffs != 0]
@@ -299,9 +280,7 @@ def interaction_contrast(
         If *cols_list* does not have exactly 4 elements or columns are missing.
     """
     if len(cols_list) != 4:
-        raise ValueError(
-            f"interaction_contrast requires exactly 4 columns, got {len(cols_list)}"
-        )
+        raise ValueError(f"interaction_contrast requires exactly 4 columns, got {len(cols_list)}")
     _validate_columns(df, cols_list)
 
     a1b1, a2b1, a1b2, a2b2 = cols_list
@@ -346,20 +325,24 @@ def confound_check(
     for col in confound_cols:
         subset = df[[metric_col, col]].dropna()
         if len(subset) < 3:
-            results.append({
-                "confound": col,
-                "rho": np.nan,
-                "p_value": np.nan,
-                "flagged": False,
-            })
+            results.append(
+                {
+                    "confound": col,
+                    "rho": np.nan,
+                    "p_value": np.nan,
+                    "flagged": False,
+                }
+            )
         else:
             rho, p_val = stats.spearmanr(subset[metric_col], subset[col])
-            results.append({
-                "confound": col,
-                "rho": float(rho),
-                "p_value": float(p_val),
-                "flagged": bool(abs(rho) > 0.3),
-            })
+            results.append(
+                {
+                    "confound": col,
+                    "rho": float(rho),
+                    "p_value": float(p_val),
+                    "flagged": bool(abs(rho) > 0.3),
+                }
+            )
 
     return results
 
@@ -401,12 +384,14 @@ def run_between_group_test(
         plus ``verdict`` (``"supported"``, ``"inconsistent"``, or
         ``"not_supported"``).
     """
-    summary = animal_summary_test(
-        df, metric_col, group_col=group_col, animal_col=animal_col
-    )
+    summary = animal_summary_test(df, metric_col, group_col=group_col, animal_col=animal_col)
     perm = cluster_permutation_test(
-        df, metric_col, group_col=group_col, cluster_col=animal_col,
-        n_perms=n_perms, seed=seed,
+        df,
+        metric_col,
+        group_col=group_col,
+        cluster_col=animal_col,
+        n_perms=n_perms,
+        seed=seed,
     )
 
     # Determine verdict
@@ -475,9 +460,7 @@ def fdr_correct(
     sig_fdr = np.full(len(p_vals), False)
 
     if valid.any():
-        reject, corrected, _, _ = multipletests(
-            p_vals[valid], alpha=alpha, method="fdr_bh"
-        )
+        reject, corrected, _, _ = multipletests(p_vals[valid], alpha=alpha, method="fdr_bh")
         p_fdr[valid] = corrected
         sig_fdr[valid] = reject
 

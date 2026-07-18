@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
@@ -26,10 +26,10 @@ sys.modules.setdefault("dlclibrary", MagicMock())
 
 import run_dlc_retrain as rdr  # noqa: E402
 
-
 # ═══════════════════════════════════════════════════════════════════════
 # Helpers — build synthetic DLC-style DataFrames
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def _make_dlc_df(
     scorer: str,
@@ -54,7 +54,7 @@ def _make_dlc_df(
     col_tuples = []
     for bp in bodyparts:
         xy = coords.get(bp, [(np.nan, np.nan)] * len(next(iter(coords.values()))))
-        for (x, y) in xy:
+        for x, y in xy:
             pass  # just need length
         xs = [c[0] for c in coords.get(bp, [(np.nan, np.nan)])]
         ys = [c[1] for c in coords.get(bp, [(np.nan, np.nan)])]
@@ -120,7 +120,8 @@ class TestIndexToFrameId:
 class TestMatchIndicesByFilename:
     def test_matching_frames_returns_gt_pred_pairs(self):
         gt = _make_dlc_df(
-            "scorer_gt", ["bp1"],
+            "scorer_gt",
+            ["bp1"],
             {"bp1": [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)]},
             index=[
                 ("labeled-data", "clip1", "frame_001.png"),
@@ -129,7 +130,8 @@ class TestMatchIndicesByFilename:
             ],
         )
         pred = _make_dlc_df(
-            "scorer_pred", ["bp1"],
+            "scorer_pred",
+            ["bp1"],
             {"bp1": [(1.1, 2.1), (5.1, 6.1)]},
             index=[
                 ("different-path", "x", "frame_001.png"),
@@ -148,12 +150,14 @@ class TestMatchIndicesByFilename:
 
     def test_no_matches_returns_empty(self):
         gt = _make_dlc_df(
-            "scorer_gt", ["bp1"],
+            "scorer_gt",
+            ["bp1"],
             {"bp1": [(1.0, 2.0)]},
             index=[("labeled-data", "clip1", "frame_001.png")],
         )
         pred = _make_dlc_df(
-            "scorer_pred", ["bp1"],
+            "scorer_pred",
+            ["bp1"],
             {"bp1": [(1.1, 2.1)]},
             index=[("labeled-data", "clip1", "frame_999.png")],
         )
@@ -162,12 +166,14 @@ class TestMatchIndicesByFilename:
 
     def test_partial_matches(self):
         gt = _make_dlc_df(
-            "scorer_gt", ["bp1"],
+            "scorer_gt",
+            ["bp1"],
             {"bp1": [(1.0, 2.0), (3.0, 4.0), (5.0, 6.0)]},
             index=["frame_001.png", "frame_002.png", "frame_003.png"],
         )
         pred = _make_dlc_df(
-            "scorer_pred", ["bp1"],
+            "scorer_pred",
+            ["bp1"],
             {"bp1": [(10.0, 20.0)]},
             index=["frame_002.png"],
         )
@@ -180,12 +186,14 @@ class TestMatchIndicesByFilename:
     def test_string_indices_matched_by_stem(self):
         """Paths with different directories but same filename stem match."""
         gt = _make_dlc_df(
-            "s", ["bp1"],
+            "s",
+            ["bp1"],
             {"bp1": [(1.0, 1.0)]},
             index=["/path/a/frame_001.png"],
         )
         pred = _make_dlc_df(
-            "s", ["bp1"],
+            "s",
+            ["bp1"],
             {"bp1": [(2.0, 2.0)]},
             index=["/path/b/frame_001.png"],
         )
@@ -198,7 +206,8 @@ class TestMatchIndicesByFilename:
     def test_gt_tuple_pred_string_cross_format_match(self):
         """GT tuples matched against pred string paths (DLC 3.x format)."""
         gt = _make_dlc_df(
-            "s", ["bp1"],
+            "s",
+            ["bp1"],
             {"bp1": [(1.0, 1.0), (2.0, 2.0)]},
             index=[
                 ("labeled-data", "clip1", "frame_001.png"),
@@ -206,7 +215,8 @@ class TestMatchIndicesByFilename:
             ],
         )
         pred = _make_dlc_df(
-            "s", ["bp1"],
+            "s",
+            ["bp1"],
             {"bp1": [(10.0, 10.0), (20.0, 20.0)]},
             index=[
                 "/tmp/dlc-retrain/labeled-data/clip1/frame_001.png",
@@ -239,10 +249,14 @@ def _setup_rmse_project(
 
     # config.yaml
     cfg_path = work / "config.yaml"
-    cfg_path.write_text(yaml.dump({
-        "bodyparts": bodyparts,
-        "project_path": str(work),
-    }))
+    cfg_path.write_text(
+        yaml.dump(
+            {
+                "bodyparts": bodyparts,
+                "project_path": str(work),
+            }
+        )
+    )
 
     n_rows = len(next(iter(gt_coords.values())))
     if index is None:
@@ -302,8 +316,8 @@ class TestComputePerBodypartRmse:
                 "nose": [(10.0, 10.0)],
             },
             pred_coords={
-                "ear": [(3.0, 4.0)],       # error = 5
-                "nose": [(10.0, 22.0)],     # error = 12
+                "ear": [(3.0, 4.0)],  # error = 5
+                "nose": [(10.0, 22.0)],  # error = 12
             },
         )
         s3 = MagicMock()
@@ -374,15 +388,20 @@ class TestComputePerBodypartRmse:
         work = tmp_path / "dlc-retrain"
         work.mkdir()
         cfg_path = work / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "bodyparts": ["bp1", "bp_missing"],
-            "project_path": str(work),
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "bodyparts": ["bp1", "bp_missing"],
+                    "project_path": str(work),
+                }
+            )
+        )
 
         gt_dir = work / "labeled-data" / "clip1"
         gt_dir.mkdir(parents=True)
         gt_df = _make_dlc_df(
-            "scorer_gt", ["bp1", "bp_missing"],
+            "scorer_gt",
+            ["bp1", "bp_missing"],
             {"bp1": [(0.0, 0.0)], "bp_missing": [(1.0, 1.0)]},
             index=["frame_000.png"],
         )
@@ -392,7 +411,8 @@ class TestComputePerBodypartRmse:
         eval_dir.mkdir(parents=True)
         # Prediction only has bp1, not bp_missing
         pred_df = _make_dlc_df(
-            "DLC_scorer", ["bp1"],
+            "DLC_scorer",
+            ["bp1"],
             {"bp1": [(3.0, 4.0)]},
             index=["frame_000.png"],
         )
@@ -539,9 +559,7 @@ class TestComputePerBodypartRmse:
         )
         # Remove the fallback DLC module to prevent inference attempt
         dlc_mock = MagicMock()
-        dlc_mock.analyze_time_lapse_frames = MagicMock(
-            side_effect=AttributeError("not available")
-        )
+        dlc_mock.analyze_time_lapse_frames = MagicMock(side_effect=AttributeError("not available"))
 
         s3 = MagicMock()
         rdr._compute_per_bodypart_rmse(s3, work, cfg)
@@ -602,16 +620,21 @@ class TestComputePerBodypartRmse:
         work = tmp_path / "dlc-retrain"
         work.mkdir()
         cfg_path = work / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "bodyparts": bodyparts,
-            "project_path": str(work),
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "bodyparts": bodyparts,
+                    "project_path": str(work),
+                }
+            )
+        )
 
         # Ground-truth with tuple indices
         gt_dir = work / "labeled-data" / "clip1"
         gt_dir.mkdir(parents=True)
         gt_df = _make_dlc_df(
-            "scorer_gt", bodyparts,
+            "scorer_gt",
+            bodyparts,
             {"bp1": [(0.0, 0.0), (0.0, 0.0)]},
             index=gt_index,
         )
@@ -621,7 +644,8 @@ class TestComputePerBodypartRmse:
         eval_dir = work / "evaluation-results-pytorch" / "iteration-0" / "test"
         eval_dir.mkdir(parents=True)
         pred_df = _make_dlc_df(
-            "DLC_scorer", bodyparts,
+            "DLC_scorer",
+            bodyparts,
             {"bp1": [(3.0, 4.0), (3.0, 4.0)]},
             index=pred_index,
         )
@@ -672,6 +696,7 @@ class TestUploadEvalResultsJson:
         csv_path.parent.mkdir(parents=True, exist_ok=True)
 
         import csv
+
         with open(csv_path, "w", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=list(data.keys()))
             writer.writeheader()
@@ -683,30 +708,35 @@ class TestUploadEvalResultsJson:
         work = tmp_path / "dlc-retrain"
         work.mkdir()
         cfg_path = work / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "TrainingFraction": [0.8],
-            "bodyparts": ["bp1"],
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "TrainingFraction": [0.8],
+                    "bodyparts": ["bp1"],
+                }
+            )
+        )
 
-        self._make_eval_csv(work, {
-            "Training epochs": 100,
-            "train rmse": 3.5,
-            "train rmse_pcutoff": 2.1,
-            "train mAP": 85.0,
-            "train mAR": 80.0,
-            "test rmse": 5.2,
-            "test rmse_pcutoff": 3.8,
-            "test mAP": 72.0,
-            "test mAR": 68.0,
-        })
+        self._make_eval_csv(
+            work,
+            {
+                "Training epochs": 100,
+                "train rmse": 3.5,
+                "train rmse_pcutoff": 2.1,
+                "train mAP": 85.0,
+                "train mAR": 80.0,
+                "test rmse": 5.2,
+                "test rmse_pcutoff": 3.8,
+                "test mAP": 72.0,
+                "test mAR": 68.0,
+            },
+        )
 
         s3 = MagicMock()
         # Mock champion JSON lookup
         s3.get_object.return_value = {
             "Body": MagicMock(
-                read=MagicMock(
-                    return_value=json.dumps({"champion_id": "champ_123"}).encode()
-                )
+                read=MagicMock(return_value=json.dumps({"champion_id": "champ_123"}).encode())
             )
         }
 
@@ -733,9 +763,13 @@ class TestUploadEvalResultsJson:
         work = tmp_path / "dlc-retrain"
         work.mkdir()
         cfg_path = work / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "TrainingFraction": [0.8],
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "TrainingFraction": [0.8],
+                }
+            )
+        )
 
         s3 = MagicMock()
         rdr._upload_eval_results_json(s3, work, cfg_path, epochs=100)
@@ -750,9 +784,13 @@ class TestUploadEvalResultsJson:
         work = tmp_path / "dlc-retrain"
         work.mkdir()
         cfg_path = work / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "TrainingFraction": [0.8],
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "TrainingFraction": [0.8],
+                }
+            )
+        )
 
         csv_path = work / "evaluation-results" / "CombinedEvaluation-results.csv"
         csv_path.parent.mkdir(parents=True, exist_ok=True)
@@ -771,21 +809,28 @@ class TestUploadEvalResultsJson:
         work = tmp_path / "dlc-retrain"
         work.mkdir()
         cfg_path = work / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "TrainingFraction": [0.8],
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "TrainingFraction": [0.8],
+                }
+            )
+        )
 
-        self._make_eval_csv(work, {
-            "Training epochs": 50,
-            "train rmse": 4.0,
-            "train rmse_pcutoff": 3.0,
-            "train mAP": 70.0,
-            "train mAR": 65.0,
-            "test rmse": 6.0,
-            "test rmse_pcutoff": 5.0,
-            "test mAP": 60.0,
-            "test mAR": 55.0,
-        })
+        self._make_eval_csv(
+            work,
+            {
+                "Training epochs": 50,
+                "train rmse": 4.0,
+                "train rmse_pcutoff": 3.0,
+                "train mAP": 70.0,
+                "train mAR": 65.0,
+                "test rmse": 6.0,
+                "test rmse_pcutoff": 5.0,
+                "test mAP": 60.0,
+                "test mAR": 55.0,
+            },
+        )
 
         s3 = MagicMock()
         # Both get_object calls fail
@@ -802,21 +847,28 @@ class TestUploadEvalResultsJson:
         work = tmp_path / "dlc-retrain"
         work.mkdir()
         cfg_path = work / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "TrainingFraction": [0.8],
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "TrainingFraction": [0.8],
+                }
+            )
+        )
 
-        self._make_eval_csv(work, {
-            "Training epochs": 100,
-            "train rmse": 3.0,
-            "train rmse_pcutoff": 2.0,
-            "train mAP": 90.0,
-            "train mAR": 85.0,
-            "test rmse": 4.0,
-            "test rmse_pcutoff": 3.0,
-            "test mAP": 80.0,
-            "test mAR": 75.0,
-        })
+        self._make_eval_csv(
+            work,
+            {
+                "Training epochs": 100,
+                "train rmse": 3.0,
+                "train rmse_pcutoff": 2.0,
+                "train mAP": 90.0,
+                "train mAR": 85.0,
+                "test rmse": 4.0,
+                "test rmse_pcutoff": 3.0,
+                "test mAP": 80.0,
+                "test mAR": 75.0,
+            },
+        )
 
         prev_eval = {
             "champion_id": "old_champ",
@@ -836,11 +888,7 @@ class TestUploadEvalResultsJson:
                 }
             elif Key == "dlc-retrain/_eval_results.json":
                 return {
-                    "Body": MagicMock(
-                        read=MagicMock(
-                            return_value=json.dumps(prev_eval).encode()
-                        )
-                    )
+                    "Body": MagicMock(read=MagicMock(return_value=json.dumps(prev_eval).encode()))
                 }
             raise Exception("NoSuchKey")
 
@@ -859,21 +907,28 @@ class TestUploadEvalResultsJson:
         work = tmp_path / "dlc-retrain"
         work.mkdir()
         cfg_path = work / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "TrainingFraction": [0.95],
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "TrainingFraction": [0.95],
+                }
+            )
+        )
 
-        self._make_eval_csv(work, {
-            "Training epochs": 200,
-            "train rmse": 2.0,
-            "train rmse_pcutoff": 1.5,
-            "train mAP": 95.0,
-            "train mAR": 92.0,
-            "test rmse": 3.0,
-            "test rmse_pcutoff": 2.5,
-            "test mAP": 88.0,
-            "test mAR": 84.0,
-        })
+        self._make_eval_csv(
+            work,
+            {
+                "Training epochs": 200,
+                "train rmse": 2.0,
+                "train rmse_pcutoff": 1.5,
+                "train mAP": 95.0,
+                "train mAR": 92.0,
+                "test rmse": 3.0,
+                "test rmse_pcutoff": 2.5,
+                "test mAP": 88.0,
+                "test mAR": 84.0,
+            },
+        )
 
         s3 = MagicMock()
         s3.get_object.side_effect = Exception("NoSuchKey")
@@ -888,31 +943,39 @@ class TestUploadEvalResultsJson:
         work = tmp_path / "dlc-retrain"
         work.mkdir()
         cfg_path = work / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "TrainingFraction": [0.8],
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "TrainingFraction": [0.8],
+                }
+            )
+        )
 
         # Create two CollectedData files with different frame counts
         for clip, n_frames in [("clip1", 3), ("clip2", 5)]:
             gt_dir = work / "labeled-data" / clip
             gt_dir.mkdir(parents=True)
             gt_df = _make_dlc_df(
-                "scorer", ["bp1"],
+                "scorer",
+                ["bp1"],
                 {"bp1": [(float(i), float(i)) for i in range(n_frames)]},
             )
-            gt_df.to_hdf(gt_dir / f"CollectedData_scorer.h5", key="df_with_missing")
+            gt_df.to_hdf(gt_dir / "CollectedData_scorer.h5", key="df_with_missing")
 
-        self._make_eval_csv(work, {
-            "Training epochs": 50,
-            "train rmse": 3.0,
-            "train rmse_pcutoff": 2.0,
-            "train mAP": 80.0,
-            "train mAR": 75.0,
-            "test rmse": 4.0,
-            "test rmse_pcutoff": 3.0,
-            "test mAP": 70.0,
-            "test mAR": 65.0,
-        })
+        self._make_eval_csv(
+            work,
+            {
+                "Training epochs": 50,
+                "train rmse": 3.0,
+                "train rmse_pcutoff": 2.0,
+                "train mAP": 80.0,
+                "train mAR": 75.0,
+                "test rmse": 4.0,
+                "test rmse_pcutoff": 3.0,
+                "test mAP": 70.0,
+                "test mAR": 65.0,
+            },
+        )
 
         s3 = MagicMock()
         s3.get_object.side_effect = Exception("NoSuchKey")

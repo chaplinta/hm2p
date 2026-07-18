@@ -127,11 +127,15 @@ class TestEnsureDefaultNetType:
 class TestValidateConversionTable:
     def _write_cfg(self, tmp_path: Path, table: dict) -> Path:
         cfg_path = tmp_path / "config.yaml"
-        cfg_path.write_text(yaml.dump({
-            "SuperAnimalConversionTables": {
-                "superanimal_topviewmouse": table,
-            }
-        }))
+        cfg_path.write_text(
+            yaml.dump(
+                {
+                    "SuperAnimalConversionTables": {
+                        "superanimal_topviewmouse": table,
+                    }
+                }
+            )
+        )
         return cfg_path
 
     def test_complete_table_passes(self, tmp_path: Path):
@@ -159,14 +163,15 @@ class TestValidateConversionTable:
 
 class TestResolveDetector:
     def test_v2_preferred_when_both_available(self):
-        assert rdr._resolve_sa_detector(
-            ["fasterrcnn_resnet50_fpn", "fasterrcnn_resnet50_fpn_v2", "other"]
-        ) == "fasterrcnn_resnet50_fpn_v2"
+        assert (
+            rdr._resolve_sa_detector(
+                ["fasterrcnn_resnet50_fpn", "fasterrcnn_resnet50_fpn_v2", "other"]
+            )
+            == "fasterrcnn_resnet50_fpn_v2"
+        )
 
     def test_falls_back_to_base(self):
-        assert rdr._resolve_sa_detector(
-            ["fasterrcnn_resnet50_fpn"]
-        ) == "fasterrcnn_resnet50_fpn"
+        assert rdr._resolve_sa_detector(["fasterrcnn_resnet50_fpn"]) == "fasterrcnn_resnet50_fpn"
 
     def test_raises_when_neither(self):
         with pytest.raises(RuntimeError, match="Available detectors"):
@@ -202,9 +207,13 @@ class TestValidateModelAvailable:
 class TestCheckInputSize:
     def test_warns_only_on_mismatch(self, tmp_path: Path, capsys):
         path = tmp_path / "pytorch_config.yaml"
-        path.write_text(yaml.dump({
-            "data": {"train": {"input_size": [512, 512]}},
-        }))
+        path.write_text(
+            yaml.dump(
+                {
+                    "data": {"train": {"input_size": [512, 512]}},
+                }
+            )
+        )
         ok = rdr._check_sa_input_size(path)
         assert ok is False
         out = capsys.readouterr().out
@@ -213,9 +222,13 @@ class TestCheckInputSize:
 
     def test_passes_at_256(self, tmp_path: Path):
         path = tmp_path / "pytorch_config.yaml"
-        path.write_text(yaml.dump({
-            "data": {"train": {"input_size": [256, 256]}},
-        }))
+        path.write_text(
+            yaml.dump(
+                {
+                    "data": {"train": {"input_size": [256, 256]}},
+                }
+            )
+        )
         assert rdr._check_sa_input_size(path) is True
 
 
@@ -227,16 +240,20 @@ class TestCheckInputSize:
 class TestAugmentationPatch:
     def test_writes_v2_values(self, tmp_path: Path):
         path = tmp_path / "pytorch_config.yaml"
-        path.write_text(yaml.dump({
-            "data": {
-                "train": {
-                    "affine": {"rotation": 45, "scaling": [0.5, 2.0]},
-                    "gaussian_noise": 30,
-                },
-            },
-            # NB: model.backbone.* should NOT be touched.
-            "model": {"backbone": {"model_name": "hrnet_w32_sa"}},
-        }))
+        path.write_text(
+            yaml.dump(
+                {
+                    "data": {
+                        "train": {
+                            "affine": {"rotation": 45, "scaling": [0.5, 2.0]},
+                            "gaussian_noise": 30,
+                        },
+                    },
+                    # NB: model.backbone.* should NOT be touched.
+                    "model": {"backbone": {"model_name": "hrnet_w32_sa"}},
+                }
+            )
+        )
         rdr._apply_sa_augmentation_patch(path)
         new = yaml.safe_load(path.read_text())
         assert new["data"]["train"]["affine"]["rotation"] == 30
@@ -289,36 +306,42 @@ def _make_minimal_project(tmp_path: Path) -> tuple[Path, Path, Path]:
     work.mkdir()
     # config.yaml with hrnet_w32 default and full conversion table.
     cfg_path = work / "config.yaml"
-    cfg_path.write_text(yaml.dump({
-        "default_net_type": "hrnet_w32",
-        "bodyparts": list(rdr.PROJECT_BODYPARTS),
-        "SuperAnimalConversionTables": {
-            "superanimal_topviewmouse": {
-                bp: i for i, bp in enumerate(rdr.PROJECT_BODYPARTS)
-            },
-        },
-        "project_path": str(work),
-    }))
+    cfg_path.write_text(
+        yaml.dump(
+            {
+                "default_net_type": "hrnet_w32",
+                "bodyparts": list(rdr.PROJECT_BODYPARTS),
+                "SuperAnimalConversionTables": {
+                    "superanimal_topviewmouse": {
+                        bp: i for i, bp in enumerate(rdr.PROJECT_BODYPARTS)
+                    },
+                },
+                "project_path": str(work),
+            }
+        )
+    )
     # pytorch_config.yaml with 256x256 input + plausible affine block.
     shuffle_dir = work / "dlc-models-pytorch" / "iteration-0" / "shuffle2" / "train"
     shuffle_dir.mkdir(parents=True)
     pcfg = shuffle_dir / "pytorch_config.yaml"
-    pcfg.write_text(yaml.dump({
-        "data": {
-            "train": {
-                "input_size": [256, 256],
-                "affine": {"rotation": 45, "scaling": [0.7, 1.4]},
-            },
-        },
-        "model": {"backbone": {"model_name": "sa_hrnet_w32"}},
-    }))
+    pcfg.write_text(
+        yaml.dump(
+            {
+                "data": {
+                    "train": {
+                        "input_size": [256, 256],
+                        "affine": {"rotation": 45, "scaling": [0.7, 1.4]},
+                    },
+                },
+                "model": {"backbone": {"model_name": "sa_hrnet_w32"}},
+            }
+        )
+    )
     return work, cfg_path, pcfg
 
 
 class TestTrainSaFinetune:
-    def test_calls_build_weight_init_with_correct_kwargs(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_calls_build_weight_init_with_correct_kwargs(self, tmp_path: Path, monkeypatch):
         work, cfg, _ = _make_minimal_project(tmp_path)
 
         # Mock DLC primitives.
@@ -326,9 +349,12 @@ class TestTrainSaFinetune:
         create_dataset = MagicMock(return_value=2)
         train_network = MagicMock()
         list_models = MagicMock(return_value=["hrnet_w32", "resnet_50"])
-        list_detectors = MagicMock(return_value=[
-            "fasterrcnn_resnet50_fpn_v2", "fasterrcnn_resnet50_fpn",
-        ])
+        list_detectors = MagicMock(
+            return_value=[
+                "fasterrcnn_resnet50_fpn_v2",
+                "fasterrcnn_resnet50_fpn",
+            ]
+        )
 
         # Patch via sys.modules — `import deeplabcut` inside the function
         # will hit the mock.
@@ -345,11 +371,13 @@ class TestTrainSaFinetune:
         # import line goes through deeplabcut.modelzoo so we can use the
         # already-patched dlc_mock attribute path.
         monkeypatch.setitem(
-            sys.modules, "deeplabcut.modelzoo",
+            sys.modules,
+            "deeplabcut.modelzoo",
             dlc_mock.modelzoo,
         )
         monkeypatch.setitem(
-            sys.modules, "deeplabcut.modelzoo.weight_initialization",
+            sys.modules,
+            "deeplabcut.modelzoo.weight_initialization",
             dlc_mock.modelzoo.weight_initialization,
         )
 
@@ -390,23 +418,18 @@ class TestTrainSaFinetune:
         original_pcfg = yaml.safe_load(pcfg.read_text())
 
         dlc_mock = MagicMock()
-        dlc_mock.modelzoo.weight_initialization.build_weight_init = MagicMock(
-            return_value="WI"
-        )
+        dlc_mock.modelzoo.weight_initialization.build_weight_init = MagicMock(return_value="WI")
         dlc_mock.create_training_dataset = MagicMock(return_value=2)
         dlc_mock.train_network = MagicMock()
         dlclib_mock = MagicMock()
-        dlclib_mock.get_available_models = MagicMock(
-            return_value=["hrnet_w32", "resnet_50"]
-        )
+        dlclib_mock.get_available_models = MagicMock(return_value=["hrnet_w32", "resnet_50"])
         dlclib_mock.get_available_detectors = MagicMock(
             return_value=["fasterrcnn_resnet50_fpn_v2"]
         )
         for name, mod in [
             ("deeplabcut", dlc_mock),
             ("deeplabcut.modelzoo", dlc_mock.modelzoo),
-            ("deeplabcut.modelzoo.weight_initialization",
-             dlc_mock.modelzoo.weight_initialization),
+            ("deeplabcut.modelzoo.weight_initialization", dlc_mock.modelzoo.weight_initialization),
             ("dlclibrary", dlclib_mock),
         ]:
             monkeypatch.setitem(sys.modules, name, mod)
@@ -425,17 +448,14 @@ class TestTrainSaFinetune:
         dlc_mock.create_training_dataset = MagicMock(return_value=2)
         dlc_mock.train_network = MagicMock()
         dlclib_mock = MagicMock()
-        dlclib_mock.get_available_models = MagicMock(
-            return_value=["hrnet_w32", "resnet_50"]
-        )
+        dlclib_mock.get_available_models = MagicMock(return_value=["hrnet_w32", "resnet_50"])
         dlclib_mock.get_available_detectors = MagicMock(
             return_value=["fasterrcnn_resnet50_fpn_v2"]
         )
         for name, mod in [
             ("deeplabcut", dlc_mock),
             ("deeplabcut.modelzoo", dlc_mock.modelzoo),
-            ("deeplabcut.modelzoo.weight_initialization",
-             dlc_mock.modelzoo.weight_initialization),
+            ("deeplabcut.modelzoo.weight_initialization", dlc_mock.modelzoo.weight_initialization),
             ("dlclibrary", dlclib_mock),
         ]:
             monkeypatch.setitem(sys.modules, name, mod)
@@ -446,15 +466,11 @@ class TestTrainSaFinetune:
         assert new["data"]["train"]["affine"]["scaling"] == [0.7, 1.3]
         assert new["data"]["train"]["gaussian_noise"] == 10.0
 
-    def test_raises_on_missing_conversion_table_entry(
-        self, tmp_path: Path, monkeypatch
-    ):
+    def test_raises_on_missing_conversion_table_entry(self, tmp_path: Path, monkeypatch):
         work, cfg, _ = _make_minimal_project(tmp_path)
         # Drop one bodypart from the conversion table.
         cfg_data = yaml.safe_load(cfg.read_text())
-        del cfg_data["SuperAnimalConversionTables"][
-            "superanimal_topviewmouse"
-        ]["head_midpoint"]
+        del cfg_data["SuperAnimalConversionTables"]["superanimal_topviewmouse"]["head_midpoint"]
         cfg.write_text(yaml.dump(cfg_data))
 
         dlc_mock = MagicMock()
@@ -488,17 +504,14 @@ class TestTrainSaFinetune:
         dlc_mock.create_training_dataset = MagicMock(return_value=2)
         dlc_mock.train_network = MagicMock()
         dlclib_mock = MagicMock()
-        dlclib_mock.get_available_models = MagicMock(
-            return_value=["hrnet_w32", "resnet_50"]
-        )
+        dlclib_mock.get_available_models = MagicMock(return_value=["hrnet_w32", "resnet_50"])
         dlclib_mock.get_available_detectors = MagicMock(
             return_value=["fasterrcnn_resnet50_fpn_v2"]
         )
         for name, mod in [
             ("deeplabcut", dlc_mock),
             ("deeplabcut.modelzoo", dlc_mock.modelzoo),
-            ("deeplabcut.modelzoo.weight_initialization",
-             dlc_mock.modelzoo.weight_initialization),
+            ("deeplabcut.modelzoo.weight_initialization", dlc_mock.modelzoo.weight_initialization),
             ("dlclibrary", dlclib_mock),
         ]:
             monkeypatch.setitem(sys.modules, name, mod)
@@ -523,8 +536,14 @@ def test_sa_conversion_array_constants():
 def test_project_bodyparts_order():
     """Conversion array ordering depends on this tuple."""
     assert rdr.PROJECT_BODYPARTS == (
-        "nose_tip", "left_ear", "right_ear", "head_midpoint",
-        "neck", "mid_back", "mouse_center", "tail_base",
+        "nose_tip",
+        "left_ear",
+        "right_ear",
+        "head_midpoint",
+        "neck",
+        "mid_back",
+        "mouse_center",
+        "tail_base",
     )
 
 

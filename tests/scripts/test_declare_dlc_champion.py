@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts"
 
 import declare_dlc_champion as ddc  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -96,8 +95,12 @@ def test_declare_champion_writes_manifest_with_required_fields(patch_imds_and_gi
 def test_declare_champion_writes_to_s3_at_expected_key(patch_imds_and_git):
     s3 = _make_fake_s3(existing={})
     out = ddc.declare_champion(
-        model_name="m", architecture="HrnetW32", snapshot="100",
-        training_run_id="rid", s3_client=s3, bucket="b",
+        model_name="m",
+        architecture="HrnetW32",
+        snapshot="100",
+        training_run_id="rid",
+        s3_client=s3,
+        bucket="b",
     )
     written = json.loads(s3._store[ddc.CHAMPION_MANIFEST_KEY].decode("utf-8"))
     assert written == out
@@ -106,8 +109,12 @@ def test_declare_champion_writes_to_s3_at_expected_key(patch_imds_and_git):
 def test_declare_champion_appends_promotions_log(patch_imds_and_git):
     s3 = _make_fake_s3(existing={})
     ddc.declare_champion(
-        model_name="m", architecture="HrnetW32", snapshot="100",
-        training_run_id="rid", s3_client=s3, bucket="b",
+        model_name="m",
+        architecture="HrnetW32",
+        snapshot="100",
+        training_run_id="rid",
+        s3_client=s3,
+        bucket="b",
     )
     log_bytes = s3._store[ddc.PROMOTIONS_LOG_KEY]
     line = log_bytes.decode("utf-8").strip()
@@ -121,8 +128,12 @@ def test_declare_champion_appends_promotions_log(patch_imds_and_git):
 def test_declare_champion_clears_pipeline_rerun_marker(patch_imds_and_git):
     s3 = _make_fake_s3(existing={ddc.PIPELINE_RERUN_KEY: b'{"reason":"in flight"}'})
     ddc.declare_champion(
-        model_name="m", architecture="HrnetW32", snapshot="100",
-        training_run_id="rid", s3_client=s3, bucket="b",
+        model_name="m",
+        architecture="HrnetW32",
+        snapshot="100",
+        training_run_id="rid",
+        s3_client=s3,
+        bucket="b",
     )
     assert ddc.PIPELINE_RERUN_KEY not in s3._store
 
@@ -147,12 +158,18 @@ def test_declare_champion_archives_previous(patch_imds_and_git):
         "note": "",
         "notes": "old",
     }
-    s3 = _make_fake_s3(existing={
-        ddc.CHAMPION_MANIFEST_KEY: json.dumps(prior).encode("utf-8"),
-    })
+    s3 = _make_fake_s3(
+        existing={
+            ddc.CHAMPION_MANIFEST_KEY: json.dumps(prior).encode("utf-8"),
+        }
+    )
     ddc.declare_champion(
-        model_name="new_model", architecture="HrnetW32", snapshot="290",
-        training_run_id="new-rid", s3_client=s3, bucket="b",
+        model_name="new_model",
+        architecture="HrnetW32",
+        snapshot="290",
+        training_run_id="new-rid",
+        s3_client=s3,
+        bucket="b",
     )
     archive_key = f"{ddc.HISTORY_PREFIX}/{prior['champion_id']}.json"
     assert archive_key in s3._store
@@ -163,18 +180,30 @@ def test_declare_champion_archives_previous(patch_imds_and_git):
 def test_declare_champion_overwrites_current_manifest(patch_imds_and_git):
     prior = {
         "champion_id": "dlc-20260101-hrnetw32-snap100",
-        "model_name": "old", "architecture": "HrnetW32", "snapshot": "100",
-        "training_date": "2026-01-01", "training_run_id": "old-rid",
-        "promoted_by_ec2_instance": "i-old", "promoted_by_git_sha": "abc1234",
+        "model_name": "old",
+        "architecture": "HrnetW32",
+        "snapshot": "100",
+        "training_date": "2026-01-01",
+        "training_run_id": "old-rid",
+        "promoted_by_ec2_instance": "i-old",
+        "promoted_by_git_sha": "abc1234",
         "promoted_at": "2026-01-01T00:00:00Z",
-        "training_s3_prefix": "dlc-retrain/models/", "note": "", "notes": "",
+        "training_s3_prefix": "dlc-retrain/models/",
+        "note": "",
+        "notes": "",
     }
-    s3 = _make_fake_s3(existing={
-        ddc.CHAMPION_MANIFEST_KEY: json.dumps(prior).encode("utf-8"),
-    })
+    s3 = _make_fake_s3(
+        existing={
+            ddc.CHAMPION_MANIFEST_KEY: json.dumps(prior).encode("utf-8"),
+        }
+    )
     new = ddc.declare_champion(
-        model_name="new", architecture="HrnetW32", snapshot="290",
-        training_run_id="new-rid", s3_client=s3, bucket="b",
+        model_name="new",
+        architecture="HrnetW32",
+        snapshot="290",
+        training_run_id="new-rid",
+        s3_client=s3,
+        bucket="b",
     )
     current = json.loads(s3._store[ddc.CHAMPION_MANIFEST_KEY].decode("utf-8"))
     assert current["champion_id"] == new["champion_id"]
@@ -182,12 +211,18 @@ def test_declare_champion_overwrites_current_manifest(patch_imds_and_git):
 
 
 def test_declare_champion_appends_to_existing_promotions_log(patch_imds_and_git):
-    s3 = _make_fake_s3(existing={
-        ddc.PROMOTIONS_LOG_KEY: b"2026-01-01T00:00:00Z\told-id\ti-old\tabc1234\n",
-    })
+    s3 = _make_fake_s3(
+        existing={
+            ddc.PROMOTIONS_LOG_KEY: b"2026-01-01T00:00:00Z\told-id\ti-old\tabc1234\n",
+        }
+    )
     ddc.declare_champion(
-        model_name="m", architecture="HrnetW32", snapshot="290",
-        training_run_id="rid", s3_client=s3, bucket="b",
+        model_name="m",
+        architecture="HrnetW32",
+        snapshot="290",
+        training_run_id="rid",
+        s3_client=s3,
+        bucket="b",
     )
     log_text = s3._store[ddc.PROMOTIONS_LOG_KEY].decode("utf-8")
     assert log_text.count("\n") == 2  # one prior + one new
@@ -202,8 +237,13 @@ def test_declare_champion_appends_to_existing_promotions_log(patch_imds_and_git)
 def test_declare_champion_dry_run_does_not_touch_s3(patch_imds_and_git):
     s3 = _make_fake_s3(existing={})
     out = ddc.declare_champion(
-        model_name="m", architecture="HrnetW32", snapshot="100",
-        training_run_id="rid", dry_run=True, s3_client=s3, bucket="b",
+        model_name="m",
+        architecture="HrnetW32",
+        snapshot="100",
+        training_run_id="rid",
+        dry_run=True,
+        s3_client=s3,
+        bucket="b",
     )
     assert out["champion_id"].startswith("dlc-")
     s3.put_object.assert_not_called()
@@ -218,9 +258,14 @@ def test_declare_champion_dry_run_does_not_touch_s3(patch_imds_and_git):
 def test_declare_champion_note_and_notes_kept_separate(patch_imds_and_git):
     s3 = _make_fake_s3(existing={})
     out = ddc.declare_champion(
-        model_name="m", architecture="HrnetW32", snapshot="100",
-        training_run_id="rid", notes="auto-summary", note="manual hint",
-        s3_client=s3, bucket="b",
+        model_name="m",
+        architecture="HrnetW32",
+        snapshot="100",
+        training_run_id="rid",
+        notes="auto-summary",
+        note="manual hint",
+        s3_client=s3,
+        bucket="b",
     )
     assert out["notes"] == "auto-summary"
     assert out["note"] == "manual hint"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -21,10 +21,10 @@ from hm2p.extraction.zdrift import (
     save_zdrift_meanimg,
 )
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_zstack_tiff(path: Path, n_zplanes: int = 5, ly: int = 32, lx: int = 32) -> Path:
     """Write a small synthetic z-stack TIFF and return the path."""
@@ -148,12 +148,8 @@ class TestComputeZdrift:
         n_zplanes = 4
         ly, lx = 16, 16
 
-        zstack_path = _make_zstack_tiff(
-            tmp_path / "zstack.tif", n_zplanes=n_zplanes, ly=ly, lx=lx
-        )
-        plane_dir = _make_suite2p_dir(
-            tmp_path, n_frames=n_frames, ly=ly, lx=lx
-        )
+        zstack_path = _make_zstack_tiff(tmp_path / "zstack.tif", n_zplanes=n_zplanes, ly=ly, lx=lx)
+        plane_dir = _make_suite2p_dir(tmp_path, n_frames=n_frames, ly=ly, lx=lx)
 
         # Force fallback path
         with patch("hm2p.extraction.zdrift._HAS_SUITE2P", False):
@@ -259,9 +255,7 @@ class TestSmoothReducesNoise:
         n_frames = 50
         ly, lx = 16, 16
         n_zplanes = 5
-        zstack_path = _make_zstack_tiff(
-            tmp_path / "zstack.tif", n_zplanes=n_zplanes, ly=ly, lx=lx
-        )
+        zstack_path = _make_zstack_tiff(tmp_path / "zstack.tif", n_zplanes=n_zplanes, ly=ly, lx=lx)
         plane_dir = _make_suite2p_dir(tmp_path, n_frames=n_frames, ly=ly, lx=lx)
 
         with patch("hm2p.extraction.zdrift._HAS_SUITE2P", False):
@@ -313,9 +307,7 @@ class TestComputeZdriftFromMeanimg:
         n_zplanes = 5
         ly, lx = 16, 16
         ops_path = _make_ops_npy(tmp_path / "ops.npy", ly=ly, lx=lx)
-        zstack_path = _make_zstack_tiff(
-            tmp_path / "zstack.tif", n_zplanes=n_zplanes, ly=ly, lx=lx
-        )
+        zstack_path = _make_zstack_tiff(tmp_path / "zstack.tif", n_zplanes=n_zplanes, ly=ly, lx=lx)
         result = compute_zdrift_from_meanimg(ops_path, zstack_path)
 
         assert "zpos_mean" in result
@@ -344,9 +336,7 @@ class TestComputeZdriftFromMeanimg:
         ops = {"nframes": 50, "Ly": ly, "Lx": lx, "meanImg": zstack[3].copy()}
         np.save(tmp_path / "ops.npy", ops)
 
-        result = compute_zdrift_from_meanimg(
-            tmp_path / "ops.npy", tmp_path / "zstack.tif"
-        )
+        result = compute_zdrift_from_meanimg(tmp_path / "ops.npy", tmp_path / "zstack.tif")
         assert result["zpos_mean"] == 3
         assert result["max_corr"] > 0.9
 
@@ -362,9 +352,7 @@ class TestComputeZdriftFromMeanimg:
         np.save(tmp_path / "ops.npy", ops)
         _make_zstack_tiff(tmp_path / "zstack.tif", n_zplanes=4, ly=16, lx=16)
 
-        result = compute_zdrift_from_meanimg(
-            tmp_path / "ops.npy", tmp_path / "zstack.tif"
-        )
+        result = compute_zdrift_from_meanimg(tmp_path / "ops.npy", tmp_path / "zstack.tif")
         assert result["zcorr_mean"].shape == (4,)
         assert 0 <= result["zpos_mean"] < 4
 
@@ -389,13 +377,9 @@ class TestComputeZdriftFromMeanimg:
     def test_max_corr_equals_peak(self, tmp_path: Path) -> None:
         """max_corr should equal the peak of zcorr_mean."""
         ops_path = _make_ops_npy(tmp_path / "ops.npy", ly=16, lx=16)
-        zstack_path = _make_zstack_tiff(
-            tmp_path / "zstack.tif", n_zplanes=4, ly=16, lx=16
-        )
+        zstack_path = _make_zstack_tiff(tmp_path / "zstack.tif", n_zplanes=4, ly=16, lx=16)
         result = compute_zdrift_from_meanimg(ops_path, zstack_path)
-        assert result["max_corr"] == pytest.approx(
-            result["zcorr_mean"].max(), abs=1e-10
-        )
+        assert result["max_corr"] == pytest.approx(result["zcorr_mean"].max(), abs=1e-10)
 
 
 # ---------------------------------------------------------------------------
@@ -422,9 +406,7 @@ class TestSaveLoadZdriftMeanimg:
 
         loaded = load_zdrift_meanimg(h5_path)
         assert loaded["zpos_mean"] == 3
-        np.testing.assert_allclose(
-            loaded["zcorr_mean"], zdrift["zcorr_mean"], atol=1e-10
-        )
+        np.testing.assert_allclose(loaded["zcorr_mean"], zdrift["zcorr_mean"], atol=1e-10)
         assert loaded["max_corr"] == pytest.approx(0.87, abs=1e-6)
         assert loaded["n_zplanes"] == n_zplanes
         assert loaded["zstack_path"] == "/data/zstack.tif"
@@ -437,9 +419,7 @@ class TestSaveLoadZdriftMeanimg:
         """Full pipeline: compute → save → load."""
         ly, lx = 16, 16
         ops_path = _make_ops_npy(tmp_path / "ops.npy", ly=ly, lx=lx)
-        zstack_path = _make_zstack_tiff(
-            tmp_path / "zstack.tif", n_zplanes=5, ly=ly, lx=lx
-        )
+        zstack_path = _make_zstack_tiff(tmp_path / "zstack.tif", n_zplanes=5, ly=ly, lx=lx)
         result = compute_zdrift_from_meanimg(ops_path, zstack_path)
 
         h5_path = tmp_path / "zdrift_meanimg.h5"
@@ -447,8 +427,6 @@ class TestSaveLoadZdriftMeanimg:
         loaded = load_zdrift_meanimg(h5_path)
 
         assert loaded["zpos_mean"] == result["zpos_mean"]
-        np.testing.assert_allclose(
-            loaded["zcorr_mean"], result["zcorr_mean"], atol=1e-10
-        )
+        np.testing.assert_allclose(loaded["zcorr_mean"], result["zcorr_mean"], atol=1e-10)
         assert loaded["max_corr"] == pytest.approx(result["max_corr"], abs=1e-10)
         assert loaded["n_zplanes"] == result["n_zplanes"]

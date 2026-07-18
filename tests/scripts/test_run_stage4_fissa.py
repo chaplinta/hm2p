@@ -39,9 +39,9 @@ def _synthetic_movie_and_masks(
     movie = background.copy()
     # Place ROIs on a grid so they do not overlap.
     centres = [(4, 4), (4, 11), (11, 4), (11, 11)][:n_rois]
-    for (cy, cx) in centres:
+    for cy, cx in centres:
         mask = np.zeros((ly, lx), dtype=bool)
-        mask[cy - 1:cy + 2, cx - 1:cx + 2] = True
+        mask[cy - 1 : cy + 2, cx - 1 : cx + 2] = True
         signal = rng.normal(0.0, 20.0, size=n_frames)
         movie[:, mask] += signal[:, None]
         masks.append(mask)

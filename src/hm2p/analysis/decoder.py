@@ -78,7 +78,10 @@ def build_decoder(
 
     for i in range(n_cells):
         tc, bc = compute_hd_tuning_curve(
-            signals[i], hd_deg, mask, n_bins=n_bins,
+            signals[i],
+            hd_deg,
+            mask,
+            n_bins=n_bins,
             smoothing_sigma_deg=smoothing_sigma_deg,
         )
         tc = np.where(np.isnan(tc), 0.0, tc)
@@ -157,7 +160,8 @@ def decode_hd(
         binned = np.zeros((n_cells, n_steps), dtype=np.float64)
         for i in range(n_steps):
             binned[:, i] = np.mean(
-                signals[:, i * time_bins:(i + 1) * time_bins], axis=1,
+                signals[:, i * time_bins : (i + 1) * time_bins],
+                axis=1,
             )
     else:
         n_steps = n_frames
@@ -482,7 +486,9 @@ def template_decode_cv(
         hd_train = hd_deg[train_idx] % 360.0
         template = np.zeros((n_cells, n_bins), dtype=np.float64)
         bin_assignments = np.clip(
-            np.digitize(hd_train, bin_edges) - 1, 0, n_bins - 1,
+            np.digitize(hd_train, bin_edges) - 1,
+            0,
+            n_bins - 1,
         )
         bin_counts = np.zeros(n_bins, dtype=np.int64)
         for b in range(n_bins):
@@ -644,8 +650,11 @@ def cross_validated_decode(
 
         # Build decoder on training data
         dec = build_decoder(
-            signals, hd_deg, train_mask,
-            n_bins=n_bins, smoothing_sigma_deg=smoothing_sigma_deg,
+            signals,
+            hd_deg,
+            train_mask,
+            n_bins=n_bins,
+            smoothing_sigma_deg=smoothing_sigma_deg,
         )
 
         # Decode test data

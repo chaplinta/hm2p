@@ -11,6 +11,7 @@ class TestMazeTopologyDisplay:
 
     def test_maze_builds_successfully(self):
         from hm2p.maze.topology import build_rose_maze
+
         maze = build_rose_maze()
         assert maze.n_cells == 23
         assert len(maze.junctions) == 7
@@ -18,18 +19,21 @@ class TestMazeTopologyDisplay:
 
     def test_maze_cell_list_sorted(self):
         from hm2p.maze.topology import build_rose_maze
+
         maze = build_rose_maze()
         # cell_list should be sorted
         assert maze.cell_list == sorted(maze.cell_list)
 
     def test_distance_matrix_shape(self):
         from hm2p.maze.topology import build_rose_maze
+
         maze = build_rose_maze()
         assert maze.dist.shape == (23, 23)
 
     def test_random_walk_produces_valid_trajectory(self):
         """Random walk generator (used in demo) should work."""
         from hm2p.maze.topology import build_rose_maze
+
         maze = build_rose_maze()
         rng = np.random.default_rng(42)
         current = rng.choice(len(maze.cell_list))
@@ -68,7 +72,7 @@ class TestSignalQualityComputations:
         trace = rng.normal(0, 0.01, 1000)
         # Add events to 10% of frames so 95th pct captures them
         for i in range(0, 1000, 10):
-            trace[i:i + 3] = 0.5  # Moderate calcium events
+            trace[i : i + 3] = 0.5  # Moderate calcium events
 
         baseline = trace[trace < np.percentile(trace, 50)]
         noise_std = np.std(baseline)
@@ -118,12 +122,14 @@ class TestMarkovModel:
 
     def test_transition_matrix_shape(self):
         from hm2p.maze.analysis import transition_matrix
+
         seq = np.array([0, 1, 2, 0, 1])
         tm = transition_matrix(seq, 5)
         assert tm.shape == (5, 5)
 
     def test_transition_entropy_range(self):
         from hm2p.maze.analysis import transition_entropy, transition_matrix
+
         seq = np.array([0, 1, 2, 0, 1, 2] * 10)
         tm = transition_matrix(seq, 3)
         h = transition_entropy(tm, seq)
@@ -136,6 +142,7 @@ class TestForwardBiasSweep:
     def test_bias_sweep_produces_valid_summaries(self):
         from hm2p.maze.analysis import maze_exploration_summary, simulate_random_walk
         from hm2p.maze.topology import build_rose_maze
+
         maze = build_rose_maze()
         for bf in [0.0, 0.2, 0.5, 0.8]:
             traj = simulate_random_walk(maze, 500, seed=42, forward_bias=bf)
@@ -147,6 +154,7 @@ class TestForwardBiasSweep:
         """Forward bias changes dead-end visit patterns."""
         from hm2p.maze.analysis import dead_end_visits, simulate_random_walk
         from hm2p.maze.topology import build_rose_maze
+
         maze = build_rose_maze()
         low = simulate_random_walk(maze, 5000, seed=42, forward_bias=0.0)
         high = simulate_random_walk(maze, 5000, seed=42, forward_bias=0.8)
@@ -164,6 +172,7 @@ class TestForwardBiasSweep:
         """Test the occupancy grid construction used in the heatmap."""
         from hm2p.maze.analysis import cell_occupancy, simulate_random_walk
         from hm2p.maze.topology import build_rose_maze
+
         maze = build_rose_maze()
         traj = simulate_random_walk(maze, 1000, seed=42)
         occ = cell_occupancy(traj, maze.n_cells)
@@ -182,6 +191,7 @@ class TestDeadEndDisplay:
     def test_dead_end_table_data(self):
         from hm2p.maze.analysis import dead_end_visits, simulate_random_walk
         from hm2p.maze.topology import build_rose_maze
+
         maze = build_rose_maze()
         traj = simulate_random_walk(maze, 2000, seed=42)
         de = dead_end_visits(traj, maze)

@@ -10,7 +10,6 @@ from hm2p.analysis.map_engagement import (
     mean_pairwise_corr,
 )
 
-
 # ---------------------------------------------------------------------------
 # extract_visit_vectors
 # ---------------------------------------------------------------------------
@@ -38,7 +37,9 @@ def test_extract_drops_invalid_frames():
 
 
 def test_extract_empty():
-    cells, vecs = extract_visit_vectors(np.zeros((3, 0)), np.array([], dtype=int), np.array([], dtype=bool))
+    cells, vecs = extract_visit_vectors(
+        np.zeros((3, 0)), np.array([], dtype=int), np.array([], dtype=bool)
+    )
     assert cells.size == 0
     assert vecs.shape == (0, 3)
 

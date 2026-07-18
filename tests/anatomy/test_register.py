@@ -13,7 +13,6 @@ from hm2p.anatomy.register import (
     run_brainreg,
 )
 
-
 # ── find_signal_channel ─────────────────────────────────────────────
 
 

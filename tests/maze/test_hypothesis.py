@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 from hypothesis.extra.numpy import arrays
 
@@ -22,7 +21,6 @@ from hm2p.maze.discretize import (
     node_sequence,
 )
 from hm2p.maze.topology import build_rose_maze
-
 
 MAZE = build_rose_maze()
 
@@ -52,10 +50,7 @@ class TestTopologyProperties:
                 assert MAZE.dist[i, j] == MAZE.dist[j, i]
 
     def test_junctions_plus_dead_ends_plus_corridors_equals_total(self):
-        assert (
-            len(MAZE.junctions) + len(MAZE.dead_ends) + len(MAZE.corridors)
-            == MAZE.n_cells
-        )
+        assert len(MAZE.junctions) + len(MAZE.dead_ends) + len(MAZE.corridors) == MAZE.n_cells
 
 
 # ---------------------------------------------------------------------------
@@ -71,10 +66,20 @@ class TestDiscretizationProperties:
     @settings(max_examples=30)
     def test_result_always_valid_or_minus_one(self, n, data):
         """Discretized positions should always be valid cell indices or -1."""
-        x = data.draw(arrays(np.float64, shape=n,
-                      elements=st.floats(0.0, 7.0, allow_nan=False, allow_infinity=False)))
-        y = data.draw(arrays(np.float64, shape=n,
-                      elements=st.floats(0.0, 5.0, allow_nan=False, allow_infinity=False)))
+        x = data.draw(
+            arrays(
+                np.float64,
+                shape=n,
+                elements=st.floats(0.0, 7.0, allow_nan=False, allow_infinity=False),
+            )
+        )
+        y = data.draw(
+            arrays(
+                np.float64,
+                shape=n,
+                elements=st.floats(0.0, 5.0, allow_nan=False, allow_infinity=False),
+            )
+        )
         result = discretize_position(x, y, MAZE)
         assert np.all((result >= 0) & (result < MAZE.n_cells))
 
@@ -85,17 +90,26 @@ class TestDiscretizationProperties:
     @settings(max_examples=20)
     def test_fast_matches_scalar(self, n, data):
         """Fast and scalar discretization should produce identical results."""
-        x = data.draw(arrays(np.float64, shape=n,
-                      elements=st.floats(0.0, 7.0, allow_nan=False, allow_infinity=False)))
-        y = data.draw(arrays(np.float64, shape=n,
-                      elements=st.floats(0.0, 5.0, allow_nan=False, allow_infinity=False)))
+        x = data.draw(
+            arrays(
+                np.float64,
+                shape=n,
+                elements=st.floats(0.0, 7.0, allow_nan=False, allow_infinity=False),
+            )
+        )
+        y = data.draw(
+            arrays(
+                np.float64,
+                shape=n,
+                elements=st.floats(0.0, 5.0, allow_nan=False, allow_infinity=False),
+            )
+        )
         result_scalar = discretize_position(x, y, MAZE)
         result_fast = discretize_position_fast(x, y, MAZE)
         np.testing.assert_array_equal(result_scalar, result_fast)
 
     @given(
-        indices=arrays(np.int32, shape=st.integers(1, 100),
-                       elements=st.integers(-1, 22)),
+        indices=arrays(np.int32, shape=st.integers(1, 100), elements=st.integers(-1, 22)),
     )
     @settings(max_examples=30)
     def test_cell_sequence_no_consecutive_duplicates(self, indices):
@@ -105,8 +119,7 @@ class TestDiscretizationProperties:
             assert np.all(cells[1:] != cells[:-1])
 
     @given(
-        indices=arrays(np.int32, shape=st.integers(1, 100),
-                       elements=st.integers(-1, 22)),
+        indices=arrays(np.int32, shape=st.integers(1, 100), elements=st.integers(-1, 22)),
     )
     @settings(max_examples=20)
     def test_node_sequence_subset_of_cell_sequence(self, indices):
@@ -125,8 +138,7 @@ class TestDiscretizationProperties:
 
 class TestOccupancyProperties:
     @given(
-        indices=arrays(np.int32, shape=st.integers(0, 200),
-                       elements=st.integers(-1, 22)),
+        indices=arrays(np.int32, shape=st.integers(0, 200), elements=st.integers(-1, 22)),
     )
     @settings(max_examples=30)
     def test_occupancy_sums_to_valid_frames(self, indices):
@@ -136,8 +148,7 @@ class TestOccupancyProperties:
         assert counts.sum() == valid
 
     @given(
-        indices=arrays(np.int32, shape=st.integers(1, 200),
-                       elements=st.integers(0, 22)),
+        indices=arrays(np.int32, shape=st.integers(1, 200), elements=st.integers(0, 22)),
     )
     @settings(max_examples=20)
     def test_occupancy_fraction_sums_to_one(self, indices):
@@ -146,8 +157,7 @@ class TestOccupancyProperties:
         assert abs(frac.sum() - 1.0) < 1e-10
 
     @given(
-        indices=arrays(np.int32, shape=st.integers(0, 100),
-                       elements=st.integers(-1, 22)),
+        indices=arrays(np.int32, shape=st.integers(0, 100), elements=st.integers(-1, 22)),
     )
     @settings(max_examples=20)
     def test_occupancy_non_negative(self, indices):
@@ -158,8 +168,7 @@ class TestOccupancyProperties:
 
 class TestEntropyProperties:
     @given(
-        seq=arrays(np.int32, shape=st.integers(2, 100),
-                   elements=st.integers(0, 10)),
+        seq=arrays(np.int32, shape=st.integers(2, 100), elements=st.integers(0, 10)),
     )
     @settings(max_examples=20)
     def test_entropy_non_negative(self, seq):
@@ -168,8 +177,7 @@ class TestEntropyProperties:
         assert np.all(ent >= -1e-10)
 
     @given(
-        seq=arrays(np.int32, shape=st.integers(5, 50),
-                   elements=st.integers(0, 5)),
+        seq=arrays(np.int32, shape=st.integers(5, 50), elements=st.integers(0, 5)),
     )
     @settings(max_examples=20)
     def test_entropy_bounded(self, seq):
@@ -185,8 +193,7 @@ class TestEntropyProperties:
 
 class TestExplorationProperties:
     @given(
-        seq=arrays(np.int32, shape=st.integers(2, 100),
-                   elements=st.integers(0, 13)),
+        seq=arrays(np.int32, shape=st.integers(2, 100), elements=st.integers(0, 13)),
     )
     @settings(max_examples=20)
     def test_new_nodes_bounded_by_window(self, seq):
@@ -196,8 +203,7 @@ class TestExplorationProperties:
             assert n <= w
 
     @given(
-        seq=arrays(np.int32, shape=st.integers(2, 100),
-                   elements=st.integers(0, 13)),
+        seq=arrays(np.int32, shape=st.integers(2, 100), elements=st.integers(0, 13)),
     )
     @settings(max_examples=20)
     def test_new_nodes_at_least_one(self, seq):

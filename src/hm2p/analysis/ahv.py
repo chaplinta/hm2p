@@ -39,6 +39,7 @@ def compute_ahv(
     # Smooth HD
     if smoothing_frames > 1:
         from scipy.ndimage import gaussian_filter1d
+
         hd = gaussian_filter1d(hd, sigma=smoothing_frames / 3)
 
     # Compute angular difference (handle wrapping)
@@ -107,6 +108,7 @@ def ahv_tuning_curve(
 
     if smoothing_sigma > 0:
         from scipy.ndimage import gaussian_filter1d
+
         tc_filled = np.where(np.isnan(tuning_curve), 0, tuning_curve)
         weight = np.where(np.isnan(tuning_curve), 0, 1.0)
         tc_s = gaussian_filter1d(tc_filled, sigma=smoothing_sigma)
@@ -206,16 +208,19 @@ def anticipatory_time_delay(
     n = len(signal)
     for lag in lags:
         if lag >= 0:
-            sig_slice = signal[:n - lag] if lag > 0 else signal
+            sig_slice = signal[: n - lag] if lag > 0 else signal
             hd_slice = hd_deg[lag:] if lag > 0 else hd_deg
-            mask_slice = mask[:n - lag] if lag > 0 else mask
+            mask_slice = mask[: n - lag] if lag > 0 else mask
         else:
             sig_slice = signal[-lag:]
-            hd_slice = hd_deg[:n + lag]
+            hd_slice = hd_deg[: n + lag]
             mask_slice = mask[-lag:]
 
         tc, bc = compute_hd_tuning_curve(
-            sig_slice, hd_slice, mask_slice, n_bins=n_bins,
+            sig_slice,
+            hd_slice,
+            mask_slice,
+            n_bins=n_bins,
         )
         mvls.append(mean_vector_length(tc, bc))
 

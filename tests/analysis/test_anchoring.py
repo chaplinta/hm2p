@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
 from hm2p.analysis.anchoring import (
     anchoring_speed,
@@ -15,12 +14,11 @@ from hm2p.analysis.anchoring import (
 def _make_light_on(n, cycle=1800):
     light_on = np.zeros(n, dtype=bool)
     for start in range(0, n, 2 * cycle):
-        light_on[start:min(start + cycle, n)] = True
+        light_on[start : min(start + cycle, n)] = True
     return light_on
 
 
-def _make_anchored_cell(n=9000, pref=90.0, kappa=3.0, drift=30.0,
-                        cycle=1800, noise=0.15, seed=42):
+def _make_anchored_cell(n=9000, pref=90.0, kappa=3.0, drift=30.0, cycle=1800, noise=0.15, seed=42):
     """Cell that drifts in dark but re-anchors in light."""
     rng = np.random.default_rng(seed)
     hd = np.cumsum(rng.normal(0, 5, n)) % 360.0
@@ -81,8 +79,7 @@ class TestAnchoringTimeCourse:
     def test_output_keys(self):
         signal, hd, mask, light_on = _make_anchored_cell()
         result = anchoring_time_course(signal, hd, mask, light_on)
-        expected = {"time_offsets_s", "pd_deviations", "mvls",
-                    "reference_pd", "n_transitions"}
+        expected = {"time_offsets_s", "pd_deviations", "mvls", "reference_pd", "n_transitions"}
         assert set(result.keys()) == expected
 
     def test_transitions_found(self):
@@ -115,7 +112,11 @@ class TestAnchoringTimeCourse:
     def test_custom_reference_pd(self):
         signal, hd, mask, light_on = _make_anchored_cell()
         result = anchoring_time_course(
-            signal, hd, mask, light_on, reference_pd=45.0,
+            signal,
+            hd,
+            mask,
+            light_on,
+            reference_pd=45.0,
         )
         assert result["reference_pd"] == 45.0
 
@@ -125,10 +126,12 @@ class TestAnchoringSpeed:
 
     def test_output_keys(self):
         time_offsets = np.linspace(-10, 30, 40)
-        deviations = np.concatenate([
-            np.ones(10) * 30,  # pre
-            np.linspace(30, 5, 30),  # post: decaying
-        ])
+        deviations = np.concatenate(
+            [
+                np.ones(10) * 30,  # pre
+                np.linspace(30, 5, 30),  # post: decaying
+            ]
+        )
         result = anchoring_speed(deviations, time_offsets)
         expected = {"pre_deviation", "post_deviation", "half_time_s", "anchoring_strength"}
         assert set(result.keys()) == expected
@@ -136,10 +139,12 @@ class TestAnchoringSpeed:
     def test_re_anchoring_detected(self):
         """Deviation that decreases after transition should show re-anchoring."""
         time_offsets = np.linspace(-10, 30, 40)
-        deviations = np.concatenate([
-            np.ones(10) * 30,  # pre
-            np.linspace(30, 2, 30),  # post: decaying
-        ])
+        deviations = np.concatenate(
+            [
+                np.ones(10) * 30,  # pre
+                np.linspace(30, 2, 30),  # post: decaying
+            ]
+        )
         result = anchoring_speed(deviations, time_offsets)
         assert result["pre_deviation"] > result["post_deviation"]
         assert result["anchoring_strength"] > 0.5

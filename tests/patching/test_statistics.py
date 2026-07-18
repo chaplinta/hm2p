@@ -16,7 +16,6 @@ from hm2p.patching.statistics import (
     spearman_correlation,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -47,7 +46,9 @@ def two_group_df() -> pd.DataFrame:
 def correlated_df() -> pd.DataFrame:
     """DataFrame with perfectly correlated columns."""
     x = np.arange(1.0, 21.0)
-    return pd.DataFrame({"x": x, "y": 2 * x + 3, "z": -x, "rand": np.random.default_rng(0).random(20)})
+    return pd.DataFrame(
+        {"x": x, "y": 2 * x + 3, "z": -x, "rand": np.random.default_rng(0).random(20)}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -178,9 +179,7 @@ class TestMannWhitneyComparison:
             mann_whitney_comparison(df, ["val"])
 
     def test_three_groups_raises(self) -> None:
-        df = pd.DataFrame(
-            {"cell_type": ["A", "B", "C"], "val": [1.0, 2.0, 3.0]}
-        )
+        df = pd.DataFrame({"cell_type": ["A", "B", "C"], "val": [1.0, 2.0, 3.0]})
         with pytest.raises(ValueError, match="exactly 2 groups"):
             mann_whitney_comparison(df, ["val"])
 
@@ -228,9 +227,7 @@ class TestSpearmanCorrelation:
         assert p < 0.001
 
     def test_nan_pairs_dropped(self) -> None:
-        df = pd.DataFrame(
-            {"x": [1, 2, 3, 4, 5, np.nan], "y": [2, 4, 6, 8, 10, 999]}
-        )
+        df = pd.DataFrame({"x": [1, 2, 3, 4, 5, np.nan], "y": [2, 4, 6, 8, 10, 999]})
         rho, p = spearman_correlation(df, "x", "y")
         assert rho == pytest.approx(1.0)
 
@@ -278,9 +275,7 @@ class TestCorrelationMatrix:
         assert rho_m.loc["x", "y"] == pytest.approx(1.0)
 
     def test_insufficient_data_gives_nan(self) -> None:
-        df = pd.DataFrame(
-            {"a": [1.0, np.nan, np.nan], "b": [np.nan, 2.0, np.nan]}
-        )
+        df = pd.DataFrame({"a": [1.0, np.nan, np.nan], "b": [np.nan, 2.0, np.nan]})
         rho_m, p_m = correlation_matrix(df, ["a", "b"])
         assert np.isnan(rho_m.loc["a", "b"])
         assert np.isnan(p_m.loc["a", "b"])
@@ -300,9 +295,7 @@ class TestCorrelationMatrix:
 class TestSaveStatsSummary:
     def test_creates_csv_files(self, tmp_path: Path) -> None:
         summary = pd.DataFrame({"metric": ["a"], "penk_mean": [1.0]})
-        comparison = pd.DataFrame(
-            {"metric": ["a"], "statistic": [10.0], "p_value": [0.05]}
-        )
+        comparison = pd.DataFrame({"metric": ["a"], "statistic": [10.0], "p_value": [0.05]})
         base = tmp_path / "output" / "stats"
         save_stats_summary(summary, comparison, base)
 

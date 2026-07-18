@@ -103,7 +103,9 @@ class TestGetSignal:
         dff = np.zeros((3, 10), dtype=np.float32)
         event_masks = np.zeros((3, 10), dtype=np.float32)
         event_masks[0, 3:6] = 1.0
-        result = _get_signal(dff, deconv=None, event_masks=event_masks, roi_idx=0, signal_type="events")
+        result = _get_signal(
+            dff, deconv=None, event_masks=event_masks, roi_idx=0, signal_type="events"
+        )
         assert result.dtype == np.float32
         assert result[4] == 1.0
         assert result[0] == 0.0
@@ -323,7 +325,10 @@ class TestAnalyzeCellLightEdgeCases:
     def test_both_conditions_populated_enables_comparison(self) -> None:
         """When both light and dark have enough frames, comparison is populated."""
         data = _make_synthetic_data(
-            n_rois=3, n_frames=500, speed_moving_frac=0.8, light_on_frac=0.5,
+            n_rois=3,
+            n_frames=500,
+            speed_moving_frac=0.8,
+            light_on_frac=0.5,
         )
         result = analyze_cell(
             roi_idx=0,
@@ -463,8 +468,7 @@ class TestGainWiring:
         data = _make_synthetic_data()
         r = analyze_cell(roi_idx=0, fps=10.0, params=AnalysisParams(n_shuffles=10), **data)
         assert r.gain, "gain dict should be populated with enough moving frames"
-        for key in ("gain_index", "peak_light", "peak_dark",
-                    "mean_rate_light", "mean_rate_dark"):
+        for key in ("gain_index", "peak_light", "peak_dark", "mean_rate_light", "mean_rate_dark"):
             assert key in r.gain
         assert -1.0 <= r.gain["gain_index"] <= 1.0
 
@@ -494,8 +498,12 @@ class TestJunctionWiring:
             **data,
         )
         assert r.junction, "junction dict should be populated"
-        for key in ("act_junction_light", "act_corridor_light",
-                    "mvl_junction_light", "mvl_junction_dark"):
+        for key in (
+            "act_junction_light",
+            "act_corridor_light",
+            "mvl_junction_light",
+            "mvl_junction_dark",
+        ):
             assert key in r.junction
 
     def test_compute_junction_insufficient_frames_is_nan(self) -> None:
@@ -507,7 +515,13 @@ class TestJunctionWiring:
         light_on = np.ones(n, dtype=bool)  # no dark frames at all
         masks = _make_location_masks(n)
         out = _compute_junction_for_cell(
-            signal, hd, masks, moving, light_on, AnalysisParams(), min_frames=50,
+            signal,
+            hd,
+            masks,
+            moving,
+            light_on,
+            AnalysisParams(),
+            min_frames=50,
         )
         # Dark conditions have zero frames -> NaN.
         assert np.isnan(out["mvl_junction_dark"])

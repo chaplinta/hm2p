@@ -17,7 +17,6 @@ from hm2p.analysis.activity import (
     split_conditions,
 )
 
-
 # ---------------------------------------------------------------------------
 # split_conditions
 # ---------------------------------------------------------------------------
@@ -111,9 +110,7 @@ class TestConditionEventRate:
     def test_known_pattern(self):
         """Two onsets in 10 frames at 10 fps = 2 events / 1 s = 2.0 Hz."""
         # Onsets at frame 2 and frame 7.
-        event_mask = np.array(
-            [False, False, True, True, False, False, False, True, True, False]
-        )
+        event_mask = np.array([False, False, True, True, False, False, False, True, True, False])
         condition_mask = np.ones(10, dtype=bool)
         rate = condition_event_rate(event_mask, condition_mask, fps=10.0)
         assert rate == pytest.approx(2.0)
@@ -169,9 +166,7 @@ class TestConditionMeanAmplitude:
         event_mask = np.array([False, True, True, False])
         cond_mask = np.array([True, True, False, True])
         # Only frame 1 qualifies (event & condition).
-        assert condition_mean_amplitude(signal, event_mask, cond_mask) == pytest.approx(
-            5.0
-        )
+        assert condition_mean_amplitude(signal, event_mask, cond_mask) == pytest.approx(5.0)
 
     def test_no_overlap_returns_nan(self):
         signal = np.array([1.0, 2.0])

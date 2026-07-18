@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 
-from hm2p.analysis.classify import classify_population, classification_summary_table
+from hm2p.analysis.classify import classification_summary_table, classify_population
 from hm2p.analysis.gain import population_gain_modulation
 from hm2p.analysis.speed import speed_modulation_index
 from hm2p.analysis.stability import drift_per_epoch
@@ -21,7 +20,7 @@ def _make_session(n_cells=6, n_frames=6000, seed=42):
 
     light_on = np.zeros(n_frames, dtype=bool)
     for start in range(0, n_frames, 3600):
-        light_on[start:min(start + 1800, n_frames)] = True
+        light_on[start : min(start + 1800, n_frames)] = True
 
     signals = np.zeros((n_cells, n_frames))
     n_hd = n_cells * 2 // 3
@@ -46,7 +45,10 @@ class TestSummaryPageWorkflow:
     def test_classification_runs(self):
         signals, hd, _, mask, _ = _make_session()
         pop = classify_population(
-            signals, hd, mask, n_shuffles=50,
+            signals,
+            hd,
+            mask,
+            n_shuffles=50,
             rng=np.random.default_rng(42),
         )
         assert pop["n_hd"] + pop["n_non_hd"] == 6
@@ -80,7 +82,10 @@ class TestSummaryPageWorkflow:
 
         # Classification
         pop = classify_population(
-            signals, hd, mask, n_shuffles=50,
+            signals,
+            hd,
+            mask,
+            n_shuffles=50,
             rng=np.random.default_rng(42),
         )
         table = classification_summary_table(pop)
@@ -90,8 +95,10 @@ class TestSummaryPageWorkflow:
         mean_gmi = np.mean([g["gain_index"] for g in gains])
 
         # Speed
-        smis = [speed_modulation_index(signals[i], speed, mask)["speed_modulation_index"]
-                for i in range(6)]
+        smis = [
+            speed_modulation_index(signals[i], speed, mask)["speed_modulation_index"]
+            for i in range(6)
+        ]
         mean_smi = np.mean(smis)
 
         # Drift

@@ -123,10 +123,12 @@ class TestSynergyRedundancy:
         rng = np.random.default_rng(42)
         n = 2000
         hd = np.cumsum(rng.normal(0, 5, n)) % 360.0
-        signals = np.vstack([
-            np.exp(3 * np.cos(np.deg2rad(hd))),
-            np.exp(3 * np.cos(np.deg2rad(hd - 90))),
-        ])
+        signals = np.vstack(
+            [
+                np.exp(3 * np.cos(np.deg2rad(hd))),
+                np.exp(3 * np.cos(np.deg2rad(hd - 90))),
+            ]
+        )
         mask = np.ones(n, dtype=bool)
         result = synergy_redundancy(signals, hd, mask, 0, 1)
         assert "info_a" in result
@@ -151,10 +153,12 @@ class TestSynergyRedundancy:
         rng = np.random.default_rng(42)
         n = 3000
         hd = np.cumsum(rng.normal(0, 5, n)) % 360.0
-        signals = np.vstack([
-            np.exp(3 * np.cos(np.deg2rad(hd))) + rng.normal(0, 0.1, n),
-            np.exp(3 * np.cos(np.deg2rad(hd - 90))) + rng.normal(0, 0.1, n),
-        ])
+        signals = np.vstack(
+            [
+                np.exp(3 * np.cos(np.deg2rad(hd))) + rng.normal(0, 0.1, n),
+                np.exp(3 * np.cos(np.deg2rad(hd - 90))) + rng.normal(0, 0.1, n),
+            ]
+        )
         mask = np.ones(n, dtype=bool)
         result = synergy_redundancy(signals, hd, mask, 0, 1)
         assert result["info_joint"] >= max(result["info_a"], result["info_b"]) * 0.9
