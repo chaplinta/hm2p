@@ -116,9 +116,7 @@ def _download_session_ca_h5(sub: str, ses: str) -> bytes | None:
 sessions_meta = _session_list()
 
 if not sessions_meta:
-    st.warning(
-        "No sessions found in metadata. Check that `experiments.csv` is present."
-    )
+    st.warning("No sessions found in metadata. Check that `experiments.csv` is present.")
     st.stop()
 
 
@@ -310,77 +308,94 @@ spatial = load_suite2p_spatial_one(ses["exp_id"]) or {}
 mean_img = spatial.get("mean_img")
 max_img = spatial.get("max_img")
 shape_features = spatial.get("shape_features", [])
-bg_img = max_img if max_img is not None else mean_img
+# Background image selector (mean vs max projection) and ROI-overlay toggle.
+# Controls live in the page body (never the sidebar) per project rules.
+bg_options: list[str] = []
+if max_img is not None:
+    bg_options.append("Max projection")
+if mean_img is not None:
+    bg_options.append("Mean image")
 
-col_img, col_trace = st.columns([1, 2])
-
-with col_img:
-    if bg_img is not None:
-        fig = go.Figure(data=go.Heatmap(z=bg_img, colorscale="gray", showscale=False))
-        if roi_idx < len(shape_features) and shape_features[roi_idx] is not None:
-            sf = shape_features[roi_idx]
-            ypix = sf.get("ypix", [])
-            xpix = sf.get("xpix", [])
-            if len(xpix) > 0:
-                fig.add_trace(
-                    go.Scatter(
-                        x=xpix,
-                        y=ypix,
-                        mode="markers",
-                        marker=dict(size=3, color="yellow", opacity=0.85),
-                        name=f"ROI {roi_idx}",
-                    )
-                )
-        img_h, img_w = bg_img.shape[:2]
-        fig.update_layout(
-            height=320,
-            title=f"ROI {roi_idx}",
-            xaxis=dict(range=[0, img_w], constrain="domain"),
-            yaxis=dict(range=[img_h, 0], scaleanchor="x", constrain="domain"),
-            margin=dict(t=30, b=5, l=5, r=5),
-            showlegend=False,
-        )
-        st.plotly_chart(fig, use_container_width=True, key="rc_img")
-    else:
-        st.info("No spatial data for this session.")
-
-# dF/F trace (matches roi_viewer plotting convention).
-with col_trace:
-    dff = ses["dff"][roi_idx]
-    frame_times = ses.get("frame_times")
-    t = (frame_times - frame_times[0]) if frame_times is not None else np.arange(len(dff)) / 9.6
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scattergl(
-            x=t,
-            y=dff,
-            mode="lines",
-            line=dict(color="royalblue", width=1),
-            name="dF/F₀",
-        )
+ctrl_bg, ctrl_roi = st.columns([3, 1])
+with ctrl_bg:
+    bg_choice = st.radio(
+        "Background image",
+        options=bg_options or ["(none)"],
+        horizontal=True,
+        key="rc_bg_choice",
+        disabled=not bg_options,
     )
-    event_masks = ses.get("event_masks")
-    if event_masks is not None and roi_idx < event_masks.shape[0]:
-        events = event_masks[roi_idx].astype(bool)
-        if events.any():
+with ctrl_roi:
+    show_roi = st.toggle("Show ROI overlay", value=True, key="rc_show_roi")
+
+# Radio options only include images that exist, so the selected one is present.
+bg_img = mean_img if bg_choice == "Mean image" else max_img
+
+if bg_img is not None:
+    fig = go.Figure(data=go.Heatmap(z=bg_img, colorscale="gray", showscale=False))
+    if show_roi and roi_idx < len(shape_features) and shape_features[roi_idx] is not None:
+        sf = shape_features[roi_idx]
+        ypix = sf.get("ypix", [])
+        xpix = sf.get("xpix", [])
+        if len(xpix) > 0:
             fig.add_trace(
-                go.Scattergl(
-                    x=t[events],
-                    y=dff[events],
+                go.Scatter(
+                    x=xpix,
+                    y=ypix,
                     mode="markers",
-                    marker=dict(size=3, color="red", symbol="circle"),
-                    name="Events",
+                    marker=dict(size=4, color="yellow", opacity=0.85),
+                    name=f"ROI {roi_idx}",
                 )
             )
+    img_h, img_w = bg_img.shape[:2]
     fig.update_layout(
-        height=320,
-        margin=dict(t=20, b=35, l=55, r=15),
-        xaxis_title="Time (s)",
-        yaxis_title="dF/F₀",
-        showlegend=True,
-        legend=dict(orientation="h", y=-0.2),
+        height=700,
+        title=f"ROI {roi_idx} — {bg_choice}",
+        xaxis=dict(range=[0, img_w], constrain="domain"),
+        yaxis=dict(range=[img_h, 0], scaleanchor="x", constrain="domain"),
+        margin=dict(t=30, b=5, l=5, r=5),
+        showlegend=False,
     )
-    st.plotly_chart(fig, use_container_width=True, key="rc_trace")
+    st.plotly_chart(fig, use_container_width=True, key="rc_img")
+else:
+    st.info("No spatial data for this session.")
+
+# dF/F trace (matches roi_viewer plotting convention), full width below image.
+dff = ses["dff"][roi_idx]
+frame_times = ses.get("frame_times")
+t = (frame_times - frame_times[0]) if frame_times is not None else np.arange(len(dff)) / 9.6
+fig = go.Figure()
+fig.add_trace(
+    go.Scattergl(
+        x=t,
+        y=dff,
+        mode="lines",
+        line=dict(color="royalblue", width=1),
+        name="dF/F₀",
+    )
+)
+event_masks = ses.get("event_masks")
+if event_masks is not None and roi_idx < event_masks.shape[0]:
+    events = event_masks[roi_idx].astype(bool)
+    if events.any():
+        fig.add_trace(
+            go.Scattergl(
+                x=t[events],
+                y=dff[events],
+                mode="markers",
+                marker=dict(size=3, color="red", symbol="circle"),
+                name="Events",
+            )
+        )
+fig.update_layout(
+    height=280,
+    margin=dict(t=20, b=35, l=55, r=15),
+    xaxis_title="Time (s)",
+    yaxis_title="dF/F₀",
+    showlegend=True,
+    legend=dict(orientation="h", y=-0.2),
+)
+st.plotly_chart(fig, use_container_width=True, key="rc_trace")
 
 
 # ── Label widget ──────────────────────────────────────────────────────────
