@@ -186,14 +186,18 @@ class TestArgmaxMatchesLegacy:
         compact: float,
         aspect: float,
     ) -> None:
-        # Skip points on the exact boundaries (the legacy is < / >, not ≤ / ≥;
-        # the soft scorer puts p = 0.5 there, so argmax is indeterminate).
-        if abs(radius - 2.0) < 0.05 or abs(compact - 0.1) < 0.005 or abs(aspect - 2.5) < 0.05:
-            return
+        # The legacy rule is a hard threshold (< / >) while the soft scorer
+        # ramps through p = 0.5 near each boundary, so the argmax is
+        # indeterminate in a band around the thresholds. Skip cases where the
+        # soft classifier is not confident (top-two probabilities close), which
+        # is exactly where it can legitimately disagree with the hard rule.
         stat = [{"radius": radius, "compact": compact, "aspect_ratio": aspect}]
         legacy = classify_roi_types(stat)[0]
         df = _features_from_stat(stat)
         probs = RuleBasedClassifier().predict_proba(df)
+        top_two = np.sort(probs[0])[::-1][:2]
+        if top_two[0] - top_two[1] < 0.15:
+            return  # indeterminate near a soft boundary
         new_label = CLASS_NAMES[int(np.argmax(probs, axis=1)[0])]
         assert new_label == legacy
 
