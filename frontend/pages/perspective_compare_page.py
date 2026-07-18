@@ -12,13 +12,19 @@ from pathlib import Path
 
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import streamlit as st
+from plotly.subplots import make_subplots
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 
-from frontend.data import load_all_sync_data, render_tracker_provenance, session_filter_controls as session_filter_sidebar
+from frontend.data import (
+    load_all_sync_data,
+    render_tracker_provenance,
+)
+from frontend.data import (
+    session_filter_controls as session_filter_sidebar,
+)
 from frontend.pages.maze_animation_page import _MAZE_WALLS_X, _MAZE_WALLS_Y
 
 # ── Perspective correction (operates on pixel-level data, before mm/maze conversion)
@@ -108,12 +114,17 @@ def _build_comparison_figure(
     # Assume current data is uncorrected (pipeline hasn't re-run yet).
     # Apply forward correction to get the corrected version.
     x_corr, y_corr = _apply_perspective_in_maze_coords(
-        x_maze, y_maze, camera_center_maze,
-        camera_height_mm, bodypart_height_mm, inverse=False,
+        x_maze,
+        y_maze,
+        camera_center_maze,
+        camera_height_mm,
+        bodypart_height_mm,
+        inverse=False,
     )
 
     fig = make_subplots(
-        rows=1, cols=2,
+        rows=1,
+        cols=2,
         subplot_titles=["Uncorrected (raw)", "Perspective-corrected"],
         horizontal_spacing=0.08,
     )
@@ -121,44 +132,81 @@ def _build_comparison_figure(
     # Colour array: orange for light, grey for dark
     colors = np.where(light_on, "rgba(255,165,0,0.3)", "rgba(100,100,100,0.3)")
 
-    for col, (xd, yd, title) in enumerate([
-        (x_maze, y_maze, "Raw"),
-        (x_corr, y_corr, "Corrected"),
-    ], start=1):
+    for col, (xd, yd, title) in enumerate(
+        [
+            (x_maze, y_maze, "Raw"),
+            (x_corr, y_corr, "Corrected"),
+        ],
+        start=1,
+    ):
         # Maze walls
-        fig.add_trace(go.Scatter(
-            x=_MAZE_WALLS_X, y=_MAZE_WALLS_Y,
-            mode="lines", line=dict(color="black", width=2),
-            showlegend=False, hoverinfo="skip",
-        ), row=1, col=col)
+        fig.add_trace(
+            go.Scatter(
+                x=_MAZE_WALLS_X,
+                y=_MAZE_WALLS_Y,
+                mode="lines",
+                line=dict(color="black", width=2),
+                showlegend=False,
+                hoverinfo="skip",
+            ),
+            row=1,
+            col=col,
+        )
 
         # Trajectory
-        fig.add_trace(go.Scatter(
-            x=xd, y=yd,
-            mode="markers",
-            marker=dict(size=1.5, color=colors.tolist()),
-            showlegend=False, hoverinfo="skip",
-        ), row=1, col=col)
+        fig.add_trace(
+            go.Scatter(
+                x=xd,
+                y=yd,
+                mode="markers",
+                marker=dict(size=1.5, color=colors.tolist()),
+                showlegend=False,
+                hoverinfo="skip",
+            ),
+            row=1,
+            col=col,
+        )
 
         # Camera centre
-        fig.add_trace(go.Scatter(
-            x=[camera_center_maze[0]], y=[camera_center_maze[1]],
-            mode="markers",
-            marker=dict(size=8, color="red", symbol="x"),
-            showlegend=False, name="Camera centre",
-            hovertext="Camera optical centre",
-            hoverinfo="text",
-        ), row=1, col=col)
+        fig.add_trace(
+            go.Scatter(
+                x=[camera_center_maze[0]],
+                y=[camera_center_maze[1]],
+                mode="markers",
+                marker=dict(size=8, color="red", symbol="x"),
+                showlegend=False,
+                name="Camera centre",
+                hovertext="Camera optical centre",
+                hoverinfo="text",
+            ),
+            row=1,
+            col=col,
+        )
 
     # Layout
     for col in [1, 2]:
-        fig.update_xaxes(range=[-0.5, 7.5], scaleanchor=f"y{col if col > 1 else ''}", scaleratio=1,
-                         showgrid=False, zeroline=False, title="x (maze units)", row=1, col=col)
-        fig.update_yaxes(range=[-0.5, 5.5], showgrid=False, zeroline=False,
-                         title="y (maze units)" if col == 1 else "", row=1, col=col)
+        fig.update_xaxes(
+            range=[-0.5, 7.5],
+            scaleanchor=f"y{col if col > 1 else ''}",
+            scaleratio=1,
+            showgrid=False,
+            zeroline=False,
+            title="x (maze units)",
+            row=1,
+            col=col,
+        )
+        fig.update_yaxes(
+            range=[-0.5, 5.5],
+            showgrid=False,
+            zeroline=False,
+            title="y (maze units)" if col == 1 else "",
+            row=1,
+            col=col,
+        )
 
     fig.update_layout(
-        width=1100, height=500,
+        width=1100,
+        height=500,
         margin=dict(l=40, r=40, t=60, b=40),
     )
 
@@ -191,6 +239,7 @@ def _page() -> None:
 
     # Check for stale data before starting the slow download
     from frontend.data import check_stale_data_warning
+
     check_stale_data_warning(stages=["kinematics", "sync"], block=True)
 
     with st.spinner("Loading sync data..."):
@@ -215,21 +264,31 @@ def _page() -> None:
 
     with col1:
         labels = [f"{s['exp_id']} ({s['celltype']})" for s in sessions_with_pos]
-        sel_idx = st.selectbox("Session", range(len(labels)), format_func=lambda i: labels[i], key="persp_ses")
+        sel_idx = st.selectbox(
+            "Session", range(len(labels)), format_func=lambda i: labels[i], key="persp_ses"
+        )
 
     with col2:
         c1, c2 = st.columns(2)
         with c1:
             height_mm = st.slider(
-                "Bodypart height (mm)", 0, 80, 30, 5,
+                "Bodypart height (mm)",
+                0,
+                80,
+                30,
+                5,
                 key="persp_height",
                 help="Estimated height of the body centroid above the maze floor. "
-                     "Mouse body ~20mm, ears with 2P implant ~40mm. "
-                     "This slider lets you see the effect at different heights.",
+                "Mouse body ~20mm, ears with 2P implant ~40mm. "
+                "This slider lets you see the effect at different heights.",
             )
         with c2:
             cam_height = st.number_input(
-                "Camera height (mm)", 500, 1000, 700, 50,
+                "Camera height (mm)",
+                500,
+                1000,
+                700,
+                50,
                 key="persp_cam",
                 help="Distance from camera sensor to maze floor.",
             )
@@ -249,8 +308,13 @@ def _page() -> None:
     camera_center_maze = _estimate_camera_center_maze(None, None)
 
     fig, x_corr, y_corr = _build_comparison_figure(
-        x_v, y_v, hd_v, light_v,
-        camera_center_maze, float(height_mm), float(cam_height),
+        x_v,
+        y_v,
+        hd_v,
+        light_v,
+        camera_center_maze,
+        float(height_mm),
+        float(cam_height),
     )
     st.plotly_chart(fig, use_container_width=False)
 
@@ -259,15 +323,25 @@ def _page() -> None:
 
     col_a, col_b, col_c = st.columns(3)
     with col_a:
-        st.metric("Out-of-bounds (raw)", f"{raw_stats['pct_oob']:.1f}%", help="Positions outside the 7×5 maze bounding box")
+        st.metric(
+            "Out-of-bounds (raw)",
+            f"{raw_stats['pct_oob']:.1f}%",
+            help="Positions outside the 7×5 maze bounding box",
+        )
     with col_b:
-        st.metric("Out-of-bounds (corrected)", f"{corr_stats['pct_oob']:.1f}%",
-                  delta=f"{corr_stats['pct_oob'] - raw_stats['pct_oob']:.1f}%",
-                  delta_color="inverse")
+        st.metric(
+            "Out-of-bounds (corrected)",
+            f"{corr_stats['pct_oob']:.1f}%",
+            delta=f"{corr_stats['pct_oob'] - raw_stats['pct_oob']:.1f}%",
+            delta_color="inverse",
+        )
     with col_c:
-        disp = np.sqrt((x_corr - x_v)**2 + (y_corr - y_v)**2)
-        st.metric("Mean correction", f"{np.nanmean(disp):.3f} maze units",
-                  help="Average distance each point moved due to correction")
+        disp = np.sqrt((x_corr - x_v) ** 2 + (y_corr - y_v) ** 2)
+        st.metric(
+            "Mean correction",
+            f"{np.nanmean(disp):.3f} maze units",
+            help="Average distance each point moved due to correction",
+        )
 
     with st.expander("Correction displacement map"):
         st.markdown(
@@ -279,32 +353,61 @@ def _page() -> None:
         xc, yc = x_corr[::step], y_corr[::step]
 
         fig_q = go.Figure()
-        fig_q.add_trace(go.Scatter(
-            x=_MAZE_WALLS_X, y=_MAZE_WALLS_Y,
-            mode="lines", line=dict(color="black", width=2),
-            showlegend=False, hoverinfo="skip",
-        ))
+        fig_q.add_trace(
+            go.Scatter(
+                x=_MAZE_WALLS_X,
+                y=_MAZE_WALLS_Y,
+                mode="lines",
+                line=dict(color="black", width=2),
+                showlegend=False,
+                hoverinfo="skip",
+            )
+        )
 
         for j in range(len(xs)):
             if np.isfinite(xs[j]) and np.isfinite(xc[j]):
                 fig_q.add_annotation(
-                    x=xc[j], y=yc[j], ax=xs[j], ay=ys[j],
-                    xref="x", yref="y", axref="x", ayref="y",
-                    showarrow=True, arrowhead=2, arrowsize=1.5, arrowwidth=1,
+                    x=xc[j],
+                    y=yc[j],
+                    ax=xs[j],
+                    ay=ys[j],
+                    xref="x",
+                    yref="y",
+                    axref="x",
+                    ayref="y",
+                    showarrow=True,
+                    arrowhead=2,
+                    arrowsize=1.5,
+                    arrowwidth=1,
                     arrowcolor="rgba(255,0,0,0.3)",
                 )
 
-        fig_q.add_trace(go.Scatter(
-            x=[camera_center_maze[0]], y=[camera_center_maze[1]],
-            mode="markers", marker=dict(size=10, color="red", symbol="x"),
-            showlegend=False, hovertext="Camera centre", hoverinfo="text",
-        ))
+        fig_q.add_trace(
+            go.Scatter(
+                x=[camera_center_maze[0]],
+                y=[camera_center_maze[1]],
+                mode="markers",
+                marker=dict(size=10, color="red", symbol="x"),
+                showlegend=False,
+                hovertext="Camera centre",
+                hoverinfo="text",
+            )
+        )
         fig_q.update_layout(
-            xaxis=dict(range=[-0.5, 7.5], scaleanchor="y", scaleratio=1, showgrid=False, zeroline=False),
+            xaxis=dict(
+                range=[-0.5, 7.5], scaleanchor="y", scaleratio=1, showgrid=False, zeroline=False
+            ),
             yaxis=dict(range=[-0.5, 5.5], showgrid=False, zeroline=False),
-            width=700, height=540, margin=dict(l=40, r=40, t=20, b=40),
+            width=700,
+            height=540,
+            margin=dict(l=40, r=40, t=20, b=40),
         )
         st.plotly_chart(fig_q, use_container_width=False)
 
 
-_page()
+# Only run the page body under an actual Streamlit run (or AppTest); a plain
+# import (e.g. unit tests importing the pure helpers) must be side-effect-free.
+from streamlit.runtime.scriptrunner import get_script_run_ctx  # noqa: E402
+
+if get_script_run_ctx() is not None:
+    _page()
