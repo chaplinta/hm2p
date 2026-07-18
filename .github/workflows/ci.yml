@@ -32,7 +32,13 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          uv run pytest --cov=hm2p --cov-report=xml --cov-fail-under=90
+          uv run pytest --cov=hm2p --cov-report=xml --cov-report=term-missing:skip-covered -v
+        # NB: no --cov-fail-under here so this step fails only on a test
+        # failure; the threshold is enforced in the next step so the two
+        # signals are distinguishable.
+
+      - name: Enforce coverage threshold
+        run: uv run coverage report --fail-under=90
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
