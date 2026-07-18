@@ -94,7 +94,7 @@ class TestLoadConfig:
 
     def test_real_pipeline_yaml(self) -> None:
         """The actual config/pipeline.yaml loads successfully."""
-        yaml_path = Path("/workspace/config/pipeline.yaml")
+        yaml_path = Path(__file__).resolve().parent.parent / "config" / "pipeline.yaml"
         if yaml_path.exists():
             cfg = load_config(yaml_path)
             assert cfg.compute_profile == "local"
@@ -112,7 +112,11 @@ class TestLoadConfig:
 
     def test_default_path_used(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When no path given, defaults to config/pipeline.yaml."""
-        monkeypatch.chdir("/workspace")
+        # Change to the repo root (where config/pipeline.yaml lives) computed
+        # from this file's location — not a hardcoded /workspace, which does not
+        # exist on CI runners.
+        repo_root = Path(__file__).resolve().parent.parent
+        monkeypatch.chdir(repo_root)
         cfg = load_config()
         # Should load from config/pipeline.yaml (which exists)
         assert isinstance(cfg, PipelineConfig)
