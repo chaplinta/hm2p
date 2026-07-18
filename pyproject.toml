@@ -101,6 +101,12 @@ workflow = [
     "snakemake>=8.0",
     "snakemake-executor-plugin-aws-batch>=0.2",
 ]
+# Streamlit dashboard + Plotly figures (frontend/ and hm2p.patching.plotting).
+# Required for the frontend and its tests, and for the patching plotting tests.
+frontend = [
+    "streamlit>=1.40",
+    "plotly>=5.20",
+]
 
 # ---------------------------------------------------------------------------
 # Dev dependencies
