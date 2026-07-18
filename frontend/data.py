@@ -885,7 +885,8 @@ def _fetch_all_sync_data() -> dict:
                 _n_rois = dff.shape[0]
                 _aligned = {}
                 for _name, _arr in (
-                    ("deconv", deconv), ("spikes", spikes),
+                    ("deconv", deconv),
+                    ("spikes", spikes),
                     ("deconv_norm", deconv_norm),
                     ("event_masks", event_masks),
                     ("event_masks_sd", event_masks_sd),
@@ -893,7 +894,10 @@ def _fetch_all_sync_data() -> dict:
                     if _arr is not None and _arr.shape[0] != _n_rois:
                         log.warning(
                             "%s: %s has %d rows but %d dF/F ROIs — dropping",
-                            exp_id, _name, _arr.shape[0], _n_rois,
+                            exp_id,
+                            _name,
+                            _arr.shape[0],
+                            _n_rois,
                         )
                         _aligned[_name] = None
                     else:
@@ -1262,9 +1266,7 @@ def load_ca_one(exp_id: str) -> dict | None:
 
     sub, ses = parse_session_id(exp_id)
     animal_id = exp_id.split("_")[-1]
-    animal_info = next(
-        (a for a in load_animals() if a["animal_id"] == animal_id), {}
-    )
+    animal_info = next((a for a in load_animals() if a["animal_id"] == animal_id), {})
 
     data = download_s3_bytes(DERIVATIVES_BUCKET, f"calcium/{sub}/{ses}/ca.h5")
     if data is None:
@@ -1275,9 +1277,7 @@ def load_ca_one(exp_id: str) -> dict | None:
             dff = f["dff"][:]
             fps = float(f.attrs.get("fps_imaging", 30.0))
             roi_types = (
-                f["roi_types"][:]
-                if "roi_types" in f
-                else np.zeros(dff.shape[0], dtype=np.uint8)
+                f["roi_types"][:] if "roi_types" in f else np.zeros(dff.shape[0], dtype=np.uint8)
             )
             event_masks = f["event_masks"][:] if "event_masks" in f else None
             event_masks_sd = f["event_masks_sd"][:] if "event_masks_sd" in f else None
@@ -1430,8 +1430,11 @@ def session_filter_controls(
                     # filtered). Those rows do not correspond to the masked
                     # ROIs, so drop the array rather than misalign or crash.
                     for key in (
-                        "deconv", "deconv_norm", "spikes",
-                        "event_masks", "event_masks_sd",
+                        "deconv",
+                        "deconv_norm",
+                        "spikes",
+                        "event_masks",
+                        "event_masks_sd",
                     ):
                         arr = s.get(key)
                         if arr is None:
@@ -1441,7 +1444,10 @@ def session_filter_controls(
                         else:
                             log.warning(
                                 "%s: %s has %d rows but %d ROIs — dropping for ROI filter",
-                                s.get("exp_id", "?"), key, arr.shape[0], mask.shape[0],
+                                s.get("exp_id", "?"),
+                                key,
+                                arr.shape[0],
+                                mask.shape[0],
                             )
                             s_copy[key] = None
                     s_copy["n_rois"] = int(mask.sum())
@@ -1579,7 +1585,22 @@ def load_suite2p_spatial_one(exp_id: str) -> dict:
         # True max projection (computed post-Suite2p from data.bin).
         # Falls back to meanImgE (contrast-enhanced mean) if max_proj not available.
         max_img = ops_dict.get("max_proj")
-        if max_img is None:
+        if max_img is not None:
+            # Suite2p crops max_proj to the motion-registered region
+            # (ops["yrange"]/["xrange"]), so it is smaller than meanImg and
+            # offset from full-frame coordinates. Embed it back into a
+            # full-frame array so it aligns with meanImg and the ROI pixel
+            # coordinates (which are full-frame). Outside the valid region is
+            # NaN (rendered transparent / at the low end of the colour scale).
+            max_img = np.asarray(max_img, dtype=float)
+            yr = ops_dict.get("yrange")
+            xr = ops_dict.get("xrange")
+            mean_shape = np.asarray(mean_img).shape if mean_img is not None else None
+            if yr is not None and xr is not None and mean_shape is not None:
+                full = np.full(mean_shape, np.nan, dtype=float)
+                full[int(yr[0]) : int(yr[1]), int(xr[0]) : int(xr[1])] = max_img
+                max_img = full
+        else:
             max_img = ops_dict.get("meanImgE")
 
     # Get accepted cell indices

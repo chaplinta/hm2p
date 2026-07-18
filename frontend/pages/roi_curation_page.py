@@ -400,12 +400,17 @@ event_masks = ses.get("event_masks")
 if event_masks is not None and roi_idx < event_masks.shape[0]:
     events = event_masks[roi_idx].astype(bool)
     if events.any():
+        # Draw events as segments over the trace: overlay the dF/F only during
+        # event frames (NaN elsewhere) with connectgaps off, so each
+        # contiguous event renders as a red segment rather than isolated dots.
+        y_event = np.where(events, dff, np.nan)
         fig.add_trace(
             go.Scattergl(
-                x=t[events],
-                y=dff[events],
-                mode="markers",
-                marker=dict(size=3, color="red", symbol="circle"),
+                x=t,
+                y=y_event,
+                mode="lines",
+                line=dict(color="red", width=2.5),
+                connectgaps=False,
                 name="Events",
             )
         )
