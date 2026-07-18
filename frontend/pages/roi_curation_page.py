@@ -382,21 +382,26 @@ if bg_img is not None:
     fig = go.Figure(
         data=go.Heatmap(z=bg_img, colorscale="gray", showscale=False, zmin=zmin, zmax=zmax)
     )
+    img_h, img_w = bg_img.shape[:2]
     if show_roi and roi_idx < len(shape_features) and shape_features[roi_idx] is not None:
         sf = shape_features[roi_idx]
-        ypix = sf.get("ypix", [])
-        xpix = sf.get("xpix", [])
-        if len(xpix) > 0:
+        ypix = np.asarray(sf.get("ypix", []), dtype=int)
+        xpix = np.asarray(sf.get("xpix", []), dtype=int)
+        if xpix.size > 0:
+            # Shade the ROI footprint as a translucent region (NaN elsewhere
+            # renders transparent) rather than scatter dots.
+            overlay = np.full((img_h, img_w), np.nan)
+            inb = (ypix >= 0) & (ypix < img_h) & (xpix >= 0) & (xpix < img_w)
+            overlay[ypix[inb], xpix[inb]] = 1.0
             fig.add_trace(
-                go.Scatter(
-                    x=xpix,
-                    y=ypix,
-                    mode="markers",
-                    marker=dict(size=4, color="yellow", opacity=0.85),
+                go.Heatmap(
+                    z=overlay,
+                    showscale=False,
+                    colorscale=[[0, "rgba(255,215,0,0.4)"], [1, "rgba(255,215,0,0.4)"]],
+                    hoverinfo="skip",
                     name=f"ROI {roi_idx}",
                 )
             )
-    img_h, img_w = bg_img.shape[:2]
     fig.update_layout(
         height=700,
         title=f"ROI {roi_idx} — {bg_choice}",
