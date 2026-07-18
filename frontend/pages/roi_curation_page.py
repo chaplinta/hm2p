@@ -69,6 +69,13 @@ try:
 except ValueError:
     _CURATION_CSV_DISPLAY = str(CURATION_CSV)
 
+# Use the full browser width for this page (the anatomy image benefits from it).
+st.markdown(
+    "<style>.block-container{max-width:100% !important;"
+    "padding-left:1.5rem;padding-right:1.5rem;}</style>",
+    unsafe_allow_html=True,
+)
+
 st.title("ROI Curation")
 st.caption(
     "Review ROIs that the soma classifier is uncertain about and assign a "
@@ -120,21 +127,8 @@ if not sessions_meta:
     st.stop()
 
 
-# ── Curator identity ──────────────────────────────────────────────────────
-
-_default_curator = os.environ.get("HM2P_CURATOR") or os.environ.get("USER", "unknown")
-curator = st.text_input(
-    "Curator",
-    value=_default_curator,
-    key="rc_curator",
-    help=(
-        "Logged with each label. Defaults to $HM2P_CURATOR or $USER; override "
-        "if multiple people share a workstation."
-    ),
-)
-if not curator.strip():
-    st.error("Curator name must not be empty.")
-    st.stop()
+# Curator is fixed for this single-operator project (logged with each label).
+curator = os.environ.get("HM2P_CURATOR") or os.environ.get("USER") or "tristan"
 
 
 # ── Session selector (page body, not sidebar) ─────────────────────────────
@@ -204,6 +198,7 @@ with fc2:
         "Filter mode",
         [
             "Ambiguous (p_soma in range)",
+            "Soma-flagged (argmax)",
             "Artefact-flagged (argmax)",
             "Dend-flagged (argmax)",
             "All",
@@ -232,6 +227,8 @@ arg_labels = [CLASS_NAMES[i] if finite[j] else "soma" for j, i in enumerate(argm
 
 if show_mode == "Ambiguous (p_soma in range)":
     candidate = np.where(finite & (p_soma >= p_lo) & (p_soma <= p_hi))[0]
+elif show_mode == "Soma-flagged (argmax)":
+    candidate = np.where(np.array([al == "soma" for al in arg_labels]))[0]
 elif show_mode == "Artefact-flagged (argmax)":
     candidate = np.where(np.array([al == "artefact" for al in arg_labels]))[0]
 elif show_mode == "Dend-flagged (argmax)":
@@ -333,25 +330,55 @@ with ctrl_contrast:
         value=True,
         key="rc_auto_contrast",
         help=(
-            "Stretch the display range to the 1st–99.5th intensity percentile "
-            "so faint somata and dendrites are visible. Turn off to show the "
-            "raw intensity range. Applies to both the mean and max images."
+            "Base the display range on the 1st–99.5th intensity percentile "
+            "instead of the raw min/max, so faint somata and dendrites are "
+            "visible. Applies to both the mean and max images."
         ),
+    )
+
+sl_contrast, sl_bright = st.columns(2)
+with sl_contrast:
+    contrast = st.slider(
+        "Contrast",
+        min_value=0.5,
+        max_value=6.0,
+        value=1.0,
+        step=0.1,
+        key="rc_contrast",
+        help="Higher narrows the display range around its midpoint (more contrast).",
+    )
+with sl_bright:
+    brightness = st.slider(
+        "Brightness",
+        min_value=-1.0,
+        max_value=1.0,
+        value=0.0,
+        step=0.05,
+        key="rc_brightness",
+        help="Shifts the display range: positive brightens, negative darkens.",
     )
 
 # Radio options only include images that exist, so the selected one is present.
 bg_img = mean_img if bg_choice == "Mean image" else max_img
 
 if bg_img is not None:
-    # Auto-contrast clips only the display colour scale (not the data) to
-    # robust percentiles, so a few bright pixels don't wash out faint ROIs.
+    # Pick a base display range (robust percentiles or raw min/max), then apply
+    # the contrast (narrow around the midpoint) and brightness (shift) sliders.
+    # Only the display colour scale changes here, never the underlying data.
     zmin = zmax = None
-    if auto_contrast:
-        finite_vals = np.asarray(bg_img)[np.isfinite(bg_img)]
-        if finite_vals.size:
-            lo, hi = np.percentile(finite_vals, [1.0, 99.5])
-            if hi > lo:
-                zmin, zmax = float(lo), float(hi)
+    finite_vals = np.asarray(bg_img)[np.isfinite(bg_img)]
+    if finite_vals.size:
+        if auto_contrast:
+            lo, hi = (float(v) for v in np.percentile(finite_vals, [1.0, 99.5]))
+        else:
+            lo, hi = float(finite_vals.min()), float(finite_vals.max())
+        if hi > lo:
+            mid = (lo + hi) / 2.0
+            span = hi - lo
+            half = (span / 2.0) / max(contrast, 1e-6)
+            shift = brightness * span
+            zmin = mid - half - shift
+            zmax = mid + half - shift
     fig = go.Figure(
         data=go.Heatmap(z=bg_img, colorscale="gray", showscale=False, zmin=zmin, zmax=zmax)
     )
