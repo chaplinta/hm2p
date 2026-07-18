@@ -555,4 +555,10 @@ def _page() -> None:
         st.plotly_chart(fig_static, use_container_width=False)
 
 
-_page()
+# Only run the page body under an actual Streamlit run (or AppTest), which
+# provides a script-run context. A plain `import` — e.g. unit tests importing
+# the pure helpers below — must not trigger S3 loads or widget rendering.
+from streamlit.runtime.scriptrunner import get_script_run_ctx  # noqa: E402
+
+if get_script_run_ctx() is not None:
+    _page()

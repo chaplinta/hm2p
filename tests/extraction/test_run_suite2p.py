@@ -654,30 +654,42 @@ class TestRunSuite2pWiring:
 # ---------------------------------------------------------------------------
 
 
+def _anatomical_only(settings: dict) -> int | None:
+    """Read anatomical_only from wherever default_settings stored it.
+
+    With real Suite2p installed it lives nested under ``detection`` (where
+    Suite2p reads it); the no-Suite2p fallback returns a flat dict with it at
+    the top level. Accept both.
+    """
+    if "anatomical_only" in settings:
+        return settings["anatomical_only"]
+    return settings.get("detection", {}).get("anatomical_only")
+
+
 class TestDefaultSettingsAnatomicalOnly:
     """Tests that anatomical_only propagates through default_settings."""
 
     def test_anatomical_only_default_is_2(self):
         """Default anatomical_only is 2 (Cellpose seeds + activity refinement)."""
         settings = default_settings()
-        assert settings.get("anatomical_only") == 2
+        assert _anatomical_only(settings) == 2
 
     def test_anatomical_only_propagates_0(self):
         """anatomical_only=0 disables Cellpose (activity-only mode)."""
         settings = default_settings(anatomical_only=0)
-        assert settings.get("anatomical_only") == 0
+        assert _anatomical_only(settings) == 0
 
     def test_anatomical_only_propagates_1(self):
         settings = default_settings(anatomical_only=1)
-        assert settings.get("anatomical_only") == 1
+        assert _anatomical_only(settings) == 1
 
     def test_anatomical_only_propagates_2(self):
         settings = default_settings(anatomical_only=2)
-        assert settings.get("anatomical_only") == 2
+        assert _anatomical_only(settings) == 2
 
     def test_anatomical_only_propagates_3(self):
         settings = default_settings(anatomical_only=3)
-        assert settings.get("anatomical_only") == 3
+        assert _anatomical_only(settings) == 3
 
     @pytest.mark.skipif(not _suite2p_available, reason="suite2p not installed")
     def test_anatomical_only_in_detection_block(self):
