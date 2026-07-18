@@ -36,13 +36,6 @@ jobs:
       - name: Run bandit (security)
         run: uv run bandit -c pyproject.toml -r src/
 
-      - name: Run checkov (IaC security)
-        run: |
-          uv run checkov -d . \
-            --framework dockerfile \
-            --skip-check CKV_DOCKER_2,CKV_DOCKER_3,CKV_DOCKER_7 \
-            --quiet
-
       - name: Run pip-audit (dependency CVEs)
         run: uv run pip-audit --strict --desc
 

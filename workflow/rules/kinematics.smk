@@ -16,7 +16,10 @@ def _find_pose_file(wildcards) -> str:
         matches = sorted(pose_dir.glob(pattern))
         if matches:
             return str(matches[0])
-    raise FileNotFoundError(f"No pose file found in {pose_dir}")
+    # No pose file yet (e.g. dry-run before Stage 2b has run): depend on the
+    # pose directory, which is the output of rule run_pose, so the DAG can plan
+    # to produce it. At real run time the glob above returns the actual file.
+    return f"{pose_dir}/"
 
 
 def _find_behav_meta(wildcards) -> str:

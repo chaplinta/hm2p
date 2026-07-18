@@ -25,8 +25,9 @@ configfile: "config/pipeline.yaml"
 # Session registry
 # ---------------------------------------------------------------------------
 
-EXPERIMENTS = pd.read_csv("metadata/experiments.csv", dtype=str)
-ANIMALS = pd.read_csv("metadata/animals.csv", dtype=str)
+METADATA_DIR = config.get("metadata_dir", "metadata")
+EXPERIMENTS = pd.read_csv(f"{METADATA_DIR}/experiments.csv", dtype=str)
+ANIMALS = pd.read_csv(f"{METADATA_DIR}/animals.csv", dtype=str)
 SESSIONS = EXPERIMENTS["exp_id"].tolist()
 
 # NeuroBlueprint sub/ses helpers

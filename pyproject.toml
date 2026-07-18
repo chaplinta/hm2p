@@ -93,6 +93,9 @@ nwb = [
 ]
 analysis = [
     "nemos>=0.1",
+    "duckdb>=1.0",       # analysis result cache (hm2p.analysis.cache)
+    "rastermap>=0.9",    # population raster ordering (hm2p.analysis.rastermap_analysis)
+    "statsmodels>=0.14",  # LMM/ICC supplementary stats (hm2p.analysis.mixed_stats)
 ]
 workflow = [
     "snakemake>=8.0",
