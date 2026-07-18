@@ -119,7 +119,7 @@ def prepare_retraining_manifest(
         Manifest with session info, frame selections, and paths.
     """
     frames = []
-    for idx, path in zip(frame_indices, frame_paths):
+    for idx, path in zip(frame_indices, frame_paths, strict=False):
         bin_label = "unknown"
         if quality_bins:
             for label, bin_idx in quality_bins:

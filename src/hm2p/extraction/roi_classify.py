@@ -40,6 +40,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 import joblib
 import numpy as np
@@ -62,7 +63,7 @@ LABEL_NAMES = ("artefact", "soma", "dend")
 def load_model(
     model_path: Path | None = None,
     medians_path: Path | None = None,
-) -> tuple[object, np.ndarray, dict]:
+) -> tuple[Any, np.ndarray, dict]:
     """Load the trained XGBoost classifier and associated metadata.
 
     Parameters

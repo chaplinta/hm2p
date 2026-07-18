@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from hm2p.patching.config import (
     FILTER_CUTOFF,
@@ -72,7 +73,7 @@ class TestPatchConfig:
         assert not hasattr(cfg, "unknown_key")
 
     def test_missing_required_field_raises(self, tmp_path: Path) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             PatchConfig(
                 metadata_dir=tmp_path,
                 # missing morph_dir, etc.

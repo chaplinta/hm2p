@@ -81,7 +81,7 @@ class TestExplorationEfficiency:
         seq = np.arange(20)
         ws, nn = exploration_efficiency(seq)
         # Each window of size w should have w unique nodes
-        for w, n in zip(ws, nn):
+        for w, n in zip(ws, nn, strict=False):
             assert n <= w  # Can't have more unique than window size
 
     def test_empty(self):
@@ -614,7 +614,7 @@ class TestHypothesisTurnBias:
         maze = build_rose_maze()
         traj = simulate_random_walk(maze, path_len, seed=seed)
         tb = turn_bias(traj, maze)
-        total = tb["left"] + tb["right"] + tb["back"] + tb["forward"]
+        tb["left"] + tb["right"] + tb["back"] + tb["forward"]
         # If there are any turns, left_frac should be in [0, 1]
         if tb["left"] + tb["right"] > 0:
             assert 0.0 <= tb["left_frac"] <= 1.0, f"left_frac={tb['left_frac']} out of [0, 1]"

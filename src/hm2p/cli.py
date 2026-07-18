@@ -11,7 +11,13 @@ Usage examples:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import typer
+
+if TYPE_CHECKING:
+    from hm2p.config import PipelineConfig
+    from hm2p.session import Session
 
 app = typer.Typer(
     name="hm2p",
@@ -20,7 +26,7 @@ app = typer.Typer(
 )
 
 
-def _load_session(session_id: str) -> tuple[object, object]:
+def _load_session(session_id: str) -> tuple[PipelineConfig, Session]:
     """Load PipelineConfig and Session for a given session ID."""
     from hm2p.config import load_config
     from hm2p.session import get_session

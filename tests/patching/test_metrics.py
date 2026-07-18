@@ -261,7 +261,7 @@ class TestComputeDerivedMetrics:
     def test_does_not_mutate_input(self) -> None:
         cells = [build_cell_metrics(_make_ephys_data(), _make_morph_data(), _make_cell_info())]
         df = build_metrics_table(cells)
-        original_val = df.loc[0, "ephys_passive_incap"]
+        df.loc[0, "ephys_passive_incap"]
         df.loc[0, "ephys_passive_incap"] = 999.0
         _ = compute_derived_metrics(df)
         # Original df should still have 999

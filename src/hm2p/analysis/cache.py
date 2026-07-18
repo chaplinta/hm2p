@@ -80,6 +80,7 @@ def _ensure_schema(conn: duckdb.DuckDBPyConnection) -> None:
 def is_session_cached(conn: duckdb.DuckDBPyConnection, exp_id: str) -> bool:
     """Check if a session's analysis results are already cached."""
     result = conn.execute("SELECT COUNT(*) FROM sessions WHERE exp_id = ?", [exp_id]).fetchone()
+    assert result is not None  # COUNT(*) always returns one row
     return result[0] > 0
 
 
@@ -256,6 +257,7 @@ def get_summary_stats(conn: duckdb.DuckDBPyConnection) -> dict:
             AVG(speed_modulation_index) as mean_smi
         FROM cells
     """).fetchone()
+    assert result is not None  # aggregate query always returns one row
 
     return {
         "n_cells": result[0],

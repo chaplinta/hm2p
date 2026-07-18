@@ -20,7 +20,7 @@ class TestDiscretizePosition:
         x = np.array([0.5, 1.5, 6.5])
         y = np.array([0.5, 0.5, 4.5])
         result = discretize_position(x, y, maze)
-        for i, (xi, yi) in enumerate(zip(x, y)):
+        for i, (xi, yi) in enumerate(zip(x, y, strict=False)):
             cell = (int(xi - 0.5), int(yi - 0.5))
             assert result[i] == maze.cell_to_idx[cell]
 

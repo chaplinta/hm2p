@@ -8,6 +8,8 @@ output arrays (x, y, likelihood per keypoint).
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import numpy.typing as npt
 
@@ -669,7 +671,7 @@ def session_quality_report(
     """
     n_frames = 0
     problem_frames = None
-    per_kp = {}
+    per_kp: dict[str, dict[str, Any]] = {}
     issues = []
 
     for bp_name, bp_data in keypoint_data.items():
@@ -783,7 +785,7 @@ def worst_frames(
     if positions is not None:
         p = positions.reshape(len(mean_lik), -1).astype(np.float64)
         p = np.nan_to_num(p, nan=0.0)
-        n_kp = p.shape[1] // 2
+        p.shape[1] // 2
         xs = p[:, 0::2]
         ys = p[:, 1::2]
         cx = np.mean(xs, axis=1, keepdims=True)
@@ -794,7 +796,7 @@ def worst_frames(
     # Sort by ascending likelihood (worst first)
     order = np.argsort(mean_lik)
 
-    selected = []
+    selected: list[int] = []
     for idx in order:
         if len(selected) >= n_frames:
             break
@@ -802,7 +804,7 @@ def worst_frames(
         if not all(abs(int(idx) - int(s)) >= min_spacing for s in selected):
             continue
         # Check pose diversity
-        if _centroids is not None:
+        if _centroids is not None and _shapes is not None:
             too_similar = False
             for s in selected:
                 c_dist = np.sqrt(np.sum((_centroids[idx] - _centroids[s]) ** 2))
@@ -881,7 +883,7 @@ def stratified_frame_selection(
         p = positions.reshape(len(mean_lik), -1).astype(np.float64)
         _pos_flat = np.nan_to_num(p, nan=0.0)
         # Centroid: mean of x coords and mean of y coords
-        n_kp = p.shape[1] // 2
+        p.shape[1] // 2
         xs = _pos_flat[:, 0::2]  # (n_frames, n_keypoints)
         ys = _pos_flat[:, 1::2]
         cx = np.mean(xs, axis=1, keepdims=True)  # (n_frames, 1)
@@ -894,7 +896,7 @@ def stratified_frame_selection(
 
     def _is_too_similar(idx: int, selected_set: set) -> bool:
         """Check if frame is too similar in both location and pose shape."""
-        if _centroids is None:
+        if _centroids is None or _shapes is None:
             return False
         for s in selected_set:
             # Centroid (location) distance
@@ -917,7 +919,7 @@ def stratified_frame_selection(
         bin_edges = np.linspace(0, 1, n_bins + 1)
     bin_labels = ["worst", "poor", "moderate", "good"][:n_bins]
     bins_result = []
-    all_selected = set()
+    all_selected: set[int] = set()
 
     for i in range(n_bins):
         lo, hi = bin_edges[i], bin_edges[i + 1]
@@ -935,7 +937,7 @@ def stratified_frame_selection(
         order = np.argsort(mean_lik[bin_indices])
         candidates = bin_indices[order]
 
-        selected = []
+        selected: list[int] = []
         for idx in candidates:
             if len(selected) >= n_per_bin:
                 break

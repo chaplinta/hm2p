@@ -25,7 +25,7 @@ def _make_event_result(
 ) -> EventResult:
     """Helper to build an EventResult from explicit onset/offset lists."""
     event_mask = np.zeros(n_frames, dtype=np.int32)
-    for on, off in zip(onsets, offsets):
+    for on, off in zip(onsets, offsets, strict=False):
         event_mask[on:off] = 1
     return EventResult(
         onsets=np.array(onsets, dtype=np.int64),
@@ -191,7 +191,7 @@ class TestSummarizeCellDynamics:
         onsets = list(range(0, 600, 60))[:10]
         offsets = [o + 5 for o in onsets]
         amps = [1.0] * 10
-        for o, off in zip(onsets, offsets):
+        for o, off in zip(onsets, offsets, strict=False):
             trace[o:off] = 1.0
         er = _make_event_result(onsets, offsets, amps, 600)
 

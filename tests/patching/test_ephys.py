@@ -245,7 +245,7 @@ class TestDetectSpikes:
 
     def test_spike_at_peak(self) -> None:
         """Returned index should correspond to the actual peak."""
-        t = np.arange(200)
+        np.arange(200)
         trace = np.zeros(200)
         trace[100] = 50.0
         trace[99] = 30.0

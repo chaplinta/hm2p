@@ -263,9 +263,8 @@ class TestLoadExperiments:
         assert result == []
 
     def test_missing_file_raises(self, tmp_path):
-        with patch("frontend.data.METADATA_DIR", tmp_path):
-            with pytest.raises(FileNotFoundError):
-                load_experiments()
+        with patch("frontend.data.METADATA_DIR", tmp_path), pytest.raises(FileNotFoundError):
+            load_experiments()
 
 
 class TestLoadAnimals:
@@ -285,9 +284,8 @@ class TestLoadAnimals:
         assert result[1]["celltype"] == "nonpenk"
 
     def test_missing_file_raises(self, tmp_path):
-        with patch("frontend.data.METADATA_DIR", tmp_path):
-            with pytest.raises(FileNotFoundError):
-                load_animals()
+        with patch("frontend.data.METADATA_DIR", tmp_path), pytest.raises(FileNotFoundError):
+            load_animals()
 
 
 # ===================================================================

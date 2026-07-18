@@ -151,7 +151,7 @@ class TestNanToNone:
         serialized = json.dumps(result)
         decoded = json.loads(serialized)
         assert len(decoded) == len(arr)
-        for orig, converted in zip(arr, decoded):
+        for orig, converted in zip(arr, decoded, strict=False):
             if np.isfinite(orig):
                 assert converted == pytest.approx(float(orig), abs=1e-10)
             else:

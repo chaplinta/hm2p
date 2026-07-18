@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 
 _DEFAULT_PROFILE = "hm2p-agent"
 
 
-def _client(profile: str | None = None) -> object:
+def _client(profile: str | None = None) -> Any:
     """Return a boto3 S3 client for the given AWS profile."""
     import boto3
 

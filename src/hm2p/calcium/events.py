@@ -164,8 +164,8 @@ def detect_events_single(
     # Find candidate onsets: where (1 - noise_prob) crosses (1 - prob_onset)
     onset_candidates = _get_crossings(1 - noise_prob, 1 - prob_onset)
 
-    onsets = []
-    offsets = []
+    onsets: list[int] = []
+    offsets: list[int] = []
     amplitudes = []
     event_mask = np.zeros(n_frames, dtype=np.int32)
 
@@ -435,7 +435,7 @@ def detect_events_sd(
         (n_rois, n_frames) float32 — binary event mask.
     """
     n_rois, n_frames = dff.shape
-    min_frames = max(1, int(round(min_duration_s * fps)))
+    max(1, int(round(min_duration_s * fps)))
     masks = np.zeros((n_rois, n_frames), dtype=np.float32)
 
     for i in range(n_rois):
@@ -573,7 +573,7 @@ def characterize_events(
     """
     events = []
     for onset, offset, amp in zip(
-        event_result.onsets, event_result.offsets, event_result.amplitudes
+        event_result.onsets, event_result.offsets, event_result.amplitudes, strict=False
     ):
         segment = dff_trace[onset:offset]
         duration_frames = offset - onset

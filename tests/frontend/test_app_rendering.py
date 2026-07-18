@@ -221,7 +221,7 @@ def _run_page(page_filename: str, timeout: int = 10) -> AppTest:
     at = AppTest.from_file(str(page_path), default_timeout=timeout)
 
     # Apply all common patches
-    for target, replacement in _COMMON_PATCHES.items():
+    for _target, _replacement in _COMMON_PATCHES.items():
         at = at.run()  # Can't patch before first run, so we'll use context manager approach
         break
 

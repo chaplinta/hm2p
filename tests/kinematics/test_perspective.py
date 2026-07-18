@@ -102,8 +102,8 @@ class TestCorrectPerspective:
         x_far = np.array([600.0])  # 200 px from centre
         y = np.array([300.0])
 
-        dx_near = x_near[0] - cx
-        dx_far = x_far[0] - cx
+        x_near[0] - cx
+        x_far[0] - cx
         _, _ = correct_perspective(x_near, y, (cx, cy), 700.0, 40.0)
         x_near_corr, _ = correct_perspective(x_near, y, (cx, cy), 700.0, 40.0)
         x_far_corr, _ = correct_perspective(x_far, y, (cx, cy), 700.0, 40.0)

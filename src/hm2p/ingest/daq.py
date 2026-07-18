@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import configparser
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -115,7 +116,7 @@ def _meta_txt_path(tdms_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-def _get_di_channel(di_file: object, group_name: str, chan_name: str) -> object:
+def _get_di_channel(di_file: Any, group_name: str, chan_name: str) -> Any:
     """Return the first channel from a DI TDMS group.
 
     DI groups are named '{group_name} - {chan_name}' (SciScan convention).

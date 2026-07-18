@@ -32,6 +32,8 @@ sys.modules.setdefault("deeplabcut.modelzoo", MagicMock())
 sys.modules.setdefault("deeplabcut.modelzoo.weight_initialization", MagicMock())
 sys.modules.setdefault("dlclibrary", MagicMock())
 
+import contextlib
+
 import run_dlc_retrain as rdr  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -172,10 +174,8 @@ class TestS3CleanupScope:
             with patch("run_dlc_retrain.Path") as MockPath:
                 MockPath.side_effect = lambda *a, **k: Path(*a, **k)
                 MockPath.return_value = work
-                try:
+                with contextlib.suppress(RuntimeError, Exception):
                     rdr.train(s3, sa_finetune=False, epochs=10)
-                except (RuntimeError, Exception):
-                    pass
 
         deleted = _collect_delete_keys(s3)
         # training-datasets should be deleted
@@ -247,10 +247,8 @@ class TestS3CleanupScope:
 
         with patch("run_dlc_retrain.shutil") as shutil_mock:
             shutil_mock.rmtree = MagicMock()
-            try:
+            with contextlib.suppress(Exception):
                 rdr.train(s3, sa_finetune=False, epochs=10)
-            except Exception:
-                pass
 
         deleted = _collect_delete_keys(s3)
         for key_obj in td_keys:
@@ -308,10 +306,8 @@ class TestDownloadSelectivity:
 
         with patch("run_dlc_retrain.shutil") as shutil_mock:
             shutil_mock.rmtree = MagicMock()
-            try:
+            with contextlib.suppress(Exception):
                 rdr.train(s3, sa_finetune=False, epochs=10)
-            except Exception:
-                pass
 
         # Collect all downloaded keys
         downloaded = [
@@ -847,10 +843,8 @@ class TestLocalCleanliness:
         stale_file.parent.mkdir(parents=True, exist_ok=True)
         stale_file.write_text("stale")
 
-        try:
+        with contextlib.suppress(Exception):
             rdr.train(s3, sa_finetune=False, epochs=10)
-        except Exception:
-            pass
 
         # After train() setup, stale file must be gone
         assert not stale_file.exists(), "Stale file was not cleaned before training"
@@ -882,10 +876,8 @@ class TestLocalCleanliness:
         # what download_file was called with.
         dlc_mock.create_training_dataset.side_effect = RuntimeError("stop-inspect")
 
-        try:
+        with contextlib.suppress(Exception):
             rdr.train(s3, sa_finetune=False, epochs=10)
-        except Exception:
-            pass
 
         # All download_file calls should target only config.yaml or labeled-data/
         downloaded_keys = [
@@ -1066,10 +1058,8 @@ class TestEdgeCases:
 
             shutil.rmtree(work)
 
-        try:
+        with contextlib.suppress(RuntimeError):
             rdr.train(s3, sa_finetune=False, epochs=10)
-        except RuntimeError:
-            pass
 
         # The cleanup phase must have called the paginator for both prefixes
         # but NOT called delete_object (nothing to delete)

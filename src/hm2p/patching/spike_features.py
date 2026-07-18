@@ -71,7 +71,7 @@ def extract_spike_features(
     except ImportError:
         raise ImportError(
             "eFEL is required for spike feature extraction. Install it with: pip install efel"
-        )
+        ) from None
 
     efel.reset()
     efel.setDoubleSetting("Threshold", threshold)

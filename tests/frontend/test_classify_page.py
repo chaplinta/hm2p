@@ -138,7 +138,7 @@ class TestClassificationIntegration:
         cells = pop["cells"]
         mvls = [c["mvl"] for c in cells]
         pvals = [c["p_value"] for c in cells]
-        reliabilities = [c["reliability"] for c in cells]
+        [c["reliability"] for c in cells]
         assert len(mvls) == 8
         assert all(0 <= p <= 1 for p in pvals)
         assert all(m >= 0 for m in mvls)
@@ -146,7 +146,7 @@ class TestClassificationIntegration:
     def test_tuning_curves_for_gallery(self):
         """Tuning curves can be computed for all classified cells."""
         signals, hd, mask = _make_population(n_hd=3, n_noise=2)
-        pop = classify_population(
+        classify_population(
             signals,
             hd,
             mask,

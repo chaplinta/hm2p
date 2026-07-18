@@ -30,6 +30,7 @@ References:
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -276,6 +277,7 @@ def load_registered_movie(
     elif n_frames > inferred:
         raise ValueError(f"requested {n_frames} frames but file only holds {inferred}")
 
+    movie: np.ndarray
     if mmap:
         movie = np.memmap(data_bin, dtype=np.int16, mode="r", shape=(n_frames, crop_ly, crop_lx))
     else:
@@ -358,7 +360,7 @@ def subtract_fissa_from_movie(
 
 
 def subtract_fissa(
-    tiff_paths: list[str | Path],
+    tiff_paths: Sequence[str | Path],
     roi_masks: list[np.ndarray],
     output_dir: Path,
     F_fallback: np.ndarray | None = None,

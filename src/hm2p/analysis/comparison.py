@@ -225,7 +225,7 @@ def split_half_reliability(
         ``"pd_shift"`` — angular difference in preferred direction (degrees).
     """
     valid_idx = np.where(mask)[0]
-    n_valid = len(valid_idx)
+    len(valid_idx)
 
     mask_odd = np.zeros_like(mask)
     mask_even = np.zeros_like(mask)
@@ -338,13 +338,12 @@ def rayleigh_test(
     # Approximate p-value (Mardia & Jupp, 2000)
     p = np.exp(-Z)
     # Correction for small samples
-    if n_eff >= 2:
-        if n_eff < 50:
-            p = p * (
-                1
-                + (2 * Z - Z**2) / (4 * n_eff)
-                - (24 * Z - 132 * Z**2 + 76 * Z**3 - 9 * Z**4) / (288 * n_eff**2)
-            )
+    if n_eff >= 2 and n_eff < 50:
+        p = p * (
+            1
+            + (2 * Z - Z**2) / (4 * n_eff)
+            - (24 * Z - 132 * Z**2 + 76 * Z**3 - 9 * Z**4) / (288 * n_eff**2)
+        )
     # Mardia & Jupp correction can overshoot for large Z / small n_eff; clamp to 0.
     p = max(0.0, min(1.0, float(p)))
 

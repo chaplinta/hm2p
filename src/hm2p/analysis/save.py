@@ -304,8 +304,8 @@ def load_analysis_results(path: Path) -> dict[str, Any]:
             data["params"] = dict(f["params"].attrs)
 
         # Signal type results
-        signal_types = data.get("meta", {}).get("signal_types_available", [])
-        for st in f.keys():
+        data.get("meta", {}).get("signal_types_available", [])
+        for st in f:
             if st == "params":
                 continue
             sg = f[st]
@@ -323,7 +323,7 @@ def _load_group_recursive(group: h5py.Group) -> dict[str, Any]:
     for k, v in group.attrs.items():
         result[f"_attr_{k}"] = v
     # Load datasets and subgroups
-    for key in group.keys():
+    for key in group:
         item = group[key]
         if isinstance(item, h5py.Dataset):
             result[key] = item[:]

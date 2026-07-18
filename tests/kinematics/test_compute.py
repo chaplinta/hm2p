@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 import xarray as xr
@@ -959,7 +961,10 @@ class TestEarPerpendicularAngle:
         np.testing.assert_allclose(angle, [360.0], atol=1e-6)
 
     def test_ears_same_y_left_is_left(self) -> None:
-        """Left ear left of right ear (lx < rx, same y): atan2(lx-rx, 0) = atan2(-1,0) = -90 → 90."""
+        """Left ear left of right ear (lx < rx, same y).
+
+        atan2(lx-rx, 0) = atan2(-1, 0) = -90 → 90.
+        """
         angle = _ear_perpendicular_angle(
             np.array([0.0]),
             np.array([0.0]),
@@ -1443,7 +1448,7 @@ class TestUnwrapAndSmooth:
         n = 40
         arr = np.linspace(0.0, 350.0, n)
         out_win1 = _unwrap_and_smooth(arr, median_filter_win=1)
-        out_win5 = _unwrap_and_smooth(arr, median_filter_win=5)
+        _unwrap_and_smooth(arr, median_filter_win=5)
         # With a smooth linear signal both should be close, but win=1 is exact
         # Just verify shape and dtype
         assert out_win1.shape == (n,)

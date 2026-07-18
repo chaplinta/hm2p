@@ -226,7 +226,7 @@ def _get_nested(
 
     # Try fallback path (e.g. ("Acquisition", "AnalogChannelScales"))
     if fallback_keys is not None:
-        node = d
+        node: Any = d
         for k in fallback_keys:
             if isinstance(node, dict):
                 node = node.get(k)

@@ -371,7 +371,6 @@ class TestAddBoutBorder:
     def test_border_color_correct(self):
         frames = self._make_frames(2)
         result = add_bout_border(frames, bout_offset=0, bout_duration=2)
-        b = BORDER_PX
         # Green border: BGR = (0, 200, 0)
         for i in range(2):
             top_row = result[i, 0, 10]  # arbitrary interior column

@@ -202,7 +202,7 @@ def anticipatory_time_delay(
     from hm2p.analysis.tuning import compute_hd_tuning_curve, mean_vector_length
 
     lags = range(-max_lag_frames, max_lag_frames + 1)
-    lag_ms = [l * 1000.0 / fps for l in lags]
+    lag_ms = [lag * 1000.0 / fps for lag in lags]
     mvls = []
 
     n = len(signal)
@@ -224,12 +224,12 @@ def anticipatory_time_delay(
         )
         mvls.append(mean_vector_length(tc, bc))
 
-    mvls = np.array(mvls, dtype=np.float64)
-    best_idx = int(np.argmax(mvls))
+    mvls_arr = np.array(mvls, dtype=np.float64)
+    best_idx = int(np.argmax(mvls_arr))
 
     return {
         "lags_ms": np.array(lag_ms, dtype=np.float64),
-        "mvls": mvls,
+        "mvls": mvls_arr,
         "best_lag_ms": float(lag_ms[best_idx]),
-        "best_mvl": float(mvls[best_idx]),
+        "best_mvl": float(mvls_arr[best_idx]),
     }

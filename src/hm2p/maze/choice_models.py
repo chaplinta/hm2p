@@ -82,7 +82,7 @@ def allocentric_choice(
         return None
     vals = [recency.get(c, math.inf) for c in candidates]
     mx = max(vals)
-    winners = [c for c, v in zip(candidates, vals) if v == mx]
+    winners = [c for c, v in zip(candidates, vals, strict=False) if v == mx]
     return winners[0] if len(winners) == 1 else None
 
 
@@ -120,7 +120,7 @@ def allocentric_frontier_choice(
     fidx = np.asarray(frontier, dtype=int)
     dists = [int(maze.dist[c, fidx].min()) for c in candidates]
     mn = min(dists)
-    winners = [c for c, d in zip(candidates, dists) if d == mn]
+    winners = [c for c, d in zip(candidates, dists, strict=False) if d == mn]
     return winners[0] if len(winners) == 1 else None
 
 

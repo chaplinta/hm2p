@@ -292,7 +292,7 @@ class TestSuperneuronBehaviourCorrelations:
     def test_uses_spearman_not_pearson_for_speed(self) -> None:
         """Verify non-parametric Spearman is used for speed correlation."""
 
-        rng = np.random.default_rng(5)
+        np.random.default_rng(5)
         n_frames = 500
         speed = np.arange(1, n_frames + 1, dtype=np.float32)
         # Exponential relationship: Spearman = 1, Pearson < 1

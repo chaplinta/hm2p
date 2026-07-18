@@ -288,7 +288,7 @@ class TestFdrCorrect:
         corrected = fdr_correct(results, alpha=0.05)
         assert len(corrected) == 3
         # p_fdr should be >= raw p
-        for raw, corr in zip(results, corrected):
+        for raw, corr in zip(results, corrected, strict=False):
             assert corr["p_fdr"] >= raw["perm_p_value"] or np.isclose(
                 corr["p_fdr"], raw["perm_p_value"]
             )

@@ -127,12 +127,10 @@ def celltype_dynamics_summary(
     Returns:
         Dict with per-condition celltype comparisons and summary stats.
     """
-    penk_cells = []  # list of (n_rois,) per-cell rates per condition
-    nonpenk_cells = []
     conditions = ["moving_light", "moving_dark", "stationary_light", "stationary_dark"]
 
-    penk_by_cond = {c: [] for c in conditions}
-    nonpenk_by_cond = {c: [] for c in conditions}
+    penk_by_cond: dict[str, list[float]] = {c: [] for c in conditions}
+    nonpenk_by_cond: dict[str, list[float]] = {c: [] for c in conditions}
 
     for ses in sessions:
         signal = ses.get(signal_key)

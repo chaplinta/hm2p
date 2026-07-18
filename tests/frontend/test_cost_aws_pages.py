@@ -26,7 +26,7 @@ class TestPipelineStagesConsistency:
 
     def test_expected_counts_valid(self):
         """Expected session counts should be positive integers."""
-        for key, info in self.stages.items():
+        for _key, info in self.stages.items():
             assert isinstance(info["expected"], int)
             assert info["expected"] > 0
 
@@ -86,7 +86,7 @@ class TestCostPagePricing:
             "g4dn.xlarge": {"on_demand": 0.789, "spot_approx": 0.24},
             "g5.xlarge": {"on_demand": 1.19, "spot_approx": 0.36},
         }
-        for itype, p in pricing.items():
+        for _itype, p in pricing.items():
             assert p["spot_approx"] < p["on_demand"]
             savings = 1 - p["spot_approx"] / p["on_demand"]
             assert savings > 0.5

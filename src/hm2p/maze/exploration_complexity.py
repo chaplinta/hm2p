@@ -72,7 +72,7 @@ def lz76_complexity(sequence: npt.ArrayLike) -> int:
     int
         LZ76 complexity (>= 0; 0 for an empty sequence).
     """
-    s = list(sequence)
+    s = np.asarray(sequence).tolist()
     n = len(s)
     if n == 0:
         return 0
@@ -110,7 +110,7 @@ def normalized_lz76(sequence: npt.ArrayLike) -> float:
     bound gives a length- and alphabet-comparable value (≈1 for random,
     lower for stereotyped). Returns 0 for sequences too short to normalise.
     """
-    s = list(sequence)
+    s = np.asarray(sequence).tolist()
     n = len(s)
     if n < 2:
         return 0.0

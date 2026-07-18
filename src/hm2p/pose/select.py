@@ -28,6 +28,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ class ChampionMismatchError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def load_champion_manifest(s3_client: object, bucket: str) -> dict:
+def load_champion_manifest(s3_client: Any, bucket: str) -> dict:
     """Load the project-wide DLC champion manifest from S3.
 
     Unlike :func:`get_champion_manifest`, this function raises instead of
@@ -173,7 +174,7 @@ def select_champion_h5(h5_keys: list[str], champion_id: str) -> str:
 
 
 def select_champion_h5_s3(
-    s3_client: object,
+    s3_client: Any,
     bucket: str,
     prefix: str,
     champion_id: str,
@@ -271,7 +272,7 @@ def select_best_dlc_h5(h5_keys: list[str]) -> str | None:
     return filtered[0]
 
 
-def select_best_dlc_h5_s3(s3_client: object, bucket: str, prefix: str) -> str | None:
+def select_best_dlc_h5_s3(s3_client: Any, bucket: str, prefix: str) -> str | None:
     """List .h5 files under an S3 prefix and select the best one.
 
     Checks for a ``promoted.json`` manifest first.  If that file exists and
@@ -449,7 +450,7 @@ def resolve_champion_id(
 
 
 def get_champion_manifest(
-    s3_client: object,
+    s3_client: Any,
     bucket: str,
     key: str = CHAMPION_MANIFEST_KEY,
 ) -> dict | None:
@@ -537,7 +538,7 @@ def _snapshot_number(key: str) -> int:
     return int(m.group(1)) if m else -1
 
 
-def _load_promoted_json(s3_client: object, bucket: str, key: str) -> dict | None:
+def _load_promoted_json(s3_client: Any, bucket: str, key: str) -> dict | None:
     """Fetch and parse promoted.json from S3, returning None on any error."""
     try:
         resp = s3_client.get_object(Bucket=bucket, Key=key)

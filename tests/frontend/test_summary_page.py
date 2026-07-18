@@ -103,7 +103,7 @@ class TestSummaryPageWorkflow:
 
         # Drift
         if pop["hd_indices"]:
-            dr = drift_per_epoch(signals[pop["hd_indices"][0]], hd, mask, light_on)
+            drift_per_epoch(signals[pop["hd_indices"][0]], hd, mask, light_on)
 
         # Verify all results are finite
         assert np.isfinite(mean_gmi)

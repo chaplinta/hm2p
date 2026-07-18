@@ -11,6 +11,7 @@ brainrender." eLife. doi:10.7554/eLife.65751
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 from pathlib import Path
@@ -184,10 +185,8 @@ def render_injection_sites(
         except Exception as exc:
             log.error("Failed to render %s view: %s", view_name, exc)
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 scene.close()
-            except Exception:
-                pass
 
     return output_files if output_files else None
 

@@ -29,6 +29,7 @@ Sholl analysis:
 from __future__ import annotations
 
 import logging
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
@@ -41,12 +42,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Try to import navis; fall back gracefully
 # ---------------------------------------------------------------------------
-try:
-    import navis
-
-    HAS_NAVIS = True
-except ImportError:  # pragma: no cover
-    HAS_NAVIS = False
+HAS_NAVIS = find_spec("navis") is not None
+if not HAS_NAVIS:  # pragma: no cover
     logger.info("navis not installed — using manual SWC fallback parser.")
 
 
@@ -187,7 +184,9 @@ def _concatenate_trees(trees: list[dict[str, Any]]) -> dict[str, Any]:
         old_to_new = {int(row["id"]): int(row["id"]) + offset for _, row in new_nodes.iterrows()}
         new_nodes["id"] = new_nodes["id"] + offset
         new_nodes["parent_id"] = new_nodes["parent_id"].apply(
-            lambda pid: old_to_new[pid] if pid != -1 else closest_id
+            lambda pid, old_to_new=old_to_new, closest_id=closest_id: (
+                old_to_new[pid] if pid != -1 else closest_id
+            )
         )
 
         # New edges

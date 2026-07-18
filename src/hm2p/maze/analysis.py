@@ -21,6 +21,7 @@ e66175. https://doi.org/10.7554/eLife.66175
 from __future__ import annotations
 
 from collections import Counter
+from typing import Any
 
 import numpy as np
 
@@ -931,7 +932,9 @@ def dead_end_visits(
              "mean_dwell": float, "approaches": list[tuple]}]
     """
     de_indices = {maze.cell_to_idx[c] for c in maze.dead_ends}
-    result = {c: {"visits": 0, "total_frames": 0, "dwell_times": []} for c in maze.dead_ends}
+    result: dict[tuple[int, int], dict[str, Any]] = {
+        c: {"visits": 0, "total_frames": 0, "dwell_times": []} for c in maze.dead_ends
+    }
 
     i = 0
     while i < len(cell_seq):
@@ -1000,12 +1003,11 @@ def simulate_random_walk(
 
             # Check if "forward" neighbour exists
             forward = (cell[0] + dx, cell[1] + dy)
-            if forward in maze.cell_to_idx and forward in set(nbs):
-                if rng.random() < forward_bias:
-                    prev = current
-                    current = maze.cell_to_idx[forward]
-                    trajectory.append(current)
-                    continue
+            if forward in maze.cell_to_idx and forward in set(nbs) and rng.random() < forward_bias:
+                prev = current
+                current = maze.cell_to_idx[forward]
+                trajectory.append(current)
+                continue
 
         # Uniform random choice
         next_cell = nbs[rng.integers(len(nbs))]

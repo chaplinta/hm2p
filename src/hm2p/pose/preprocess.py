@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import configparser
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -114,7 +115,7 @@ def crop_to_maze_roi(frame: np.ndarray, roi: tuple[int, int, int, int]) -> np.nd
     return frame[y : y + h, x : x + w]
 
 
-def load_meta(meta_txt_path: Path) -> dict[str, object]:
+def load_meta(meta_txt_path: Path) -> dict[str, Any]:
     """Parse meta/meta.txt for crop ROI, pixel scale (mm/px), maze corners.
 
     Reads the meta.txt written by the legacy video processing pipeline

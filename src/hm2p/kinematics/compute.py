@@ -414,21 +414,26 @@ def _fused_hd_wrapped(
     # Estimate 2: implant → nose
     est_implant_nose = np.full(n, np.nan)
     w_implant_nose = np.ones(n)
-    if nose_x is not None and implant_x is not None:
+    if (
+        nose_x is not None
+        and nose_y is not None
+        and implant_x is not None
+        and implant_y is not None
+    ):
         est_implant_nose = _vector_angle_deg(implant_x, implant_y, nose_x, nose_y)
         w_implant_nose = _min_conf(conf_nose, conf_implant)
 
     # Estimate 3: neck → nose
     est_neck_nose = np.full(n, np.nan)
     w_neck_nose = np.ones(n)
-    if nose_x is not None and neck_x is not None:
+    if nose_x is not None and nose_y is not None and neck_x is not None and neck_y is not None:
         est_neck_nose = _vector_angle_deg(neck_x, neck_y, nose_x, nose_y)
         w_neck_nose = _min_conf(conf_nose, conf_neck)
 
     # Estimate 4: ear midpoint → nose
     est_earmid_nose = np.full(n, np.nan)
     w_earmid_nose = np.ones(n)
-    if nose_x is not None:
+    if nose_x is not None and nose_y is not None:
         mid_x = (ear_left_x + ear_right_x) / 2.0
         mid_y = (ear_left_y + ear_right_y) / 2.0
         est_earmid_nose = _vector_angle_deg(mid_x, mid_y, nose_x, nose_y)
@@ -437,7 +442,12 @@ def _fused_hd_wrapped(
     # Estimate 5: neck → implant (head axis without nose)
     est_neck_implant = np.full(n, np.nan)
     w_neck_implant = np.ones(n)
-    if implant_x is not None and neck_x is not None:
+    if (
+        implant_x is not None
+        and implant_y is not None
+        and neck_x is not None
+        and neck_y is not None
+    ):
         est_neck_implant = _vector_angle_deg(neck_x, neck_y, implant_x, implant_y)
         w_neck_implant = _min_conf(conf_neck, conf_implant)
 
@@ -461,7 +471,7 @@ def _fused_hd_wrapped(
     cos_sum = np.zeros(n, dtype=np.float64)
     w_sum = np.zeros(n, dtype=np.float64)
 
-    for est, w in zip(estimates, weights):
+    for est, w in zip(estimates, weights, strict=False):
         valid = ~np.isnan(est)
         rad = np.deg2rad(est)
         sin_sum[valid] += w[valid] * np.sin(rad[valid])
@@ -506,7 +516,7 @@ def compute_head_centre(ds: xr.Dataset) -> tuple[np.ndarray, np.ndarray]:
         kp = pos.sel(keypoints=name)
         x = kp.sel(space="x").values.astype(np.float64)
         y = kp.sel(space="y").values.astype(np.float64)
-        if has_conf and name in list(conf_da.coords["keypoints"].values):
+        if conf_da is not None and name in list(conf_da.coords["keypoints"].values):
             c = conf_da.sel(keypoints=name).values.astype(np.float64)
         else:
             c = np.where(np.isnan(x), 0.0, 1.0)
@@ -556,7 +566,7 @@ def compute_head_body_angle(ds: xr.Dataset) -> np.ndarray:
         NaN where either direction is unavailable.
     """
     pos = ds.position.isel(individuals=0)
-    available_kps = list(pos.coords["keypoints"].values)
+    list(pos.coords["keypoints"].values)
 
     # Head direction (use ear perpendicular — always available)
     ear_left = _get_keypoint_xy(pos, _EAR_LEFT)
@@ -1156,7 +1166,7 @@ def _windowed_gradient(
     fps = n / (frame_times[-1] - frame_times[0]) if n > 1 else 30.0
     half_win = max(1, int(round(window_s * fps / 2)))
     # Make window odd for symmetry
-    win = 2 * half_win + 1
+    2 * half_win + 1
 
     result = np.full(n, np.nan, dtype=np.float64)
     for i in range(n):
@@ -1258,7 +1268,7 @@ def compute_multipoint_speed(
 
         spd = _windowed_speed(x_mm, y_mm, frame_times, window_s)
 
-        if has_conf and kp_name in list(conf_da.coords["keypoints"].values):
+        if conf_da is not None and kp_name in list(conf_da.coords["keypoints"].values):
             w = conf_da.sel(keypoints=kp_name).values.astype(np.float64)
         else:
             w = np.where(np.isnan(x_mm), 0.0, 1.0)
@@ -1666,7 +1676,7 @@ def compute_body_position(ds: xr.Dataset, scale_mm_per_px: float) -> tuple[np.nd
         x_kp = x_px * scale_mm_per_px
         y_kp = y_px * scale_mm_per_px
 
-        if has_conf and kp_name in list(conf_da.coords["keypoints"].values):
+        if conf_da is not None and kp_name in list(conf_da.coords["keypoints"].values):
             w = conf_da.sel(keypoints=kp_name).values.astype(np.float64)
         else:
             w = np.where(np.isnan(x_px), 0.0, 1.0)

@@ -188,7 +188,7 @@ def detect_spikes(trace: np.ndarray, threshold_factor: float = 0.5) -> np.ndarra
     group_ends = np.concatenate([group_breaks + 1, [len(above_idx)]])
 
     spike_peaks = np.empty(len(group_starts), dtype=np.intp)
-    for i, (gs, ge) in enumerate(zip(group_starts, group_ends)):
+    for i, (gs, ge) in enumerate(zip(group_starts, group_ends, strict=False)):
         group_indices = above_idx[gs:ge]
         # Find peak within this group
         local_peak = group_indices[np.argmax(trace[group_indices])]

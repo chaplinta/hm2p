@@ -459,7 +459,7 @@ def effective_roi_label(
         # Replace NaNs with -inf so ROIs with all-NaN rows fall back to
         # the conservative default ("soma" via the initialiser above).
         with np.errstate(invalid="ignore"):
-            finite_rows = np.isfinite(stack).all(axis=1)
+            finite_rows = np.asarray(np.isfinite(stack).all(axis=1))
         idx = np.argmax(np.where(finite_rows[:, None], stack, -np.inf), axis=1)
         for i in range(n_rois):
             if finite_rows[i]:

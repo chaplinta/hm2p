@@ -289,7 +289,9 @@ def process_cell(cell_row: pd.Series, config: PatchConfig) -> dict | None:
     has_morph = False
 
     ephys_id = cell_row.get("ephys_id", "")
-    if isinstance(ephys_id, str) and ephys_id.strip() or not pd.isna(ephys_id) and str(ephys_id).strip():
+    if (isinstance(ephys_id, str) and ephys_id.strip()) or (
+        not pd.isna(ephys_id) and str(ephys_id).strip()
+    ):
         has_ephys = True
 
     good_morph = cell_row.get("good_morph", False)
@@ -485,7 +487,11 @@ def run_pca_analysis(metrics_df: pd.DataFrame, config: PatchConfig) -> None:
         try:
             result = pca_mod.run_pca(metrics_df, metric_cols=cols)
             output_path = pca_dir / f"pca_{subset_name}.csv"
-            result.scores.to_csv(output_path, index=False)
+            # scores is a numpy array (n_samples, n_components) — wrap in a
+            # DataFrame with PC column names to write it out.
+            n_pc = result.scores.shape[1]
+            scores_df = pd.DataFrame(result.scores, columns=[f"PC{i + 1}" for i in range(n_pc)])
+            scores_df.to_csv(output_path, index=False)
             logger.info("Saved PCA (%s) to %s", subset_name, output_path)
         except Exception:
             logger.exception("PCA failed for subset '%s'", subset_name)

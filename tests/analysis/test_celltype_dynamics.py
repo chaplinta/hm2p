@@ -55,7 +55,7 @@ def _make_session(
     n_frames: int = 400,
     seed: int = 42,
 ) -> dict:
-    rng = np.random.default_rng(seed)
+    np.random.default_rng(seed)
     return {
         "celltype": celltype,
         "dff": _make_dff(n_rois, n_frames, seed),

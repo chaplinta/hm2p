@@ -171,7 +171,7 @@ def regress_movement(
         # Spearman correlations
         if np.std(sig[v]) > 0 and np.std(speed[v]) > 0:
             speed_corr[i] = float(spearmanr(sig[v], speed[v])[0])
-        if ahv is not None and np.std(np.abs(ahv[v])) > 0:
+        if ahv is not None and ahv_corr is not None and np.std(np.abs(ahv[v])) > 0:
             ahv_corr[i] = float(spearmanr(sig[v], np.abs(ahv[v]))[0])
 
     return {
@@ -257,9 +257,13 @@ def compare_spikes_to_fluorescence(
         threshold = np.nanpercentile(s[s > 0], 50) if (s > 0).any() else 0
         peaks = []
         for j in range(1, n_frames - 1):
-            if s[j] > threshold and s[j] > s[j - 1] and s[j] > s[j + 1]:
-                if j >= eta_window and j < n_frames - eta_window:
-                    peaks.append(j)
+            if (
+                s[j] > threshold
+                and s[j] > s[j - 1]
+                and s[j] > s[j + 1]
+                and eta_window <= j < n_frames - eta_window
+            ):
+                peaks.append(j)
         if len(peaks) < 3:
             continue
         # Average dF/F around peaks

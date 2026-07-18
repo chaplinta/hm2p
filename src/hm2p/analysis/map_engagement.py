@@ -60,7 +60,7 @@ def extract_visit_vectors(
 
     cells: list[int] = []
     vecs: list[np.ndarray] = []
-    for s, e in zip(starts, ends):
+    for s, e in zip(starts, ends, strict=False):
         c = int(eff[s])
         if c < 0:
             continue

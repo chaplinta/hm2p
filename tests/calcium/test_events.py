@@ -137,7 +137,7 @@ class TestDetectEventsSingle:
         trace[200:250] = 5.0
         trace[600:650] = 5.0
         result = detect_events_single(trace, smooth_sigma=2)
-        for onset, offset in zip(result.onsets, result.offsets):
+        for onset, offset in zip(result.onsets, result.offsets, strict=False):
             assert onset < offset
 
     def test_amplitudes_positive(self):

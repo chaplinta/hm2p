@@ -204,8 +204,8 @@ def load_champion_manifest(
     try:
         resp = s3_client.get_object(Bucket=bucket, Key=key)
         data = json.loads(resp["Body"].read())
-    except s3_client.exceptions.NoSuchKey:
-        raise FileNotFoundError(f"Champion manifest not found at s3://{bucket}/{key}")
+    except s3_client.exceptions.NoSuchKey as err:
+        raise FileNotFoundError(f"Champion manifest not found at s3://{bucket}/{key}") from err
     except json.JSONDecodeError as exc:
         raise ValueError(f"Invalid JSON in champion manifest at s3://{bucket}/{key}") from exc
 

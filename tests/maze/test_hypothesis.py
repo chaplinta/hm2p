@@ -199,7 +199,7 @@ class TestExplorationProperties:
     def test_new_nodes_bounded_by_window(self, seq):
         """Number of distinct nodes per window cannot exceed window size."""
         ws, nn = exploration_efficiency(seq)
-        for w, n in zip(ws, nn):
+        for w, n in zip(ws, nn, strict=False):
             assert n <= w
 
     @given(

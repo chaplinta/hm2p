@@ -134,7 +134,6 @@ def anchoring_time_course(
     for trans in d2l:
         pds = []
         mvls_t = []
-        valid_window = True
 
         for t_offset in time_offsets_frames:
             center = trans + t_offset

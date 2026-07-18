@@ -299,6 +299,7 @@ def run(
             if have_movie:
                 # Registered-movie path (Stage 4 FISSA reprocessing): FISSA runs
                 # on the Suite2p registered binary regenerated on EC2.
+                assert fissa_movie is not None and fissa_roi_masks is not None
                 F_corr = subtract_fissa_from_movie(
                     movie=fissa_movie,
                     roi_masks=fissa_roi_masks,
@@ -307,6 +308,7 @@ def run(
                     Fneu_fallback=Fneu,
                 )
             else:
+                assert fissa_tiff_paths is not None and fissa_roi_masks is not None
                 F_corr = subtract_fissa(
                     tiff_paths=fissa_tiff_paths,
                     roi_masks=fissa_roi_masks,

@@ -54,7 +54,7 @@ def _make_dlc_df(
     col_tuples = []
     for bp in bodyparts:
         xy = coords.get(bp, [(np.nan, np.nan)] * len(next(iter(coords.values()))))
-        for x, y in xy:
+        for _x, _y in xy:
             pass  # just need length
         xs = [c[0] for c in coords.get(bp, [(np.nan, np.nan)])]
         ys = [c[1] for c in coords.get(bp, [(np.nan, np.nan)])]
@@ -63,7 +63,7 @@ def _make_dlc_df(
 
     n_rows = len(next(iter(coords.values())))
     data = {}
-    for i, ct in enumerate(col_tuples):
+    for _i, ct in enumerate(col_tuples):
         bp = ct[1]
         coord = ct[2]
         vals = coords.get(bp, [(np.nan, np.nan)] * n_rows)
