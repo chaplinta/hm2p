@@ -61,6 +61,13 @@ CURATION_CSV = METADATA_DIR / "roi_curation.csv"
 ROI_TYPE_NAMES = {0: "Soma", 1: "Dendrite", 2: "Non-cell"}
 ROI_TYPE_COLORS = {0: "turquoise", 1: "darkorchid", 2: "gray"}
 
+# ROI-mask overlay colour per class label — vivid on a grayscale background.
+LABEL_COLORS = {
+    "soma": "rgba(0,229,255,0.45)",  # cyan
+    "dend": "rgba(255,64,255,0.45)",  # magenta
+    "artefact": "rgba(255,140,0,0.45)",  # orange
+}
+
 
 # ── Page header ───────────────────────────────────────────────────────────
 
@@ -445,7 +452,12 @@ def _roi_review() -> None:
             xpix = np.asarray(sf.get("xpix", []), dtype=int)
             if xpix.size > 0:
                 # Shade the ROI footprint as a translucent region (NaN elsewhere
-                # renders transparent) rather than scatter dots.
+                # renders transparent), coloured by the ROI's label — the
+                # curated label if one exists, else the classifier's argmax.
+                roi_label = existing.get(roi_idx)
+                if roi_label not in LABEL_COLORS:
+                    roi_label = arg_labels[roi_idx]
+                mask_color = LABEL_COLORS.get(roi_label, "rgba(255,215,0,0.45)")
                 overlay = np.full((img_h, img_w), np.nan)
                 inb = (ypix >= 0) & (ypix < img_h) & (xpix >= 0) & (xpix < img_w)
                 overlay[ypix[inb], xpix[inb]] = 1.0
@@ -453,9 +465,9 @@ def _roi_review() -> None:
                     go.Heatmap(
                         z=overlay,
                         showscale=False,
-                        colorscale=[[0, "rgba(255,215,0,0.4)"], [1, "rgba(255,215,0,0.4)"]],
+                        colorscale=[[0, mask_color], [1, mask_color]],
                         hoverinfo="skip",
-                        name=f"ROI {roi_idx}",
+                        name=f"ROI {roi_idx} ({roi_label})",
                     )
                 )
         fig.update_layout(
@@ -467,6 +479,14 @@ def _roi_review() -> None:
             showlegend=False,
         )
         col_img.plotly_chart(fig, use_container_width=True, key="rc_img")
+        col_img.markdown(
+            "<small>Mask colour = label: "
+            "<span style='color:#00E5FF'>■ soma</span> &nbsp; "
+            "<span style='color:#FF40FF'>■ dendrite</span> &nbsp; "
+            "<span style='color:#FF8C00'>■ artefact</span> "
+            "(curated label if set, else classifier argmax)</small>",
+            unsafe_allow_html=True,
+        )
     else:
         col_img.info("No spatial data for this session.")
 
