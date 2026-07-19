@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 import plotly.graph_objects as go
 import streamlit as st
+import streamlit.components.v1 as components
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
@@ -267,18 +268,56 @@ if n_candidate == 0:
     st.stop()
 
 
-# ── ROI selector ──────────────────────────────────────────────────────────
+# ── ROI selector (Prev / Next buttons + ← / → keyboard shortcuts) ─────────
 
-cur_pos = st.number_input(
-    f"ROI to review (0–{n_candidate - 1}, {n_candidate} candidates)",
-    min_value=0,
-    max_value=n_candidate - 1,
-    value=0,
-    step=1,
-    key="rc_pos",
-    help="Click here then use ↑↓ arrow keys to step through candidates.",
+if "rc_pos" not in st.session_state:
+    st.session_state.rc_pos = 0
+# Keep the position in range if the candidate list shrank (e.g. filter change).
+st.session_state.rc_pos = int(min(max(st.session_state.rc_pos, 0), n_candidate - 1))
+
+nav_prev, nav_num, nav_next = st.columns([1, 4, 1])
+with nav_prev:
+    st.write("")
+    if st.button("◀ Prev", key="rc_prev", use_container_width=True):
+        st.session_state.rc_pos = max(0, st.session_state.rc_pos - 1)
+with nav_next:
+    st.write("")
+    if st.button("Next ▶", key="rc_next", use_container_width=True):
+        st.session_state.rc_pos = min(n_candidate - 1, st.session_state.rc_pos + 1)
+with nav_num:
+    cur_pos = st.number_input(
+        f"ROI to review (0–{n_candidate - 1}, {n_candidate} candidates)",
+        min_value=0,
+        max_value=n_candidate - 1,
+        step=1,
+        key="rc_pos",
+        help="Use ← / → arrow keys or the Prev/Next buttons to step through candidates.",
+    )
+roi_idx = int(candidate[int(st.session_state.rc_pos)])
+
+# Bind ← / → keys to the Prev/Next buttons (ignored while typing in an input).
+components.html(
+    """
+    <script>
+    const doc = window.parent.document;
+    if (!doc._rcKeyNav) {
+      doc._rcKeyNav = true;
+      doc.addEventListener('keydown', function(e) {
+        const tag = (e.target.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+        let want = null;
+        if (e.key === 'ArrowRight') want = 'Next';
+        else if (e.key === 'ArrowLeft') want = 'Prev';
+        if (!want) return;
+        const btn = Array.from(doc.querySelectorAll('button'))
+          .find(b => (b.innerText || '').includes(want));
+        if (btn) { e.preventDefault(); btn.click(); }
+      });
+    }
+    </script>
+    """,
+    height=0,
 )
-roi_idx = int(candidate[int(cur_pos)])
 
 
 # ── ROI summary metrics ───────────────────────────────────────────────────
@@ -455,6 +494,14 @@ fig.update_layout(
     legend=dict(orientation="h", y=-0.2),
 )
 st.plotly_chart(fig, use_container_width=True, key="rc_trace")
+st.caption(
+    "Events (red segments) are calcium transients detected with the "
+    "Voigts & Harnett (2020) method: a per-cell noise model is estimated from "
+    "the dF/F distribution (percentile-based Gaussian), and runs of frames whose "
+    "signal exceeds a CDF probability threshold under that model are flagged as "
+    "events. Voigts & Harnett 2020, *Neuron* 105(2):237–245, "
+    "doi:10.1016/j.neuron.2019.10.016."
+)
 
 
 # ── Label widget ──────────────────────────────────────────────────────────

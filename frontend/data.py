@@ -1607,28 +1607,27 @@ def load_suite2p_spatial_one(exp_id: str) -> dict:
     cell_mask = iscell[:, 0].astype(bool) if iscell is not None else None
     accepted_ids = list(np.flatnonzero(cell_mask)) if cell_mask is not None else None
 
-    # Build per-ROI shape features from stat.npy
+    # Build per-ROI shape features from stat.npy, indexed by the FULL Suite2p
+    # ROI index (position in stat.npy) — not filtered to iscell-accepted cells.
+    # ca.h5 stores every Suite2p ROI (len == len(stat)), so downstream pages
+    # index shape_features by that ROI index; filtering to accepted_ids here
+    # left masks missing for every ROI beyond the accepted count.
     shape_features: list[dict | None] = []
-    if stat is not None and accepted_ids is not None:
-        stat_list = list(stat)
-        for global_idx in accepted_ids:
-            if global_idx < len(stat_list):
-                s = stat_list[global_idx]
-                shape_features.append(
-                    {
-                        "aspect_ratio": float(s.get("aspect_ratio", 1.0)),
-                        "radius": float(s.get("radius", 5.0)),
-                        "compact": float(s.get("compact", 1.0)),
-                        "npix": int(s.get("npix", 0)),
-                        "skew": float(s.get("skew", 0.0)),
-                        "med_y": int(s.get("med", [0, 0])[0]),
-                        "med_x": int(s.get("med", [0, 0])[1]),
-                        "ypix": s.get("ypix", np.array([], dtype=int)),
-                        "xpix": s.get("xpix", np.array([], dtype=int)),
-                    }
-                )
-            else:
-                shape_features.append(None)
+    if stat is not None:
+        for s in stat:
+            shape_features.append(
+                {
+                    "aspect_ratio": float(s.get("aspect_ratio", 1.0)),
+                    "radius": float(s.get("radius", 5.0)),
+                    "compact": float(s.get("compact", 1.0)),
+                    "npix": int(s.get("npix", 0)),
+                    "skew": float(s.get("skew", 0.0)),
+                    "med_y": int(s.get("med", [0, 0])[0]),
+                    "med_x": int(s.get("med", [0, 0])[1]),
+                    "ypix": s.get("ypix", np.array([], dtype=int)),
+                    "xpix": s.get("xpix", np.array([], dtype=int)),
+                }
+            )
 
     return {
         "mean_img": mean_img,
