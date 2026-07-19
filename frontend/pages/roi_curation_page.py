@@ -318,23 +318,26 @@ def _roi_review() -> None:
         """
         <script>
         const doc = window.parent.document;
-        if (!doc._rcKeyNav) {
-          doc._rcKeyNav = true;
-          doc.addEventListener('keydown', function(e) {
-            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
-            const el = e.target || {};
-            const tag = (el.tagName || '').toLowerCase();
-            const type = (el.type || '').toLowerCase();
-            const textInput = tag === 'textarea' || el.isContentEditable ||
-              (tag === 'input' &&
-               ['text', 'search', 'email', 'url', 'tel', 'password', ''].includes(type));
-            if (textInput) return;
-            const want = e.key === 'ArrowRight' ? 'Next' : 'Prev';
-            const btn = Array.from(doc.querySelectorAll('button'))
-              .find(b => (b.innerText || '').includes(want));
-            if (btn) { e.preventDefault(); e.stopPropagation(); btn.click(); }
-          }, true);
-        }
+        const handler = function(e) {
+          if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+          const el = e.target || {};
+          const tag = (el.tagName || '').toLowerCase();
+          const type = (el.type || '').toLowerCase();
+          const textInput = tag === 'textarea' || el.isContentEditable ||
+            (tag === 'input' &&
+             ['text', 'search', 'email', 'url', 'tel', 'password', ''].includes(type));
+          if (textInput) return;
+          const want = e.key === 'ArrowRight' ? 'next' : 'prev';
+          const btn = Array.from(doc.querySelectorAll('button'))
+            .find(b => (b.textContent || '').toLowerCase().includes(want));
+          if (btn) { e.preventDefault(); e.stopPropagation(); btn.click(); }
+        };
+        // Re-register each render: a fragment rerun tears down this iframe and
+        // the browser drops the listener it created, so remove the stale one
+        // and add a fresh handler bound to the current (live) iframe.
+        if (doc._rcKeyNavFn) doc.removeEventListener('keydown', doc._rcKeyNavFn, true);
+        doc._rcKeyNavFn = handler;
+        doc.addEventListener('keydown', handler, true);
         </script>
         """,
         height=0,
@@ -522,6 +525,17 @@ def _roi_review() -> None:
                     name="Events",
                 )
             )
+    # Classifier event_rate threshold: median + 2·MAD (robust noise) of this
+    # trace — the level above which the classifier counts threshold crossings.
+    _med = float(np.median(dff))
+    _thr = _med + 2.0 * 1.4826 * float(np.median(np.abs(dff - _med)))
+    fig.add_hline(
+        y=_thr,
+        line=dict(color="green", width=1, dash="dot"),
+        annotation_text="event_rate threshold (median + 2·MAD)",
+        annotation_position="top left",
+        annotation_font=dict(size=10, color="green"),
+    )
     fig.update_layout(
         height=280,
         margin=dict(t=20, b=35, l=55, r=15),
@@ -537,7 +551,9 @@ def _roi_review() -> None:
         "the dF/F distribution (percentile-based Gaussian), and runs of frames whose "
         "signal exceeds a CDF probability threshold under that model are flagged as "
         "events. Voigts & Harnett 2020, *Neuron* 105(2):237–245, "
-        "doi:10.1016/j.neuron.2019.10.016."
+        "doi:10.1016/j.neuron.2019.10.016. The green dotted line is the "
+        "classifier's `event_rate` threshold (median + 2·MAD) — a separate, "
+        "simpler crossing count, not the V&H detection."
     )
 
     # ── Label widget ──────────────────────────────────────────────────────────
