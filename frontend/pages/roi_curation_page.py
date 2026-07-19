@@ -302,7 +302,11 @@ def _roi_review() -> None:
         )
     roi_idx = int(candidate[int(st.session_state.rc_pos)])
 
-    # Bind ← / → keys to the Prev/Next buttons (ignored while typing in an input).
+    # Bind ← / → to the Prev/Next buttons. Handled in the CAPTURE phase with
+    # stopPropagation so other widgets (e.g. the vertical filter-mode radio,
+    # which also cycles on ← / →) never receive the key. ↑ / ↓ are left alone,
+    # so radios can still be navigated vertically, and real text-entry fields
+    # keep the arrows for cursor movement.
     components.html(
         """
         <script>
@@ -310,16 +314,19 @@ def _roi_review() -> None:
         if (!doc._rcKeyNav) {
           doc._rcKeyNav = true;
           doc.addEventListener('keydown', function(e) {
-            const tag = (e.target.tagName || '').toLowerCase();
-            if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
-            let want = null;
-            if (e.key === 'ArrowRight') want = 'Next';
-            else if (e.key === 'ArrowLeft') want = 'Prev';
-            if (!want) return;
+            if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+            const el = e.target || {};
+            const tag = (el.tagName || '').toLowerCase();
+            const type = (el.type || '').toLowerCase();
+            const textInput = tag === 'textarea' || el.isContentEditable ||
+              (tag === 'input' &&
+               ['text', 'search', 'email', 'url', 'tel', 'password', ''].includes(type));
+            if (textInput) return;
+            const want = e.key === 'ArrowRight' ? 'Next' : 'Prev';
             const btn = Array.from(doc.querySelectorAll('button'))
               .find(b => (b.innerText || '').includes(want));
-            if (btn) { e.preventDefault(); btn.click(); }
-          });
+            if (btn) { e.preventDefault(); e.stopPropagation(); btn.click(); }
+          }, true);
         }
         </script>
         """,
