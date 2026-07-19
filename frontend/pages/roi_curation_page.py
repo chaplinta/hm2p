@@ -268,288 +268,296 @@ if n_candidate == 0:
     st.stop()
 
 
-# ── ROI selector (Prev / Next buttons + ← / → keyboard shortcuts) ─────────
+@st.fragment
+def _roi_review() -> None:
+    """Render the ROI review (selector, image, trace, label) as a
+    fragment so Prev/Next navigation reruns only this section and does
+    not scroll the page back to the top."""
+    # ── ROI selector (Prev / Next buttons + ← / → keyboard shortcuts) ─────────
 
-if "rc_pos" not in st.session_state:
-    st.session_state.rc_pos = 0
-# Keep the position in range if the candidate list shrank (e.g. filter change).
-st.session_state.rc_pos = int(min(max(st.session_state.rc_pos, 0), n_candidate - 1))
+    if "rc_pos" not in st.session_state:
+        st.session_state.rc_pos = 0
+    # Keep the position in range if the candidate list shrank (e.g. filter change).
+    st.session_state.rc_pos = int(min(max(st.session_state.rc_pos, 0), n_candidate - 1))
 
-nav_prev, nav_num, nav_next = st.columns([1, 4, 1])
-with nav_prev:
-    st.write("")
-    if st.button("◀ Prev", key="rc_prev", use_container_width=True):
-        st.session_state.rc_pos = max(0, st.session_state.rc_pos - 1)
-with nav_next:
-    st.write("")
-    if st.button("Next ▶", key="rc_next", use_container_width=True):
-        st.session_state.rc_pos = min(n_candidate - 1, st.session_state.rc_pos + 1)
-with nav_num:
-    cur_pos = st.number_input(
-        f"ROI to review (0–{n_candidate - 1}, {n_candidate} candidates)",
-        min_value=0,
-        max_value=n_candidate - 1,
-        step=1,
-        key="rc_pos",
-        help="Use ← / → arrow keys or the Prev/Next buttons to step through candidates.",
+    nav_prev, nav_num, nav_next = st.columns([1, 4, 1])
+    with nav_prev:
+        st.write("")
+        if st.button("◀ Prev", key="rc_prev", use_container_width=True):
+            st.session_state.rc_pos = max(0, st.session_state.rc_pos - 1)
+    with nav_next:
+        st.write("")
+        if st.button("Next ▶", key="rc_next", use_container_width=True):
+            st.session_state.rc_pos = min(n_candidate - 1, st.session_state.rc_pos + 1)
+    with nav_num:
+        # The widget writes to st.session_state.rc_pos via its key; we read that
+        # (not the return value) so the Prev/Next buttons stay authoritative.
+        st.number_input(
+            f"ROI to review (0–{n_candidate - 1}, {n_candidate} candidates)",
+            min_value=0,
+            max_value=n_candidate - 1,
+            step=1,
+            key="rc_pos",
+            help="Use ← / → arrow keys or the Prev/Next buttons to step through candidates.",
+        )
+    roi_idx = int(candidate[int(st.session_state.rc_pos)])
+
+    # Bind ← / → keys to the Prev/Next buttons (ignored while typing in an input).
+    components.html(
+        """
+        <script>
+        const doc = window.parent.document;
+        if (!doc._rcKeyNav) {
+          doc._rcKeyNav = true;
+          doc.addEventListener('keydown', function(e) {
+            const tag = (e.target.tagName || '').toLowerCase();
+            if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
+            let want = null;
+            if (e.key === 'ArrowRight') want = 'Next';
+            else if (e.key === 'ArrowLeft') want = 'Prev';
+            if (!want) return;
+            const btn = Array.from(doc.querySelectorAll('button'))
+              .find(b => (b.innerText || '').includes(want));
+            if (btn) { e.preventDefault(); btn.click(); }
+          });
+        }
+        </script>
+        """,
+        height=0,
     )
-roi_idx = int(candidate[int(st.session_state.rc_pos)])
 
-# Bind ← / → keys to the Prev/Next buttons (ignored while typing in an input).
-components.html(
-    """
-    <script>
-    const doc = window.parent.document;
-    if (!doc._rcKeyNav) {
-      doc._rcKeyNav = true;
-      doc.addEventListener('keydown', function(e) {
-        const tag = (e.target.tagName || '').toLowerCase();
-        if (tag === 'input' || tag === 'textarea' || e.target.isContentEditable) return;
-        let want = null;
-        if (e.key === 'ArrowRight') want = 'Next';
-        else if (e.key === 'ArrowLeft') want = 'Prev';
-        if (!want) return;
-        const btn = Array.from(doc.querySelectorAll('button'))
-          .find(b => (b.innerText || '').includes(want));
-        if (btn) { e.preventDefault(); btn.click(); }
-      });
+    # ── ROI summary metrics ───────────────────────────────────────────────────
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("ROI", roi_idx)
+    c2.metric("p_soma", f"{p_soma[roi_idx]:.3f}" if np.isfinite(p_soma[roi_idx]) else "—")
+    c3.metric("p_dend", f"{p_dend[roi_idx]:.3f}" if np.isfinite(p_dend[roi_idx]) else "—")
+    c4.metric("p_artefact", f"{p_art[roi_idx]:.3f}" if np.isfinite(p_art[roi_idx]) else "—")
+    c5.metric("Argmax", arg_labels[roi_idx])
+
+    # QC sub-metrics — re-use the per-ROI QC arrays the ROI viewer already uses.
+    qc_keys = ("snr_event", "decay_tau_s", "fneu_dff_corr", "bleach_slope", "active_fraction")
+    qc_vals = {
+        k: roi_qc_ses.get(k, np.full(n_rois_ses, np.nan, dtype=np.float32)) for k in qc_keys
     }
-    </script>
-    """,
-    height=0,
-)
+    qc_cols = st.columns(len(qc_keys))
+    for col, key in zip(qc_cols, qc_keys, strict=True):
+        val = float(qc_vals[key][roi_idx]) if roi_idx < len(qc_vals[key]) else np.nan
+        col.metric(key, f"{val:.3f}" if np.isfinite(val) else "—")
 
+    # ── Spatial view ──────────────────────────────────────────────────────────
 
-# ── ROI summary metrics ───────────────────────────────────────────────────
+    spatial = load_suite2p_spatial_one(ses["exp_id"]) or {}
+    mean_img = spatial.get("mean_img")
+    max_img = spatial.get("max_img")
+    shape_features = spatial.get("shape_features", [])
+    # Background image selector (mean vs max projection) and ROI-overlay toggle.
+    # Controls live in the page body (never the sidebar) per project rules.
+    bg_options: list[str] = []
+    if max_img is not None:
+        bg_options.append("Max projection")
+    if mean_img is not None:
+        bg_options.append("Mean image")
 
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("ROI", roi_idx)
-c2.metric("p_soma", f"{p_soma[roi_idx]:.3f}" if np.isfinite(p_soma[roi_idx]) else "—")
-c3.metric("p_dend", f"{p_dend[roi_idx]:.3f}" if np.isfinite(p_dend[roi_idx]) else "—")
-c4.metric("p_artefact", f"{p_art[roi_idx]:.3f}" if np.isfinite(p_art[roi_idx]) else "—")
-c5.metric("Argmax", arg_labels[roi_idx])
+    ctrl_bg, ctrl_roi, ctrl_contrast = st.columns([2, 1, 1])
+    with ctrl_bg:
+        bg_choice = st.radio(
+            "Background image",
+            options=bg_options or ["(none)"],
+            horizontal=True,
+            key="rc_bg_choice",
+            disabled=not bg_options,
+        )
+    with ctrl_roi:
+        show_roi = st.toggle("Show ROI overlay", value=True, key="rc_show_roi")
+    with ctrl_contrast:
+        auto_contrast = st.toggle(
+            "Auto-contrast",
+            value=True,
+            key="rc_auto_contrast",
+            help=(
+                "Base the display range on the 1st–99.5th intensity percentile "
+                "instead of the raw min/max, so faint somata and dendrites are "
+                "visible. Applies to both the mean and max images."
+            ),
+        )
 
-# QC sub-metrics — re-use the per-ROI QC arrays the ROI viewer already uses.
-qc_keys = ("snr_event", "decay_tau_s", "fneu_dff_corr", "bleach_slope", "active_fraction")
-qc_vals = {k: roi_qc_ses.get(k, np.full(n_rois_ses, np.nan, dtype=np.float32)) for k in qc_keys}
-qc_cols = st.columns(len(qc_keys))
-for col, key in zip(qc_cols, qc_keys, strict=True):
-    val = float(qc_vals[key][roi_idx]) if roi_idx < len(qc_vals[key]) else np.nan
-    col.metric(key, f"{val:.3f}" if np.isfinite(val) else "—")
+    sl_contrast, sl_bright = st.columns(2)
+    with sl_contrast:
+        contrast = st.slider(
+            "Contrast",
+            min_value=0.5,
+            max_value=6.0,
+            value=1.0,
+            step=0.1,
+            key="rc_contrast",
+            help="Higher narrows the display range around its midpoint (more contrast).",
+        )
+    with sl_bright:
+        brightness = st.slider(
+            "Brightness",
+            min_value=-1.0,
+            max_value=1.0,
+            value=0.0,
+            step=0.05,
+            key="rc_brightness",
+            help="Shifts the display range: positive brightens, negative darkens.",
+        )
 
+    # Radio options only include images that exist, so the selected one is present.
+    bg_img = mean_img if bg_choice == "Mean image" else max_img
 
-# ── Spatial view ──────────────────────────────────────────────────────────
+    # Image (left) and the "Label this ROI" widget (right) sit side by side.
+    col_img, col_label = st.columns([3, 1], gap="large")
 
-spatial = load_suite2p_spatial_one(ses["exp_id"]) or {}
-mean_img = spatial.get("mean_img")
-max_img = spatial.get("max_img")
-shape_features = spatial.get("shape_features", [])
-# Background image selector (mean vs max projection) and ROI-overlay toggle.
-# Controls live in the page body (never the sidebar) per project rules.
-bg_options: list[str] = []
-if max_img is not None:
-    bg_options.append("Max projection")
-if mean_img is not None:
-    bg_options.append("Mean image")
+    if bg_img is not None:
+        # Pick a base display range (robust percentiles or raw min/max), then apply
+        # the contrast (narrow around the midpoint) and brightness (shift) sliders.
+        # Only the display colour scale changes here, never the underlying data.
+        zmin = zmax = None
+        finite_vals = np.asarray(bg_img)[np.isfinite(bg_img)]
+        if finite_vals.size:
+            if auto_contrast:
+                lo, hi = (float(v) for v in np.percentile(finite_vals, [1.0, 99.5]))
+            else:
+                lo, hi = float(finite_vals.min()), float(finite_vals.max())
+            if hi > lo:
+                mid = (lo + hi) / 2.0
+                span = hi - lo
+                half = (span / 2.0) / max(contrast, 1e-6)
+                shift = brightness * span
+                zmin = mid - half - shift
+                zmax = mid + half - shift
+        fig = go.Figure(
+            data=go.Heatmap(z=bg_img, colorscale="gray", showscale=False, zmin=zmin, zmax=zmax)
+        )
+        img_h, img_w = bg_img.shape[:2]
+        if show_roi and roi_idx < len(shape_features) and shape_features[roi_idx] is not None:
+            sf = shape_features[roi_idx]
+            ypix = np.asarray(sf.get("ypix", []), dtype=int)
+            xpix = np.asarray(sf.get("xpix", []), dtype=int)
+            if xpix.size > 0:
+                # Shade the ROI footprint as a translucent region (NaN elsewhere
+                # renders transparent) rather than scatter dots.
+                overlay = np.full((img_h, img_w), np.nan)
+                inb = (ypix >= 0) & (ypix < img_h) & (xpix >= 0) & (xpix < img_w)
+                overlay[ypix[inb], xpix[inb]] = 1.0
+                fig.add_trace(
+                    go.Heatmap(
+                        z=overlay,
+                        showscale=False,
+                        colorscale=[[0, "rgba(255,215,0,0.4)"], [1, "rgba(255,215,0,0.4)"]],
+                        hoverinfo="skip",
+                        name=f"ROI {roi_idx}",
+                    )
+                )
+        fig.update_layout(
+            height=700,
+            title=f"ROI {roi_idx} — {bg_choice}",
+            xaxis=dict(range=[0, img_w], constrain="domain"),
+            yaxis=dict(range=[img_h, 0], scaleanchor="x", constrain="domain"),
+            margin=dict(t=30, b=5, l=5, r=5),
+            showlegend=False,
+        )
+        col_img.plotly_chart(fig, use_container_width=True, key="rc_img")
+    else:
+        col_img.info("No spatial data for this session.")
 
-ctrl_bg, ctrl_roi, ctrl_contrast = st.columns([2, 1, 1])
-with ctrl_bg:
-    bg_choice = st.radio(
-        "Background image",
-        options=bg_options or ["(none)"],
-        horizontal=True,
-        key="rc_bg_choice",
-        disabled=not bg_options,
+    # dF/F trace (matches roi_viewer plotting convention), full width below image.
+    dff = ses["dff"][roi_idx]
+    frame_times = ses.get("frame_times")
+    t = (frame_times - frame_times[0]) if frame_times is not None else np.arange(len(dff)) / 9.6
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scattergl(
+            x=t,
+            y=dff,
+            mode="lines",
+            line=dict(color="royalblue", width=1),
+            name="dF/F₀",
+        )
     )
-with ctrl_roi:
-    show_roi = st.toggle("Show ROI overlay", value=True, key="rc_show_roi")
-with ctrl_contrast:
-    auto_contrast = st.toggle(
-        "Auto-contrast",
-        value=True,
-        key="rc_auto_contrast",
-        help=(
-            "Base the display range on the 1st–99.5th intensity percentile "
-            "instead of the raw min/max, so faint somata and dendrites are "
-            "visible. Applies to both the mean and max images."
-        ),
-    )
-
-sl_contrast, sl_bright = st.columns(2)
-with sl_contrast:
-    contrast = st.slider(
-        "Contrast",
-        min_value=0.5,
-        max_value=6.0,
-        value=1.0,
-        step=0.1,
-        key="rc_contrast",
-        help="Higher narrows the display range around its midpoint (more contrast).",
-    )
-with sl_bright:
-    brightness = st.slider(
-        "Brightness",
-        min_value=-1.0,
-        max_value=1.0,
-        value=0.0,
-        step=0.05,
-        key="rc_brightness",
-        help="Shifts the display range: positive brightens, negative darkens.",
-    )
-
-# Radio options only include images that exist, so the selected one is present.
-bg_img = mean_img if bg_choice == "Mean image" else max_img
-
-if bg_img is not None:
-    # Pick a base display range (robust percentiles or raw min/max), then apply
-    # the contrast (narrow around the midpoint) and brightness (shift) sliders.
-    # Only the display colour scale changes here, never the underlying data.
-    zmin = zmax = None
-    finite_vals = np.asarray(bg_img)[np.isfinite(bg_img)]
-    if finite_vals.size:
-        if auto_contrast:
-            lo, hi = (float(v) for v in np.percentile(finite_vals, [1.0, 99.5]))
-        else:
-            lo, hi = float(finite_vals.min()), float(finite_vals.max())
-        if hi > lo:
-            mid = (lo + hi) / 2.0
-            span = hi - lo
-            half = (span / 2.0) / max(contrast, 1e-6)
-            shift = brightness * span
-            zmin = mid - half - shift
-            zmax = mid + half - shift
-    fig = go.Figure(
-        data=go.Heatmap(z=bg_img, colorscale="gray", showscale=False, zmin=zmin, zmax=zmax)
-    )
-    img_h, img_w = bg_img.shape[:2]
-    if show_roi and roi_idx < len(shape_features) and shape_features[roi_idx] is not None:
-        sf = shape_features[roi_idx]
-        ypix = np.asarray(sf.get("ypix", []), dtype=int)
-        xpix = np.asarray(sf.get("xpix", []), dtype=int)
-        if xpix.size > 0:
-            # Shade the ROI footprint as a translucent region (NaN elsewhere
-            # renders transparent) rather than scatter dots.
-            overlay = np.full((img_h, img_w), np.nan)
-            inb = (ypix >= 0) & (ypix < img_h) & (xpix >= 0) & (xpix < img_w)
-            overlay[ypix[inb], xpix[inb]] = 1.0
+    event_masks = ses.get("event_masks")
+    if event_masks is not None and roi_idx < event_masks.shape[0]:
+        events = event_masks[roi_idx].astype(bool)
+        if events.any():
+            # Draw events as segments over the trace: overlay the dF/F only during
+            # event frames (NaN elsewhere) with connectgaps off, so each
+            # contiguous event renders as a red segment rather than isolated dots.
+            y_event = np.where(events, dff, np.nan)
             fig.add_trace(
-                go.Heatmap(
-                    z=overlay,
-                    showscale=False,
-                    colorscale=[[0, "rgba(255,215,0,0.4)"], [1, "rgba(255,215,0,0.4)"]],
-                    hoverinfo="skip",
-                    name=f"ROI {roi_idx}",
+                go.Scattergl(
+                    x=t,
+                    y=y_event,
+                    mode="lines",
+                    line=dict(color="red", width=2.5),
+                    connectgaps=False,
+                    name="Events",
                 )
             )
     fig.update_layout(
-        height=700,
-        title=f"ROI {roi_idx} — {bg_choice}",
-        xaxis=dict(range=[0, img_w], constrain="domain"),
-        yaxis=dict(range=[img_h, 0], scaleanchor="x", constrain="domain"),
-        margin=dict(t=30, b=5, l=5, r=5),
-        showlegend=False,
+        height=280,
+        margin=dict(t=20, b=35, l=55, r=15),
+        xaxis_title="Time (s)",
+        yaxis_title="dF/F₀",
+        showlegend=True,
+        legend=dict(orientation="h", y=-0.2),
     )
-    st.plotly_chart(fig, use_container_width=True, key="rc_img")
-else:
-    st.info("No spatial data for this session.")
-
-# dF/F trace (matches roi_viewer plotting convention), full width below image.
-dff = ses["dff"][roi_idx]
-frame_times = ses.get("frame_times")
-t = (frame_times - frame_times[0]) if frame_times is not None else np.arange(len(dff)) / 9.6
-fig = go.Figure()
-fig.add_trace(
-    go.Scattergl(
-        x=t,
-        y=dff,
-        mode="lines",
-        line=dict(color="royalblue", width=1),
-        name="dF/F₀",
-    )
-)
-event_masks = ses.get("event_masks")
-if event_masks is not None and roi_idx < event_masks.shape[0]:
-    events = event_masks[roi_idx].astype(bool)
-    if events.any():
-        # Draw events as segments over the trace: overlay the dF/F only during
-        # event frames (NaN elsewhere) with connectgaps off, so each
-        # contiguous event renders as a red segment rather than isolated dots.
-        y_event = np.where(events, dff, np.nan)
-        fig.add_trace(
-            go.Scattergl(
-                x=t,
-                y=y_event,
-                mode="lines",
-                line=dict(color="red", width=2.5),
-                connectgaps=False,
-                name="Events",
-            )
-        )
-fig.update_layout(
-    height=280,
-    margin=dict(t=20, b=35, l=55, r=15),
-    xaxis_title="Time (s)",
-    yaxis_title="dF/F₀",
-    showlegend=True,
-    legend=dict(orientation="h", y=-0.2),
-)
-st.plotly_chart(fig, use_container_width=True, key="rc_trace")
-st.caption(
-    "Events (red segments) are calcium transients detected with the "
-    "Voigts & Harnett (2020) method: a per-cell noise model is estimated from "
-    "the dF/F distribution (percentile-based Gaussian), and runs of frames whose "
-    "signal exceeds a CDF probability threshold under that model are flagged as "
-    "events. Voigts & Harnett 2020, *Neuron* 105(2):237–245, "
-    "doi:10.1016/j.neuron.2019.10.016."
-)
-
-
-# ── Label widget ──────────────────────────────────────────────────────────
-
-# Default selection: existing curation if any, else model argmax.
-existing_label = existing.get(roi_idx)
-if existing_label in CLASS_NAMES:
-    default_choice = existing_label
-else:
-    default_choice = arg_labels[roi_idx] if arg_labels[roi_idx] in CLASS_NAMES else "soma"
-
-choices = list(CLASS_NAMES) + ["skip"]
-choice_idx = choices.index(default_choice) if default_choice in choices else 0
-
-st.markdown("### Label this ROI")
-chosen = st.radio(
-    "Decision",
-    choices,
-    index=choice_idx,
-    key=f"rc_choice_{ses['exp_id']}_{roi_idx}",
-    horizontal=True,
-    help=(
-        "Default is the model argmax (or your previous label if you've "
-        "already reviewed this ROI). Click Save to commit; choose 'skip' "
-        "to leave the current label unchanged."
-    ),
-)
-
-if existing_label:
-    # Look up the latest curator/timestamp for this ROI from the full table.
-    sub_rows = all_labels[
-        (all_labels["session_id"] == ses["exp_id"]) & (all_labels["roi_index"] == roi_idx)
-    ]
-    prev_curator = sub_rows.iloc[0]["curator"] if len(sub_rows) else "unknown"
+    st.plotly_chart(fig, use_container_width=True, key="rc_trace")
     st.caption(
-        f"Previously labelled as **{existing_label}** by {prev_curator}. "
-        "Saving a new label appends a new row; the most recent timestamp wins on read."
+        "Events (red segments) are calcium transients detected with the "
+        "Voigts & Harnett (2020) method: a per-cell noise model is estimated from "
+        "the dF/F distribution (percentile-based Gaussian), and runs of frames whose "
+        "signal exceeds a CDF probability threshold under that model are flagged as "
+        "events. Voigts & Harnett 2020, *Neuron* 105(2):237–245, "
+        "doi:10.1016/j.neuron.2019.10.016."
     )
 
-save_col, apply_col = st.columns(2)
-with save_col:
-    save_clicked = st.button(
+    # ── Label widget ──────────────────────────────────────────────────────────
+
+    # Default selection: existing curation if any, else model argmax.
+    existing_label = existing.get(roi_idx)
+    if existing_label in CLASS_NAMES:
+        default_choice = existing_label
+    else:
+        default_choice = arg_labels[roi_idx] if arg_labels[roi_idx] in CLASS_NAMES else "soma"
+
+    choices = list(CLASS_NAMES) + ["skip"]
+    choice_idx = choices.index(default_choice) if default_choice in choices else 0
+
+    # "Label this ROI" renders in the right-hand column, next to the image.
+    col_label.markdown("### Label this ROI")
+    chosen = col_label.radio(
+        "Decision",
+        choices,
+        index=choice_idx,
+        key=f"rc_choice_{ses['exp_id']}_{roi_idx}",
+        help=(
+            "Default is the model argmax (or your previous label if you've "
+            "already reviewed this ROI). Click Save to commit; choose 'skip' "
+            "to leave the current label unchanged."
+        ),
+    )
+
+    if existing_label:
+        # Look up the latest curator/timestamp for this ROI from the full table.
+        sub_rows = all_labels[
+            (all_labels["session_id"] == ses["exp_id"]) & (all_labels["roi_index"] == roi_idx)
+        ]
+        prev_curator = sub_rows.iloc[0]["curator"] if len(sub_rows) else "unknown"
+        col_label.caption(
+            f"Previously labelled as **{existing_label}** by {prev_curator}. "
+            "Saving a new label appends a new row; the most recent timestamp wins on read."
+        )
+
+    save_clicked = col_label.button(
         "Save label",
         type="primary",
         disabled=(chosen == "skip"),
         use_container_width=True,
     )
-with apply_col:
+
+    # Session-level action, full width below the image/trace.
     apply_clicked = st.button(
         "Apply curation to ca.h5 (this session)",
         help=(
@@ -560,47 +568,50 @@ with apply_col:
         use_container_width=True,
     )
 
-if save_clicked:
-    try:
-        append_curation_row(
-            CURATION_CSV,
-            session_id=ses["exp_id"],
-            roi_index=roi_idx,
-            label=chosen,
-            curator=curator.strip(),
-        )
-        st.success(f"Saved: {ses['exp_id']} ROI {roi_idx} → {chosen}.")
-        # st.rerun re-reads the CSV (it's loaded fresh each render — no
-        # @st.cache_data on load_latest_labels) so the metric updates.
-        st.rerun()
-    except Exception as exc:
-        st.error(f"Failed to save label: {exc}")
-
-if apply_clicked:
-    raw = _download_session_ca_h5(ses["sub"], ses["ses"])
-    if raw is None:
-        st.error("Could not download ca.h5 from S3 — apply skipped.")
-    else:
+    if save_clicked:
         try:
-            with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
-                tmp.write(raw)
-                tmp_path = Path(tmp.name)
-            n_written = apply_curation_to_ca_h5(CURATION_CSV, ses["exp_id"], tmp_path)
-            with open(tmp_path, "rb") as fh:
-                payload = fh.read()
-            st.success(
-                f"Applied {n_written} curated labels to a local copy of ca.h5. "
-                "Download below; uploading to S3 is a separate step."
+            append_curation_row(
+                CURATION_CSV,
+                session_id=ses["exp_id"],
+                roi_index=roi_idx,
+                label=chosen,
+                curator=curator.strip(),
             )
-            st.download_button(
-                "Download curated ca.h5",
-                data=payload,
-                file_name=f"{ses['sub']}_{ses['ses']}_ca_curated.h5",
-                mime="application/x-hdf5",
-                key="rc_download",
-            )
+            st.success(f"Saved: {ses['exp_id']} ROI {roi_idx} → {chosen}.")
+            # st.rerun re-reads the CSV (it's loaded fresh each render — no
+            # @st.cache_data on load_latest_labels) so the metric updates.
+            st.rerun()
         except Exception as exc:
-            st.error(f"Failed to apply curation: {exc}")
+            st.error(f"Failed to save label: {exc}")
+
+    if apply_clicked:
+        raw = _download_session_ca_h5(ses["sub"], ses["ses"])
+        if raw is None:
+            st.error("Could not download ca.h5 from S3 — apply skipped.")
+        else:
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".h5", delete=False) as tmp:
+                    tmp.write(raw)
+                    tmp_path = Path(tmp.name)
+                n_written = apply_curation_to_ca_h5(CURATION_CSV, ses["exp_id"], tmp_path)
+                with open(tmp_path, "rb") as fh:
+                    payload = fh.read()
+                st.success(
+                    f"Applied {n_written} curated labels to a local copy of ca.h5. "
+                    "Download below; uploading to S3 is a separate step."
+                )
+                st.download_button(
+                    "Download curated ca.h5",
+                    data=payload,
+                    file_name=f"{ses['sub']}_{ses['ses']}_ca_curated.h5",
+                    mime="application/x-hdf5",
+                    key="rc_download",
+                )
+            except Exception as exc:
+                st.error(f"Failed to apply curation: {exc}")
+
+
+_roi_review()
 
 
 # ── Curation log preview ──────────────────────────────────────────────────
