@@ -238,6 +238,65 @@ controlling for this confound.
 
 ---
 
+## 8. Pereira et al. 2026 — Route planning and structure learning in complex mazes
+
+**Citation:** Pereira M, Godinho BS, Machens CK, Costa RM, Akam T. 2026.
+"Flexible route planning and rapid structure learning by mice in complex
+environments." bioRxiv. doi:10.64898/2026.06.02.729586
+
+**What it describes:** A behavioural assay ("route planning task") in a
+reconfigurable 6×6 grid of towers connected by removable walkways. A randomly
+selected tower is cued by an LED on each trial; the mouse navigates there for a
+water reward. 16 mice (8 pilot, 8 main), 59,651 trajectories, 282,855 choice
+points. Maze layouts were numerically optimised (170,000 candidates) to
+dissociate **structure-based** navigation (reducing shortest-path/geodesic
+distance to goal) from **vector-based** navigation (reducing Euclidean distance
+to goal), using two graph metrics: fraction of "informative" states where the
+two strategies disagree, and flatness of the betweenness-centrality distribution.
+A hierarchical-Bayesian mixture-of-strategies model (softmax over graded action
+preferences) shows a large Structure weight, smaller Vector weight, and a large
+Anti-backward (u-turn avoidance) weight. Structure knowledge is evident from the
+first session on a newly configured maze. No neural recordings.
+
+**Relevance to hm2p:** Moderate — methodological, not conceptual. The **critical
+disanalogy** is that every headline analysis in this paper is defined relative to
+a cued goal (excess steps, optimal choice rate, structure/vector indices all
+require the goal location). The hm2p paradigm is free exploration with no goal,
+no reward and no cue, so those analyses cannot be computed on our data.
+Rosenberg et al. 2021 (entry 6) remains the closer analogue and is **not**
+superseded by this paper — Rosenberg studied goal-free exploration, Pereira
+studied goal-directed navigation, and the two conclusions are compatible.
+
+What it does add: (a) a third independent demonstration that u-turn avoidance is
+a dominant behavioural component across mazes and tasks, agreeing with
+Rosenberg's forward bias and with the preservation of local turn rules across
+light/dark in the hm2p behaviour analysis; (b) independent support for very
+rapid (single-session) structure learning, alongside the hm2p single-dark-epoch
+adaptation result; (c) betweenness centrality as a graded maze-structure
+descriptor.
+
+**Methods usable in hm2p from this paper:**
+
+| Method | Pereira approach | Applicability to hm2p |
+|--------|-----------------|----------------------|
+| Betweenness centrality | Per-node fraction of all-pairs shortest paths passing through it; used to characterise maze structure | Directly applicable. `maze/topology.py` already computes all-pairs shortest paths. Usable as a graded per-cell covariate for the light/dark occupancy-change analysis, replacing the categorical corridor/junction/dead-end split |
+| Strategy index normalisation | `I_q = (c_q − r_q)/(o_q − r_q)`, correcting a rule's hit rate for the expected rate under uniform choice among available actions | Applicable to `maze/choice_models.py:rule_accuracies`, which currently reports an uncorrected raw hit rate |
+| Mixture-of-strategies model | Conditional logit / softmax over additively combined **graded** scalar action preferences, with an explicit Anti-backward component; fit to every choice | Applicable as a replacement for the deterministic winner-take-all rules in `maze/choice_models.py`. The explicit anti-backward term is the key element the hm2p implementation lacks — u-turns are ~half of junction choices in the q-rose maze and no current rule predicts them |
+| Fraction of informative states | Fraction of (location, goal) pairs where structure- and vector-preferred action sets are disjoint | Not applicable — goal-dependent. Could be computed as a descriptive property of the q-rose maze only |
+| Excess steps, optimal choice rate, structure/vector indices | Goal-relative navigation efficiency measures | **Not applicable** — require a cued goal |
+| Hierarchical Bayesian inference (Piray et al. 2019) | Group-level model fitting and comparison | Not adopted as the inferential layer — conflicts with the project's non-parametric policy |
+
+**Statistical caution:** All inference in this paper is parametric (rmANOVA,
+one-sample and paired t-tests) with n = 8. The pilot experiment reports n = 8 but
+its rmANOVA degrees of freedom, F(8,40), imply n = 6; the main experiment is
+internally consistent. Hierarchical model tests are reported as t₉ from 8
+subjects without explanation of the degrees of freedom. Cite the effects, not the
+p-values.
+
+**Detailed review:** `papers/reviews/pereira-et-al-2026-summary.md`
+
+---
+
 ## Source Code and Data Repositories
 
 | Paper | Repository |
@@ -249,3 +308,4 @@ controlling for this confound.
 | Stringer 2026 | Same repo (Suite2p v1.0+) |
 | Rosenberg 2021 | [github.com/markusmeister/Rosenberg-2021-Repository](https://github.com/markusmeister/Rosenberg-2021-Repository) |
 | Zagha 2022 | No code repository (review/perspective article) |
+| Pereira 2026 | [github.com/pyControl/hardware/tree/master/GridMaze](https://github.com/pyControl/hardware/tree/master/GridMaze) (apparatus design files); [github.com/michaelfsp/pycbm](https://github.com/michaelfsp/pycbm) (hierarchical Bayesian inference) |
