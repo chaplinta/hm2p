@@ -349,3 +349,31 @@ With 12 Penk+ animals and 4 Penk⁻CamKII+ animals:
 
 **Interpretation guidance:** Null results may reflect low power rather than
 absence of effect. Report confidence intervals alongside p-values.
+
+---
+
+## Additions for the Penk+ vs Penk⁻CamKII+ programme (2026-09-23)
+
+See [plan-penk-vs-nonpenk.md](plan-penk-vs-nonpenk.md). Implemented in
+`src/hm2p/analysis/mixed_stats.py` and `src/hm2p/analysis/heterogeneity.py`:
+
+- `lmm_celltype_test()` — Approach 2 (supplementary LMM with ICC); returns
+  `available=False` when statsmodels is not installed.
+- `loao_between_group()` — leave-one-animal-out direction check. A difference
+  is reported only if its sign survives dropping each Penk⁻CamKII+ animal in
+  turn.
+- `equipment_matched_subset()` — restrict to fibre/lens configurations present
+  in both groups before repeating any test.
+- `variance_ratio_test()` / `heterogeneity.variance_ratio_permutation()` —
+  dispersion comparison with an animal-level permutation null, reported next to
+  every location test because Penk⁻CamKII+ is a mixture of types.
+- `heterogeneity.energy_distance_test()`, `loao_classifier()`,
+  `classifier_permutation_test()` — omnibus tests of distinguishability that do
+  not pre-specify an axis; nulls permute cell-type labels at the animal level.
+- `fdr_correct()` no longer requires statsmodels (numpy Benjamini-Hochberg
+  fallback with identical results).
+
+Patching data: `hm2p.patching.statistics.cluster_permutation_comparison()`
+permutes labels within animal (both cell types are recorded in each mouse) and
+`animal_level_comparison()` pairs by animal; the existing cell-level
+Mann-Whitney table is descriptive only.

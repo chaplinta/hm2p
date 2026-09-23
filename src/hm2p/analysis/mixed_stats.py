@@ -25,7 +25,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from scipy import stats
-from statsmodels.stats.multitest import multipletests
 
 # ============================================================================
 # Approach 1: Animal-level summary statistics
@@ -460,7 +459,7 @@ def fdr_correct(
     sig_fdr = np.full(len(p_vals), False)
 
     if valid.any():
-        reject, corrected, _, _ = multipletests(p_vals[valid], alpha=alpha, method="fdr_bh")
+        corrected, reject = _bh_fdr(p_vals[valid], alpha)
         p_fdr[valid] = corrected
         sig_fdr[valid] = reject
 
@@ -484,3 +483,258 @@ def _validate_columns(df: pd.DataFrame, required: list[str]) -> None:
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Missing columns in DataFrame: {missing}")
+
+
+def _bh_fdr(p_values: np.ndarray, alpha: float = 0.05) -> tuple[np.ndarray, np.ndarray]:
+    """Benjamini-Hochberg FDR correction.
+
+    Uses ``statsmodels.stats.multitest.multipletests`` when available and an
+    equivalent numpy implementation otherwise, so the module imports without
+    statsmodels.
+
+    Benjamini Y, Hochberg Y. 1995. "Controlling the false discovery rate: a
+    practical and powerful approach to multiple testing." Journal of the Royal
+    Statistical Society B 57:289-300. doi:10.1111/j.2517-6161.1995.tb02031.x
+
+    Returns
+    -------
+    (corrected, reject)
+        Adjusted p-values and boolean rejections, same order as input.
+    """
+    p = np.asarray(p_values, dtype=float)
+    try:
+        from statsmodels.stats.multitest import multipletests
+
+        reject, corrected, _, _ = multipletests(p, alpha=alpha, method="fdr_bh")
+        return np.asarray(corrected, dtype=float), np.asarray(reject, dtype=bool)
+    except ImportError:
+        pass
+    n = p.size
+    order = np.argsort(p)
+    ranked = p[order] * n / (np.arange(n) + 1)
+    # enforce monotonicity from the largest rank downwards
+    ranked = np.minimum.accumulate(ranked[::-1])[::-1]
+    corrected = np.empty(n, dtype=float)
+    corrected[order] = np.clip(ranked, 0.0, 1.0)
+    return corrected, corrected <= alpha
+
+
+# ============================================================================
+# Supplementary LMM (Approach 2 in docs/stats-strategy.md)
+# ============================================================================
+
+
+def lmm_celltype_test(
+    df: pd.DataFrame,
+    metric_col: str,
+    group_col: str = "celltype",
+    animal_col: str = "animal_id",
+) -> dict:
+    """Linear mixed model ``metric ~ group + (1 | animal)`` with ICC.
+
+    Supplementary only: the model is parametric and is reported next to the
+    non-parametric animal-level tests, never as the primary result. Requires
+    ``statsmodels``; returns NaN fields with ``available=False`` when it is
+    not installed.
+
+    Returns
+    -------
+    dict
+        ``coef`` (group effect, second level minus first in sorted order),
+        ``p_value``, ``icc`` (animal variance / total variance),
+        ``n_animals``, ``n_cells``, ``available``, ``converged``.
+    """
+    _validate_columns(df, [metric_col, group_col, animal_col])
+    data = df[[metric_col, group_col, animal_col]].dropna().copy()
+    levels = sorted(data[group_col].unique())
+    out: dict = {
+        "metric": metric_col,
+        "levels": levels,
+        "coef": np.nan,
+        "p_value": np.nan,
+        "icc": np.nan,
+        "n_animals": int(data[animal_col].nunique()),
+        "n_cells": int(len(data)),
+        "available": False,
+        "converged": False,
+    }
+    if len(levels) != 2 or out["n_animals"] < 3:
+        return out
+    try:
+        import statsmodels.formula.api as smf
+    except ImportError:
+        return out
+    out["available"] = True
+    data = data.rename(columns={metric_col: "y", group_col: "g", animal_col: "a"})
+    data["g"] = (data["g"] == levels[1]).astype(float)
+    try:
+        model = smf.mixedlm("y ~ g", data, groups=data["a"])
+        fit = model.fit(reml=True)
+    except Exception:  # noqa: BLE001 — convergence/singular fits are reported, not raised
+        return out
+    var_animal = float(np.asarray(fit.cov_re).ravel()[0])
+    var_resid = float(fit.scale)
+    total = var_animal + var_resid
+    out.update(
+        {
+            "coef": float(fit.params["g"]),
+            "p_value": float(fit.pvalues["g"]),
+            "icc": var_animal / total if total > 0 else np.nan,
+            "converged": bool(getattr(fit, "converged", True)),
+        }
+    )
+    return out
+
+
+# ============================================================================
+# Leave-one-animal-out direction check
+# ============================================================================
+
+
+def loao_between_group(
+    df: pd.DataFrame,
+    metric_col: str,
+    group_col: str = "celltype",
+    animal_col: str = "animal_id",
+    drop_group: str | None = None,
+    n_perms: int = 2000,
+    seed: int = 42,
+) -> dict:
+    """Leave-one-animal-out robustness check for a between-group difference.
+
+    Each animal of *drop_group* (default: the group with fewer animals) is
+    removed in turn and the animal-level test is repeated. A difference is
+    called direction-stable when the sign of the animal-median difference is
+    the same in every drop.
+
+    Returns
+    -------
+    dict
+        ``full_direction`` (sign of median difference, group2 - group1 in
+        sorted level order), ``drops`` (list of per-drop dicts with
+        ``dropped``, ``direction``, ``summary_p_value``, ``perm_p_value``),
+        ``direction_stable`` (bool), ``n_drops``, ``max_p_value``.
+    """
+    _validate_columns(df, [metric_col, group_col, animal_col])
+    levels = sorted(df[group_col].dropna().unique())
+    if len(levels) != 2:
+        raise ValueError(f"loao_between_group requires exactly 2 groups, got {levels}")
+    counts = df.groupby(group_col)[animal_col].nunique()
+    if drop_group is None:
+        drop_group = str(counts.idxmin())
+    if drop_group not in levels:
+        raise ValueError(f"drop_group {drop_group!r} not in {levels}")
+
+    def _direction(sub: pd.DataFrame) -> int:
+        med = sub.groupby([group_col, animal_col])[metric_col].mean()
+        g1 = med.loc[levels[0]].median() if levels[0] in med.index.get_level_values(0) else np.nan
+        g2 = med.loc[levels[1]].median() if levels[1] in med.index.get_level_values(0) else np.nan
+        diff = g2 - g1
+        if np.isnan(diff):
+            return 0
+        return int(np.sign(diff))
+
+    full_direction = _direction(df)
+    drops: list[dict] = []
+    animals = sorted(df.loc[df[group_col] == drop_group, animal_col].unique())
+    for a in animals:
+        sub = df[df[animal_col] != a]
+        if sub.loc[sub[group_col] == drop_group, animal_col].nunique() < 1:
+            continue
+        summary = animal_summary_test(sub, metric_col, group_col=group_col, animal_col=animal_col)
+        perm = cluster_permutation_test(
+            sub,
+            metric_col,
+            group_col=group_col,
+            cluster_col=animal_col,
+            n_perms=n_perms,
+            seed=seed,
+        )
+        drops.append(
+            {
+                "dropped": str(a),
+                "direction": _direction(sub),
+                "summary_p_value": float(summary["p_value"]),
+                "perm_p_value": float(perm["p_value"]),
+            }
+        )
+    directions = [d["direction"] for d in drops]
+    stable = bool(drops) and full_direction != 0 and all(d == full_direction for d in directions)
+    return {
+        "metric": metric_col,
+        "drop_group": drop_group,
+        "full_direction": full_direction,
+        "drops": drops,
+        "n_drops": len(drops),
+        "direction_stable": stable,
+        "max_p_value": max((d["summary_p_value"] for d in drops), default=np.nan),
+    }
+
+
+# ============================================================================
+# Equipment-matched subset
+# ============================================================================
+
+
+def equipment_matched_subset(
+    df: pd.DataFrame,
+    equipment_cols: list[str] | None = None,
+    group_col: str = "celltype",
+    animal_col: str = "animal_id",
+) -> pd.DataFrame:
+    """Restrict to equipment configurations present in both groups.
+
+    Equipment (fibre bundle and lens) partially co-varies with cell type in
+    this dataset. Comparing only configurations represented in both groups
+    separates optics from biology. The configuration is the tuple of
+    *equipment_cols* (default ``["fibre", "lens"]``).
+
+    Returns
+    -------
+    DataFrame
+        Rows whose equipment configuration occurs in both groups, with an
+        added ``equipment`` string column. Empty when no configuration is
+        shared.
+    """
+    equipment_cols = equipment_cols or ["fibre", "lens"]
+    _validate_columns(df, [group_col, animal_col, *equipment_cols])
+    out = df.copy()
+    out["equipment"] = out[equipment_cols].astype(str).agg("/".join, axis=1)
+    levels = sorted(out[group_col].dropna().unique())
+    if len(levels) < 2:
+        return out.iloc[0:0]
+    shared = None
+    for lev in levels:
+        configs = set(out.loc[out[group_col] == lev, "equipment"].unique())
+        shared = configs if shared is None else shared & configs
+    return out[out["equipment"].isin(shared or set())].reset_index(drop=True)
+
+
+def variance_ratio_test(
+    df: pd.DataFrame,
+    metric_col: str,
+    group_col: str = "celltype",
+    animal_col: str = "animal_id",
+    n_perms: int = 1000,
+    seed: int = 42,
+) -> dict:
+    """Within-group variance ratio with an animal-level permutation null.
+
+    Thin wrapper around
+    :func:`hm2p.analysis.heterogeneity.variance_ratio_permutation` so that
+    dispersion is reported next to the location tests in this module.
+    """
+    from hm2p.analysis.heterogeneity import variance_ratio_permutation
+
+    _validate_columns(df, [metric_col, group_col, animal_col])
+    data = df[[metric_col, group_col, animal_col]].dropna()
+    rng = np.random.default_rng(seed)
+    res = variance_ratio_permutation(
+        data[metric_col].to_numpy(dtype=float),
+        data[group_col].to_numpy(),
+        data[animal_col].to_numpy(),
+        n_perms=n_perms,
+        rng=rng,
+    )
+    res["metric"] = metric_col
+    return res

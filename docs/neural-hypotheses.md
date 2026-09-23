@@ -1039,6 +1039,10 @@ effect if it is more involved in route planning.
 
 ## 4. Penk+ vs Penk-CamKII+ Specific Predictions
 
+> 2026-09-23: a dedicated programme for this question, with ten hypotheses,
+> follow-ups and the ex vivo patching link to low-rheobase neurons, is in
+> [plan-penk-vs-nonpenk.md](plan-penk-vs-nonpenk.md).
+
 ### What each population might do, and why
 
 The core question is whether these two excitatory RSP subpopulations occupy
