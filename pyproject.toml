@@ -96,6 +96,8 @@ analysis = [
     "duckdb>=1.0",       # analysis result cache (hm2p.analysis.cache)
     "rastermap>=0.9",    # population raster ordering (hm2p.analysis.rastermap_analysis)
     "statsmodels>=0.14",  # LMM/ICC supplementary stats (hm2p.analysis.mixed_stats)
+    "ripser>=0.6",        # persistent homology ring score (hm2p.analysis.topology)
+    "pycatch22>=0.4",     # canonical time-series features (hm2p.analysis.cell_features)
 ]
 workflow = [
     "snakemake>=8.0",

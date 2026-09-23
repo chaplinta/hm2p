@@ -297,6 +297,127 @@ p-values.
 
 ---
 
+## 9. Brennan et al. 2020 — Low-rheobase neurons in superficial RSC
+
+**Citation:** Brennan EKW, Sudhakar SK, Jedrasiak-Cape I, John TT, Ahmed OJ.
+2020. "Hyperexcitable Neurons Enable Precise and Persistent Information
+Encoding in the Superficial Retrosplenial Cortex." Cell Reports
+30(5):1598-1612. doi:10.1016/j.celrep.2019.12.093
+
+**What it describes:** Layer 2/3 of granular RSC is dominated by a small
+pyramidal cell with low rheobase, high input resistance, little
+spike-frequency adaptation and an intermediate spike width. Models of these
+low-rheobase (LR) cells encode sustained head-direction input precisely and
+can compute angular head velocity.
+
+**Relevance to hm2p:** The Penk+ ex vivo phenotype (narrow spikes, high
+maximal rate, high input resistance, low rheobase, small dendritic trees)
+matches the LR description. Hypothesis H1 in
+[plan-penk-vs-nonpenk.md](plan-penk-vs-nonpenk.md) tests whether Penk+ cells
+are LR neurons; H2-H4 test the predicted in vivo signature.
+
+**Methods used in hm2p from this paper:** LR/RS classification criteria in
+`hm2p.patching.lr_classify` (thresholds approximate; verify before
+publication).
+
+---
+
+## 10. Jedrasiak-Cape et al. 2025 — Cholinergic control of RSG cell types
+
+**Citation:** Jedrasiak-Cape I, Rybicki-Kler C, Brooks I, et al. 2025.
+"Cell-type-specific cholinergic control of granular retrosplenial cortex
+with implications for angular velocity coding across brain states."
+Progress in Neurobiology. doi:10.1016/j.pneurobio.2025.102790
+(bioRxiv doi:10.1101/2024.06.04.597341)
+
+**What it describes:** LR neurons do not fire persistently in response to
+cholinergic agonists, unlike all other RSG principal cell types, which lets
+them compute angular head velocity independently of brain state.
+
+**Relevance to hm2p:** Predicts that Penk+ cells (if LR) show transient
+rather than sustained responses to movement onset and state changes
+(H4) and stronger AHV coding (H3).
+
+---
+
+## 11. Niethard et al. 2021 — Cell-type calcium signatures
+
+**Citation:** Niethard N, Brodt S, Born J. 2021. "Cell-Type-Specific
+Dynamics of Calcium Activity in Cortical Circuits over the Course of
+Slow-Wave Sleep and Rapid Eye Movement Sleep." Journal of Neuroscience
+41(19):4212-4222. doi:10.1523/JNEUROSCI.1957-20.2021
+
+**What it describes:** Frequently firing cell types produce frequent calcium
+events with low fluorescence skewness; sparse pyramidal cells produce rare
+large events and highly skewed fluorescence distributions.
+
+**Methods used in hm2p from this paper:** Skewness and related
+amplitude-invariant trace statistics in `hm2p.analysis.cell_features`.
+
+---
+
+## 12. Okun et al. 2015 — Population coupling
+
+**Citation:** Okun M, Steinmetz NA, Cossell L, et al. 2015. "Diverse
+coupling of neurons to populations in sensory cortex." Nature
+521:511-515. doi:10.1038/nature14273
+
+**Methods used in hm2p from this paper:** Population coupling (correlation
+of each cell with the mean of the others) in `hm2p.analysis.coupling`.
+
+---
+
+## 13. Hardcastle et al. 2017 — Multiplexed navigation code, GLM selection
+
+**Citation:** Hardcastle K, Maheswaranathan N, Ganguli S, Giocomo LM. 2017.
+"A Multiplexed, Heterogeneous, and Adaptive Code for Navigation in Medial
+Entorhinal Cortex." Neuron 94(2):375-387. doi:10.1016/j.neuron.2017.03.025
+
+**Methods used in hm2p from this paper:** Forward model selection with
+cross-validated log-likelihood for Poisson encoding models in
+`hm2p.analysis.encoding` (selection decided with a paired Wilcoxon test
+across folds).
+
+---
+
+## 14. Chaudhuri et al. 2019 — HD ring manifold
+
+**Citation:** Chaudhuri R, Gerçek B, Pandey B, Peyrache A, Fiete I. 2019.
+"The intrinsic attractor manifold and population dynamics of a canonical
+cognitive circuit across waking and sleep." Nature Neuroscience
+22:1512-1520. doi:10.1038/s41593-019-0460-x
+
+**Methods used in hm2p from this paper:** Ring topology of the HD population
+via persistent homology (`ripser`, Tralie et al. 2018 JOSS
+doi:10.21105/joss.00925) and a PCA ring score in `hm2p.analysis.topology`.
+
+---
+
+## 15. Lubba et al. 2019 — catch22 time-series features
+
+**Citation:** Lubba CH, Sethi SS, Knaute P, Schultz SR, Fulcher BD, Jones NS.
+2019. "catch22: CAnonical Time-series CHaracteristics." Data Mining and
+Knowledge Discovery 33:1821-1852. doi:10.1007/s10618-019-00647-x.
+https://github.com/DynamicsAndNeuralSystems/pycatch22
+
+**Methods used in hm2p from this paper:** Optional assumption-free feature
+set for the omnibus cell-type separability test in
+`hm2p.analysis.cell_features` / `hm2p.analysis.heterogeneity`.
+
+---
+
+## 16. Schneider et al. 2023 — CEBRA
+
+**Citation:** Schneider S, Lee JH, Mathis MW. 2023. "Learnable latent
+embeddings for joint behavioural and neural analysis." Nature 617:360-368.
+doi:10.1038/s41586-023-06031-6. https://github.com/AdaptiveMotorControlLab/CEBRA
+
+**Methods used in hm2p from this paper:** Optional behaviour-contrastive
+embedding wrapper in `hm2p.analysis.topology` (manual install; see
+docs/manual-installs.md).
+
+---
+
 ## Source Code and Data Repositories
 
 | Paper | Repository |

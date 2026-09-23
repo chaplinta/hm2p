@@ -340,3 +340,219 @@ class TestRunBetweenGroupTest:
         )
         result = run_between_group_test(df, "metric", n_perms=2000, seed=42)
         assert result["verdict"] == "not_supported"
+
+
+# ============================================================================
+# Additions for the Penk+ vs Penk⁻CamKII+ programme
+# ============================================================================
+
+
+from hm2p.analysis.mixed_stats import (  # noqa: E402
+    _bh_fdr,
+    equipment_matched_subset,
+    lmm_celltype_test,
+    loao_between_group,
+)
+
+
+class TestBhFdr:
+    """Tests for the Benjamini-Hochberg helper and its numpy fallback."""
+
+    def test_fallback_matches_reference(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without statsmodels the numpy path gives the textbook BH values."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _no_statsmodels(name, *args, **kwargs):  # type: ignore[no-untyped-def]
+            if name.startswith("statsmodels"):
+                raise ImportError("blocked")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _no_statsmodels)
+        p = np.array([0.01, 0.04, 0.03, 0.20])
+        corrected, reject = _bh_fdr(p, alpha=0.05)
+        # sorted p 0.01, 0.03, 0.04, 0.20 -> 0.04, 0.06, 0.0533, 0.20
+        # -> monotone from the top: 0.04, 0.0533, 0.0533, 0.20
+        assert np.allclose(corrected, [0.04, 0.0533333, 0.0533333, 0.20], atol=1e-6)
+        assert reject.tolist() == [True, False, False, False]
+
+    def test_statsmodels_path_when_available(self) -> None:
+        """When statsmodels is installed both paths agree."""
+        pytest.importorskip("statsmodels")
+        p = np.array([0.001, 0.5, 0.02])
+        corrected, reject = _bh_fdr(p)
+        assert corrected.shape == (3,)
+        assert reject[0] and not reject[1]
+
+    def test_all_ones(self) -> None:
+        corrected, reject = _bh_fdr(np.array([1.0, 1.0]))
+        assert np.all(corrected == 1.0)
+        assert not reject.any()
+
+    @given(st.lists(st.floats(min_value=0.0, max_value=1.0), min_size=1, max_size=20))
+    @settings(max_examples=30, deadline=None)
+    def test_corrected_within_unit_interval(self, p: list[float]) -> None:
+        corrected, _ = _bh_fdr(np.array(p))
+        assert np.all(corrected >= 0.0) and np.all(corrected <= 1.0)
+        assert np.all(corrected >= np.array(p) - 1e-12)
+
+
+class TestLmmCelltypeTest:
+    """Tests for the supplementary LMM."""
+
+    def test_unavailable_returns_nan(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import builtins
+
+        real_import = builtins.__import__
+
+        def _no_statsmodels(name, *args, **kwargs):  # type: ignore[no-untyped-def]
+            if name.startswith("statsmodels"):
+                raise ImportError("blocked")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _no_statsmodels)
+        df = _make_nested_df([1.0, 1.1, 0.9], [2.0, 2.1, 1.9])
+        res = lmm_celltype_test(df, "metric")
+        assert res["available"] is False
+        assert np.isnan(res["p_value"])
+        assert res["n_animals"] == 6
+
+    def test_too_few_animals(self) -> None:
+        df = _make_nested_df([1.0], [2.0])
+        res = lmm_celltype_test(df, "metric")
+        assert res["available"] is False
+        assert res["n_animals"] == 2
+
+    def test_recovers_effect(self) -> None:
+        pytest.importorskip("statsmodels")
+        df = _make_nested_df([1.0, 1.1, 0.9, 1.05], [3.0, 3.1, 2.9], noise=0.05)
+        res = lmm_celltype_test(df, "metric")
+        assert res["available"] is True
+        # levels sorted: ["nonpenk", "penk"]; coef = penk - nonpenk < 0
+        assert res["coef"] < 0
+        assert res["p_value"] < 0.05
+        assert 0.0 <= res["icc"] <= 1.0
+
+    def test_missing_column_raises(self) -> None:
+        df = _make_nested_df([1.0, 2.0], [1.0, 2.0])
+        with pytest.raises(ValueError, match="Missing columns"):
+            lmm_celltype_test(df, "nope")
+
+
+class TestLoaoBetweenGroup:
+    """Tests for the leave-one-animal-out direction check."""
+
+    def test_stable_direction(self) -> None:
+        df = _make_nested_df(
+            penk_means=[1.0, 1.0, 1.0, 1.0, 1.0],
+            nonpenk_means=[5.0, 5.0, 5.0],
+            noise=0.01,
+        )
+        res = loao_between_group(df, "metric", n_perms=200)
+        assert res["drop_group"] == "nonpenk"
+        assert res["n_drops"] == 3
+        assert res["direction_stable"] is True
+        # sorted levels are ["nonpenk", "penk"]; direction = penk - nonpenk < 0
+        assert res["full_direction"] == -1
+        assert all(d["dropped"].startswith("nonpenk") for d in res["drops"])
+
+    def test_unstable_when_one_animal_drives_effect(self) -> None:
+        df = _make_nested_df(
+            penk_means=[1.0, 1.0, 1.0, 1.0],
+            nonpenk_means=[1.0, 1.0, 20.0],
+            noise=0.01,
+        )
+        res = loao_between_group(df, "metric", n_perms=100)
+        assert res["direction_stable"] is False
+        assert len(res["drops"]) == 3
+
+    def test_explicit_drop_group(self) -> None:
+        df = _make_nested_df([1.0, 1.0, 1.0], [2.0, 2.0, 2.0], noise=0.01)
+        res = loao_between_group(df, "metric", drop_group="penk", n_perms=50)
+        assert res["drop_group"] == "penk"
+        assert res["n_drops"] == 3
+
+    def test_bad_group_raises(self) -> None:
+        df = _make_nested_df([1.0, 1.0], [2.0, 2.0])
+        with pytest.raises(ValueError, match="not in"):
+            loao_between_group(df, "metric", drop_group="other", n_perms=10)
+
+    def test_requires_two_groups(self) -> None:
+        df = _make_nested_df([1.0, 1.0], [2.0, 2.0])
+        df = df[df["celltype"] == "penk"]
+        with pytest.raises(ValueError, match="exactly 2 groups"):
+            loao_between_group(df, "metric", n_perms=10)
+
+
+class TestEquipmentMatchedSubset:
+    """Tests for the equipment-matched subset helper."""
+
+    @staticmethod
+    def _df() -> pd.DataFrame:
+        rows = [
+            ("a1", "penk", "SFB", "f4mm"),
+            ("a2", "penk", "TFB", "f6mm"),
+            ("a3", "penk", "TFB", "f4mm"),
+            ("b1", "nonpenk", "TFB", "f6mm"),
+            ("b2", "nonpenk", "SFB", "f4mm"),
+        ]
+        return pd.DataFrame(
+            [
+                {"animal_id": a, "celltype": c, "fibre": f, "lens": lens, "metric": 1.0}
+                for a, c, f, lens in rows
+            ]
+        )
+
+    def test_keeps_shared_configs_only(self) -> None:
+        out = equipment_matched_subset(self._df())
+        assert set(out["equipment"]) == {"SFB/f4mm", "TFB/f6mm"}
+        assert "a3" not in set(out["animal_id"])
+        assert len(out) == 4
+
+    def test_empty_when_nothing_shared(self) -> None:
+        df = self._df()
+        df.loc[df["celltype"] == "nonpenk", "fibre"] = "XXX"
+        out = equipment_matched_subset(df)
+        assert out.empty
+
+    def test_single_group_returns_empty(self) -> None:
+        df = self._df()
+        df = df[df["celltype"] == "penk"]
+        assert equipment_matched_subset(df).empty
+
+    def test_custom_columns(self) -> None:
+        df = self._df()
+        out = equipment_matched_subset(df, equipment_cols=["lens"])
+        assert set(out["equipment"]) == {"f4mm", "f6mm"}
+        assert len(out) == 5
+
+    def test_missing_columns_raise(self) -> None:
+        with pytest.raises(ValueError, match="Missing columns"):
+            equipment_matched_subset(self._df().drop(columns=["lens"]))
+
+
+class TestVarianceRatioTest:
+    """Tests for the dispersion wrapper around heterogeneity.variance_ratio_permutation."""
+
+    def test_wider_group_detected(self) -> None:
+        from hm2p.analysis.mixed_stats import variance_ratio_test
+
+        rng = np.random.default_rng(0)
+        rows = []
+        for i in range(6):
+            sd = 3.0 if i < 3 else 0.2
+            ct = "nonpenk" if i < 3 else "penk"
+            for _ in range(8):
+                rows.append({"animal_id": f"a{i}", "celltype": ct, "m": rng.normal(0, sd)})
+        df = pd.DataFrame(rows)
+        res = variance_ratio_test(df, "m", n_perms=200, seed=1)
+        assert res["metric"] == "m"
+        assert res["observed"] > 1.0
+        assert 0.0 < res["p_value"] <= 1.0
+
+    def test_missing_column_raises(self) -> None:
+        from hm2p.analysis.mixed_stats import variance_ratio_test
+
+        with pytest.raises(ValueError, match="Missing columns"):
+            variance_ratio_test(_make_nested_df([1.0, 2.0], [1.0, 2.0]), "nope")

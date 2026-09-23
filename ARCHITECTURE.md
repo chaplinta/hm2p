@@ -258,6 +258,15 @@ hm2p-v2/
 │       │   ├── mixed_stats.py        # Cross-module statistical comparisons (Penk+ vs CamKII+)
 │       │   ├── celltype_dynamics.py  # Time-resolved population dynamics by cell type
 │       │   ├── rastermap_analysis.py # Rastermap-based neural population visualisation
+│       │   ├── matched_tuning.py     # Occupancy/kinematics-matched tuning statistics
+│       │   ├── map_engagement.py     # Per-visit population-vector map consistency
+│       │   ├── cell_features.py      # Per-cell feature table (kinetics, trace shape, tuning)
+│       │   ├── heterogeneity.py      # Dispersion, energy distance, LOAO classifier (Penk+ vs CamKII+)
+│       │   ├── state_dynamics.py     # Movement-onset transients, immobility decay, syllables
+│       │   ├── transitions.py        # Light/dark transition-aligned responses and recovery
+│       │   ├── coupling.py           # Population coupling, noise correlations, lag asymmetry
+│       │   ├── topology.py           # HD ring topology (PCA ring score, persistent homology)
+│       │   ├── encoding.py           # Poisson GLM encoding profiles (sklearn / NEMOS backends)
 │       │   ├── run.py                # Stage 6 runner: full analysis pipeline
 │       │   └── save.py               # Write analysis.h5 outputs
 │       ├── maze/
