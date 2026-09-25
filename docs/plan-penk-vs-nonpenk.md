@@ -481,6 +481,27 @@ Conclusion: the ex vivo phenotype is consistent with Penk+ = LR but the
 existing recordings cannot test it at the animal level; the decisive
 experiment is paired recording of both cell types in the same slices.
 
+### H6 (heterogeneity and omnibus separability, on the H2 feature table)
+
+447 cells, 55 features (kinetics, trace shape, tuning, catch22), standardised.
+Pooled: Penk⁻CamKII+ is *less* dispersed than Penk+ (dispersion ratio
+0.77, animal-level permutation p = 0.002), the two distributions differ
+(energy distance p = 0.037), a leave-one-animal-out logistic classifier
+reaches balanced accuracy 0.69 (permutation p = 0.055; per-animal accuracy
+ranges from 0 to 1), and only 9 % of Penk⁻CamKII+ cells have Penk-majority
+neighbourhoods against a 69 % baseline. Animal-centred control (each
+feature minus its animal mean): the dispersion difference persists (ratio
+0.80, p = 0.003) and the energy distance shrinks but stays nominal (0.19,
+p = 0.043), while classifier accuracy falls to chance (0.45, p = 0.89). So
+the between-group separability in pooled space was carried by animal-level
+offsets, whereas the higher within-animal cell-to-cell dispersion of Penk+
+is not. This is the opposite of candidate difference 3: the single
+transcriptomic type is the more heterogeneous population in activity space,
+and the CamKII+ mixture is the more compact one. GMM/BIC gives one component
+for Penk+ and five for Penk⁻CamKII+ in pooled space, which is consistent
+with a compact but multi-modal mixture; the neighbourhood measure may still
+carry session-level structure after centring and is descriptive.
+
 ### Reading
 
 1. **The clearest signal is event kinetics (H2).** Penk+ calcium events
@@ -524,5 +545,9 @@ experiment is paired recording of both cell types in the same slices.
 - Candidate difference 2 (self-motion vs visual coupling) is half
   supported: the visual/light side leans Penk⁻CamKII+ across four
   independent measures; the self-motion side does not lean Penk+.
-- Candidate difference 3 (HD cells in Penk⁻CamKII+, Penk+ compact) awaits
-  H6; the population HD code is at chance in both groups at matched N.
+- Candidate difference 3 (HD cells in Penk⁻CamKII+, Penk+ compact) is
+  contradicted on the compactness half: Penk+ is the more dispersed
+  population within animals (H6), and the population HD code is at chance
+  in both groups at matched N (H7). Whether the Penk+ dispersion reflects
+  genuine functional diversity within one type, or the four Cre-ON virus
+  constructs, is testable by re-running H6 within the ADD3-only animals.
