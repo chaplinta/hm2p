@@ -330,6 +330,7 @@ def run_analysis(
     n_perms: int = 5000,
     seed: int = 0,
     min_criteria_met: int = 3,
+    within_animal: bool = True,
 ) -> dict[str, Any]:
     """Run every cell-type comparison and the LR classification.
 
@@ -343,6 +344,11 @@ def run_analysis(
         Seed for the permutation random generator.
     min_criteria_met : int
         Criteria required for an LR or RS call.
+    within_animal : bool
+        Shuffle group labels within each animal (appropriate when both cell
+        types are recorded in every mouse). When cell types segregate by
+        animal, use ``False`` to shuffle labels at the animal level instead;
+        the enrichment permutation is then reported as descriptive only.
 
     Returns
     -------
@@ -352,6 +358,10 @@ def run_analysis(
         ``enrichment``, ``lr_axis`` and ``reference``.
     """
     info = validate_input(df)
+    info["within_animal"] = within_animal
+    info["cells_per_animal_by_type"] = (
+        df.groupby([ANIMAL_COL, GROUP_COL]).size().unstack(fill_value=0).to_dict("index")
+    )
     metric_cols = info["ephys_cols"] + info["morph_cols"]
     rng = np.random.default_rng(seed)
 
@@ -359,7 +369,8 @@ def run_analysis(
     summary = compute_summary_stats(df, metric_cols, group_col=GROUP_COL)
     mw = mann_whitney_comparison(df, metric_cols, group_col=GROUP_COL)
 
-    log.info("cluster permutation (%d permutations, within animal)", n_perms)
+    mode = "within animal" if within_animal else "between animals"
+    log.info("cluster permutation (%d permutations, %s)", n_perms, mode)
     cluster = cluster_permutation_comparison(
         df,
         metric_cols,
@@ -367,7 +378,7 @@ def run_analysis(
         animal_col=ANIMAL_COL,
         n_perms=n_perms,
         rng=rng,
-        within_animal=True,
+        within_animal=within_animal,
     )
     animal = animal_level_comparison(df, metric_cols, group_col=GROUP_COL, animal_col=ANIMAL_COL)
     mixed = run_mixed_model(df, metric_cols)
@@ -480,6 +491,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="LR criteria required for an LR/RS call (default 3)",
     )
     parser.add_argument(
+        "--between-animal",
+        dest="within_animal",
+        action="store_false",
+        help="shuffle labels at the animal level (cell types segregate by mouse)",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="validate the input and print what would run, writing nothing",
@@ -554,6 +571,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         n_perms=args.n_perms,
         seed=args.seed,
         min_criteria_met=args.min_criteria,
+        within_animal=args.within_animal,
     )
     written = write_outputs(results, args.output)
     for path in written:

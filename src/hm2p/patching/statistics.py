@@ -698,9 +698,22 @@ def cluster_permutation_comparison(
                 ]
             )
         else:
-            # One label per animal: take the animal's first observed label.
+            # One label per animal: the animal's majority label. The observed
+            # statistic is recomputed under the same animal-level labelling so
+            # that it is one member of the permutation distribution; with
+            # per-cell labels in a mixed animal the true labelling could never
+            # be reproduced by an animal-level shuffle and p would collapse.
             animal_is_g1 = np.array(
-                [bool(is_g1[animal_codes == c][0]) for c in range(animal_names.size)]
+                [bool(np.mean(is_g1[animal_codes == c]) >= 0.5) for c in range(animal_names.size)]
+            )
+            coarse_is_g1 = animal_is_g1[animal_codes]
+            observed = _median_difference(values, coarse_is_g1)
+            row["observed_diff_animal_labels"] = observed
+            row["n_mixed_animals"] = int(
+                sum(
+                    0.0 < float(np.mean(is_g1[animal_codes == c])) < 1.0
+                    for c in range(animal_names.size)
+                )
             )
             null = np.array(
                 [

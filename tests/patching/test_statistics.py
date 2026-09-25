@@ -804,3 +804,42 @@ class TestClusterPermutationDegenerateNull:
         assert np.isfinite(out.iloc[0]["observed_diff"])
         assert np.isnan(out.iloc[0]["p_perm"])
         assert np.isnan(out.iloc[0]["null_sd"])
+
+
+def test_cluster_permutation_between_animal_has_p_floor() -> None:
+    """Animal-level shuffling with one mixed mouse cannot give p below 1/n_assignments."""
+    import numpy as np
+    import pandas as pd
+
+    from hm2p.patching.statistics import cluster_permutation_comparison
+
+    rng = np.random.default_rng(0)
+    rows = []
+    # four pure penkpos mice, one pure penkneg mouse, one mixed mouse
+    plan = {
+        "A": ["penkpos"] * 5,
+        "B": ["penkpos"] * 5,
+        "C": ["penkpos"] * 5,
+        "D": ["penkpos"] * 5,
+        "E": ["penkneg"] * 6,
+        "F": ["penkneg"] * 4 + ["penkpos"] * 2,
+    }
+    for animal, types in plan.items():
+        for ct in types:
+            rows.append(
+                {
+                    "animal_id": animal,
+                    "cell_type": ct,
+                    "m": rng.normal(10 if ct == "penkpos" else 0, 0.1),
+                }
+            )
+    df = pd.DataFrame(rows)
+    out = cluster_permutation_comparison(
+        df, ["m"], n_perms=3000, within_animal=False, rng=np.random.default_rng(1)
+    )
+    row = out.iloc[0]
+    assert row["n_mixed_animals"] == 1
+    assert "observed_diff_animal_labels" in out.columns
+    # 6 animals, 2 labelled penkneg -> C(6,2)=15 assignments; the observed one is
+    # among them, so p cannot be smaller than about 1/15
+    assert row["p_perm"] >= 1 / 15 - 0.02

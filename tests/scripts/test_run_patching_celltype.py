@@ -351,3 +351,43 @@ class TestMain:
         bad = tmp_path / "bad.csv"
         pd.DataFrame({"foo": [1.0]}).to_csv(bad, index=False)
         assert rpc.main(["--input", str(bad), "--output", str(tmp_path / "o")]) == 1
+
+
+def test_between_animal_flag_parses() -> None:
+    import run_patching_celltype as rpc
+
+    args = rpc.build_parser().parse_args(["--between-animal"])
+    assert args.within_animal is False
+    assert rpc.build_parser().parse_args([]).within_animal is True
+
+
+def test_run_analysis_between_animal_mode(tmp_path):
+    import numpy as np
+    import pandas as pd
+    import run_patching_celltype as rpc
+
+    rng = np.random.default_rng(0)
+    rows = []
+    for a in range(6):
+        ct = "penkpos" if a < 4 else "penkneg"
+        for _ in range(5):
+            rows.append(
+                {
+                    "cell_index": len(rows),
+                    "animal_id": f"A{a}",
+                    "cell_type": ct,
+                    "ephys_passive_rin": rng.normal(160 if ct == "penkpos" else 110, 10),
+                    "ephys_passive_rhreo": rng.normal(80 if ct == "penkpos" else 100, 8),
+                    "ephys_passive_maxsp": rng.normal(20 if ct == "penkpos" else 13, 2),
+                    "ephys_passive_tau": rng.normal(20, 3),
+                    "ephys_active_halfWidth": rng.normal(1.8 if ct == "penkpos" else 2.5, 0.1),
+                    "morph_api_len": rng.normal(1000, 100),
+                }
+            )
+    df = pd.DataFrame(rows)
+    res = rpc.run_analysis(df, n_perms=200, seed=0, within_animal=False)
+    assert res["info"]["within_animal"] is False
+    assert "A0" in res["info"]["cells_per_animal_by_type"]
+    cp = res["cluster_permutation"]
+    assert (cp["within_animal"] == False).all()  # noqa: E712
+    assert cp["p_perm"].between(0, 1).all()
