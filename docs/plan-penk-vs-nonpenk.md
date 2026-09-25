@@ -457,6 +457,9 @@ reported numbers come from the corrected code.
 | H5 | Dark→light late response 0.053 vs 0.155 | 0.056 | 0.094 | 0.16 | 0.16 | stable |
 | H5 | Tuning recovery times | > 0.33 | > 0.29 | 0.39 | — | — |
 | H7 | Matched-N (8 cells) HD decode error 89° vs 87° | 0.41 | 0.28 | 0.79 | — | — |
+| H8 | GLM light share of deviance 0.25 vs 0.39 | 0.026 | 0.120 | 0.48 | 0.11 | stable |
+| H8 | GLM position share 0.37 vs 0.24 | 0.18 | 0.16 | 0.48 | 0.75 | stable |
+| H8 | Full-model held-out deviance explained ≈ 0 in both | 0.85 | 0.90 | 0.90 | — | — |
 | H7 | PCA ring angle–HD correlation ≈ 0 in both | > 0.22 | > 0.45 | 0.79 | — | — |
 | H9 | Population coupling 0.10 vs 0.05 | 0.226 | 0.105 | 0.21 | 0.73 | stable |
 | H9 | Mean noise correlation 0.052 vs 0.008 | 0.138 | 0.094 | 0.21 | 0.77 | stable |
@@ -480,6 +483,20 @@ metrics is bimodal (ΔBIC = 7) with Penk+ and Penk⁻ medians on opposite sides.
 Conclusion: the ex vivo phenotype is consistent with Penk+ = LR but the
 existing recordings cannot test it at the animal level; the decisive
 experiment is paired recording of both cell types in the same slices.
+
+### H8 (encoding models; run without forward selection)
+
+Poisson GLMs on binary event frames at 9.6 Hz with HD, AHV, speed, 2-D
+position and light regressors explain essentially no held-out deviance
+(median full-model pseudo-R² −0.001 Penk+, −0.003 Penk⁻CamKII+), so the
+per-variable profiles are shares of very small quantities and are read as
+descriptive. Within them the light share is larger in Penk⁻CamKII+ (0.39
+vs 0.25; animal p = 0.026, permutation p = 0.12, CLES 0.11, direction
+stable) and light is the dominant variable in 45 % of Penk⁻CamKII+ cells
+versus 34 % of Penk+ cells; position share leans Penk+ (0.37 vs 0.24,
+p = 0.16). HD, AHV and speed shares do not differ. A spike-rate response
+(CASCADE) and coarser time bins would be needed before the GLM carries
+weight on its own; forward selection was skipped for run time.
 
 ### H6 (heterogeneity and omnibus separability, on the H2 feature table)
 
@@ -525,9 +542,11 @@ carry session-level structure after centring and is descriptive.
    difference in H2. H4 state-dependence measures are null.
 3. **Light coupling leans Penk⁻CamKII+ consistently** (H2 stationary-light
    signal and light event rate, H3 dark drop, H5 larger transients in both
-   directions, and the earlier H3.5 light-modulation lean). None is
-   significant alone at the animal level after FDR; the direction is the
-   same in every measure.
+   directions, H8 light share of the encoding profile, and the earlier H3.5
+   light-modulation lean). None is significant alone at the animal level
+   after FDR; the direction is the same in every measure. A pre-registered
+   composite light-coupling index across these measures is the natural
+   confirmatory test on new animals.
 4. **Population-level measures are null and, for HD, at chance (H7).**
    With eight cells per session neither group decodes HD above chance
    (median error ≈ 88°) and neither shows an HD ring. Population coupling
