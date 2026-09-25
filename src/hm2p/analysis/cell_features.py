@@ -302,8 +302,11 @@ def _autocorr_time_s(
     if denom <= 0:
         return float("nan")
 
-    full = np.correlate(x, x, mode="full")
-    acf = full[n - 1 :] / denom
+    # FFT-based autocorrelation (Wiener-Khinchin); np.correlate is O(n^2) and
+    # took minutes per 18 000-frame trace.
+    n_fft = int(2 ** np.ceil(np.log2(2 * n - 1)))
+    spec = np.fft.rfft(x, n_fft)
+    acf = np.fft.irfft(spec * np.conj(spec), n_fft)[:n] / denom
     if max_lag_frames is not None:
         acf = acf[: max_lag_frames + 1]
 
