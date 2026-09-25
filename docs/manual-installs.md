@@ -34,12 +34,19 @@ These packages are used in specific pipeline stages or analysis steps:
   uv pip install --python .venv-cascade/bin/python "tensorflow>=2.15" tf-keras pip \
       h5py numpy scipy boto3 ruamel.yaml pyyaml tqdm matplotlib seaborn
   git clone https://github.com/HelmchenLabSoftware/Cascade.git .cascade-src
-  # pretrained models are hosted on drive.switch.ch (links in
-  # .cascade-src/Pretrained_models/available_models.yaml); unzip the model
-  # folder into .cascade-src/Pretrained_models/<model_name>/
+  # Pretrained models are hosted on drive.switch.ch, which the devcontainer
+  # cannot reach. Copies of the 10 Hz models live at
+  # s3://hm2p-derivatives/models/cascade/<model>.zip (fetched once with
+  # scripts/fetch_cascade_model_ec2.py). The zips are flat: unzip each into
+  # .cascade-src/Pretrained_models/<model_name>/ so config.yaml sits inside
+  # the model folder.
   TF_USE_LEGACY_KERAS=1 PYTHONPATH=.cascade-src .venv-cascade/bin/python \
       scripts/run_cascade.py --cascade-src .cascade-src --profile hm2p-agent --all
   ```
+
+  The runner predicts in chunks of 24 ROIs (``--chunk``); a whole session at
+  once exceeds the container's 8 GB and is killed without a traceback. One
+  session (111 ROIs, 18 000 frames) takes a few minutes on 4 cores.
 
   `TF_USE_LEGACY_KERAS=1` is required: the saved models are Keras-2 `.h5`
   files and Keras 3 rejects their optimizer config. `cascade2p/config.py`
