@@ -543,19 +543,89 @@ H8_FAMILIES = {
 
 
 def _glm_response(arrays: dict[str, Any], signal: str) -> np.ndarray:
-    """Non-negative per-frame response for the Poisson GLM."""
+    """Non-negative per-frame response for the Poisson GLM.
+
+    CASCADE spike rates (spikes/s) are converted to expected counts per
+    frame (rate / fps) so that binning sums to counts per bin.
+    """
     if signal == "spikes" and "spikes" in arrays:
-        return np.clip(np.asarray(arrays["spikes"], dtype=np.float64), 0, None)
+        spk = np.clip(np.asarray(arrays["spikes"], dtype=np.float64), 0, None)
+        if arrays.get("spikes_are_counts", False):
+            return spk
+        return spk / float(arrays.get("fps", 1.0))
     if "event_masks" in arrays:
         return np.asarray(arrays["event_masks"], dtype=np.float64)
     return np.clip(np.asarray(arrays["dff"], dtype=np.float64), 0, None)
+
+
+def _circular_mean_deg(block: np.ndarray, axis: int = -1) -> np.ndarray:
+    rad = np.deg2rad(block)
+    s = np.nanmean(np.sin(rad), axis=axis)
+    c = np.nanmean(np.cos(rad), axis=axis)
+    return np.mod(np.rad2deg(np.arctan2(s, c)), 360.0)
+
+
+def bin_session_arrays(arrays: dict[str, Any], bin_frames: int) -> dict[str, Any]:
+    """Aggregate per-frame session arrays into bins of *bin_frames* frames.
+
+    Signals (``dff``, ``spikes``, ``event_masks``) are summed within a bin
+    (so per-frame expected counts become counts per bin), ``hd_deg`` is the
+    circular mean, continuous behavioural channels are the mean, ``light_on``
+    is the bin majority, ``mask`` is True only when every frame in the bin
+    is valid, ``syllable_id`` is the first frame's label, and ``fps`` is
+    divided by *bin_frames*. Trailing frames that do not fill a bin are
+    dropped. Coarser bins give the Poisson GLM non-trivial counts per
+    observation at 9.6 Hz imaging (Hardcastle et al. 2017 used 20 ms bins
+    on spikes; here 0.5-1 s bins on inferred rates).
+    """
+    if bin_frames <= 1:
+        return arrays
+    n = int(np.asarray(arrays["dff"]).shape[1] // bin_frames * bin_frames)
+    nb = n // bin_frames
+    out: dict[str, Any] = dict(arrays)
+
+    def _blocks(a: np.ndarray) -> np.ndarray:
+        a = np.asarray(a)
+        if a.ndim == 1:
+            return a[:n].reshape(nb, bin_frames)
+        return a[:, :n].reshape(a.shape[0], nb, bin_frames)
+
+    for k in ("dff", "event_masks"):
+        if k in arrays and arrays[k] is not None:
+            out[k] = _blocks(np.asarray(arrays[k], dtype=np.float64)).sum(axis=-1)
+    if arrays.get("spikes") is not None:
+        # spikes/s per frame -> expected spike count per bin
+        rate = np.clip(np.asarray(arrays["spikes"], dtype=np.float64), 0, None)
+        out["spikes"] = _blocks(rate).sum(axis=-1) / float(arrays["fps"])
+        out["spikes_are_counts"] = True
+    out["hd_deg"] = _circular_mean_deg(_blocks(np.asarray(arrays["hd_deg"], dtype=np.float64)))
+    for k in ("ahv_deg_s", "speed_cm_s", "x_mm", "y_mm", "x_maze", "y_maze"):
+        if k in arrays and arrays[k] is not None:
+            out[k] = np.nanmean(_blocks(np.asarray(arrays[k], dtype=np.float64)), axis=-1)
+    out["light_on"] = _blocks(np.asarray(arrays["light_on"], dtype=float)).mean(axis=-1) > 0.5
+    for k in ("active", "bad_behav"):
+        if k in arrays:
+            frac = _blocks(np.asarray(arrays[k], dtype=float)).mean(axis=-1)
+            out[k] = frac > 0.5 if k == "active" else frac > 0.0
+    out["mask"] = _blocks(np.asarray(arrays["mask"], dtype=bool)).all(axis=-1)
+    if "syllable_id" in arrays and arrays["syllable_id"] is not None:
+        out["syllable_id"] = _blocks(np.asarray(arrays["syllable_id"]))[:, 0]
+    if "frame_times" in arrays and arrays["frame_times"] is not None:
+        out["frame_times"] = _blocks(np.asarray(arrays["frame_times"], dtype=np.float64)).mean(-1)
+    out["fps"] = float(arrays["fps"]) / bin_frames
+    out["bin_frames"] = bin_frames
+    return out
 
 
 def run_h8(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> dict[str, Any]:
     from hm2p.analysis.encoding import build_design_matrix, population_encoding_profiles
 
     rows: list[pd.DataFrame] = []
+    bin_s = float(getattr(args, "bin_s", 0.0) or 0.0)
     for row, arrays in sessions:
+        if bin_s > 0:
+            bin_frames = max(1, int(round(bin_s * float(arrays["fps"]))))
+            arrays = bin_session_arrays(arrays, bin_frames)
         y = _glm_response(arrays, args.signal)
         design = build_design_matrix(
             hd_deg=arrays["hd_deg"],

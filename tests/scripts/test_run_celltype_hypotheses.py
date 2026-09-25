@@ -485,3 +485,50 @@ class TestCenterByAnimal:
         args.center_by_animal = True
         res = rch.run_h6(args, [], tmp_path / "h6")
         assert res["n_cells"] > 0
+
+
+class TestBinSessionArrays:
+    def test_shapes_and_aggregation(self) -> None:
+        arr = _synthetic_arrays(0)
+        n = arr["dff"].shape[1]
+        b = rch.bin_session_arrays(arr, 5)
+        nb = n // 5
+        assert b["dff"].shape == (N_ROIS, nb) and b["hd_deg"].shape == (nb,)
+        assert b["mask"].dtype == bool and b["light_on"].dtype == bool
+        assert b["fps"] == pytest.approx(FPS / 5) and b["bin_frames"] == 5
+        # signals are summed, behaviour averaged
+        np.testing.assert_allclose(b["dff"][:, 0], arr["dff"][:, :5].sum(axis=1))
+        np.testing.assert_allclose(b["speed_cm_s"][0], arr["speed_cm_s"][:5].mean())
+        assert b["syllable_id"][0] == arr["syllable_id"][0]
+
+    def test_circular_mean_and_mask_rules(self) -> None:
+        arr = _synthetic_arrays(1)
+        arr["hd_deg"][:4] = [359.0, 1.0, 358.0, 2.0]
+        arr["mask"][:] = True
+        arr["mask"][2] = False
+        arr["light_on"][:4] = [True, True, True, False]
+        b = rch.bin_session_arrays(arr, 4)
+        assert min(b["hd_deg"][0], 360 - b["hd_deg"][0]) < 1e-6
+        assert not b["mask"][0] and b["mask"][1]
+        assert b["light_on"][0]
+
+    def test_bin_one_is_identity(self) -> None:
+        arr = _synthetic_arrays(0)
+        assert rch.bin_session_arrays(arr, 1) is arr
+
+    def test_spike_response_is_counts(self) -> None:
+        arr = _synthetic_arrays(0)
+        arr["spikes"] = np.full_like(arr["dff"], 9.6)  # 9.6 spikes/s at 9.6 fps -> 1 per frame
+        y = rch._glm_response(arr, "spikes")
+        np.testing.assert_allclose(y, 1.0)
+        b = rch.bin_session_arrays(arr, 5)
+        assert b["spikes_are_counts"] is True
+        np.testing.assert_allclose(rch._glm_response(b, "spikes"), 5.0)
+
+    def test_h8_with_bins_runs(self, sessions, args, tmp_path: Path) -> None:
+        args.signal = "spikes"
+        args.bin_s = 0.5
+        res = rch.run_h8(args, sessions[:2], tmp_path)
+        assert res["n_sessions"] == 2
+        cells = pd.read_csv(tmp_path / "cells.csv")
+        assert {"part_hd", "part_light"} <= set(cells)

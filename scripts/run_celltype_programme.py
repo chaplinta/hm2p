@@ -453,6 +453,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="h8: skip forward selection (partial deviances only)",
     )
     ap.add_argument("--n-cells-matched", type=int, default=None, help="h7: matched cell count")
+    ap.add_argument(
+        "--bin-s", type=float, default=0.0, help="h8: time bin in seconds (0 = per frame)"
+    )
     ap.add_argument("--dry-run", action="store_true", help="validate metadata, write nothing")
     return ap
 
