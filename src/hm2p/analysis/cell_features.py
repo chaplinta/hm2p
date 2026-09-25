@@ -18,6 +18,10 @@ behavioural covariates. Four feature families are computed:
     including light/dark splits of the HD mean vector length.
 ``act_``
     Condition-split activity metrics (moving/stationary x light/dark).
+``sp_``
+    Inferred spike-rate statistics (mean/median rate, rate variability,
+    Fano factor, burstiness) computed on a CASCADE spike-rate trace
+    instead of dF/F. Built by :func:`session_spike_feature_table`.
 
 The module is pure numpy/pandas — no I/O. Session-level metadata columns
 (animal_id, session_id, celltype, equipment, virus) are attached by the
@@ -45,6 +49,10 @@ Brennan et al. 2020. "Thalamus and claustrum control parallel layer 1
 Niethard et al. 2021. "Cortical circuit activity underlying sleep slow
     oscillations and spindles." J Neurosci 41:4212.
     doi:10.1523/JNEUROSCI.1957-20.2021
+Rupprecht et al. 2021. "A database and deep learning toolbox for
+    noise-optimized, generalized spike inference from calcium imaging."
+    Nature Neuroscience 24:1324-1337. doi:10.1038/s41593-021-00895-5
+    https://github.com/HelmchenLabSoftware/Cascade
 Skaggs et al. 1993. "An information-theoretic approach to deciphering the
     hippocampal code." NIPS 5:1030-1037. doi:10.1162/neco.1996.8.6.1345
 Lubba et al. 2019. "catch22: CAnonical Time-series CHaracteristics."
@@ -89,6 +97,9 @@ __all__ = [
     "catch22_features",
     "cell_feature_row",
     "session_feature_table",
+    "spike_rate_statistics",
+    "spike_feature_row",
+    "session_spike_feature_table",
     "feature_families",
 ]
 
@@ -100,6 +111,16 @@ MIN_TUNING_FRAMES: int = 10
 
 # Event-detection methods accepted by :func:`event_statistics`.
 EVENT_METHODS: tuple[str, ...] = ("vh", "sd")
+
+# A bin holding more than this many inferred spikes counts as "active".
+SPIKE_ACTIVE_COUNT: float = 0.5
+
+# Fraction of the most active bins used by the spike burst index.
+BURST_TOP_FRACTION: float = 0.1
+
+# Percentile of the spike-rate trace above which a frame is treated as an
+# event for the descriptive ``act_`` family on spike traces.
+SPIKE_EVENT_PERCENTILE: float = 90.0
 
 
 def _iei_statistics(onsets: npt.NDArray[np.integer], fps: float) -> tuple[float, float]:
@@ -838,6 +859,409 @@ def session_feature_table(
     return table
 
 
+# ---------------------------------------------------------------------------
+# Inferred spike rates (CASCADE)
+# ---------------------------------------------------------------------------
+
+
+def _binned_spike_counts(
+    spikes_hz: npt.NDArray[np.floating],
+    fps: float,
+    bin_s: float,
+) -> npt.NDArray[np.float64]:
+    """Spike counts in consecutive non-overlapping bins.
+
+    The trailing partial bin is dropped so that every bin covers the same
+    duration and the counts are directly comparable.
+
+    Parameters
+    ----------
+    spikes_hz : (n_frames,) float
+        Inferred spike rate per frame, in spikes/s. Non-finite samples are
+        treated as zero.
+    fps : float
+        Imaging frame rate in Hz.
+    bin_s : float
+        Bin width in seconds.
+
+    Returns
+    -------
+    (n_bins,) float
+        Spike counts per bin. Empty when the trace is shorter than one bin
+        or when *fps* / *bin_s* are not positive.
+
+    Raises
+    ------
+    ValueError
+        If ``spikes_hz`` is not one-dimensional.
+    """
+    trace = np.asarray(spikes_hz, dtype=np.float64)
+    if trace.ndim != 1:
+        raise ValueError(f"spikes_hz must be 1-D; got shape {trace.shape}")
+    if fps <= 0 or bin_s <= 0:
+        return np.empty(0, dtype=np.float64)
+
+    bin_frames = max(1, int(round(bin_s * fps)))
+    n_bins = int(trace.size // bin_frames)
+    if n_bins == 0:
+        return np.empty(0, dtype=np.float64)
+
+    usable = np.nan_to_num(trace[: n_bins * bin_frames], nan=0.0, posinf=0.0, neginf=0.0)
+    # rate (spikes/s) x frame duration (s) summed over the bin = spike count
+    return usable.reshape(n_bins, bin_frames).sum(axis=1) / float(fps)
+
+
+def _burst_index(
+    counts: npt.NDArray[np.floating],
+    top_fraction: float = BURST_TOP_FRACTION,
+) -> float:
+    """Fraction of all spikes contained in the most active bins.
+
+    Parameters
+    ----------
+    counts : (n_bins,) float
+        Spike counts per bin.
+    top_fraction : float
+        Fraction of bins (rounded up, at least one) counted as the most
+        active.
+
+    Returns
+    -------
+    float
+        Value in [0, 1]; 1 means every spike sits in the top bins. NaN when
+        there are no bins or no spikes.
+    """
+    values = np.asarray(counts, dtype=np.float64)
+    total = float(values.sum())
+    if values.size == 0 or total <= 0:
+        return float("nan")
+    k = max(1, int(np.ceil(top_fraction * values.size)))
+    top = np.sort(values)[-k:]
+    return float(top.sum() / total)
+
+
+def _active_bin_isi_cv(counts: npt.NDArray[np.floating], bin_s: float) -> float:
+    """Coefficient of variation of the intervals between active bins.
+
+    Parameters
+    ----------
+    counts : (n_bins,) float
+        Spike counts per bin; a bin is active when its count exceeds the
+        threshold already applied by the caller (see
+        :func:`spike_rate_statistics`).
+    bin_s : float
+        Bin width in seconds. Retained so the intervals are expressed in
+        seconds; the coefficient of variation is scale-free.
+
+    Returns
+    -------
+    float
+        Standard deviation of the inter-active-bin intervals divided by
+        their mean, or NaN when fewer than three active bins exist or the
+        mean interval is zero.
+    """
+    active = np.flatnonzero(np.asarray(counts, dtype=np.float64) > 0)
+    if active.size < 3 or bin_s <= 0:
+        return float("nan")
+    intervals = np.diff(active.astype(np.float64)) * float(bin_s)
+    mean_interval = float(np.mean(intervals))
+    if mean_interval <= 0:
+        return float("nan")
+    return float(np.std(intervals, ddof=1) / mean_interval)
+
+
+def _masked_mean(values: npt.NDArray[np.floating], mask: npt.NDArray[np.bool_]) -> float:
+    """Mean of the finite entries of *values* selected by *mask* (NaN if none)."""
+    sel = np.asarray(values, dtype=np.float64)[np.asarray(mask, dtype=bool)]
+    sel = sel[np.isfinite(sel)]
+    if sel.size == 0:
+        return float("nan")
+    return float(np.mean(sel))
+
+
+def spike_rate_statistics(
+    spikes_hz: npt.NDArray[np.floating],
+    fps: float,
+    bin_s: float = 1.0,
+    active_threshold_hz: float | None = None,
+) -> dict[str, float]:
+    """Amplitude-free statistics of an inferred spike-rate trace.
+
+    The inferred rate produced by CASCADE is already calibrated in
+    spikes/s, so — unlike dF/F — its absolute scale is comparable across
+    cells, animals and expression levels. The statistics below therefore
+    mix rate measures (mean, median) with dimensionless variability
+    measures (coefficient of variation, Fano factor, burst index).
+
+    Rupprecht et al. 2021. "A database and deep learning toolbox for
+    noise-optimized, generalized spike inference from calcium imaging."
+    Nature Neuroscience 24:1324-1337. doi:10.1038/s41593-021-00895-5
+    https://github.com/HelmchenLabSoftware/Cascade
+
+    Parameters
+    ----------
+    spikes_hz : (n_frames,) float
+        Inferred spike rate per frame in spikes/s. Non-finite samples are
+        treated as zero by the binned statistics and excluded from the
+        mean and median.
+    fps : float
+        Imaging frame rate in Hz.
+    bin_s : float
+        Bin width in seconds used for the binned statistics (default 1 s).
+    active_threshold_hz : float, optional
+        Rate above which a bin counts as active for ``isi_cv_s``. The
+        threshold applied to the bin count is ``active_threshold_hz *
+        bin_s``; when ``None`` the default of ``SPIKE_ACTIVE_COUNT``
+        (0.5 spikes per bin) is used.
+
+    Returns
+    -------
+    dict
+        ``mean_rate_hz`` — mean inferred rate.
+        ``median_rate_hz`` — median inferred rate.
+        ``rate_cv`` — coefficient of variation of the binned rate.
+        ``fano_1s`` — variance divided by mean of the binned spike counts.
+        ``fraction_bins_active`` — fraction of bins holding more than
+        ``SPIKE_ACTIVE_COUNT`` spikes.
+        ``burst_index`` — fraction of all spikes in the top 10 % of bins.
+        ``autocorr_time_s`` — lag at which the normalised autocorrelation
+        first drops below 1/e, in seconds.
+        ``skewness`` — bias-corrected sample skewness of the rate trace.
+        ``isi_cv_s`` — coefficient of variation of the intervals between
+        active bins.
+
+        A silent, all-zero or too-short trace yields zeros for the mean,
+        median and active fraction and NaN for every quantity that is
+        undefined without spikes.
+
+    Raises
+    ------
+    ValueError
+        If ``spikes_hz`` is not one-dimensional.
+    """
+    trace = np.asarray(spikes_hz, dtype=np.float64)
+    if trace.ndim != 1:
+        raise ValueError(f"spikes_hz must be 1-D; got shape {trace.shape}")
+
+    finite = trace[np.isfinite(trace)]
+    mean_rate = float(np.mean(finite)) if finite.size else float("nan")
+    median_rate = float(np.median(finite)) if finite.size else float("nan")
+
+    counts = _binned_spike_counts(trace, fps, bin_s)
+    rate_cv = float("nan")
+    fano = float("nan")
+    fraction_active = float("nan")
+    if counts.size:
+        fraction_active = float(np.mean(counts > SPIKE_ACTIVE_COUNT))
+    mean_count = float(np.mean(counts)) if counts.size else 0.0
+    if counts.size >= 2 and mean_count > 0:
+        rates = counts / float(bin_s)
+        rate_cv = float(np.std(rates, ddof=1) / np.mean(rates))
+        fano = float(np.var(counts, ddof=1) / mean_count)
+
+    threshold = (
+        SPIKE_ACTIVE_COUNT
+        if active_threshold_hz is None
+        else float(active_threshold_hz) * float(bin_s)
+    )
+    isi_cv = _active_bin_isi_cv(counts - threshold, bin_s)
+
+    zeroed = np.nan_to_num(trace, nan=0.0, posinf=0.0, neginf=0.0)
+    skewness = float("nan")
+    if zeroed.size >= 4 and float(np.std(zeroed)) > 0:
+        skewness, _ = _moments(zeroed)
+
+    return {
+        "mean_rate_hz": mean_rate,
+        "median_rate_hz": median_rate,
+        "rate_cv": rate_cv,
+        "fano_1s": fano,
+        "fraction_bins_active": fraction_active,
+        "burst_index": _burst_index(counts),
+        "autocorr_time_s": _autocorr_time_s(zeroed, fps),
+        "skewness": skewness,
+        "isi_cv_s": isi_cv,
+    }
+
+
+def spike_feature_row(
+    roi_idx: int,
+    spikes_hz: npt.NDArray[np.floating],
+    hd_deg: npt.NDArray[np.floating],
+    ahv_deg_s: npt.NDArray[np.floating],
+    speed_cm_s: npt.NDArray[np.floating],
+    light_on: npt.NDArray[np.bool_],
+    active: npt.NDArray[np.bool_],
+    bad_behav: npt.NDArray[np.bool_],
+    fps: float,
+) -> dict[str, Any]:
+    """Compute the inferred-spike feature dictionary for one ROI.
+
+    This is the spike-rate counterpart of :func:`cell_feature_row`: it
+    repeats the tuning and condition-split families on a CASCADE spike
+    rate and replaces the dF/F event-kinetics and trace-shape families
+    with the ``sp_`` rate family, which does not depend on the dF/F
+    amplitude scale (Rupprecht et al. 2021,
+    doi:10.1038/s41593-021-00895-5).
+
+    Parameters
+    ----------
+    roi_idx : int
+        ROI index within the session.
+    spikes_hz : (n_frames,) float
+        Inferred spike rate for this ROI in spikes/s.
+    hd_deg : (n_frames,) float
+        Head direction in degrees.
+    ahv_deg_s : (n_frames,) float
+        Angular head velocity in deg/s.
+    speed_cm_s : (n_frames,) float
+        Running speed in cm/s.
+    light_on : (n_frames,) bool
+        True when room lights are on.
+    active : (n_frames,) bool
+        True for frames where the animal is moving.
+    bad_behav : (n_frames,) bool
+        True for frames flagged as behavioural artefact; excluded
+        everywhere.
+    fps : float
+        Imaging frame rate in Hz.
+
+    Returns
+    -------
+    dict
+        ``roi_idx`` plus ``sp_`` rate features, the condition means
+        ``sp_mean_rate_hz_light`` / ``_dark`` / ``_moving`` /
+        ``_stationary``, ``tun_`` tuning features (including the
+        ``tun_mvl_light`` and ``tun_mvl_dark`` splits) and the ``act_``
+        condition-split family.
+
+        The ``act_`` family on a spike trace is descriptive only: it needs
+        a binary event mask, and inferred rates carry no event
+        segmentation, so frames above the 90th percentile of the cell's own
+        rate are used as a stand-in. These values are not comparable with
+        the ``act_`` family computed from detected dF/F events.
+
+    Raises
+    ------
+    ValueError
+        If the input arrays do not all have the same length.
+    """
+    trace = np.asarray(spikes_hz, dtype=np.float64)
+    hd = np.asarray(hd_deg, dtype=np.float64)
+    ahv = np.asarray(ahv_deg_s, dtype=np.float64)
+    speed = np.asarray(speed_cm_s, dtype=np.float64)
+    light = np.asarray(light_on, dtype=bool)
+    active_arr = np.asarray(active, dtype=bool)
+    bad = np.asarray(bad_behav, dtype=bool)
+
+    lengths = {arr.shape[0] for arr in (trace, hd, ahv, speed, light, active_arr, bad)}
+    if len(lengths) != 1:
+        raise ValueError(f"all inputs must have the same length; got lengths {sorted(lengths)}")
+
+    good = ~bad
+    valid = active_arr & good
+
+    row: dict[str, Any] = {"roi_idx": int(roi_idx)}
+    for key, value in spike_rate_statistics(trace, fps).items():
+        row[f"sp_{key}"] = value
+
+    row["sp_mean_rate_hz_light"] = _masked_mean(trace, light & good)
+    row["sp_mean_rate_hz_dark"] = _masked_mean(trace, ~light & good)
+    row["sp_mean_rate_hz_moving"] = _masked_mean(trace, active_arr & good)
+    row["sp_mean_rate_hz_stationary"] = _masked_mean(trace, ~active_arr & good)
+
+    for key, value in tuning_features(trace, hd, ahv, speed, valid, fps).items():
+        row[f"tun_{key}"] = value
+    row["tun_mvl_light"] = tuning_features(trace, hd, ahv, speed, valid & light, fps)["mvl"]
+    row["tun_mvl_dark"] = tuning_features(trace, hd, ahv, speed, valid & ~light, fps)["mvl"]
+
+    finite = np.isfinite(trace)
+    if finite.any():
+        threshold = float(np.percentile(trace[finite], SPIKE_EVENT_PERCENTILE))
+        event_mask = finite & (trace > threshold)
+    else:
+        event_mask = np.zeros(trace.shape[0], dtype=bool)
+    for key, value in compute_cell_activity(trace, event_mask, speed, light, good, fps).items():
+        row[f"act_{key}"] = value
+
+    return row
+
+
+def session_spike_feature_table(
+    spikes: npt.NDArray[np.floating],
+    hd_deg: npt.NDArray[np.floating],
+    ahv_deg_s: npt.NDArray[np.floating],
+    speed_cm_s: npt.NDArray[np.floating],
+    light_on: npt.NDArray[np.bool_],
+    active: npt.NDArray[np.bool_],
+    bad_behav: npt.NDArray[np.bool_],
+    fps: float,
+    roi_types: npt.NDArray[np.str_] | list[str] | None = None,
+) -> pd.DataFrame:
+    """Build the per-ROI inferred-spike feature table for one session.
+
+    Mirrors :func:`session_feature_table` but takes CASCADE spike rates
+    and calls :func:`spike_feature_row`.
+
+    Parameters
+    ----------
+    spikes : (n_rois, n_frames) float
+        Inferred spike rates in spikes/s.
+    hd_deg, ahv_deg_s, speed_cm_s : (n_frames,) float
+        Behavioural covariates.
+    light_on, active, bad_behav : (n_frames,) bool
+        Frame masks, see :func:`spike_feature_row`.
+    fps : float
+        Imaging frame rate in Hz.
+    roi_types : sequence of str, optional
+        Per-ROI type label; added as a ``roi_type`` column when given.
+
+    Returns
+    -------
+    pandas.DataFrame
+        One row per ROI, with ``roi_idx`` first. Session-level metadata is
+        attached by the caller.
+
+    Raises
+    ------
+    ValueError
+        If ``spikes`` is not two-dimensional or ``roi_types`` has the
+        wrong length.
+    """
+    traces = np.asarray(spikes, dtype=np.float64)
+    if traces.ndim != 2:
+        raise ValueError(f"spikes must be 2-D (n_rois, n_frames); got shape {traces.shape}")
+
+    n_rois = traces.shape[0]
+    if roi_types is not None and len(roi_types) != n_rois:
+        raise ValueError(f"roi_types has length {len(roi_types)} but spikes has {n_rois} ROIs")
+
+    rows: list[dict[str, Any]] = []
+    for i in range(n_rois):
+        row = spike_feature_row(
+            i,
+            traces[i],
+            hd_deg,
+            ahv_deg_s,
+            speed_cm_s,
+            light_on,
+            active,
+            bad_behav,
+            fps,
+        )
+        if roi_types is not None:
+            row["roi_type"] = str(roi_types[i])
+        rows.append(row)
+
+    table = pd.DataFrame(rows)
+    if roi_types is not None and not table.empty:
+        cols = ["roi_idx", "roi_type"] + [
+            c for c in table.columns if c not in ("roi_idx", "roi_type")
+        ]
+        table = table[cols]
+    return table
+
+
 def feature_families() -> dict[str, list[str]]:
     """Map false-discovery-rate family names to feature column names.
 
@@ -853,6 +1277,9 @@ def feature_families() -> dict[str, list[str]]:
         ``"trace_shape"`` — amplitude-invariant trace statistics.
         ``"tuning"`` — head-direction, angular-velocity and speed tuning.
         ``"activity"`` — condition-split activity metrics.
+        ``"spike_rate"`` — inferred spike-rate statistics from
+        :func:`spike_rate_statistics` (hypothesis H2 repeated on CASCADE
+        spike rates). Absent from the dF/F feature table.
     """
     return {
         "kinetics": [
@@ -905,5 +1332,20 @@ def feature_families() -> dict[str, list[str]]:
             "act_stationary_dark_mean_signal",
             "act_movement_modulation",
             "act_light_modulation",
+        ],
+        "spike_rate": [
+            "sp_mean_rate_hz",
+            "sp_median_rate_hz",
+            "sp_mean_rate_hz_light",
+            "sp_mean_rate_hz_dark",
+            "sp_mean_rate_hz_moving",
+            "sp_mean_rate_hz_stationary",
+            "sp_rate_cv",
+            "sp_fano_1s",
+            "sp_fraction_bins_active",
+            "sp_burst_index",
+            "sp_autocorr_time_s",
+            "sp_skewness",
+            "sp_isi_cv_s",
         ],
     }

@@ -34,8 +34,13 @@ def _synthetic_arrays(seed: int, n_rois: int = N_ROIS, n_frames: int = N_FRAMES)
     onsets = np.where(np.diff(active.astype(int)) == 1)[0] + 1
     for o in onsets:
         dff[1, o : o + 5] += 1.0
+    # inferred spike rates (spikes/s): rectified noise, cell 0 HD tuned
+    spikes = np.clip(rng.normal(0.2, 0.6, (n_rois, n_frames)), 0.0, None)
+    spikes[0] += np.exp(np.cos(np.deg2rad(hd - 90)) * 2) / 2
     return {
         "dff": dff,
+        "spikes": spikes,
+        "spikes_model": "Global_EXC_9.6Hz_smoothing200ms",
         "hd_deg": hd,
         "ahv_deg_s": ahv,
         "speed_cm_s": speed,
@@ -85,6 +90,7 @@ def args() -> argparse.Namespace:
 class TestHelpers:
     def test_signal_matrix_fallback(self) -> None:
         arr = _synthetic_arrays(0)
+        arr.pop("spikes")
         assert rch._signal_matrix(arr, "spikes") is not None
         np.testing.assert_array_equal(rch._signal_matrix(arr, "spikes"), arr["dff"])
         arr["spikes"] = np.ones_like(arr["dff"])
@@ -204,6 +210,45 @@ class TestH2:
 
     def test_empty(self, args, tmp_path: Path) -> None:
         assert rch.run_h2(args, [], tmp_path)["n_sessions"] == 0
+
+    def test_spike_signal_builds_spike_feature_table(self, sessions, args, tmp_path: Path) -> None:
+        args.signal = "spikes"
+        res = rch.run_h2(args, sessions, tmp_path)
+        assert res["n_sessions"] == 5 and res["n_cells"] == 5 * N_ROIS
+        cells = pd.read_csv(tmp_path / "cells.csv")
+        assert {"sp_mean_rate_hz", "sp_burst_index", "sp_fano_1s", "tun_mvl"} <= set(cells)
+        # the dF/F-only families are absent from the inferred-spike table
+        assert "ev_event_rate" not in cells.columns
+        assert "tr_skewness" not in cells.columns
+        assert cells["spikes_model"].unique().tolist() == ["Global_EXC_9.6Hz_smoothing200ms"]
+        assert cells["sp_mean_rate_hz"].notna().all()
+        rep = res["report"]
+        assert "spike_rate" in set(rep["family"])
+        assert "sp_mean_rate_hz" in set(rep["metric"])
+        # no ev_snr column, so SNR matching is skipped rather than raising
+        assert not (tmp_path / "cells_snr_matched.csv").exists()
+
+    def test_spike_signal_skips_sessions_without_spikes(
+        self, sessions, args, tmp_path: Path, caplog
+    ) -> None:
+        args.signal = "spikes"
+        sessions[0][1].pop("spikes")
+        with caplog.at_level("WARNING"):
+            res = rch.run_h2(args, sessions, tmp_path)
+        assert res["n_sessions"] == 4
+        assert any("no inferred spikes" in m for m in caplog.messages)
+
+    def test_spike_signal_all_sessions_missing_is_empty(
+        self, sessions, args, tmp_path: Path
+    ) -> None:
+        args.signal = "spikes"
+        for _, arrays in sessions:
+            arrays.pop("spikes")
+        assert rch.run_h2(args, sessions, tmp_path)["n_sessions"] == 0
+
+    def test_snr_matched_cells_without_snr_column(self) -> None:
+        df = pd.DataFrame({"celltype": ["penk"] * 6 + ["nonpenk"] * 6, "sp_mean_rate_hz": 1.0})
+        assert rch.snr_matched_cells(df).empty
 
 
 class TestH3:

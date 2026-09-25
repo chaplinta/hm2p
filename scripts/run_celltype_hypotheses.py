@@ -228,13 +228,20 @@ def run_h5(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> di
 def build_feature_table(
     args: argparse.Namespace, sessions: SessionIter, include_catch22: bool = False
 ) -> pd.DataFrame:
-    """Per-cell feature table across sessions with metadata columns attached."""
-    from hm2p.analysis.cell_features import session_feature_table
+    """Per-cell feature table across sessions with metadata columns attached.
 
+    With ``--signal spikes`` the table is built from the CASCADE inferred
+    spike rates (``sp_`` rate family plus the ``tun_`` and ``act_``
+    families) instead of dF/F; the dF/F event-kinetics and trace-shape
+    families are then absent, and sessions without a ``spikes`` array are
+    skipped. ``include_catch22`` applies to the dF/F table only.
+    """
+    from hm2p.analysis.cell_features import session_feature_table, session_spike_feature_table
+
+    use_spikes = getattr(args, "signal", "dff") == "spikes"
     rows: list[pd.DataFrame] = []
     for row, arrays in sessions:
-        table = session_feature_table(
-            _signal_matrix(arrays, "dff"),
+        behaviour = (
             arrays["hd_deg"],
             arrays["ahv_deg_s"],
             arrays["speed_cm_s"],
@@ -242,10 +249,26 @@ def build_feature_table(
             arrays["active"],
             arrays["bad_behav"],
             arrays["fps"],
-            roi_types=arrays.get("roi_types"),
-            include_catch22=include_catch22,
         )
+        if use_spikes:
+            if arrays.get("spikes") is None:
+                log.warning("%s: no inferred spikes, skipping session", row["exp_id"])
+                continue
+            table = session_spike_feature_table(
+                np.asarray(arrays["spikes"], dtype=np.float64),
+                *behaviour,
+                roi_types=arrays.get("roi_types"),
+            )
+        else:
+            table = session_feature_table(
+                _signal_matrix(arrays, "dff"),
+                *behaviour,
+                roi_types=arrays.get("roi_types"),
+                include_catch22=include_catch22,
+            )
         table["roi_idx"] = arrays["roi_idx"]
+        if arrays.get("spikes_model") is not None:
+            table["spikes_model"] = str(arrays["spikes_model"])
         rows.append(attach_session_meta(table, row))
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 
@@ -298,6 +321,10 @@ def snr_matched_cells(
     """
     from hm2p.analysis.matched_tuning import match_indices_1d
 
+    if snr_col not in cells.columns:
+        # the inferred-spike table carries no event SNR; matching is not defined
+        log.info("snr_matched_cells: %s absent, skipping SNR matching", snr_col)
+        return cells.iloc[0:0]
     sub = cells.dropna(subset=[snr_col, "celltype"])
     a = sub[sub["celltype"] == "penk"]
     b = sub[sub["celltype"] == "nonpenk"]

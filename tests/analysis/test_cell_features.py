@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import types
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -661,7 +662,7 @@ def test_session_feature_table_rejects_bad_roi_types_length() -> None:
 
 def test_feature_families_keys() -> None:
     families = cf.feature_families()
-    assert set(families) == {"kinetics", "trace_shape", "tuning", "activity"}
+    assert set(families) == {"kinetics", "trace_shape", "tuning", "activity", "spike_rate"}
     for cols in families.values():
         assert len(cols) == len(set(cols))
 
@@ -679,6 +680,8 @@ def test_feature_families_columns_exist_in_table() -> None:
         FPS,
     )
     for family, cols in cf.feature_families().items():
+        if family == "spike_rate":
+            continue  # built by session_spike_feature_table, not from dF/F
         missing = sorted(set(cols) - set(table.columns))
         assert not missing, f"{family} references missing columns: {missing}"
 
@@ -700,3 +703,402 @@ def test_tuning_features_with_nan_behaviour_frames() -> None:
     assert np.isfinite(out["mvl"]) and out["mvl"] > 0.05
     assert out["speed_modulation_index"] > 0.1
     assert out["speed_correlation"] > 0.3
+
+
+# ---------------------------------------------------------------------------
+# Inferred spike rates: private helpers
+# ---------------------------------------------------------------------------
+
+
+def _spike_session(
+    n_rois: int = 3,
+    n_frames: int = 400,
+    seed: int = 0,
+) -> dict[str, np.ndarray]:
+    """Synthetic session whose signal is an inferred spike rate (spikes/s)."""
+    session = _synthetic_session(n_rois=n_rois, n_frames=n_frames, seed=seed)
+    rng = np.random.default_rng(seed + 1)
+    spikes = np.clip(session["dff"] * 20.0, 0.0, None)
+    spikes += rng.random((n_rois, n_frames)) * 0.05
+    session["spikes"] = spikes
+    return session
+
+
+def test_binned_spike_counts_constant_rate_gives_expected_counts() -> None:
+    counts = cf._binned_spike_counts(np.full(100, 2.0), fps=10.0, bin_s=1.0)
+    assert counts.shape == (10,)
+    np.testing.assert_allclose(counts, 2.0)
+
+
+def test_binned_spike_counts_drops_partial_bin() -> None:
+    counts = cf._binned_spike_counts(np.ones(105), fps=10.0, bin_s=1.0)
+    assert counts.shape == (10,)
+
+
+def test_binned_spike_counts_too_short_is_empty() -> None:
+    assert cf._binned_spike_counts(np.ones(3), fps=10.0, bin_s=1.0).size == 0
+
+
+def test_binned_spike_counts_nonpositive_fps_is_empty() -> None:
+    assert cf._binned_spike_counts(np.ones(50), fps=0.0, bin_s=1.0).size == 0
+    assert cf._binned_spike_counts(np.ones(50), fps=10.0, bin_s=0.0).size == 0
+
+
+def test_binned_spike_counts_treats_nonfinite_as_zero() -> None:
+    trace = np.ones(20)
+    trace[:10] = np.nan
+    counts = cf._binned_spike_counts(trace, fps=10.0, bin_s=1.0)
+    np.testing.assert_allclose(counts, [0.0, 1.0])
+
+
+def test_binned_spike_counts_rejects_2d() -> None:
+    with pytest.raises(ValueError, match="1-D"):
+        cf._binned_spike_counts(np.ones((2, 10)), fps=10.0, bin_s=1.0)
+
+
+def test_burst_index_uniform_counts_equals_top_fraction() -> None:
+    assert cf._burst_index(np.ones(10)) == pytest.approx(0.1)
+
+
+def test_burst_index_single_loaded_bin_is_one() -> None:
+    counts = np.zeros(10)
+    counts[3] = 5.0
+    assert cf._burst_index(counts) == pytest.approx(1.0)
+
+
+def test_burst_index_no_spikes_is_nan() -> None:
+    assert np.isnan(cf._burst_index(np.zeros(10)))
+    assert np.isnan(cf._burst_index(np.empty(0)))
+
+
+def test_active_bin_isi_cv_regular_is_zero() -> None:
+    counts = np.zeros(20)
+    counts[::4] = 1.0
+    assert cf._active_bin_isi_cv(counts, bin_s=1.0) == pytest.approx(0.0)
+
+
+def test_active_bin_isi_cv_irregular_is_positive() -> None:
+    counts = np.zeros(20)
+    counts[[0, 1, 9, 19]] = 1.0
+    assert cf._active_bin_isi_cv(counts, bin_s=1.0) > 0.5
+
+
+def test_active_bin_isi_cv_too_few_active_bins_is_nan() -> None:
+    counts = np.zeros(10)
+    counts[[0, 5]] = 1.0
+    assert np.isnan(cf._active_bin_isi_cv(counts, bin_s=1.0))
+    assert np.isnan(cf._active_bin_isi_cv(np.ones(10), bin_s=0.0))
+
+
+def test_masked_mean_selects_finite_entries() -> None:
+    values = np.array([1.0, np.nan, 3.0, 5.0])
+    mask = np.array([True, True, True, False])
+    assert cf._masked_mean(values, mask) == pytest.approx(2.0)
+
+
+def test_masked_mean_empty_selection_is_nan() -> None:
+    assert np.isnan(cf._masked_mean(np.ones(4), np.zeros(4, dtype=bool)))
+
+
+# ---------------------------------------------------------------------------
+# spike_rate_statistics
+# ---------------------------------------------------------------------------
+
+
+def test_spike_rate_statistics_keys_are_stable() -> None:
+    out = cf.spike_rate_statistics(np.ones(200), FPS)
+    assert set(out) == {
+        "mean_rate_hz",
+        "median_rate_hz",
+        "rate_cv",
+        "fano_1s",
+        "fraction_bins_active",
+        "burst_index",
+        "autocorr_time_s",
+        "skewness",
+        "isi_cv_s",
+    }
+
+
+def test_spike_rate_statistics_constant_rate_has_no_variability() -> None:
+    out = cf.spike_rate_statistics(np.full(960, 2.0), FPS)
+    assert out["mean_rate_hz"] == pytest.approx(2.0)
+    assert out["median_rate_hz"] == pytest.approx(2.0)
+    assert out["rate_cv"] == pytest.approx(0.0, abs=1e-9)
+    assert out["fano_1s"] == pytest.approx(0.0, abs=1e-9)
+    assert out["fraction_bins_active"] == pytest.approx(1.0)
+
+
+def test_spike_rate_statistics_bursty_exceeds_regular() -> None:
+    """A trace with the same total spikes packed into few bins is burstier."""
+    n = 960
+    bin_frames = int(round(FPS))
+    regular = np.full(n, 1.0)
+    bursty = np.zeros(n)
+    # every 10th bin carries all the spikes of those ten bins
+    bursty[:: bin_frames * 10] = 10.0 * bin_frames
+    reg = cf.spike_rate_statistics(regular, FPS)
+    burst = cf.spike_rate_statistics(bursty, FPS)
+    assert reg["mean_rate_hz"] == pytest.approx(burst["mean_rate_hz"], rel=0.05)
+    assert burst["burst_index"] > reg["burst_index"]
+    assert burst["fano_1s"] > reg["fano_1s"]
+    assert burst["rate_cv"] > reg["rate_cv"]
+    assert burst["fraction_bins_active"] < reg["fraction_bins_active"]
+
+
+def test_spike_rate_statistics_all_zero_trace() -> None:
+    out = cf.spike_rate_statistics(np.zeros(500), FPS)
+    assert out["mean_rate_hz"] == 0.0
+    assert out["median_rate_hz"] == 0.0
+    assert out["fraction_bins_active"] == 0.0
+    for key in ("rate_cv", "fano_1s", "burst_index", "autocorr_time_s", "skewness", "isi_cv_s"):
+        assert np.isnan(out[key]), key
+
+
+def test_spike_rate_statistics_all_zero_emits_no_warning() -> None:
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        cf.spike_rate_statistics(np.zeros(500), FPS)
+
+
+def test_spike_rate_statistics_short_trace_has_nan_binned_values() -> None:
+    out = cf.spike_rate_statistics(np.ones(3), FPS)
+    assert np.isnan(out["fraction_bins_active"])
+    assert np.isnan(out["burst_index"])
+
+
+def test_spike_rate_statistics_nan_samples_are_excluded_from_mean() -> None:
+    trace = np.ones(200)
+    trace[:100] = np.nan
+    out = cf.spike_rate_statistics(trace, FPS)
+    assert out["mean_rate_hz"] == pytest.approx(1.0)
+
+
+def test_spike_rate_statistics_custom_active_threshold_changes_isi() -> None:
+    n = 960
+    trace = np.zeros(n)
+    trace[::20] = 4.0
+    low = cf.spike_rate_statistics(trace, FPS, active_threshold_hz=0.05)
+    high = cf.spike_rate_statistics(trace, FPS, active_threshold_hz=100.0)
+    assert np.isfinite(low["isi_cv_s"])
+    assert np.isnan(high["isi_cv_s"])
+
+
+def test_spike_rate_statistics_rejects_2d() -> None:
+    with pytest.raises(ValueError, match="1-D"):
+        cf.spike_rate_statistics(np.ones((2, 100)), FPS)
+
+
+@settings(max_examples=30, suppress_health_check=[HealthCheck.too_slow], deadline=None)
+@given(
+    hnp.arrays(
+        dtype=np.float64,
+        shape=hnp.array_shapes(min_dims=1, max_dims=1, min_side=20, max_side=200),
+        elements=st.floats(min_value=0.0, max_value=50.0, allow_nan=False, width=64),
+    )
+)
+def test_spike_rate_statistics_finite_or_nan(trace: np.ndarray) -> None:
+    for key, value in cf.spike_rate_statistics(trace, FPS).items():
+        assert np.isnan(value) or np.isfinite(value), key
+
+
+# ---------------------------------------------------------------------------
+# spike_feature_row / session_spike_feature_table
+# ---------------------------------------------------------------------------
+
+
+def test_spike_feature_row_has_prefixed_keys() -> None:
+    session = _spike_session(n_rois=1, n_frames=400)
+    row = cf.spike_feature_row(
+        0,
+        session["spikes"][0],
+        session["hd_deg"],
+        session["ahv_deg_s"],
+        session["speed_cm_s"],
+        session["light_on"],
+        session["active"],
+        session["bad_behav"],
+        FPS,
+    )
+    assert row["roi_idx"] == 0
+    assert any(k.startswith("sp_") for k in row)
+    assert any(k.startswith("tun_") for k in row)
+    assert any(k.startswith("act_") for k in row)
+    assert not any(k.startswith(("ev_", "tr_")) for k in row)
+    for key in (
+        "sp_mean_rate_hz_light",
+        "sp_mean_rate_hz_dark",
+        "sp_mean_rate_hz_moving",
+        "sp_mean_rate_hz_stationary",
+        "tun_mvl_light",
+        "tun_mvl_dark",
+    ):
+        assert key in row, key
+
+
+def test_spike_feature_row_condition_means_follow_the_masks() -> None:
+    n = 200
+    light = np.zeros(n, dtype=bool)
+    light[: n // 2] = True
+    spikes = np.where(light, 4.0, 1.0)
+    row = cf.spike_feature_row(
+        3,
+        spikes,
+        np.mod(np.arange(n) * 3.0, 360.0),
+        np.zeros(n),
+        np.full(n, 5.0),
+        light,
+        np.ones(n, dtype=bool),
+        np.zeros(n, dtype=bool),
+        FPS,
+    )
+    assert row["roi_idx"] == 3
+    assert row["sp_mean_rate_hz_light"] == pytest.approx(4.0)
+    assert row["sp_mean_rate_hz_dark"] == pytest.approx(1.0)
+    assert row["sp_mean_rate_hz_moving"] == pytest.approx(2.5)
+    assert np.isnan(row["sp_mean_rate_hz_stationary"])
+
+
+def test_spike_feature_row_excludes_bad_behav_frames() -> None:
+    n = 200
+    bad = np.zeros(n, dtype=bool)
+    bad[100:] = True
+    spikes = np.where(bad, 100.0, 1.0)
+    row = cf.spike_feature_row(
+        0,
+        spikes,
+        np.mod(np.arange(n) * 3.0, 360.0),
+        np.zeros(n),
+        np.full(n, 5.0),
+        np.ones(n, dtype=bool),
+        np.ones(n, dtype=bool),
+        bad,
+        FPS,
+    )
+    assert row["sp_mean_rate_hz_light"] == pytest.approx(1.0)
+
+
+def test_spike_feature_row_silent_cell_is_handled() -> None:
+    n = 300
+    row = cf.spike_feature_row(
+        0,
+        np.zeros(n),
+        np.mod(np.arange(n) * 3.0, 360.0),
+        np.zeros(n),
+        np.full(n, 5.0),
+        np.ones(n, dtype=bool),
+        np.ones(n, dtype=bool),
+        np.zeros(n, dtype=bool),
+        FPS,
+    )
+    assert row["sp_mean_rate_hz"] == 0.0
+    assert np.isnan(row["sp_burst_index"])
+
+
+def test_spike_feature_row_rejects_mismatched_lengths() -> None:
+    n = 100
+    with pytest.raises(ValueError, match="same length"):
+        cf.spike_feature_row(
+            0,
+            np.zeros(n),
+            np.zeros(n - 1),
+            np.zeros(n),
+            np.zeros(n),
+            np.ones(n, dtype=bool),
+            np.ones(n, dtype=bool),
+            np.zeros(n, dtype=bool),
+            FPS,
+        )
+
+
+def test_session_spike_feature_table_shape_and_columns() -> None:
+    session = _spike_session(n_rois=3, n_frames=300)
+    table = cf.session_spike_feature_table(
+        session["spikes"],
+        session["hd_deg"],
+        session["ahv_deg_s"],
+        session["speed_cm_s"],
+        session["light_on"],
+        session["active"],
+        session["bad_behav"],
+        FPS,
+        roi_types=["soma", "soma", "dendrite"],
+    )
+    assert isinstance(table, pd.DataFrame)
+    assert len(table) == 3
+    assert list(table.columns[:2]) == ["roi_idx", "roi_type"]
+    assert table["roi_idx"].tolist() == [0, 1, 2]
+    assert "sp_mean_rate_hz" in table.columns
+
+
+def test_session_spike_feature_table_without_roi_types() -> None:
+    session = _spike_session(n_rois=2, n_frames=200)
+    table = cf.session_spike_feature_table(
+        session["spikes"],
+        session["hd_deg"],
+        session["ahv_deg_s"],
+        session["speed_cm_s"],
+        session["light_on"],
+        session["active"],
+        session["bad_behav"],
+        FPS,
+    )
+    assert "roi_type" not in table.columns
+    assert len(table) == 2
+
+
+def test_session_spike_feature_table_rejects_1d_spikes() -> None:
+    session = _spike_session(n_rois=1, n_frames=100)
+    with pytest.raises(ValueError, match="2-D"):
+        cf.session_spike_feature_table(
+            session["spikes"][0],
+            session["hd_deg"],
+            session["ahv_deg_s"],
+            session["speed_cm_s"],
+            session["light_on"],
+            session["active"],
+            session["bad_behav"],
+            FPS,
+        )
+
+
+def test_session_spike_feature_table_rejects_bad_roi_types_length() -> None:
+    session = _spike_session(n_rois=2, n_frames=100)
+    with pytest.raises(ValueError, match="roi_types has length"):
+        cf.session_spike_feature_table(
+            session["spikes"],
+            session["hd_deg"],
+            session["ahv_deg_s"],
+            session["speed_cm_s"],
+            session["light_on"],
+            session["active"],
+            session["bad_behav"],
+            FPS,
+            roi_types=["soma"],
+        )
+
+
+def test_feature_families_includes_spike_rate() -> None:
+    families = cf.feature_families()
+    assert set(families) == {"kinetics", "trace_shape", "tuning", "activity", "spike_rate"}
+    assert len(families["spike_rate"]) == len(set(families["spike_rate"]))
+    assert all(c.startswith("sp_") for c in families["spike_rate"])
+
+
+def test_feature_families_spike_rate_columns_exist_in_spike_table() -> None:
+    session = _spike_session(n_rois=2, n_frames=300)
+    table = cf.session_spike_feature_table(
+        session["spikes"],
+        session["hd_deg"],
+        session["ahv_deg_s"],
+        session["speed_cm_s"],
+        session["light_on"],
+        session["active"],
+        session["bad_behav"],
+        FPS,
+    )
+    families = cf.feature_families()
+    assert set(families["spike_rate"]) <= set(table.columns)
+    # the tuning family is shared with the dF/F table; kinetics is not
+    assert set(families["tuning"]) <= set(table.columns)
+    assert not set(families["kinetics"]) & set(table.columns)

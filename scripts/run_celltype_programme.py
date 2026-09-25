@@ -106,6 +106,12 @@ def sync_key(exp_id: str, animal_id: str) -> str:
     return f"sync/sub-{animal_id}/ses-{parts[0]}T{parts[1]}{parts[2]}{parts[3]}/sync.h5"
 
 
+def ca_key(exp_id: str, animal_id: str) -> str:
+    """S3 key of the Stage 4 ``ca.h5`` for a session (same layout as sync.h5)."""
+    parts = exp_id.split("_")
+    return f"calcium/sub-{animal_id}/ses-{parts[0]}T{parts[1]}{parts[2]}{parts[3]}/ca.h5"
+
+
 def load_metadata(base: Path | None = None) -> pd.DataFrame:
     """Join experiments.csv with animals.csv into one row per session.
 
@@ -196,6 +202,79 @@ def read_session_arrays(f: h5py.File, soma_only: bool = True) -> dict[str, Any] 
     finite &= np.isfinite(out["ahv_deg_s"])
     out["mask"] = out["active"] & ~out["bad_behav"] & finite
     return out
+
+
+def attach_spikes_from_ca(
+    arrays: dict[str, Any],
+    ca_file: h5py.File,
+    soma_only: bool = True,
+) -> bool:
+    """Attach the CASCADE ``spikes`` matrix from an open ``ca.h5`` to *arrays*.
+
+    Stage 5 only copies ``spikes`` into ``sync.h5`` when it re-runs after
+    spike inference, so for sessions synced before then the inferred rates
+    have to be read from the Stage 4 file. ``ca.h5`` and ``sync.h5`` share
+    ROI order and frame count, so the soma-only row selection already
+    applied by :func:`read_session_arrays` is reproduced by indexing with
+    ``arrays["roi_idx"]``, and the frames are truncated to the sync frame
+    count in the same way.
+
+    Rupprecht et al. 2021. "A database and deep learning toolbox for
+    noise-optimized, generalized spike inference from calcium imaging."
+    Nature Neuroscience 24:1324-1337. doi:10.1038/s41593-021-00895-5
+
+    Parameters
+    ----------
+    arrays : dict
+        Session arrays from :func:`read_session_arrays`; modified in place
+        on success by adding ``"spikes"`` (float64, rows aligned with
+        ``dff``) and, when the file records one, ``"spikes_model"``.
+    ca_file : h5py.File
+        Open ``ca.h5`` for the same session.
+    soma_only : bool
+        Whether the sync arrays were restricted to soma ROIs. When False,
+        the ca.h5 ROI count must equal the sync ROI count exactly.
+
+    Returns
+    -------
+    bool
+        True when ``spikes`` was attached; False (with a logged warning)
+        when the dataset is absent or its shape disagrees with the sync
+        arrays, in which case *arrays* is left unchanged.
+    """
+    if "spikes" not in ca_file:
+        log.warning("ca.h5 has no spikes dataset")
+        return False
+
+    spikes = np.asarray(ca_file["spikes"][:], dtype=np.float64)
+    if spikes.ndim != 2:
+        log.warning("ca.h5 spikes is not 2-D (shape %s)", spikes.shape)
+        return False
+
+    dff = arrays["dff"]
+    idx = np.asarray(arrays.get("roi_idx", np.arange(dff.shape[0])), dtype=int)
+    n_expected = int(idx.max()) + 1 if idx.size else 0
+    if spikes.shape[0] < n_expected or (not soma_only and spikes.shape[0] != dff.shape[0]):
+        log.warning(
+            "ca.h5 ROI count %d does not match sync (%d rows, max roi_idx %d)",
+            spikes.shape[0],
+            dff.shape[0],
+            n_expected - 1,
+        )
+        return False
+
+    n_frames = int(dff.shape[1])
+    if spikes.shape[1] < n_frames:
+        log.warning("ca.h5 has %d frames but sync has %d", spikes.shape[1], n_frames)
+        return False
+
+    arrays["spikes"] = spikes[idx][:, :n_frames]
+    model = ca_file["spikes"].attrs.get("spikes_model", ca_file.attrs.get("spikes_model"))
+    if model is not None:
+        if isinstance(model, bytes):
+            model = model.decode()
+        arrays["spikes_model"] = str(model)
+    return True
 
 
 def attach_session_meta(df: pd.DataFrame, row: pd.Series) -> pd.DataFrame:
@@ -317,6 +396,16 @@ def iter_sessions(args: argparse.Namespace):  # pragma: no cover - network
         if arrays is None:
             log.warning("skipping %s (missing datasets or failed sync)", row["exp_id"])
             continue
+        if getattr(args, "signal", "dff") == "spikes" and "spikes" not in arrays:
+            ca = _download_h5(ca_key(row["exp_id"], row["animal_id"]))
+            if ca is None:
+                log.warning("skipping %s (no ca.h5 for inferred spikes)", row["exp_id"])
+                continue
+            with ca:
+                attached = attach_spikes_from_ca(arrays, ca, soma_only=not args.all_rois)
+            if not attached:
+                log.warning("skipping %s (no usable spikes in ca.h5)", row["exp_id"])
+                continue
         yield row, arrays
 
 

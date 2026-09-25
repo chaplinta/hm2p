@@ -274,3 +274,119 @@ def test_read_session_arrays_masks_nonfinite_behaviour(tmp_path: Path) -> None:
     assert not arr["mask"][:8].any()
     # AHV is derived from smoothed HD, so a few frames after an HD gap are NaN too
     assert arr["mask"][16:].all()
+
+
+# ---------------------------------------------------------------------------
+# ca.h5 inferred spikes
+# ---------------------------------------------------------------------------
+
+
+def _write_ca(
+    path: Path,
+    n_rois: int = 4,
+    n_frames: int = 200,
+    model: str | None = "Global_EXC_9.6Hz_smoothing200ms",
+) -> None:
+    """Minimal ca.h5 carrying a CASCADE spikes matrix (one row per ROI)."""
+    spikes = np.tile(np.arange(n_rois, dtype=np.float32)[:, None], (1, n_frames))
+    with h5py.File(path, "w") as f:
+        ds = f.create_dataset("spikes", data=spikes)
+        if model is not None:
+            ds.attrs["spikes_model"] = model
+
+
+def _sync_arrays(tmp_path: Path, soma_only: bool = True, n_rois: int = 4) -> dict:
+    p = tmp_path / "sync.h5"
+    _write_sync(p, n_rois=n_rois)
+    with h5py.File(p, "r") as f:
+        arrays = rcp.read_session_arrays(f, soma_only=soma_only)
+    assert arrays is not None
+    return arrays
+
+
+def test_ca_key() -> None:
+    key = rcp.ca_key("20220804_13_52_02_1117646", "1117646")
+    assert key == "calcium/sub-1117646/ses-20220804T135202/ca.h5"
+
+
+class TestAttachSpikesFromCa:
+    def test_soma_selection_and_attr(self, tmp_path: Path) -> None:
+        arrays = _sync_arrays(tmp_path)
+        _write_ca(tmp_path / "ca.h5")
+        with h5py.File(tmp_path / "ca.h5", "r") as ca:
+            assert rcp.attach_spikes_from_ca(arrays, ca, soma_only=True) is True
+        # sync kept ROIs 0 and 1 (roi_types 0, 0); ca row i is filled with i
+        assert arrays["spikes"].shape == (2, 200)
+        assert arrays["spikes"].dtype == np.float64
+        assert arrays["spikes"][:, 0].tolist() == [0.0, 1.0]
+        assert arrays["spikes_model"] == "Global_EXC_9.6Hz_smoothing200ms"
+
+    def test_all_rois(self, tmp_path: Path) -> None:
+        arrays = _sync_arrays(tmp_path, soma_only=False)
+        _write_ca(tmp_path / "ca.h5")
+        with h5py.File(tmp_path / "ca.h5", "r") as ca:
+            assert rcp.attach_spikes_from_ca(arrays, ca, soma_only=False) is True
+        assert arrays["spikes"].shape == (4, 200)
+        assert arrays["spikes"][:, 0].tolist() == [0.0, 1.0, 2.0, 3.0]
+
+    def test_frame_truncation(self, tmp_path: Path) -> None:
+        arrays = _sync_arrays(tmp_path)
+        _write_ca(tmp_path / "ca.h5", n_frames=250)
+        with h5py.File(tmp_path / "ca.h5", "r") as ca:
+            assert rcp.attach_spikes_from_ca(arrays, ca) is True
+        assert arrays["spikes"].shape[1] == arrays["dff"].shape[1] == 200
+
+    def test_too_few_frames_is_skipped(self, tmp_path: Path) -> None:
+        arrays = _sync_arrays(tmp_path)
+        _write_ca(tmp_path / "ca.h5", n_frames=150)
+        with h5py.File(tmp_path / "ca.h5", "r") as ca:
+            assert rcp.attach_spikes_from_ca(arrays, ca) is False
+        assert "spikes" not in arrays
+
+    def test_roi_count_mismatch_is_skipped(self, tmp_path: Path) -> None:
+        arrays = _sync_arrays(tmp_path, soma_only=False)
+        _write_ca(tmp_path / "ca.h5", n_rois=3)
+        with h5py.File(tmp_path / "ca.h5", "r") as ca:
+            assert rcp.attach_spikes_from_ca(arrays, ca, soma_only=False) is False
+        assert "spikes" not in arrays
+
+    def test_too_few_rois_for_soma_selection_is_skipped(self, tmp_path: Path) -> None:
+        arrays = _sync_arrays(tmp_path)
+        arrays["roi_idx"] = np.array([0, 7])
+        _write_ca(tmp_path / "ca.h5", n_rois=4)
+        with h5py.File(tmp_path / "ca.h5", "r") as ca:
+            assert rcp.attach_spikes_from_ca(arrays, ca, soma_only=True) is False
+        assert "spikes" not in arrays
+
+    def test_missing_dataset_is_skipped(self, tmp_path: Path) -> None:
+        arrays = _sync_arrays(tmp_path)
+        with h5py.File(tmp_path / "ca.h5", "w") as f:
+            f.create_dataset("dff", data=np.zeros((4, 200)))
+        with h5py.File(tmp_path / "ca.h5", "r") as ca:
+            assert rcp.attach_spikes_from_ca(arrays, ca) is False
+        assert "spikes" not in arrays
+
+    def test_non_2d_spikes_is_skipped(self, tmp_path: Path) -> None:
+        arrays = _sync_arrays(tmp_path)
+        with h5py.File(tmp_path / "ca.h5", "w") as f:
+            f.create_dataset("spikes", data=np.zeros(200))
+        with h5py.File(tmp_path / "ca.h5", "r") as ca:
+            assert rcp.attach_spikes_from_ca(arrays, ca) is False
+        assert "spikes" not in arrays
+
+    def test_missing_model_attr_leaves_key_absent(self, tmp_path: Path) -> None:
+        arrays = _sync_arrays(tmp_path)
+        _write_ca(tmp_path / "ca.h5", model=None)
+        with h5py.File(tmp_path / "ca.h5", "r") as ca:
+            assert rcp.attach_spikes_from_ca(arrays, ca) is True
+        assert "spikes" in arrays
+        assert "spikes_model" not in arrays
+
+    def test_file_level_model_attr_is_used(self, tmp_path: Path) -> None:
+        arrays = _sync_arrays(tmp_path)
+        _write_ca(tmp_path / "ca.h5", model=None)
+        with h5py.File(tmp_path / "ca.h5", "r+") as f:
+            f.attrs["spikes_model"] = b"Global_EXC_9.6Hz"
+        with h5py.File(tmp_path / "ca.h5", "r") as ca:
+            assert rcp.attach_spikes_from_ca(arrays, ca) is True
+        assert arrays["spikes_model"] == "Global_EXC_9.6Hz"
