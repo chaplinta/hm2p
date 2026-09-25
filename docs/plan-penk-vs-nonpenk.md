@@ -311,7 +311,7 @@ implements it), the statistics, and the follow-up analyses or experiments.
 | --- | --- |
 | Different mice, expression, SNR | amplitude-invariant features; SNR-matched subsampling; SNR as covariate |
 | Equipment (fibre/lens) | repeat on matched subset (`mixed_stats.equipment_matched_subset`) |
-| Four Penk+ virus constructs | Kruskal-Wallis across variants; variant as covariate |
+| Penk+ virus codes | treated as one label (decision 2026-09-25); Kruskal-Wallis across codes reported descriptively |
 | Behavioural differences | occupancy/speed/AHV matching |
 | Animal-level pseudoreplication | animal-level tests, cluster permutation, LOAO |
 | Multiple comparisons | BH-FDR within declared families |
@@ -527,9 +527,7 @@ carry session-level structure after centring and is descriptive.
    reach FDR 0.06 within a 17-metric family, every direction survives
    leave-one-animal-out, and event SNR does not differ between groups.
    SNR-matched subsampling (141 vs 141 cells, matched SNR medians) keeps the
-   same pattern (perm p 0.05–0.10, FDR 0.20 with the reduced set). Within
-   Penk+, no kinetics metric differs across the four virus constructs at
-   FDR level (Kruskal-Wallis p ≥ 0.06). Caveats: decay time and amplitude
+   same pattern (perm p 0.05–0.10, FDR 0.20 with the reduced set). Caveats: decay time and amplitude
    correlate with SNR within cells (rho 0.3–0.4), and dF/F kinetics are
    shaped by indicator expression as well as firing; the CASCADE spike
    branch has not been run, so this remains a calcium-event statement.
@@ -568,5 +566,6 @@ carry session-level structure after centring and is descriptive.
   contradicted on the compactness half: Penk+ is the more dispersed
   population within animals (H6), and the population HD code is at chance
   in both groups at matched N (H7). Whether the Penk+ dispersion reflects
-  genuine functional diversity within one type, or the four Cre-ON virus
-  constructs, is testable by re-running H6 within the ADD3-only animals.
+  genuine functional diversity within one type is the open question; the
+  virus codes recorded for Penk+ animals are treated as a single label
+  (decision 2026-09-25).

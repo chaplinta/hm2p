@@ -10,6 +10,8 @@ dist/
 build/
 .eggs/
 .venv/
+.venv-cascade/
+.cascade-src/
 venv/
 env/
 
