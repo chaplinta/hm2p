@@ -468,6 +468,7 @@ reported numbers come from the corrected code.
 | H5 | Dark→light late response 0.053 vs 0.155 | 0.056 | 0.094 | 0.16 | 0.16 | stable |
 | H5 | Tuning recovery times | > 0.33 | > 0.29 | 0.39 | — | — |
 | H7 | Matched-N (8 cells) HD decode error 89° vs 87° | 0.41 | 0.28 | 0.79 | — | — |
+| H4/H10 | Syllable information 0.058 vs 0.045 bits (after re-sync) | 0.41 | 0.34 | 0.34 | 0.66 | stable |
 | H8 | GLM light share of deviance 0.25 vs 0.39 | 0.026 | 0.120 | 0.48 | 0.11 | stable |
 | H8 | GLM position share 0.37 vs 0.24 | 0.18 | 0.16 | 0.48 | 0.75 | stable |
 | H8 | Full-model held-out deviance explained ≈ 0 in both | 0.85 | 0.90 | 0.90 | — | — |
@@ -545,6 +546,18 @@ difference of H3 on both signals. Conclusion: with 2–4 HD cells per session,
 sparse firing (0.1–0.2 spikes/s) and 30-minute sessions, single-cell
 encoding models are underpowered here; the H2 rate/kinetics contrasts and
 the light-transition analyses are the informative single-cell tests.
+
+### Syllables (H4/H10 rerun after the Stage 5 re-sync)
+
+With keypoint-MoSeq `syllable_id` now in `sync.h5`, the syllable branches of
+H4 and H10 ran for the first time. Mutual information between a cell's
+dF/F and the syllable label is small in both groups (medians 0.051 vs 0.044
+bits; animal means 0.058 vs 0.045) and higher in Penk+ only at the cell
+level (naive p = 0.0004; animal p = 0.41, permutation p = 0.34). So
+behavioural syllables, like the other behavioural variables, do not separate
+the populations; the informative single-cell axis remains rate and event
+kinetics. Syllable-onset-aligned responses and per-syllable HD tuning are
+possible now but were not run.
 
 ### H6 (heterogeneity and omnibus separability, on the H2 feature table)
 
