@@ -422,3 +422,89 @@ Sequencing: (1) feature table, heterogeneity and omnibus classifier;
 - Oh D, Yang J, Shin J, Kwag J. 2026. "Retrosplenial PV and SST interneurons
   shape egocentric spatial precision and stability." bioRxiv
   doi:10.1101/2026.05.10.724096
+
+---
+
+## 11. Results of the first full run (2026-09-25)
+
+All 23 non-excluded sessions (11 Penk+ animals, 4 Penk⁻CamKII+ animals; 450
+soma ROIs, 309 vs 141), `dff` signal, 10 000 animal-level permutations,
+BH-FDR within family. "Animal p" is the animal-level Mann-Whitney U,
+"perm p" the animal-level cluster permutation, CLES the common-language
+effect size for Penk+ > Penk⁻CamKII+ (0.5 = no difference), "LOAO" whether
+the sign survives dropping each Penk⁻CamKII+ animal. Raw tables are under
+`results/celltype_programme/<hn>/` (gitignored). Three code defects were
+found and fixed during the run (NaN speed frames collapsing the speed index,
+an O(n²) autocorrelation, and mixed-length transition time courses); the
+reported numbers come from the corrected code.
+
+### Summary
+
+| H | Measure (group means: Penk+ vs Penk⁻CamKII+) | Animal p | Perm p | FDR | CLES | LOAO |
+| --- | --- | --- | --- | --- | --- | --- |
+| H2 | Inter-event interval 30.9 vs 25.4 s | 0.040 | 0.007 | 0.061 | 0.86 | stable |
+| H2 | Event duration 3.27 vs 2.63 s | 0.078 | 0.010 | 0.061 | 0.82 | stable |
+| H2 | Event decay time 2.43 vs 2.00 s | 0.078 | 0.011 | 0.061 | 0.82 | stable |
+| H2 | Event rise time 0.84 vs 0.63 s | 0.056 | 0.035 | 0.106 | 0.84 | stable |
+| H2 | Event rate in light 2.33 vs 2.85 per min | 0.026 | 0.041 | 0.106 | 0.11 | stable |
+| H2 | Event amplitude 4.6 vs 7.8 (dF/F units) | 0.026 | 0.044 | 0.106 | 0.11 | stable |
+| H2 | Stationary-light mean signal 0.085 vs 0.188 | 0.010 | 0.014 | 0.144 | 0.07 | stable |
+| H2 | Event SNR 11.5 vs 11.0 | 0.571 | 0.808 | 0.81 | 0.39 | — |
+| H3 | AHV modulation depth 0.19 vs 0.36 | 0.040 | 0.074 | 0.103 | 0.14 | stable |
+| H3 | Speed-matched AHV depth, dark − light: −0.03 vs −0.18 | 0.018 | 0.058 | 0.103 | 0.91 | stable |
+| H4 | Onset transient, immobility decay, sustained ratio | > 0.49 | > 0.06 | > 0.32 | — | — |
+| H5 | Light→dark early transient −0.031 vs −0.096 | 0.078 | 0.135 | 0.20 | 0.82 | stable |
+| H5 | Dark→light late response 0.053 vs 0.155 | 0.056 | 0.094 | 0.16 | 0.16 | stable |
+| H5 | Tuning recovery times | > 0.33 | > 0.29 | 0.39 | — | — |
+| H7 | Matched-N (8 cells) HD decode error 89° vs 87° | 0.41 | 0.28 | 0.79 | — | — |
+| H7 | PCA ring angle–HD correlation ≈ 0 in both | > 0.22 | > 0.45 | 0.79 | — | — |
+| H9 | Population coupling 0.10 vs 0.05 | 0.226 | 0.105 | 0.21 | 0.73 | stable |
+| H9 | Mean noise correlation 0.052 vs 0.008 | 0.138 | 0.094 | 0.21 | 0.77 | stable |
+| H10 | Junction-choice decoding above chance 0.08 vs 0.13 | 0.66 | 0.74 | 0.74 | — | — |
+| H10 | Place information, familiarity coding | > 0.34 | > 0.46 | 0.74 | — | — |
+
+### Reading
+
+1. **The clearest signal is event kinetics (H2).** Penk+ calcium events
+   are sparser, longer (slower rise and decay) and smaller than Penk⁻CamKII+
+   events, and the light-period event rate is lower. Three kinetics metrics
+   reach FDR 0.06 within a 17-metric family, every direction survives
+   leave-one-animal-out, and event SNR does not differ between groups.
+   SNR-matched subsampling (141 vs 141 cells, matched SNR medians) keeps the
+   same pattern (perm p 0.05–0.10, FDR 0.20 with the reduced set). Within
+   Penk+, no kinetics metric differs across the four virus constructs at
+   FDR level (Kruskal-Wallis p ≥ 0.06). Caveats: decay time and amplitude
+   correlate with SNR within cells (rho 0.3–0.4), and dF/F kinetics are
+   shaped by indicator expression as well as firing; the CASCADE spike
+   branch has not been run, so this remains a calcium-event statement.
+2. **Direction of the LR prediction is mixed.** Longer, plateau-like events
+   fit a non-adapting cell, but the predicted higher event rate and stronger
+   AHV coding in Penk+ are not seen: AHV modulation depth is *higher* in
+   Penk⁻CamKII+ (H3), and it falls more in darkness there under speed
+   matching (CLES 0.91). The amplitude-normalised AHV index does not differ
+   (p = 0.76), so the raw-depth difference partly tracks the amplitude
+   difference in H2. H4 state-dependence measures are null.
+3. **Light coupling leans Penk⁻CamKII+ consistently** (H2 stationary-light
+   signal and light event rate, H3 dark drop, H5 larger transients in both
+   directions, and the earlier H3.5 light-modulation lean). None is
+   significant alone at the animal level after FDR; the direction is the
+   same in every measure.
+4. **Population-level measures are null and, for HD, at chance (H7).**
+   With eight cells per session neither group decodes HD above chance
+   (median error ≈ 88°) and neither shows an HD ring. Population coupling
+   and noise correlations lean Penk+ (H9, CLES 0.73–0.77) but are not
+   significant at the animal level.
+5. **Navigational coding (H10) is null** in both groups; junction-choice
+   decoding is barely above chance.
+
+### What this changes
+
+- Candidate difference 1 (Penk+ = LR neuron) is supported by the ex vivo
+  phenotype and by event shape, not by rate or AHV coding. The next test is
+  H1 (patching re-analysis, `scripts/run_patching_celltype.py`) and the
+  CASCADE spike branch for H2.
+- Candidate difference 2 (self-motion vs visual coupling) is half
+  supported: the visual/light side leans Penk⁻CamKII+ across four
+  independent measures; the self-motion side does not lean Penk+.
+- Candidate difference 3 (HD cells in Penk⁻CamKII+, Penk+ compact) awaits
+  H6; the population HD code is at chance in both groups at matched N.
