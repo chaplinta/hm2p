@@ -4,8 +4,10 @@
 Downloads ca.h5 from S3, runs CASCADE to infer calibrated spike rates,
 and re-uploads the updated ca.h5 with the 'spikes' dataset added.
 
-CASCADE requires Python 3.8 + TensorFlow 2.3 — run in the CASCADE
-Docker container (docker/cascade.Dockerfile).
+CASCADE is not on PyPI. Either run in the CASCADE Docker container
+(docker/cascade.Dockerfile) or in a dedicated venv with TensorFlow 2.x and
+the Cascade repository on PYTHONPATH (``--cascade-src``), with the
+pretrained model unpacked under ``<cascade-src>/Pretrained_models``.
 
 Usage:
     python scripts/run_cascade.py              # all sessions
@@ -24,6 +26,7 @@ from __future__ import annotations
 import argparse
 import csv
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -59,6 +62,8 @@ def run_session(
     model_name: str,
     work_dir: Path,
     dry_run: bool = False,
+    model_folder: str = "Pretrained_models",
+    overwrite: bool = False,
 ) -> str:
     """Run CASCADE for a single session."""
     print(f"\n--- {sub}/{ses} ({exp_id}) ---")
@@ -82,11 +87,14 @@ def run_session(
     try:
         # Download ca.h5
         ca_local = session_dir / "ca.h5"
-        print(f"  Downloading ca.h5...")
+        print("  Downloading ca.h5...")
         s3.download_file(DERIVATIVES_BUCKET, ca_key, str(ca_local))
 
         # Read dF/F and fps
         with h5py.File(ca_local, "r") as f:
+            if "spikes" in f and not overwrite:
+                print("  SKIP: spikes already present (use --overwrite to redo)")
+                return "skip_has_spikes"
             dff = f["dff"][:]
             fps = float(f.attrs.get("fps_imaging", 9.8))
 
@@ -97,7 +105,9 @@ def run_session(
         print(f"  Running CASCADE (model: {model_name})...")
         from cascade2p import cascade
 
-        spike_prob = cascade.predict(model_name, dff)
+        # padding=0: edge frames without a prediction window are 0 rather
+        # than NaN, which keeps downstream rate/GLM code NaN-free.
+        spike_prob = cascade.predict(model_name, dff, model_folder=model_folder, padding=0)
         spikes = np.asarray(spike_prob, dtype=np.float32)
         print(f"  Spike rates: mean={spikes.mean():.4f}, max={spikes.max():.4f} spikes/s")
 
@@ -106,17 +116,20 @@ def run_session(
             if "spikes" in f:
                 del f["spikes"]
             f.create_dataset("spikes", data=spikes, dtype=np.float32)
+            f.attrs["spikes_model"] = model_name
+            f.attrs["spikes_units"] = "spikes/s (CASCADE, padding=0)"
 
         # Re-upload
-        print(f"  Uploading updated ca.h5...")
+        print("  Uploading updated ca.h5...")
         s3.upload_file(str(ca_local), DERIVATIVES_BUCKET, ca_key)
-        print(f"  DONE")
+        print("  DONE")
 
         return "ok"
 
     except Exception as e:
         print(f"  ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return f"error: {e}"
 
@@ -131,16 +144,37 @@ def main():
     parser.add_argument("--all", action="store_true", help="Process all sessions")
     parser.add_argument(
         "--model",
-        default="Global_EXC_7.5Hz_smoothing200ms",
-        help="CASCADE pre-trained model name",
+        default="Global_EXC_10Hz_smoothing200ms",
+        help="CASCADE pre-trained model name (hm2p images at ~9.6 Hz)",
     )
+    parser.add_argument(
+        "--cascade-src",
+        type=Path,
+        default=None,
+        help="path to a clone of HelmchenLabSoftware/Cascade (added to sys.path)",
+    )
+    parser.add_argument(
+        "--model-folder",
+        default=None,
+        help="folder containing <model>/config.yaml (default <cascade-src>/Pretrained_models)",
+    )
+    parser.add_argument("--overwrite", action="store_true", help="recompute existing spikes")
+    parser.add_argument("--profile", default=None, help="AWS profile name")
     args = parser.parse_args()
+
+    if args.cascade_src is not None:
+        sys.path.insert(0, str(args.cascade_src))
+    model_folder = args.model_folder or (
+        str(args.cascade_src / "Pretrained_models") if args.cascade_src else "Pretrained_models"
+    )
+    if not args.dry_run and not (Path(model_folder) / args.model / "config.yaml").exists():
+        raise SystemExit(f"model {args.model} not found under {model_folder}")
 
     sessions = get_sessions()
     print(f"Found {len(sessions)} sessions")
     print(f"Model: {args.model}")
 
-    s3 = boto3.client("s3", region_name=REGION)
+    s3 = boto3.Session(profile_name=args.profile).client("s3", region_name=REGION)
     work_dir = Path(tempfile.mkdtemp(prefix="hm2p-cascade-"))
 
     if args.session is not None:
@@ -149,12 +183,19 @@ def main():
     results = {}
     for ses in sessions:
         status = run_session(
-            s3, ses["sub"], ses["ses"], ses["exp_id"],
-            args.model, work_dir, dry_run=args.dry_run,
+            s3,
+            ses["sub"],
+            ses["ses"],
+            ses["exp_id"],
+            args.model,
+            work_dir,
+            dry_run=args.dry_run,
+            model_folder=model_folder,
+            overwrite=args.overwrite,
         )
         results[ses["exp_id"]] = status
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("CASCADE Summary:")
     ok = sum(1 for v in results.values() if v == "ok")
     skip = sum(1 for v in results.values() if v.startswith("skip"))

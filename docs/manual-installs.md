@@ -26,7 +26,24 @@ The core pipeline (`uv sync --extra dev`) works without any of these.
 
 These packages are used in specific pipeline stages or analysis steps:
 
-- **CASCADE** — Stage 4 spike inference. Run in its own conda env, read/write `ca.h5`.
+- **CASCADE** — Stage 4 spike inference. Run in its own env, read/write `ca.h5`.
+  Working recipe without conda or docker (verified 2026-09-25, aarch64, Python 3.11):
+
+  ```bash
+  uv venv -p 3.11 .venv-cascade
+  uv pip install --python .venv-cascade/bin/python "tensorflow>=2.15" tf-keras pip \
+      h5py numpy scipy boto3 ruamel.yaml pyyaml tqdm matplotlib seaborn
+  git clone https://github.com/HelmchenLabSoftware/Cascade.git .cascade-src
+  # pretrained models are hosted on drive.switch.ch (links in
+  # .cascade-src/Pretrained_models/available_models.yaml); unzip the model
+  # folder into .cascade-src/Pretrained_models/<model_name>/
+  TF_USE_LEGACY_KERAS=1 PYTHONPATH=.cascade-src .venv-cascade/bin/python \
+      scripts/run_cascade.py --cascade-src .cascade-src --profile hm2p-agent --all
+  ```
+
+  `TF_USE_LEGACY_KERAS=1` is required: the saved models are Keras-2 `.h5`
+  files and Keras 3 rejects their optimizer config. `cascade2p/config.py`
+  imports `pip` and `utils.py` imports matplotlib, hence those extras.
 - **CaImAn** — Stage 1 alternative extractor. Run in its own conda env.
 - **FISSA** — Stage 4 optional neuropil subtraction. Run in its own env.
 - **keypoint-MoSeq / VAME** — Stage 3b behavioural syllables (deferred). Run in their own envs.
