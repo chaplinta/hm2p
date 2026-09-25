@@ -54,6 +54,30 @@ def get_sessions() -> list[dict]:
     return sessions
 
 
+def predict_in_chunks(
+    cascade, model_name: str, dff: np.ndarray, model_folder: str, chunk: int = 24
+) -> np.ndarray:
+    """Run ``cascade.predict`` on blocks of ROIs and concatenate.
+
+    CASCADE materialises a (neurons x frames x window) design matrix per
+    noise level; on a full session (~240 ROIs x 18 000 frames) that exceeds
+    the devcontainer's memory. Noise levels are estimated per trace, so
+    chunking over ROIs does not change the result. ``padding=0`` makes edge
+    frames without a prediction window 0 rather than NaN.
+    """
+    out = np.zeros(dff.shape, dtype=np.float32)
+    n = dff.shape[0]
+    for start in range(0, n, chunk):
+        stop = min(start + chunk, n)
+        block = np.asarray(dff[start:stop], dtype=np.float64)
+        pred = cascade.predict(
+            model_name, block, model_folder=model_folder, padding=0, verbosity=0
+        )
+        out[start:stop] = np.asarray(pred, dtype=np.float32)
+        print(f"  ROIs {start}-{stop - 1} done")
+    return out
+
+
 def run_session(
     s3,
     sub: str,
@@ -64,6 +88,7 @@ def run_session(
     dry_run: bool = False,
     model_folder: str = "Pretrained_models",
     overwrite: bool = False,
+    chunk: int = 24,
 ) -> str:
     """Run CASCADE for a single session."""
     print(f"\n--- {sub}/{ses} ({exp_id}) ---")
@@ -105,10 +130,7 @@ def run_session(
         print(f"  Running CASCADE (model: {model_name})...")
         from cascade2p import cascade
 
-        # padding=0: edge frames without a prediction window are 0 rather
-        # than NaN, which keeps downstream rate/GLM code NaN-free.
-        spike_prob = cascade.predict(model_name, dff, model_folder=model_folder, padding=0)
-        spikes = np.asarray(spike_prob, dtype=np.float32)
+        spikes = predict_in_chunks(cascade, model_name, dff, model_folder, chunk=chunk)
         print(f"  Spike rates: mean={spikes.mean():.4f}, max={spikes.max():.4f} spikes/s")
 
         # Write spikes back to ca.h5
@@ -159,6 +181,7 @@ def main():
         help="folder containing <model>/config.yaml (default <cascade-src>/Pretrained_models)",
     )
     parser.add_argument("--overwrite", action="store_true", help="recompute existing spikes")
+    parser.add_argument("--chunk", type=int, default=24, help="ROIs per CASCADE predict call")
     parser.add_argument("--profile", default=None, help="AWS profile name")
     args = parser.parse_args()
 
