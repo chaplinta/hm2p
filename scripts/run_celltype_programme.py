@@ -306,7 +306,9 @@ def iter_sessions(args: argparse.Namespace):  # pragma: no cover - network
         include_excluded=args.include_excluded,
         primary_only=args.primary_only,
     )
-    for _, row in meta.iterrows():
+    n_total = len(meta)
+    for i, (_, row) in enumerate(meta.iterrows(), start=1):
+        log.info("session %d/%d %s (%s)", i, n_total, row["exp_id"], row["celltype"])
         f = _download_h5(sync_key(row["exp_id"], row["animal_id"]))
         if f is None:
             continue
