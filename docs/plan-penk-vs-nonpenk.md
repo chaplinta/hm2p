@@ -351,7 +351,7 @@ Sequencing: (1) feature table, heterogeneity and omnibus classifier;
 
 - Field-of-view A–P position and imaging depth per session.
 - Availability of Suite2p ROI centroids for distance-dependent coupling.
-- Whether to run CASCADE before H2/H8 so a spike-rate branch exists.
+- CASCADE has been run (2026-09-25); Stage 5/6 re-runs would propagate `spikes` into sync.h5 and analysis.h5. H8 on spike rates is still to do.
 
 ## 10. References
 
@@ -450,6 +450,11 @@ reported numbers come from the corrected code.
 | H2 | Event amplitude 4.6 vs 7.8 (dF/F units) | 0.026 | 0.044 | 0.106 | 0.11 | stable |
 | H2 | Stationary-light mean signal 0.085 vs 0.188 | 0.010 | 0.014 | 0.144 | 0.07 | stable |
 | H2 | Event SNR 11.5 vs 11.0 | 0.571 | 0.808 | 0.81 | 0.39 | — |
+| H2s | CASCADE spike rate 0.13 vs 0.19 spikes/s | 0.078 | 0.063 | 0.13 | 0.18 | stable |
+| H2s | Fraction of 1 s bins active 0.08 vs 0.14 | 0.040 | 0.051 | 0.13 | 0.14 | stable |
+| H2s | Fano factor (1 s bins) 0.40 vs 0.48 | 0.056 | 0.029 | 0.13 | 0.16 | stable |
+| H2s | Rate skewness 4.5 vs 3.7 | 0.104 | 0.076 | 0.13 | 0.80 | stable |
+| H2s | Stationary-light spike rate 0.11 vs 0.14 | 0.104 | 0.041 | 0.18 | 0.20 | stable |
 | H3 | AHV modulation depth 0.19 vs 0.36 | 0.040 | 0.074 | 0.103 | 0.14 | stable |
 | H3 | Speed-matched AHV depth, dark − light: −0.03 vs −0.18 | 0.018 | 0.058 | 0.103 | 0.91 | stable |
 | H4 | Onset transient, immobility decay, sustained ratio | > 0.49 | > 0.06 | > 0.32 | — | — |
@@ -465,6 +470,26 @@ reported numbers come from the corrected code.
 | H9 | Mean noise correlation 0.052 vs 0.008 | 0.138 | 0.094 | 0.21 | 0.77 | stable |
 | H10 | Junction-choice decoding above chance 0.08 vs 0.13 | 0.66 | 0.74 | 0.74 | — | — |
 | H10 | Place information, familiarity coding | > 0.34 | > 0.46 | 0.74 | — | — |
+
+### H2 on CASCADE spike rates (`run_celltype_programme.py h2 --signal spikes`)
+
+CASCADE (Rupprecht et al. 2021, model Global_EXC_10Hz_smoothing200ms) was run
+on all 26 sessions on 2026-09-25 (EC2, ~20 min; `spikes` now in every
+ca.h5, sync.h5 not yet re-synced). On inferred spike rates the dF/F picture
+holds: Penk+ cells fire less (animal means 0.13 vs 0.19 spikes/s; medians
+0.08 vs 0.20), have fewer active one-second bins (0.08 vs 0.14), a lower
+Fano factor (0.40 vs 0.48, permutation p = 0.029) and more skewed,
+burstier rate distributions (skewness 4.5 vs 3.7, ISI CV 1.50 vs 1.28).
+Every direction survives leave-one-animal-out; FDR within the 13-metric
+spike-rate family is 0.13. The stationary-light rate difference
+(permutation p = 0.041) repeats the light-coupling lean, and AHV modulation
+depth is again larger in Penk⁻CamKII+ on spike rates (0.06 vs 0.08,
+p = 0.031), so that difference is not purely a dF/F amplitude artefact,
+though it still scales with mean rate. Spike inference is calibrated
+across indicators and noise levels, which removes the expression-level
+caveat that applied to raw dF/F amplitudes; the sparser-firing conclusion
+for Penk+ is therefore the most robust single-cell difference in the
+dataset so far.
 
 ### H1 (ex vivo patching, `scripts/run_patching_celltype.py`)
 
@@ -530,7 +555,8 @@ carry session-level structure after centring and is descriptive.
    same pattern (perm p 0.05–0.10, FDR 0.20 with the reduced set). Caveats: decay time and amplitude
    correlate with SNR within cells (rho 0.3–0.4), and dF/F kinetics are
    shaped by indicator expression as well as firing; the CASCADE spike
-   branch has not been run, so this remains a calcium-event statement.
+   branch (see "H2 on CASCADE spike rates") confirms lower, sparser and
+   burstier firing in Penk+ on calibrated rates.
 2. **Direction of the LR prediction is mixed.** Longer, plateau-like events
    fit a non-adapting cell, but the predicted higher event rate and stronger
    AHV coding in Penk+ are not seen: AHV modulation depth is *higher* in
