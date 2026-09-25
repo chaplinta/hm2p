@@ -351,7 +351,13 @@ Sequencing: (1) feature table, heterogeneity and omnibus classifier;
 
 - Field-of-view A–P position and imaging depth per session.
 - Availability of Suite2p ROI centroids for distance-dependent coupling.
-- CASCADE has been run (2026-09-25); Stage 5/6 re-runs would propagate `spikes` into sync.h5 and analysis.h5 (not yet done). H8 on spike counts is done and uninformative.
+- CASCADE has been run (2026-09-25). Stage 5 was re-run for all 26 sessions
+  on 2026-09-25: every `sync.h5` now carries `spikes` and, for the first
+  time, per-frame keypoint-MoSeq `syllable_id` (the Stage 3b output had
+  never been appended to `kinematics.h5`, so no neural-by-syllable analysis
+  had been possible). Stage 6 re-run on EC2 (`scripts/launch_stage6_ec2.py`)
+  adds the `spikes` signal type to `analysis.h5`. H8 on spike counts is done
+  and uninformative.
 
 ## 10. References
 
