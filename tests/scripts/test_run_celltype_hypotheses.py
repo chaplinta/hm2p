@@ -416,3 +416,27 @@ class TestSnrMatched:
         assert res["n_cells"] == 5 * N_ROIS
         assert (tmp_path / "b" / "between_group_report_snr_matched.csv").exists()
         assert (tmp_path / "b" / "cells_snr_matched.csv").exists()
+
+
+class TestCenterByAnimal:
+    def test_removes_animal_means(self) -> None:
+        df = pd.DataFrame(
+            {
+                "animal_id": ["a", "a", "b", "b"],
+                "celltype": ["penk"] * 2 + ["nonpenk"] * 2,
+                "f1": [1.0, 3.0, 10.0, 14.0],
+                "f2": [0.0, 0.0, 5.0, 5.0],
+            }
+        )
+        out = rch.center_features_by_animal(df, ["f1", "f2"])
+        assert out["f1"].tolist() == [-1.0, 1.0, -2.0, 2.0]
+        assert out["f2"].abs().sum() == 0.0
+        assert out.groupby("animal_id")["f1"].mean().abs().max() == 0.0
+
+    def test_h6_center_flag(self, sessions, args, tmp_path: Path) -> None:
+        rch.run_h2(args, sessions, tmp_path / "h2")
+        args.features = tmp_path / "h2" / "cells.csv"
+        args.n_perms = 10
+        args.center_by_animal = True
+        res = rch.run_h6(args, [], tmp_path / "h6")
+        assert res["n_cells"] > 0

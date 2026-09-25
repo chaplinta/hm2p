@@ -353,6 +353,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--out", type=Path, default=RESULTS_ROOT)
     ap.add_argument("--no-gbm", dest="gbm", action="store_false", help="h6: skip GBM classifier")
     ap.add_argument(
+        "--center-by-animal",
+        action="store_true",
+        help="h6: subtract per-animal feature means first (within-animal structure only)",
+    )
+    ap.add_argument(
         "--no-glm-selection",
         dest="glm_selection",
         action="store_false",

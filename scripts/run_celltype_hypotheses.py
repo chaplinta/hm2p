@@ -426,6 +426,21 @@ def run_h3(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> di
 # ---------------------------------------------------------------------------
 
 
+def center_features_by_animal(cells: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
+    """Subtract each animal's mean from every feature.
+
+    Removes between-animal offsets (expression, optics, virus construct) so
+    that dispersion and separability reflect within-animal cell-to-cell
+    structure only. Between-group mean differences are removed as well, so
+    this is a control for the heterogeneity tests, not a replacement for the
+    location tests.
+    """
+    out = cells.copy()
+    means = out.groupby("animal_id")[feature_cols].transform("mean")
+    out[feature_cols] = out[feature_cols] - means
+    return out
+
+
 def run_h6(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> dict[str, Any]:
     from hm2p.analysis.cell_features import feature_families
     from hm2p.analysis.heterogeneity import (
@@ -448,6 +463,8 @@ def run_h6(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> di
     feature_cols = [c for c in cells.columns if c.startswith("c22_")]
     feature_cols += fams["kinetics"] + fams["trace_shape"] + fams["tuning"]
     feature_cols = [c for c in feature_cols if c in cells.columns]
+    if getattr(args, "center_by_animal", False):
+        cells = center_features_by_animal(cells, feature_cols)
     x, meta, used = prepare_feature_matrix(cells, feature_cols)
     if x.shape[0] < 10 or meta["celltype"].nunique() != 2:
         return _empty_result("h6", out_dir)
