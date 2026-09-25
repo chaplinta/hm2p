@@ -463,6 +463,24 @@ reported numbers come from the corrected code.
 | H10 | Junction-choice decoding above chance 0.08 vs 0.13 | 0.66 | 0.74 | 0.74 | — | — |
 | H10 | Place information, familiarity coding | > 0.34 | > 0.46 | 0.74 | — | — |
 
+### H1 (ex vivo patching, `scripts/run_patching_celltype.py`)
+
+The patched cell types segregate by mouse: four mice contributed only Penk+
+cells, one only Penk⁻ cells, one both (6 Penk⁻ and 3 Penk+). The comparison
+is therefore between animals with effectively 5 versus 2 mice, and the
+attainable animal-level permutation p is about 0.13 whatever the effect size.
+Cell-level effects remain large and in the LR direction (Cliff's δ: spike
+half-width −0.78, maximal spike count +0.69, input capacitance −0.66,
+half-Vm −0.68, input resistance +0.37, rheobase −0.3), but none can be
+separated from animal identity with these data. LR/RS classification by
+Brennan 2020 criteria (three of five met) calls 12 of 23 Penk+ cells LR versus
+1 of 14 Penk⁻ cells (Fisher p = 0.011, descriptive; the animal-level
+permutation is uninformative for the same reason), and PC1 of the five LR
+metrics is bimodal (ΔBIC = 7) with Penk+ and Penk⁻ medians on opposite sides.
+Conclusion: the ex vivo phenotype is consistent with Penk+ = LR but the
+existing recordings cannot test it at the animal level; the decisive
+experiment is paired recording of both cell types in the same slices.
+
 ### Reading
 
 1. **The clearest signal is event kinetics (H2).** Penk+ calcium events
