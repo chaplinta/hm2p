@@ -379,3 +379,40 @@ class TestResampleTimecourse:
             tc = json.load(fh)
         assert len(tc["time_s"]) == len(rch.TRANSITION_GRID_S)
         assert len(tc["ltd"]) == len(rch.TRANSITION_GRID_S)
+
+
+class TestSnrMatched:
+    def test_matching_equalises_snr(self) -> None:
+        rng = np.random.default_rng(0)
+        n = 200
+        df = pd.DataFrame(
+            {
+                "celltype": ["penk"] * n + ["nonpenk"] * n,
+                "animal_id": ["p"] * n + ["n"] * n,
+                "ev_snr": np.concatenate([rng.uniform(2, 10, n), rng.uniform(6, 14, n)]),
+                "m": rng.normal(size=2 * n),
+            }
+        )
+        out = rch.snr_matched_cells(df, n_bins=8)
+        assert len(out) > 0 and set(out["celltype"]) == {"penk", "nonpenk"}
+        med = out.groupby("celltype")["ev_snr"].median()
+        assert abs(med["penk"] - med["nonpenk"]) < 1.0
+        assert out["ev_snr"].min() >= 6.0 - 1.5
+
+    def test_too_few_cells_returns_empty(self) -> None:
+        df = pd.DataFrame(
+            {"celltype": ["penk", "nonpenk"], "animal_id": ["a", "b"], "ev_snr": [1.0, 2.0]}
+        )
+        assert rch.snr_matched_cells(df).empty
+
+    def test_h2_from_features_writes_matched_report(self, sessions, args, tmp_path: Path) -> None:
+        rch.run_h2(args, sessions, tmp_path / "a")
+        table = pd.read_csv(tmp_path / "a" / "cells.csv")
+        # synthetic traces rarely carry events, so give every cell a finite SNR
+        table["ev_snr"] = np.random.default_rng(0).uniform(3, 12, len(table))
+        table.to_csv(tmp_path / "a" / "cells.csv", index=False)
+        args.features = tmp_path / "a" / "cells.csv"
+        res = rch.run_h2(args, [], tmp_path / "b")
+        assert res["n_cells"] == 5 * N_ROIS
+        assert (tmp_path / "b" / "between_group_report_snr_matched.csv").exists()
+        assert (tmp_path / "b" / "cells_snr_matched.csv").exists()

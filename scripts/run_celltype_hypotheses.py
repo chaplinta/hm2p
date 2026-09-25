@@ -287,10 +287,39 @@ def snr_confounds(cells: pd.DataFrame, metrics: list[str]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def snr_matched_cells(
+    cells: pd.DataFrame, snr_col: str = "ev_snr", n_bins: int = 10, seed: int = 42
+) -> pd.DataFrame:
+    """Subsample cells so the two groups have matched SNR distributions.
+
+    Expression level and optics differ between mice; matching on event SNR
+    (``match_indices_1d`` on the pooled cells) removes the part of any
+    kinetics difference that tracks signal quality.
+    """
+    from hm2p.analysis.matched_tuning import match_indices_1d
+
+    sub = cells.dropna(subset=[snr_col, "celltype"])
+    a = sub[sub["celltype"] == "penk"]
+    b = sub[sub["celltype"] == "nonpenk"]
+    if len(a) < 5 or len(b) < 5:
+        return sub.iloc[0:0]
+    ia, ib = match_indices_1d(
+        a[snr_col].to_numpy(dtype=float),
+        b[snr_col].to_numpy(dtype=float),
+        n_bins=n_bins,
+        circular=False,
+        rng=np.random.default_rng(seed),
+    )
+    return pd.concat([a.iloc[ia], b.iloc[ib]], ignore_index=True)
+
+
 def run_h2(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> dict[str, Any]:
     from hm2p.analysis.cell_features import feature_families
 
-    cells = build_feature_table(args, sessions, include_catch22=True)
+    if getattr(args, "features", None) is not None:
+        cells = pd.read_csv(args.features)
+    else:
+        cells = build_feature_table(args, sessions, include_catch22=True)
     if cells.empty:
         return _empty_result("h2", out_dir)
     write_outputs(out_dir, "cells", cells)
@@ -299,6 +328,23 @@ def run_h2(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> di
     all_metrics = [m for fam in families.values() for m in fam]
     write_outputs(out_dir, "virus_variant_kruskal", virus_variant_check(cells, all_metrics))
     write_outputs(out_dir, "snr_confounds", snr_confounds(cells, all_metrics))
+    matched = snr_matched_cells(cells, seed=args.seed)
+    if not matched.empty:
+        write_outputs(out_dir, "cells_snr_matched", matched)
+        reports = []
+        for family, metrics in families.items():
+            present = [m for m in metrics if m in matched.columns]
+            if present:
+                reports.append(
+                    between_group_report(
+                        matched, present, family=family, n_perms=args.n_perms, seed=args.seed
+                    )
+                )
+        write_outputs(
+            out_dir,
+            "between_group_report_snr_matched",
+            pd.concat(reports, ignore_index=True) if reports else pd.DataFrame(),
+        )
     return {"n_sessions": int(cells["exp_id"].nunique()), "n_cells": len(cells), "report": report}
 
 
