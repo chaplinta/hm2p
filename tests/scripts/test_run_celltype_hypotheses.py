@@ -350,3 +350,32 @@ class TestH9:
 
 def test_registry_complete() -> None:
     assert set(rch.RUNNERS) == {f"h{i}" for i in range(2, 11)}
+
+
+class TestResampleTimecourse:
+    def test_grid_and_interp(self) -> None:
+        t = np.linspace(-10, 30, 385)
+        v = np.where(t < 0, 0.0, 1.0)
+        out = rch._resample_timecourse(t, v)
+        assert out.shape == rch.TRANSITION_GRID_S.shape
+        assert np.isclose(out[0], 0.0) and np.isclose(out[-1], 1.0)
+        assert np.isnan(out).sum() == 0
+
+    def test_mixed_lengths_average(self) -> None:
+        a = rch._resample_timecourse(np.linspace(-10, 30, 385), np.ones(385))
+        b = rch._resample_timecourse(np.linspace(-10, 30, 391), np.zeros(391))
+        mean = np.nanmean(np.vstack([a, b]), axis=0)
+        assert np.allclose(mean[~np.isnan(mean)], 0.5)
+
+    def test_too_few_points(self) -> None:
+        out = rch._resample_timecourse([0.0], [1.0])
+        assert np.isnan(out).all()
+
+    def test_h5_timecourse_file_has_grid(self, sessions, args, tmp_path: Path) -> None:
+        rch.run_h5(args, sessions[:2], tmp_path)
+        import json
+
+        with open(tmp_path / "population_timecourses.json") as fh:
+            tc = json.load(fh)
+        assert len(tc["time_s"]) == len(rch.TRANSITION_GRID_S)
+        assert len(tc["ltd"]) == len(rch.TRANSITION_GRID_S)

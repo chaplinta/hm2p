@@ -120,6 +120,24 @@ def run_h4(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> di
 # H5 — light/dark transition dynamics
 # ---------------------------------------------------------------------------
 
+TRANSITION_GRID_S = np.round(np.arange(-10.0, 30.0, 0.1), 3)
+
+
+def _resample_timecourse(time_s: Any, values: Any) -> np.ndarray:
+    """Interpolate a transition-aligned mean onto the common 10 Hz grid.
+
+    Sessions differ slightly in imaging rate, so their aligned windows have
+    different lengths; averaging across sessions needs a shared time axis.
+    """
+    t = np.asarray(time_s, dtype=np.float64)
+    v = np.asarray(values, dtype=np.float64)
+    ok = np.isfinite(t) & np.isfinite(v)
+    if ok.sum() < 2:
+        return np.full(TRANSITION_GRID_S.shape, np.nan)
+    out = np.interp(TRANSITION_GRID_S, t[ok], v[ok], left=np.nan, right=np.nan)
+    return out
+
+
 H5_FAMILIES = {
     "transition_light_to_dark": ["ltd_early_amplitude", "ltd_late_amplitude", "ltd_frac_sig"],
     "transition_dark_to_light": ["dtl_early_amplitude", "dtl_late_amplitude", "dtl_frac_sig"],
@@ -154,8 +172,9 @@ def run_h5(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> di
             ses[f"{tag}_early_amplitude"] = float(np.nanmean(res["early_amplitude"]))
             ses[f"{tag}_late_amplitude"] = float(np.nanmean(res["late_amplitude"]))
             if res["n_transitions"] > 0:
-                timecourses[tag].append(np.asarray(res["mean_timecourse"]))
-                ses[f"{tag}_time_s"] = np.asarray(res["time_s"])
+                timecourses[tag].append(
+                    _resample_timecourse(res["time_s"], res["mean_timecourse"])
+                )
         # tuning recovery after dark->light, per cell, then session medians
         mvl_rt, pd_rt = [], []
         for i in range(sig.shape[0]):
@@ -193,7 +212,10 @@ def run_h5(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> di
     write_outputs(
         out_dir,
         "population_timecourses",
-        {k: np.nanmean(np.vstack(v), axis=0) if v else [] for k, v in timecourses.items()},
+        {
+            "time_s": TRANSITION_GRID_S,
+            **{k: np.nanmean(np.vstack(v), axis=0) if v else [] for k, v in timecourses.items()},
+        },
     )
     return {"n_sessions": len(cell_rows), "n_cells": len(cells), "report": report}
 
