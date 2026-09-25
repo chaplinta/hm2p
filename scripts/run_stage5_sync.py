@@ -56,9 +56,49 @@ def s3_key_exists(s3, bucket: str, key: str) -> bool:
         return False
 
 
+def attach_syllables(s3, sub: str, ses: str, kin_local: Path) -> bool:
+    """Append ``syllable_id`` from ``syllables.npz`` on S3 to a local kinematics.h5.
+
+    Stage 3b (keypoint-MoSeq) writes ``kinematics/<sub>/<ses>/syllables.npz``
+    but did not append it to kinematics.h5, so syllables never reached
+    sync.h5. Returns True when syllables were attached, False when the file is
+    absent or its length does not match the kinematics frame count (logged,
+    not raised).
+    """
+    import io
+
+    import numpy as np
+
+    from hm2p.kinematics.syllables import append_syllables_to_h5
+
+    key = f"kinematics/{sub}/{ses}/syllables.npz"
+    try:
+        body = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key=key)["Body"].read()
+    except Exception:  # noqa: BLE001 - absent file is the normal case
+        print("  no syllables.npz — sync.h5 will not carry syllable_id")
+        return False
+    with np.load(io.BytesIO(body)) as z:
+        if "syllable_id" not in z.files:
+            print("  syllables.npz has no syllable_id — skipping")
+            return False
+        syllable_id = np.asarray(z["syllable_id"], dtype=np.int16)
+    try:
+        append_syllables_to_h5(kin_local, syllable_id)
+    except ValueError as exc:
+        print(f"  syllables not attached: {exc}")
+        return False
+    print(f"  attached syllable_id ({len(syllable_id)} frames)")
+    return True
+
+
 def run_session(
-    s3, sub: str, ses: str, exp_id: str, work_dir: Path,
-    dry_run: bool = False, force: bool = False,
+    s3,
+    sub: str,
+    ses: str,
+    exp_id: str,
+    work_dir: Path,
+    dry_run: bool = False,
+    force: bool = False,
     champion_id: str = "",
 ) -> str:
     """Run Stage 5 for a single session. Returns status string.
@@ -79,7 +119,7 @@ def run_session(
 
     # Check if sync.h5 already exists
     if not force and s3_key_exists(s3, DERIVATIVES_BUCKET, sync_key):
-        print(f"  SKIP: sync.h5 already exists (use --force to re-run)")
+        print("  SKIP: sync.h5 already exists (use --force to re-run)")
         return "skip_exists"
 
     # Check for kinematics.h5
@@ -93,7 +133,7 @@ def run_session(
         return "skip_no_ca"
 
     if dry_run:
-        print(f"  DRY RUN: would process and upload sync.h5")
+        print("  DRY RUN: would process and upload sync.h5")
         return "dry_run"
 
     session_dir = work_dir / sub / ses
@@ -102,7 +142,7 @@ def run_session(
     try:
         # Download kinematics.h5
         kin_local = session_dir / "kinematics.h5"
-        print(f"  Downloading kinematics.h5...")
+        print("  Downloading kinematics.h5...")
         s3.download_file(DERIVATIVES_BUCKET, kin_key, str(kin_local))
 
         # --- Champion enforcement: verify kinematics.h5 was produced by
@@ -129,14 +169,14 @@ def run_session(
 
         # Download ca.h5
         ca_local = session_dir / "ca.h5"
-        print(f"  Downloading ca.h5...")
+        print("  Downloading ca.h5...")
         s3.download_file(DERIVATIVES_BUCKET, ca_key, str(ca_local))
 
         # Download timestamps.h5
         ts_key = f"movement/{sub}/{ses}/timestamps.h5"
         ts_local = session_dir / "timestamps.h5"
         if s3_key_exists(s3, DERIVATIVES_BUCKET, ts_key):
-            print(f"  Downloading timestamps.h5...")
+            print("  Downloading timestamps.h5...")
             s3.download_file(DERIVATIVES_BUCKET, ts_key, str(ts_local))
         else:
             ts_local = None
@@ -163,7 +203,11 @@ def run_session(
             )
 
         # Run sync pipeline
-        print(f"  Running sync pipeline...")
+        print("  Running sync pipeline...")
+        # Fold keypoint-MoSeq syllables (Stage 3b output) into the local
+        # kinematics copy so sync.h5 carries syllable_id at imaging rate.
+        attach_syllables(s3, sub, ses, kin_local)
+
         from hm2p.sync.align import run
 
         output_path = session_dir / "sync.h5"
@@ -214,7 +258,7 @@ def run_session(
         print(f"  Uploading to s3://{DERIVATIVES_BUCKET}/{sync_key}")
         s3_upload_with_verify(s3, output_path, DERIVATIVES_BUCKET, sync_key)
 
-        print(f"  DONE")
+        print("  DONE")
 
         return "ok"
 
@@ -258,6 +302,7 @@ def main():
 
     # Load champion manifest at startup — required for champion enforcement.
     from hm2p.pose.select import ChampionMismatchError, load_champion_manifest
+
     try:
         champion_manifest = load_champion_manifest(s3, DERIVATIVES_BUCKET)
     except ChampionMismatchError as e:
@@ -280,8 +325,13 @@ def main():
     try:
         for i, ses in enumerate(sessions):
             status = run_session(
-                s3, ses["sub"], ses["ses"], ses["exp_id"], work_dir,
-                dry_run=args.dry_run, force=args.force,
+                s3,
+                ses["sub"],
+                ses["ses"],
+                ses["exp_id"],
+                work_dir,
+                dry_run=args.dry_run,
+                force=args.force,
                 champion_id=champion_id,
             )
             results[ses["exp_id"]] = status
@@ -289,8 +339,8 @@ def main():
         shutil.rmtree(work_dir, ignore_errors=True)
 
     # Summary
-    print(f"\n{'='*60}")
-    print(f"Stage 5 Summary:")
+    print(f"\n{'=' * 60}")
+    print("Stage 5 Summary:")
     ok = sum(1 for v in results.values() if v == "ok")
     skip = sum(1 for v in results.values() if v.startswith("skip"))
     err = sum(1 for v in results.values() if v.startswith("error"))
@@ -298,7 +348,7 @@ def main():
     print(f"  OK: {ok}, Skipped: {skip}, Errors: {err}, Dry run: {dry}")
 
     if err > 0:
-        print(f"\nFailed sessions:")
+        print("\nFailed sessions:")
         for exp_id, status in results.items():
             if status.startswith("error"):
                 print(f"  {exp_id}: {status}")
