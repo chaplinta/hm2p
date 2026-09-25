@@ -351,7 +351,7 @@ Sequencing: (1) feature table, heterogeneity and omnibus classifier;
 
 - Field-of-view A–P position and imaging depth per session.
 - Availability of Suite2p ROI centroids for distance-dependent coupling.
-- CASCADE has been run (2026-09-25); Stage 5/6 re-runs would propagate `spikes` into sync.h5 and analysis.h5. H8 on spike rates is still to do.
+- CASCADE has been run (2026-09-25); Stage 5/6 re-runs would propagate `spikes` into sync.h5 and analysis.h5 (not yet done). H8 on spike counts is done and uninformative.
 
 ## 10. References
 
@@ -465,6 +465,8 @@ reported numbers come from the corrected code.
 | H8 | GLM light share of deviance 0.25 vs 0.39 | 0.026 | 0.120 | 0.48 | 0.11 | stable |
 | H8 | GLM position share 0.37 vs 0.24 | 0.18 | 0.16 | 0.48 | 0.75 | stable |
 | H8 | Full-model held-out deviance explained ≈ 0 in both | 0.85 | 0.90 | 0.90 | — | — |
+| H8s | Spike-count GLM (0.5 s bins): deviance explained ≈ 0 in both | 0.34 | 0.42 | 0.53 | — | — |
+| H8s | Spike-count GLM AHV share 0.08 vs 0.14 | 0.010 | 0.078 | 0.47 | 0.07 | stable |
 | H7 | PCA ring angle–HD correlation ≈ 0 in both | > 0.22 | > 0.45 | 0.79 | — | — |
 | H9 | Population coupling 0.10 vs 0.05 | 0.226 | 0.105 | 0.21 | 0.73 | stable |
 | H9 | Mean noise correlation 0.052 vs 0.008 | 0.138 | 0.094 | 0.21 | 0.77 | stable |
@@ -522,6 +524,21 @@ versus 34 % of Penk+ cells; position share leans Penk+ (0.37 vs 0.24,
 p = 0.16). HD, AHV and speed shares do not differ. A spike-rate response
 (CASCADE) and coarser time bins would be needed before the GLM carries
 weight on its own; forward selection was skipped for run time.
+
+### H8 on CASCADE spike counts (0.5 s bins, no forward selection)
+
+Re-fitting the Poisson GLMs on inferred spike counts summed into 0.5 s bins
+(`--signal spikes --bin-s 0.5`) does not rescue the encoding models:
+median held-out deviance explained is still about zero (−0.005 in both
+groups; 25 % of Penk⁻CamKII+ and 36 % of Penk+ cells exceed 0.01). The
+profiles therefore remain descriptive. The light-share difference seen on
+dF/F does not reappear on spikes (0.20 vs 0.17, p = 0.95); instead the AHV
+share leans Penk⁻CamKII+ (0.08 vs 0.14; animal p = 0.010, permutation
+p = 0.078, CLES 0.07, direction stable), in line with the raw AHV modulation
+difference of H3 on both signals. Conclusion: with 2–4 HD cells per session,
+sparse firing (0.1–0.2 spikes/s) and 30-minute sessions, single-cell
+encoding models are underpowered here; the H2 rate/kinetics contrasts and
+the light-transition analyses are the informative single-cell tests.
 
 ### H6 (heterogeneity and omnibus separability, on the H2 feature table)
 
