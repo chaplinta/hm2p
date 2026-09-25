@@ -192,7 +192,9 @@ def read_session_arrays(f: h5py.File, soma_only: bool = True) -> dict[str, Any] 
                 out[k] = out[k][keep]
     if out["dff"].shape[0] == 0:
         return None
-    out["mask"] = out["active"] & ~out["bad_behav"]
+    finite = np.isfinite(out["hd_deg"]) & np.isfinite(out["speed_cm_s"])
+    finite &= np.isfinite(out["ahv_deg_s"])
+    out["mask"] = out["active"] & ~out["bad_behav"] & finite
     return out
 
 

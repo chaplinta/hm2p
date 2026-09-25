@@ -681,3 +681,22 @@ def test_feature_families_columns_exist_in_table() -> None:
     for family, cols in cf.feature_families().items():
         missing = sorted(set(cols) - set(table.columns))
         assert not missing, f"{family} references missing columns: {missing}"
+
+
+def test_tuning_features_with_nan_behaviour_frames() -> None:
+    """Pose gaps (NaN hd/speed/ahv) are excluded rather than degrading the indices."""
+    from hm2p.analysis.cell_features import tuning_features
+
+    rng = np.random.default_rng(3)
+    n = 1500
+    hd = np.mod(np.cumsum(rng.normal(0, 5, n)), 360.0)
+    speed = rng.uniform(0, 20, n)
+    ahv = rng.normal(0, 50, n)
+    signal = 0.05 * speed + np.exp(np.cos(np.deg2rad(hd - 45))) / 5 + rng.normal(0, 0.05, n)
+    speed[::11] = np.nan
+    hd[::13] = np.nan
+    ahv[::17] = np.nan
+    out = tuning_features(signal, hd, ahv, speed, np.ones(n, dtype=bool), fps=9.6)
+    assert np.isfinite(out["mvl"]) and out["mvl"] > 0.05
+    assert out["speed_modulation_index"] > 0.1
+    assert out["speed_correlation"] > 0.3

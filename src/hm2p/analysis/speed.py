@@ -91,8 +91,17 @@ def speed_modulation_index(
         ``"mean_signal_slow"`` — mean signal at low speed.
         ``"speed_correlation"`` — Spearman rho between speed and signal.
     """
-    sig = signal[mask]
-    spd = speed[mask]
+    finite = np.asarray(mask, dtype=bool) & np.isfinite(signal) & np.isfinite(speed)
+    sig = signal[finite]
+    spd = speed[finite]
+
+    if sig.size == 0:
+        return {
+            "speed_modulation_index": float("nan"),
+            "mean_signal_fast": float("nan"),
+            "mean_signal_slow": float("nan"),
+            "speed_correlation": float("nan"),
+        }
 
     if speed_threshold is None:
         speed_threshold = float(np.median(spd))

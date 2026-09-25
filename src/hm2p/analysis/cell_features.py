@@ -564,7 +564,18 @@ def tuning_features(
     """
     del fps  # rate-independent statistics; kept for a uniform call signature
     sig = np.asarray(signal, dtype=np.float64)
-    mask_arr = np.asarray(mask, dtype=bool)
+    hd_arr = np.asarray(hd_deg, dtype=np.float64)
+    ahv_arr = np.asarray(ahv_deg_s, dtype=np.float64)
+    speed_arr = np.asarray(speed_cm_s, dtype=np.float64)
+    # Pose gaps leave NaN in the behavioural channels; a NaN speed makes the
+    # median threshold NaN and every comparison False, so restrict to finite frames.
+    mask_arr = (
+        np.asarray(mask, dtype=bool)
+        & np.isfinite(sig)
+        & np.isfinite(hd_arr)
+        & np.isfinite(ahv_arr)
+        & np.isfinite(speed_arr)
+    )
 
     if int(mask_arr.sum()) < MIN_TUNING_FRAMES:
         return _nan_tuning_features()

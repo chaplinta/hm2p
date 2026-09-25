@@ -172,3 +172,26 @@ class TestHypothesisSpeed:
         mask = np.ones(len(speed_vals), dtype=bool)
         tc, bin_centers = speed_tuning_curve(signal, speed_vals, mask, n_bins=10)
         assert np.all(bin_centers >= 0), f"Negative bin center: {bin_centers.min()}"
+
+
+def test_speed_modulation_index_ignores_nan_frames() -> None:
+    """NaN speed frames (pose gaps) must not poison the median threshold."""
+    from hm2p.analysis.speed import speed_modulation_index
+
+    rng = np.random.default_rng(0)
+    n = 400
+    speed = rng.uniform(0, 20, n)
+    signal = 0.05 * speed + rng.normal(0, 0.1, n)
+    speed[::7] = np.nan
+    res = speed_modulation_index(signal, speed, np.ones(n, dtype=bool))
+    assert res["speed_modulation_index"] > 0.2
+    assert res["speed_correlation"] > 0.5
+    assert res["speed_modulation_index"] != -1.0
+
+
+def test_speed_modulation_index_all_nan_returns_nan() -> None:
+    from hm2p.analysis.speed import speed_modulation_index
+
+    n = 50
+    res = speed_modulation_index(np.ones(n), np.full(n, np.nan), np.ones(n, dtype=bool))
+    assert np.isnan(res["speed_modulation_index"]) and np.isnan(res["speed_correlation"])

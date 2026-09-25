@@ -260,3 +260,17 @@ class TestCli:
 
     def test_hypotheses_registry(self) -> None:
         assert set(rcp.HYPOTHESES) == {f"h{i}" for i in range(2, 11)}
+
+
+def test_read_session_arrays_masks_nonfinite_behaviour(tmp_path: Path) -> None:
+    p = tmp_path / "sync.h5"
+    _write_sync(p)
+    with h5py.File(p, "r+") as f:
+        f["speed_cm_s"][:5] = np.nan
+        f["hd_deg"][5:8] = np.nan
+    with h5py.File(p, "r") as f:
+        arr = rcp.read_session_arrays(f, soma_only=False)
+    assert arr is not None
+    assert not arr["mask"][:8].any()
+    # AHV is derived from smoothed HD, so a few frames after an HD gap are NaN too
+    assert arr["mask"][16:].all()
