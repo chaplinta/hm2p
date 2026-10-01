@@ -394,7 +394,7 @@ class TestH9:
 
 
 def test_registry_complete() -> None:
-    assert set(rch.RUNNERS) == {f"h{i}" for i in range(2, 11)}
+    assert set(rch.RUNNERS) == {f"h{i}" for i in range(2, 11)} | {"ctl"}
 
 
 class TestResampleTimecourse:
@@ -532,3 +532,34 @@ class TestBinSessionArrays:
         assert res["n_sessions"] == 2
         cells = pd.read_csv(tmp_path / "cells.csv")
         assert {"part_hd", "part_light"} <= set(cells)
+
+
+class TestCtl:
+    def test_matched_on_equalises(self) -> None:
+        rng = np.random.default_rng(0)
+        n = 150
+        df = pd.DataFrame(
+            {
+                "celltype": ["penk"] * n + ["nonpenk"] * n,
+                "r": np.concatenate([rng.uniform(0, 1, n), rng.uniform(0.5, 1.5, n)]),
+            }
+        )
+        m = rch.matched_on(df, "r", n_bins=8)
+        med = m.groupby("celltype")["r"].median()
+        assert abs(med["penk"] - med["nonpenk"]) < 0.15
+        assert rch.matched_on(df.iloc[:3], "r").empty
+
+    def test_runs(self, sessions, args, tmp_path: Path) -> None:
+        for _, arr in sessions:
+            arr["F_raw"] = 100.0 + 50.0 * arr["dff"]
+            arr["spikes"] = np.clip(arr["dff"] * 2.0, 0, None)
+        res = rch.run_ctl(args, sessions, tmp_path)
+        cells = pd.read_csv(tmp_path / "cells.csv")
+        assert res["n_cells"] == 5 * N_ROIS
+        assert {"iso_decay_s", "f_baseline", "spike_rate_hz", "ev_mean_duration_s"} <= set(cells)
+        assert (cells["f_baseline"] > 90).all()
+        assert (tmp_path / "between_group_report.csv").exists()
+        assert (tmp_path / "between_group_report_matched.csv").exists()
+
+    def test_empty(self, args, tmp_path: Path) -> None:
+        assert rch.run_ctl(args, [], tmp_path)["n_sessions"] == 0

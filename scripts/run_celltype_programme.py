@@ -68,6 +68,7 @@ SYNC_KEYS = [
     "event_masks",
     "spikes",
     "frame_times",
+    "F_raw",
 ]
 
 _S3 = None
@@ -193,7 +194,7 @@ def read_session_arrays(f: h5py.File, soma_only: bool = True) -> dict[str, Any] 
     out["roi_idx"] = np.arange(out["dff"].shape[0])
     if soma_only and "roi_types" in out:
         keep = out["roi_types"] == SOMA
-        for k in ("dff", "event_masks", "spikes", "roi_types", "roi_idx"):
+        for k in ("dff", "event_masks", "spikes", "F_raw", "roi_types", "roi_idx"):
             if k in out:
                 out[k] = out[k][keep]
     if out["dff"].shape[0] == 0:
@@ -423,6 +424,7 @@ HYPOTHESES: dict[str, dict[str, Any]] = {
     "h8": {"title": "Encoding models (Poisson GLM)", "families": []},
     "h9": {"title": "Network coupling", "families": []},
     "h10": {"title": "Behaviour-coupled navigational coding", "families": []},
+    "ctl": {"title": "Indicator/expression controls for kinetics", "families": []},
 }
 
 

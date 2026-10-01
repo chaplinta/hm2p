@@ -259,7 +259,7 @@ class TestCli:
         assert not (tmp_path / "results").exists()
 
     def test_hypotheses_registry(self) -> None:
-        assert set(rcp.HYPOTHESES) == {f"h{i}" for i in range(2, 11)}
+        assert set(rcp.HYPOTHESES) == {f"h{i}" for i in range(2, 11)} | {"ctl"}
 
 
 def test_read_session_arrays_masks_nonfinite_behaviour(tmp_path: Path) -> None:

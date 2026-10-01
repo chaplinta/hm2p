@@ -847,6 +847,98 @@ def run_h9(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> di
 
 
 # ---------------------------------------------------------------------------
+# CTL — indicator / expression controls for the H2 kinetics difference
+# ---------------------------------------------------------------------------
+
+CTL_FAMILIES = {
+    "indicator": ["iso_decay_s", "iso_fwhm_s", "iso_amplitude", "f_baseline", "spike_rate_hz"],
+}
+CTL_KINETICS = [
+    "ev_mean_duration_s",
+    "ev_mean_decay_time_s",
+    "ev_mean_amplitude",
+    "ev_mean_iei_s",
+    "ev_event_rate",
+]
+
+
+def matched_on(cells: pd.DataFrame, col: str, n_bins: int = 10, seed: int = 42) -> pd.DataFrame:
+    """Subsample cells so *col* has matched distributions in the two groups."""
+    from hm2p.analysis.matched_tuning import match_indices_1d
+
+    sub = cells.dropna(subset=[col, "celltype"])
+    a = sub[sub["celltype"] == "penk"]
+    b = sub[sub["celltype"] == "nonpenk"]
+    if len(a) < 5 or len(b) < 5:
+        return sub.iloc[0:0]
+    ia, ib = match_indices_1d(
+        a[col].to_numpy(dtype=float),
+        b[col].to_numpy(dtype=float),
+        n_bins=n_bins,
+        circular=False,
+        rng=np.random.default_rng(seed),
+    )
+    return pd.concat([a.iloc[ia], b.iloc[ib]], ignore_index=True)
+
+
+def run_ctl(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> dict[str, Any]:
+    from hm2p.analysis.cell_features import detect_cell_events
+    from hm2p.analysis.indicator_controls import (
+        baseline_fluorescence,
+        isolated_small_event_kinetics,
+    )
+    from hm2p.calcium.events import summarize_cell_dynamics
+
+    rows: list[pd.DataFrame] = []
+    for row, arrays in sessions:
+        dff = np.asarray(arrays["dff"], dtype=np.float64)
+        fps = float(arrays["fps"])
+        f_raw = arrays.get("F_raw")
+        spikes = arrays.get("spikes")
+        recs = []
+        for i in range(dff.shape[0]):
+            ev = detect_cell_events(dff[i], fps)
+            rec: dict[str, Any] = {"roi_idx": int(arrays["roi_idx"][i])}
+            rec.update(
+                isolated_small_event_kinetics(dff[i], ev.onsets, ev.offsets, ev.amplitudes, fps)
+            )
+            dyn = summarize_cell_dynamics(dff[i], ev, fps)
+            for k in ("mean_duration_s", "mean_decay_time_s", "mean_amplitude", "mean_iei_s"):
+                rec[f"ev_{k}"] = dyn[k]
+            rec["ev_event_rate"] = dyn["event_rate"]
+            rec["f_baseline"] = baseline_fluorescence(f_raw[i]) if f_raw is not None else np.nan
+            rec["spike_rate_hz"] = (
+                float(np.nanmean(np.asarray(spikes[i], dtype=np.float64)))
+                if spikes is not None
+                else np.nan
+            )
+            recs.append(rec)
+        rows.append(attach_session_meta(pd.DataFrame(recs), row))
+    if not rows:
+        return _empty_result("ctl", out_dir)
+    cells = pd.concat(rows, ignore_index=True)
+    write_outputs(out_dir, "cells", cells)
+    report = _report_families(cells, {**CTL_FAMILIES, "kinetics_all": CTL_KINETICS}, out_dir, args)
+    matched_reports = []
+    for col in ("spike_rate_hz", "f_baseline"):
+        m = matched_on(cells, col, seed=args.seed)
+        if m.empty:
+            continue
+        write_outputs(out_dir, f"cells_matched_{col}", m)
+        rep = between_group_report(
+            m,
+            CTL_KINETICS + ["iso_decay_s"],
+            family=f"matched_{col}",
+            n_perms=args.n_perms,
+            seed=args.seed,
+        )
+        matched_reports.append(rep)
+    if matched_reports:
+        write_outputs(out_dir, "between_group_report_matched", pd.concat(matched_reports))
+    return {"n_sessions": len(rows), "n_cells": len(cells), "report": report}
+
+
+# ---------------------------------------------------------------------------
 # Registry (filled in as hypotheses are implemented)
 # ---------------------------------------------------------------------------
 
@@ -860,4 +952,5 @@ RUNNERS: dict[str, Runner] = {
     "h8": run_h8,
     "h9": run_h9,
     "h10": run_h10,
+    "ctl": run_ctl,
 }
