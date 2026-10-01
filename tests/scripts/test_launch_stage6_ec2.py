@@ -53,3 +53,12 @@ def test_parser_defaults() -> None:
     assert args.parallel == 4 and args.n_shuffles == 500 and not args.wait
     args = ls6._build_arg_parser().parse_args(["--wait", "--parallel", "6"])
     assert args.wait and args.parallel == 6
+
+
+def test_per_session_log_upload_and_sessions_flag() -> None:
+    ud = ls6.build_user_data(["A_1"], bucket="bkt")
+    assert "s3://bkt/analysis/_stage6_logs/$exp.log" in ud
+    assert ud.index('aws s3 cp "/tmp/stage6_logs/$exp.log"') < ud.index("export -f run_one")
+    args = ls6._build_arg_parser().parse_args(["--sessions", "X_1", "Y_2"])
+    assert args.sessions == ["X_1", "Y_2"]
+    assert ls6._build_arg_parser().parse_args([]).sessions is None

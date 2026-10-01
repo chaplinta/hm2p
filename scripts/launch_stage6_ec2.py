@@ -44,7 +44,7 @@ LOG_PREFIX = "analysis/_stage6_logs"
 GIT_REPO = "https://github.com/chaplinta/hm2p.git"
 STATE_FILE = Path.home() / ".hm2p-stage6-instance.json"
 TAG = {"Key": "Project", "Value": "hm2p-stage6"}
-MAX_HOURS = 4
+MAX_HOURS = 8
 RUNTIME_DEPS = "boto3 numpy scipy pandas h5py scikit-learn pyyaml xarray pydantic structlog"
 
 
@@ -94,9 +94,13 @@ def build_user_data(
                 > "/tmp/stage6_logs/$exp.log" 2>&1
             rc=$?
             echo "$exp rc=$rc"
+            # upload each log as soon as it exists so a timeout still leaves evidence
+            aws s3 cp "/tmp/stage6_logs/$exp.log" "s3://{bucket}/{LOG_PREFIX}/$exp.log" \\
+                > /dev/null 2>&1 || true
             return $rc
         }}
         export -f run_one
+        export AWS_DEFAULT_REGION
         STATUS="ok"
         printf "%s\\n" {ids} | xargs -P {parallel} -I{{}} bash -c 'run_one {{}}' \\
             | tee /tmp/stage6_logs/_summary.txt
@@ -117,6 +121,7 @@ def build_user_data(
 def _build_arg_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--parallel", type=int, default=4)
+    ap.add_argument("--sessions", nargs="+", default=None, help="exp_ids (default: all)")
     ap.add_argument("--n-shuffles", type=int, default=500)
     ap.add_argument("--branch", default="main")
     ap.add_argument("--instance-type", default=INSTANCE_TYPE)
@@ -133,7 +138,7 @@ def launch(args: argparse.Namespace) -> str:  # pragma: no cover - network
     from botocore.exceptions import ClientError
 
     ec2 = boto3.client("ec2", region_name=REGION)
-    ids = session_ids()
+    ids = args.sessions or session_ids()
     kwargs = dict(parallel=args.parallel, n_shuffles=args.n_shuffles, git_branch=args.branch)
     common = dict(
         ImageId=AMI_ID,
@@ -221,7 +226,8 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - network en
         terminate()
         return 0
     if args.dry_run:
-        print(build_user_data(session_ids(), args.parallel, args.n_shuffles, args.branch))
+        ids = args.sessions or session_ids()
+        print(build_user_data(ids, args.parallel, args.n_shuffles, args.branch))
         return 0
     launch(args)
     if args.wait:
