@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hypothesis runners for ``run_celltype_programme.py`` (H2–H10).
+"""Hypothesis runners for ``run_celltype_programme.py`` (H2–H10, CTL, EVT).
 
 Each runner takes ``(args, sessions, out_dir)`` where ``sessions`` yields
 ``(meta_row, arrays)`` pairs produced by ``run_celltype_programme.iter_sessions``
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import warnings
 from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
@@ -123,18 +124,20 @@ def run_h4(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> di
 TRANSITION_GRID_S = np.round(np.arange(-10.0, 30.0, 0.1), 3)
 
 
-def _resample_timecourse(time_s: Any, values: Any) -> np.ndarray:
-    """Interpolate a transition-aligned mean onto the common 10 Hz grid.
+def _resample_timecourse(time_s: Any, values: Any, grid: np.ndarray | None = None) -> np.ndarray:
+    """Interpolate an event-aligned mean onto a common 10 Hz grid.
 
     Sessions differ slightly in imaging rate, so their aligned windows have
     different lengths; averaging across sessions needs a shared time axis.
+    *grid* defaults to the H5 transition grid (``TRANSITION_GRID_S``).
     """
+    grid = TRANSITION_GRID_S if grid is None else np.asarray(grid, dtype=np.float64)
     t = np.asarray(time_s, dtype=np.float64)
     v = np.asarray(values, dtype=np.float64)
     ok = np.isfinite(t) & np.isfinite(v)
     if ok.sum() < 2:
-        return np.full(TRANSITION_GRID_S.shape, np.nan)
-    out = np.interp(TRANSITION_GRID_S, t[ok], v[ok], left=np.nan, right=np.nan)
+        return np.full(grid.shape, np.nan)
+    out = np.interp(grid, t[ok], v[ok], left=np.nan, right=np.nan)
     return out
 
 
@@ -939,6 +942,192 @@ def run_ctl(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> d
 
 
 # ---------------------------------------------------------------------------
+# EVT — event-aligned transient responses to discrete behavioural moments
+# ---------------------------------------------------------------------------
+
+EVT_GRID_S = np.round(np.arange(-5.0, 5.0, 0.1), 3)
+EVT_MIN_ANIMALS_WILCOXON = 2
+
+
+def session_events(arrays: dict[str, Any]) -> dict[str, np.ndarray]:
+    """All event types available for one session.
+
+    Light switches and movement onsets/offsets are always built (events in
+    ``bad_behav`` frames dropped); head-turn onsets when ``ahv_deg_s`` is
+    present and junction / dead-end entries when ``x_maze``/``y_maze`` are
+    present, both restricted to ``arrays["mask"]``.
+    """
+    from hm2p.analysis.event_aligned import (
+        junction_events,
+        light_events,
+        movement_events,
+        turn_events,
+    )
+
+    fps = float(arrays["fps"])
+    bad = arrays.get("bad_behav")
+    mask = arrays.get("mask")
+    events: dict[str, np.ndarray] = {}
+    events.update(light_events(arrays["light_on"], bad))
+    events.update(movement_events(arrays["active"], fps, bad_behav=bad))
+    if arrays.get("ahv_deg_s") is not None:
+        events.update(turn_events(arrays["ahv_deg_s"], fps, mask=mask))
+    if arrays.get("x_maze") is not None and arrays.get("y_maze") is not None:
+        events.update(junction_events(arrays["x_maze"], arrays["y_maze"], mask))
+    return events
+
+
+def evt_within_group(cells: pd.DataFrame, sess: pd.DataFrame) -> pd.DataFrame:
+    """Within-group tests that each population responds to each event type.
+
+    Per event type and cell type: Wilcoxon signed-rank of the animal medians
+    (of per-session median z) against 0, and the exact one-sided binomial of
+    the responsive fraction pooled over sessions against 0.05. The pooled
+    binomial treats cells as independent and is descriptive; the animal-level
+    Wilcoxon is the inferential test.
+    """
+    from scipy import stats
+
+    from hm2p.analysis.event_aligned import _binom_greater
+
+    rows: list[dict[str, Any]] = []
+    if sess.empty:
+        return pd.DataFrame(rows)
+    for (et, ct), g in sess.groupby(["event_type", "celltype"], sort=True):
+        animal_z = g.groupby("animal_id")["median_z"].median().dropna()
+        rec: dict[str, Any] = {
+            "event_type": et,
+            "celltype": ct,
+            "n_animals": int(animal_z.size),
+            "n_sessions": int(g["exp_id"].nunique()),
+            "median_animal_z": float(animal_z.median()) if animal_z.size else np.nan,
+            "wilcoxon_p": np.nan,
+        }
+        if animal_z.size >= EVT_MIN_ANIMALS_WILCOXON and np.any(animal_z.to_numpy() != 0):
+            rec["wilcoxon_p"] = float(stats.wilcoxon(animal_z.to_numpy()).pvalue)
+        n = int(g["n_cells"].sum())
+        k = int(g["n_responsive"].sum())
+        rec.update(
+            {
+                "n_cells": n,
+                "n_responsive": k,
+                "pooled_frac_responsive": k / n if n else np.nan,
+                "pooled_binom_p": _binom_greater(k, n),
+            }
+        )
+        sub = cells[(cells["event_type"] == et) & (cells["celltype"] == ct)]
+        rec["median_cell_z"] = float(np.nanmedian(sub["z"])) if sub["z"].notna().any() else np.nan
+        rows.append(rec)
+    return pd.DataFrame(rows)
+
+
+def _evt_wide(df: pd.DataFrame, value: str, prefix: str, index: list[str]) -> pd.DataFrame:
+    """Pivot a long (row, event_type) table to one column per event type.
+
+    Rows whose metadata contain NaN (e.g. an unrecorded fibre) are kept.
+    """
+    index = [c for c in index if c in df.columns]
+    wide = (
+        df.groupby(index + ["event_type"], dropna=False, sort=False)[value]
+        .first()
+        .unstack("event_type")
+    )
+    wide.columns = [f"{prefix}_{c}" for c in wide.columns]
+    return wide.reset_index()
+
+
+def run_evt(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> dict[str, Any]:
+    """Event-aligned transient responses (light, movement, turns, maze entries).
+
+    Intended to run with ``--signal spikes`` (CASCADE inferred rates, now in
+    sync.h5); ``--signal dff`` also works. Each cell is tested against its own
+    circular-shift null of the event train (``hm2p.analysis.event_aligned``);
+    sessions are summarised by the fraction of responsive cells; groups are
+    compared on per-cell z and per-session responsive fraction with the
+    four-level between-group report.
+    """
+    from hm2p.analysis.event_aligned import (
+        cell_event_table,
+        population_peri_event,
+        session_summary,
+    )
+
+    n_shuffles = int(getattr(args, "n_shuffles_evt", 500))
+    rng = np.random.default_rng(args.seed)
+    meta_cols = ["exp_id", "animal_id", "celltype", "fibre", "lens", "virus_id", "gcamp"]
+    cell_rows: list[pd.DataFrame] = []
+    session_rows: list[pd.DataFrame] = []
+    traces: dict[str, dict[str, list[np.ndarray]]] = {}
+    for row, arrays in sessions:
+        if args.signal != "dff" and arrays.get(args.signal) is None:
+            log.warning("%s: no %s, using dff", row["exp_id"], args.signal)
+        sig = _signal_matrix(arrays, args.signal)
+        fps = float(arrays["fps"])
+        events = session_events(arrays)
+        tab = cell_event_table(sig, events, fps, n_shuffles=n_shuffles, rng=rng)
+        tab["roi_idx"] = np.asarray(arrays["roi_idx"])[tab["roi"].to_numpy(dtype=int)]
+        cell_rows.append(attach_session_meta(tab.drop(columns=["roi"]), row))
+        summ = session_summary(tab)
+        summ["n_events_total"] = summ["event_type"].map(
+            {k: int(np.asarray(v).size) for k, v in events.items()}
+        )
+        session_rows.append(attach_session_meta(summ, row))
+        for et, frames in events.items():
+            pop = population_peri_event(sig, frames, fps, pre_s=5.0, post_s=5.0)
+            if pop["n_events"] == 0:
+                continue
+            traces.setdefault(et, {}).setdefault(str(row["celltype"]), []).append(
+                _resample_timecourse(pop["time_s"], pop["mean"], EVT_GRID_S)
+            )
+    if not cell_rows:
+        return _empty_result("evt", out_dir)
+    cells = pd.concat(cell_rows, ignore_index=True)
+    sess = pd.concat(session_rows, ignore_index=True)
+    write_outputs(out_dir, "cells", cells)
+    write_outputs(out_dir, "sessions", sess)
+
+    timecourses: dict[str, Any] = {"time_s": EVT_GRID_S}
+    with warnings.catch_warnings():
+        # grid points outside a session's window are NaN in every session
+        warnings.simplefilter("ignore", RuntimeWarning)
+        for et, by_ct in traces.items():
+            timecourses[et] = {
+                ct: {"mean": np.nanmean(np.vstack(v), axis=0), "n_sessions": len(v)}
+                for ct, v in by_ct.items()
+            }
+    write_outputs(out_dir, "population_timecourses", timecourses)
+
+    within = evt_within_group(cells, sess)
+    write_outputs(out_dir, "within_group", within)
+
+    cells_wide = _evt_wide(cells, "z", "z", meta_cols + ["roi_idx"])
+    sess_wide = _evt_wide(sess, "frac_responsive", "frac", meta_cols)
+    reports = []
+    z_metrics = [c for c in cells_wide.columns if c.startswith("z_")]
+    frac_metrics = [c for c in sess_wide.columns if c.startswith("frac_")]
+    if z_metrics:
+        reports.append(
+            between_group_report(
+                cells_wide, z_metrics, family="evt_z", n_perms=args.n_perms, seed=args.seed
+            )
+        )
+    if frac_metrics:
+        reports.append(
+            between_group_report(
+                sess_wide, frac_metrics, family="evt_frac", n_perms=args.n_perms, seed=args.seed
+            )
+        )
+    report = pd.concat(reports, ignore_index=True) if reports else pd.DataFrame()
+    write_outputs(out_dir, "between_group_report", report)
+    return {
+        "n_sessions": len(cell_rows),
+        "n_cells": int(cells.groupby(["exp_id", "roi_idx"]).ngroups),
+        "within": within,
+        "report": report,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Registry (filled in as hypotheses are implemented)
 # ---------------------------------------------------------------------------
 
@@ -953,4 +1142,5 @@ RUNNERS: dict[str, Runner] = {
     "h9": run_h9,
     "h10": run_h10,
     "ctl": run_ctl,
+    "evt": run_evt,
 }

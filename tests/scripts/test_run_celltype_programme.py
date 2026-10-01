@@ -259,7 +259,13 @@ class TestCli:
         assert not (tmp_path / "results").exists()
 
     def test_hypotheses_registry(self) -> None:
-        assert set(rcp.HYPOTHESES) == {f"h{i}" for i in range(2, 11)} | {"ctl"}
+        assert set(rcp.HYPOTHESES) == {f"h{i}" for i in range(2, 11)} | {"ctl", "evt"}
+
+    def test_parser_n_shuffles_evt(self) -> None:
+        args = rcp._build_arg_parser().parse_args(["evt"])
+        assert args.n_shuffles_evt == 500
+        args = rcp._build_arg_parser().parse_args(["evt", "--n-shuffles-evt", "50"])
+        assert args.n_shuffles_evt == 50
 
 
 def test_read_session_arrays_masks_nonfinite_behaviour(tmp_path: Path) -> None:

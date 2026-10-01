@@ -425,6 +425,7 @@ HYPOTHESES: dict[str, dict[str, Any]] = {
     "h9": {"title": "Network coupling", "families": []},
     "h10": {"title": "Behaviour-coupled navigational coding", "families": []},
     "ctl": {"title": "Indicator/expression controls for kinetics", "families": []},
+    "evt": {"title": "Event-aligned responses to discrete behavioural moments", "families": []},
 }
 
 
@@ -457,6 +458,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument("--n-cells-matched", type=int, default=None, help="h7: matched cell count")
     ap.add_argument(
         "--bin-s", type=float, default=0.0, help="h8: time bin in seconds (0 = per frame)"
+    )
+    ap.add_argument(
+        "--n-shuffles-evt",
+        type=int,
+        default=500,
+        help="evt: circular-shift shuffles per cell and event type",
     )
     ap.add_argument("--dry-run", action="store_true", help="validate metadata, write nothing")
     return ap

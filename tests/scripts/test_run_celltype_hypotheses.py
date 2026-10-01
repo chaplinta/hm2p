@@ -394,7 +394,7 @@ class TestH9:
 
 
 def test_registry_complete() -> None:
-    assert set(rch.RUNNERS) == {f"h{i}" for i in range(2, 11)} | {"ctl"}
+    assert set(rch.RUNNERS) == {f"h{i}" for i in range(2, 11)} | {"ctl", "evt"}
 
 
 class TestResampleTimecourse:
@@ -563,3 +563,175 @@ class TestCtl:
 
     def test_empty(self, args, tmp_path: Path) -> None:
         assert rch.run_ctl(args, [], tmp_path)["n_sessions"] == 0
+
+
+# ---------------------------------------------------------------------------
+# EVT — event-aligned responses
+# ---------------------------------------------------------------------------
+
+
+def _irregular_movement(arrays: dict[str, Any], seed: int) -> dict[str, Any]:
+    """Replace the periodic movement bouts with irregular ones.
+
+    Cell 1 gets a transient after every movement onset in both dF/F and
+    inferred spikes. Irregular onsets keep circular shifts from re-aligning
+    the event train with itself (see the event_aligned module docstring).
+    """
+    rng = np.random.default_rng(100 + seed)
+    n = arrays["dff"].shape[1]
+    active = np.zeros(n, dtype=bool)
+    t = 0
+    moving = False
+    while t < n:
+        dur = int(rng.integers(15, 90))
+        active[t : t + dur] = moving
+        moving = not moving
+        t += dur
+    out = dict(arrays)
+    out["active"] = active
+    out["mask"] = active.copy()
+    out["dff"] = np.array(arrays["dff"], copy=True)
+    out["spikes"] = np.array(arrays["spikes"], copy=True)
+    for o in np.where(np.diff(active.astype(int)) == 1)[0] + 1:
+        out["dff"][1, o : o + 5] += 1.0
+        out["spikes"][1, o : o + 5] += 3.0
+    return out
+
+
+class TestEvt:
+    def test_session_events_without_maze(self) -> None:
+        ev = rch.session_events(_synthetic_arrays(0))
+        assert {"light_on", "light_off", "move_onset", "move_offset"} <= set(ev)
+        assert {"turn_left", "turn_right"} <= set(ev)
+        assert "junction_entry" not in ev
+        assert ev["move_onset"].size > 3
+
+    def test_session_events_with_maze(self) -> None:
+        ev = rch.session_events(_with_maze(_synthetic_arrays(0)))
+        assert {"junction_entry", "dead_end_entry"} <= set(ev)
+
+    def test_session_events_no_ahv(self) -> None:
+        arr = _synthetic_arrays(0)
+        arr["ahv_deg_s"] = None
+        assert "turn_left" not in rch.session_events(arr)
+
+    def test_runs_and_reports(self, sessions, args: argparse.Namespace, tmp_path: Path) -> None:
+        args.n_shuffles_evt = 40
+        sessions = [(row, _irregular_movement(arr, i)) for i, (row, arr) in enumerate(sessions)]
+        res = rch.run_evt(args, sessions, tmp_path)
+        assert res["n_sessions"] == 5
+        assert res["n_cells"] == 5 * N_ROIS
+        for name in ("cells.csv", "sessions.csv", "within_group.csv", "between_group_report.csv"):
+            assert (tmp_path / name).exists()
+        cells = pd.read_csv(tmp_path / "cells.csv")
+        assert {"event_type", "z", "p", "responsive", "roi_idx", "celltype"} <= set(cells)
+        # cell 1 carries movement-onset transients in every session
+        onset = cells[cells["event_type"] == "move_onset"].set_index(["exp_id", "roi_idx"])
+        assert onset.xs(1, level="roi_idx")["responsive"].all()
+        assert (onset.xs(1, level="roi_idx")["z"] > 2).all()
+        sess = pd.read_csv(tmp_path / "sessions.csv")
+        assert {"frac_responsive", "binom_p", "n_events_total"} <= set(sess)
+        within = pd.read_csv(tmp_path / "within_group.csv")
+        assert set(within["celltype"]) == {"penk", "nonpenk"}
+        assert {"wilcoxon_p", "pooled_binom_p", "n_animals"} <= set(within)
+        rep = res["report"]
+        assert {"evt_z", "evt_frac"} <= set(rep["family"])
+        assert "z_move_onset" in set(rep["metric"])
+        assert "frac_move_onset" in set(rep["metric"])
+
+    def test_timecourses_on_grid(self, sessions, args, tmp_path: Path) -> None:
+        import json
+
+        args.n_shuffles_evt = 10
+        rch.run_evt(args, sessions[:2], tmp_path)
+        tc = json.loads((tmp_path / "population_timecourses.json").read_text())
+        assert len(tc["time_s"]) == len(rch.EVT_GRID_S)
+        assert tc["time_s"][0] == pytest.approx(-5.0)
+        assert "penk" in tc["move_onset"]
+        assert len(tc["move_onset"]["penk"]["mean"]) == len(rch.EVT_GRID_S)
+
+    def test_spikes_signal_and_maze(self, sessions, args, tmp_path: Path) -> None:
+        args.signal = "spikes"
+        args.n_shuffles_evt = 40
+        maze_sessions = [
+            (row, _with_maze(_irregular_movement(arr, i))) for i, (row, arr) in enumerate(sessions)
+        ]
+        res = rch.run_evt(args, maze_sessions, tmp_path)
+        cells = pd.read_csv(tmp_path / "cells.csv")
+        assert {"junction_entry", "dead_end_entry"} <= set(cells["event_type"])
+        assert res["n_sessions"] == 5
+        onset = cells[(cells["event_type"] == "move_onset") & (cells["roi_idx"] == 1)]
+        assert onset["responsive"].all()
+
+    def test_missing_spikes_falls_back(self, sessions, args, tmp_path: Path) -> None:
+        args.signal = "spikes"
+        args.n_shuffles_evt = 10
+        row, arr = sessions[0]
+        arr = dict(arr)
+        arr.pop("spikes")
+        res = rch.run_evt(args, [(row, arr)], tmp_path)
+        assert res["n_sessions"] == 1
+
+    def test_default_n_shuffles(self, sessions, args, tmp_path: Path) -> None:
+        # no n_shuffles_evt attribute -> default 500; keep it to one short session
+        row, arr = sessions[0]
+        res = rch.run_evt(args, [(row, _synthetic_arrays(0, n_rois=2, n_frames=400))], tmp_path)
+        assert res["n_sessions"] == 1
+
+    def test_empty(self, args, tmp_path: Path) -> None:
+        assert rch.run_evt(args, [], tmp_path)["n_sessions"] == 0
+
+    def test_within_group_empty_and_small(self) -> None:
+        assert rch.evt_within_group(pd.DataFrame(), pd.DataFrame()).empty
+        sess = pd.DataFrame(
+            {
+                "event_type": ["a", "a"],
+                "celltype": ["penk", "penk"],
+                "animal_id": ["x", "x"],
+                "exp_id": ["e1", "e2"],
+                "median_z": [1.0, 2.0],
+                "n_cells": [10, 10],
+                "n_responsive": [3, 2],
+            }
+        )
+        cells = pd.DataFrame({"event_type": ["a"], "celltype": ["penk"], "z": [np.nan]})
+        out = rch.evt_within_group(cells, sess)
+        assert out.loc[0, "n_animals"] == 1
+        assert np.isnan(out.loc[0, "wilcoxon_p"])  # one animal: no test
+        assert out.loc[0, "pooled_frac_responsive"] == pytest.approx(0.25)
+        assert np.isnan(out.loc[0, "median_cell_z"])
+
+    def test_within_group_wilcoxon(self) -> None:
+        sess = pd.DataFrame(
+            {
+                "event_type": ["a"] * 6,
+                "celltype": ["penk"] * 6,
+                "animal_id": list("uvwxyz"),
+                "exp_id": [f"e{i}" for i in range(6)],
+                "median_z": [1.0, 2.0, 1.5, 3.0, 2.5, 1.2],
+                "n_cells": [10] * 6,
+                "n_responsive": [5] * 6,
+            }
+        )
+        cells = pd.DataFrame({"event_type": ["a"], "celltype": ["penk"], "z": [2.0]})
+        out = rch.evt_within_group(cells, sess)
+        assert out.loc[0, "wilcoxon_p"] == pytest.approx(0.03125)
+        assert out.loc[0, "pooled_binom_p"] < 1e-6
+
+    def test_evt_wide_keeps_nan_meta(self) -> None:
+        df = pd.DataFrame(
+            {
+                "exp_id": ["e", "e"],
+                "fibre": [np.nan, np.nan],
+                "event_type": ["a", "b"],
+                "z": [1.0, 2.0],
+            }
+        )
+        wide = rch._evt_wide(df, "z", "z", ["exp_id", "fibre"])
+        assert len(wide) == 1
+        assert set(wide.columns) >= {"z_a", "z_b"}
+
+    def test_resample_custom_grid(self) -> None:
+        out = rch._resample_timecourse([-1.0, 1.0], [0.0, 2.0], np.array([0.0, 5.0]))
+        assert out[0] == pytest.approx(1.0)
+        assert np.isnan(out[1])
