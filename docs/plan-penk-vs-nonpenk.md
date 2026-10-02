@@ -816,3 +816,38 @@ Light coupling (hypothesis: Penk⁻CamKII+ > Penk+):
 - L4 minus `ltd_early_amplitude` (H5 sessions; size of the lights-off drop)
 - L5 minus `ahv_dark_minus_light_matched` (H3; loss of AHV modulation in dark)
 - L6 `part_light` (H8 dF/F encoding profile)
+
+### Running-coding shape (`runshape`, 2026-10-02)
+
+Speed bins 0–2.5 (still), 2.5–5, 5–10, 10–15, 15–20, 20–30, ≥30 cm/s over
+all non-artefact frames; 300 circular shifts per cell. Penk+ cells signal
+running state, not speed: the run-vs-still step index is significant in 63 %
+of Penk+ cells on CASCADE spikes (47 % on dF/F) versus 40 % (35 %) of
+Penk⁻CamKII+ cells (Penk+ animal Wilcoxon p = 0.004 spikes, 0.003 dF/F),
+while the graded speed correlation across running bins is at the chance rate
+in both groups. Activity is sustained through runs (early vs late
+within-run index about 0 in both groups) and summed Penk+ activity grows
+with run length (Spearman rho 0.22, animal Wilcoxon p = 0.004, spikes).
+Between groups the step index leans Penk+ (CLES 0.81 spikes, 0.82 dF/F;
+permutation p 0.21–0.24). (On the CASCADE branch 9 Penk+ animals had cells
+with a defined index; on dF/F all 11.)
+
+### Composite scores (computed 2026-10-02, definitions above)
+
+| Composite | Direction | Median rank | CLES | One-sided MWU p | Exact permutation p | LOAO | Measures agreeing |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Running coupling | Penk+ > Penk⁻CamKII+ | 10.0 vs 5.2 | 0.82 | 0.039 | 0.037 | stable | 5 / 5 |
+| Light coupling | Penk⁻CamKII+ > Penk+ | 11.3 vs 5.9 | 0.86 | 0.020 | 0.009 | stable | 6 / 6 |
+
+The two composites are uncorrelated across the 15 animals (Spearman
+rho = −0.08), so they describe separate properties. Both directions hold
+within each equipment configuration (SFB/f4mm: running 10.8 vs 5.2, light
+5.3 vs 11.5; TFB/f6mm: running 7.1 vs 4.7, light 6.3 vs 11.3), and every
+Penk⁻CamKII+ animal ranks above 10.6 on light coupling. Caveats: the
+measures were selected after seeing their individual results, several share
+data (L3/L4 from the same transitions, R3/R4 from the same events), and two
+composites were tested (Bonferroni-adjusted permutation p 0.074 and 0.018).
+The construct difference (Cre-ON vs Cre-OFF, about twofold baseline
+brightness) is not controlled in the light composite. On this dataset these
+are the strongest between-group results; they need confirmation in new
+animals using the fixed definitions.
