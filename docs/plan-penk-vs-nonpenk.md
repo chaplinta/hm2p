@@ -771,3 +771,48 @@ orientation correction. The analyses assume an unmirrored overhead image (the
 camera default). Only labels that name a side (left/right turns,
 clockwise/anticlockwise rotation, egocentric left/right) depend on this; no
 between-group comparison does.
+
+**Correction to the corridor-vs-running result.** The `locrun` runner used the
+programme's standard frame mask, which keeps only frames classified as
+moving. Its "still" frames are therefore slow-movement frames (moving, below
+2.5 cm/s), so `run_index_corr` and `run_index_junc` contrast fast versus slow
+movement, not running versus standing still. The `runshape` runner below
+uses all non-artefact frames. Brightness does not account for the running
+effect: within Penk+ the running index barely tracks baseline fluorescence
+(Spearman rho = 0.11), and on baseline-matched cells the Penk+ effect remains
+(animal Wilcoxon p = 0.003) with the same between-group lean (CLES 0.82,
+permutation p = 0.10). Event duration is not set by running intensity (median
+per-cell Spearman rho between event duration and mean speed during the event
+0.06 in Penk+, animal Wilcoxon p = 0.07).
+
+### Composite scores (definitions fixed 2026-10-02, before computing)
+
+The between-group differences that lean consistently across measures are
+running coupling (Penk+ higher) and light coupling (Penk⁻CamKII+ higher).
+With 11 vs 4 animals no single measure is decisive, so each is summarised by
+one composite per animal. The measures were chosen after seeing the
+individual results, so on this dataset the composites are exploratory; the
+definitions below are fixed for use on new animals.
+
+Method: for each measure take the animal median over that animal's cells or
+sessions, orient so that higher means more coupled, rank the 15 animals,
+and average the ranks over the measures available for that animal. Test the
+composite with a one-sided Mann-Whitney U in the stated direction and with an
+exact permutation over all C(15, 4) = 1365 assignments of the cell-type
+labels to animals; report leave-one-animal-out direction stability and the
+per-measure direction agreement.
+
+Running coupling (hypothesis: Penk+ > Penk⁻CamKII+):
+- R1 `act_movement_modulation` (H2 dF/F feature table)
+- R2 `run_index_corr` (`locrun`, CASCADE spikes; fast vs slow movement)
+- R3 `during_z` for `speed_cm_s` (`etb`)
+- R4 `during_z` for `active` (`etb`)
+- R5 `step_index` (`runshape`, CASCADE spikes; running vs still)
+
+Light coupling (hypothesis: Penk⁻CamKII+ > Penk+):
+- L1 `onset_z` for `light_on` (`etb`)
+- L2 `act_light_modulation` (H2 dF/F feature table)
+- L3 `dtl_late_amplitude` (H5 sessions; sustained lights-on response)
+- L4 minus `ltd_early_amplitude` (H5 sessions; size of the lights-off drop)
+- L5 minus `ahv_dark_minus_light_matched` (H3; loss of AHV modulation in dark)
+- L6 `part_light` (H8 dF/F encoding profile)
