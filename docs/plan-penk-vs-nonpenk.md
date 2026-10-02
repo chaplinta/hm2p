@@ -748,3 +748,26 @@ especially corridor runs, which is the first positive behavioural
 correlate of the Penk+ event signature. Egocentric variables and slow
 temporal context do not distinguish the populations; both show comparable
 drift. Light coupling continues to lean Penk⁻CamKII+.
+
+**Corridor location versus running** (`hm2p.analysis.location_running`,
+runner `locrun`, CASCADE spikes, 300 circular shifts per cell). Among running
+frames with speed distributions matched between corridors and junctions
+(median about 1600 to 1900 frames per set), the corridor-vs-junction index is
+near zero in both groups (median −0.015); significant cells split in both
+directions (14 of 33 Penk+ and 9 of 24 Penk⁻CamKII+ prefer corridors). The
+running-vs-still index is positive in Penk+ both within corridors (animal
+median 0.067, Wilcoxon p = 0.002; 22 % of cells significant) and within
+junctions (0.035, p = 0.042; 28 %). Penk⁻CamKII+ shows the same direction,
+smaller (0.028, 0.025; not significant at the animal level with 4 animals).
+Between groups the within-corridor running index leans Penk+ (0.064 vs
+0.028, CLES 0.84, animal MWU p = 0.056, permutation p = 0.12, FDR 0.35,
+direction stable). The corridor bias of Penk+ event onsets is therefore
+explained by running rather than by location: Penk+ activity tracks running
+wherever it happens.
+
+**Camera handedness.** No camera flip setting was recorded and the maze has
+one mirror-symmetry axis, so a mirrored video would be indistinguishable after
+orientation correction. The analyses assume an unmirrored overhead image (the
+camera default). Only labels that name a side (left/right turns,
+clockwise/anticlockwise rotation, egocentric left/right) depend on this; no
+between-group comparison does.
