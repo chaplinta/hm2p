@@ -31,11 +31,16 @@ def test_json_for_script_handles_nan_and_script_close() -> None:
 
 
 def test_render_fills_markers() -> None:
-    tpl = f"<p>{b.BUILD_MARK}</p><script>const D = {b.DATA_MARK};</script>"
-    out = b.render(tpl, {"x": 1}, "2026-10-02")
+    tpl = f"{b.PLOTLY_MARK}<p>{b.BUILD_MARK}</p><script>const D = {b.DATA_MARK};</script>"
+    out = b.render(tpl, {"x": 1}, "2026-10-02", "var P=1;'</script>'")
     assert "2026-10-02" in out and '{"x":1}' in out
+    assert out.startswith("<script>var P=1;") and out.count("</script>") == 2
     with pytest.raises(ValueError):
-        b.render("<p>no markers</p>", {}, "x")
+        b.render("<p>no markers</p>", {}, "x", "")
+
+
+def test_plotly_js_is_bundled() -> None:
+    assert "plotly.js" in b.plotly_js()[:500]
 
 
 def test_build_label_has_date() -> None:
@@ -44,5 +49,5 @@ def test_build_label_has_date() -> None:
 
 def test_template_has_markers() -> None:
     tpl = b.TEMPLATE.read_text()
-    assert b.DATA_MARK in tpl and b.BUILD_MARK in tpl
-    assert "plotly-basic.min.js" in tpl
+    assert b.DATA_MARK in tpl and b.BUILD_MARK in tpl and b.PLOTLY_MARK in tpl
+    assert "cdnjs" not in tpl

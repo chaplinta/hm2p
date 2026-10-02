@@ -489,7 +489,7 @@ footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule)
   </main>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly-basic.min.js"></script>
+<!--__PLOTLY__-->
 <script>
 const DATA = /*__DATA__*/null;
 const LABEL = { penk: "Penk+", nonpenk: "Penk⁻CamKII+", penkpos: "Penk+", penkneg: "Penk⁻" };
@@ -578,7 +578,7 @@ const PATCH_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "cross", "x
 function drawPatch(key) {
   const d = DATA.patching_adaptation, p = d.panels[key];
   const mice = [...new Set(d.cells.map(c => c.animal_id))].sort();
-  const traces = ["penkpos", "penkneg"].map((g, gi) => {
+  const traces = GROUPS.map((g, gi) => {
     const pts = d.cells.filter(c => c.celltype === g && c[key] !== null && !Number.isNaN(c[key]));
     return {
       type: "scatter", mode: "markers",

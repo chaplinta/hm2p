@@ -3,8 +3,9 @@
 
 Injects the figure data written by ``scripts/make_penk_figures.py``
 (``docs/figures/penk/data/*.json``) into ``scripts/templates/penk_report.html``
-and writes ``docs/results-penk-vs-nonpenk.html``. The page loads Plotly from
-cdnjs and renders all charts client-side from the embedded data.
+and writes ``docs/results-penk-vs-nonpenk.html``. Plotly.js is copied from the
+installed ``plotly`` Python package into the page, so the file is fully
+standalone and works offline.
 
 Usage
 -----
@@ -34,6 +35,14 @@ REQUIRED = (
 )
 DATA_MARK = "/*__DATA__*/null"
 BUILD_MARK = "__BUILD__"
+PLOTLY_MARK = "<!--__PLOTLY__-->"
+
+
+def plotly_js() -> str:
+    """Return the plotly.min.js bundled with the installed ``plotly`` package."""
+    import plotly
+
+    return (Path(plotly.__file__).parent / "package_data" / "plotly.min.js").read_text()
 
 
 def load_data(data_dir: Path = DATA_DIR) -> dict:
@@ -51,11 +60,13 @@ def _json_for_script(obj: dict) -> str:
     return text.replace("</", "<\\/")
 
 
-def render(template: str, data: dict, build: str) -> str:
-    """Fill the data and build markers in *template*."""
-    if DATA_MARK not in template or BUILD_MARK not in template:
+def render(template: str, data: dict, build: str, plotly: str) -> str:
+    """Fill the data, build label and inline Plotly markers in *template*."""
+    if any(m not in template for m in (DATA_MARK, BUILD_MARK, PLOTLY_MARK)):
         raise ValueError("template is missing a placeholder")
-    return template.replace(DATA_MARK, _json_for_script(data)).replace(BUILD_MARK, build)
+    lib = "<script>" + plotly.replace("</script", "<\\/script") + "</script>"
+    out = template.replace(DATA_MARK, _json_for_script(data)).replace(BUILD_MARK, build)
+    return out.replace(PLOTLY_MARK, lib)
 
 
 def build_label() -> str:
@@ -77,7 +88,7 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - file I/O e
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=Path, default=OUT)
     args = ap.parse_args(argv)
-    html = render(TEMPLATE.read_text(), load_data(), build_label())
+    html = render(TEMPLATE.read_text(), load_data(), build_label(), plotly_js())
     args.out.write_text(html)
     print(f"wrote {args.out} ({len(html) / 1024:.0f} KB)")
     return 0
