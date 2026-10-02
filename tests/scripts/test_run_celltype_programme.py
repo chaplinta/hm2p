@@ -264,6 +264,7 @@ class TestCli:
             "evt",
             "etb",
             "locrun",
+            "runshape",
             "ego",
             "tctx",
         }

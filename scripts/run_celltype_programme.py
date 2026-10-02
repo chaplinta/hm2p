@@ -460,6 +460,10 @@ HYPOTHESES: dict[str, dict[str, Any]] = {
     },
     "tctx": {"title": "Temporal context: time and epoch identity coding", "families": []},
     "locrun": {"title": "Corridor location vs running at matched speed", "families": []},
+    "runshape": {
+        "title": "Speed tuning shape, within-run time course, run length",
+        "families": [],
+    },
 }
 
 
@@ -468,6 +472,7 @@ EXTRA_RUNNER_MODULES = (
     "celltype_extra_ego",
     "celltype_extra_tctx",
     "celltype_extra_locrun",
+    "celltype_extra_runshape",
 )
 
 
