@@ -259,7 +259,13 @@ class TestCli:
         assert not (tmp_path / "results").exists()
 
     def test_hypotheses_registry(self) -> None:
-        assert set(rcp.HYPOTHESES) == {f"h{i}" for i in range(2, 11)} | {"ctl", "evt"}
+        assert set(rcp.HYPOTHESES) == {f"h{i}" for i in range(2, 11)} | {
+            "ctl",
+            "evt",
+            "etb",
+            "ego",
+            "tctx",
+        }
 
     def test_parser_n_shuffles_evt(self) -> None:
         args = rcp._build_arg_parser().parse_args(["evt"])
@@ -396,3 +402,15 @@ class TestAttachSpikesFromCa:
         with h5py.File(tmp_path / "ca.h5", "r") as ca:
             assert rcp.attach_spikes_from_ca(arrays, ca) is True
         assert arrays["spikes_model"] == "Global_EXC_9.6Hz"
+
+
+def test_load_extra_runners(tmp_path, monkeypatch) -> None:
+    mod = tmp_path / "fake_extra_mod.py"
+    mod.write_text("RUNNER_KEY = 'fake'\n\ndef RUNNER(args, sessions, out):\n    return {}\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    found = rcp.load_extra_runners(("fake_extra_mod", "definitely_missing_module_xyz"))
+    assert list(found) == ["fake"] and callable(found["fake"])
+
+
+def test_sync_keys_include_head_body() -> None:
+    assert {"x_head_mm", "y_head_mm", "x_body_mm", "y_body_mm"} <= set(rcp.SYNC_KEYS)

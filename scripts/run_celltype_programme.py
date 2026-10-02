@@ -69,6 +69,10 @@ SYNC_KEYS = [
     "spikes",
     "frame_times",
     "F_raw",
+    "x_head_mm",
+    "y_head_mm",
+    "x_body_mm",
+    "y_body_mm",
 ]
 
 _S3 = None
@@ -426,7 +430,37 @@ HYPOTHESES: dict[str, dict[str, Any]] = {
     "h10": {"title": "Behaviour-coupled navigational coding", "families": []},
     "ctl": {"title": "Indicator/expression controls for kinetics", "families": []},
     "evt": {"title": "Event-aligned responses to discrete behavioural moments", "families": []},
+    "etb": {
+        "title": "Behaviour around calcium events (event-triggered behaviour)",
+        "families": [],
+    },
+    "ego": {
+        "title": "Egocentric coding: boundaries, head-body angle, wall distance",
+        "families": [],
+    },
+    "tctx": {"title": "Temporal context: time and epoch identity coding", "families": []},
 }
+
+
+EXTRA_RUNNER_MODULES = ("celltype_extra_etb", "celltype_extra_ego", "celltype_extra_tctx")
+
+
+def load_extra_runners(modules: tuple[str, ...] = EXTRA_RUNNER_MODULES) -> dict[str, Any]:
+    """Runners defined in separate ``celltype_extra_*`` modules (``RUNNER_KEY``/``RUNNER``).
+
+    Modules that are missing are skipped, so the programme still runs when an
+    extra analysis is not present.
+    """
+    import importlib
+
+    found: dict[str, Any] = {}
+    for name in modules:
+        try:
+            mod = importlib.import_module(name)
+        except ImportError:
+            continue
+        found[str(mod.RUNNER_KEY)] = mod.RUNNER
+    return found
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -495,7 +529,8 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - network en
         return 0
     from run_celltype_hypotheses import RUNNERS  # noqa: PLC0415
 
-    runner = RUNNERS[args.hypothesis]
+    runners = {**RUNNERS, **load_extra_runners()}
+    runner = runners[args.hypothesis]
     runner(args, iter_sessions(args), args.out / args.hypothesis)
     return 0
 
