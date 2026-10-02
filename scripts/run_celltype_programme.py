@@ -182,7 +182,14 @@ def read_session_arrays(f: h5py.File, soma_only: bool = True) -> dict[str, Any] 
         if k in f:
             out[k] = f[k][:]
     n = out["dff"].shape[1]
-    per_frame = ("hd_deg", "ahv_deg_s", "speed_cm_s", "light_on", "active", "bad_behav")
+    per_frame: tuple[str, ...] = (
+        "hd_deg",
+        "ahv_deg_s",
+        "speed_cm_s",
+        "light_on",
+        "active",
+        "bad_behav",
+    )
     per_frame += ("x_mm", "y_mm", "x_maze", "y_maze", "syllable_id", "frame_times")
     per_frame += ("x_head_mm", "y_head_mm", "x_body_mm", "y_body_mm")
     for k in per_frame:
@@ -190,7 +197,15 @@ def read_session_arrays(f: h5py.File, soma_only: bool = True) -> dict[str, Any] 
             out[k] = out[k][:n]
     for k in ("light_on", "active", "bad_behav"):
         out[k] = out[k].astype(bool)
-    float_keys = ("dff", "hd_deg", "ahv_deg_s", "speed_cm_s", "x_mm", "y_mm", "spikes")
+    float_keys: tuple[str, ...] = (
+        "dff",
+        "hd_deg",
+        "ahv_deg_s",
+        "speed_cm_s",
+        "x_mm",
+        "y_mm",
+        "spikes",
+    )
     float_keys += ("x_head_mm", "y_head_mm", "x_body_mm", "y_body_mm")
     for k in float_keys:
         if k in out:
