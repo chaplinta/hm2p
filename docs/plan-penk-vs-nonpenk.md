@@ -696,3 +696,55 @@ calcium events in Penk+ cells with unchanged indicator kinetics, consistent
 with burst-then-adapting firing. The lower inferred firing rate and the
 smaller amplitude are partly expression- and rate-related. Neither cell type
 is uniquely tuned to discrete behavioural moments.
+
+### Follow-up 2026-10-02: behaviour around events, egocentric coding, temporal context
+
+**Event-triggered behaviour** (`hm2p.analysis.event_triggered_behaviour`,
+runner `etb`, dF/F events, each cell against a circular shift of its own
+event train, 300 shifts). Penk+ calcium events occur while the mouse is
+moving fast and turning: during events speed z = 1.8, movement z = 1.9,
+|AHV| z = 0.8 relative to each cell's null (animal-level Wilcoxon p = 0.001
+to 0.002, 11 animals; about half of Penk+ cells individually significant for
+speed and movement). Penk+ event onsets are biased to corridors (z = 0.43,
+p = 0.019), not junctions or dead ends, and events lean towards a straighter
+head-body posture (between-group permutation p = 0.03). A 3 s event is about
+the length of one corridor run, so the long Penk+ events look like running /
+corridor-traversal epochs. Penk⁻CamKII+ events also accompany movement, less
+strongly (speed z 1.1, movement z 1.3; Penk+ higher with CLES 0.77 to 0.80,
+not significant). Penk⁻CamKII+ events are more concentrated in the light
+(onset light z 1.12 vs 0.53; animal MWU p = 0.026, permutation p = 0.042,
+FDR 0.21), the sixth measure leaning the same way on light coupling.
+Syllable enrichment (about 70 % of cells in both groups at z > 3 for some
+syllable) is not interpretable: it reflects testing 39 syllables per cell.
+
+**Egocentric coding** (`hm2p.analysis.egocentric`, runner `ego`, CASCADE
+spikes, 200 shifts). Egocentric boundary-vector tuning (7 % Penk+, 10 %
+Penk⁻CamKII+ significant), head-body angle tuning (6 %, 7 %) are at or near
+the 5 % chance rate, with small effect sizes (median MRL about 0.03) and no
+light/dark change. Wall distance is the one measure above chance in Penk+
+(13 % of cells, pooled binomial p < 1e-5; animal Wilcoxon p = 0.14) and leans
+higher than in Penk⁻CamKII+ (CLES 0.89, permutation p = 0.09); in this maze it
+covaries with being in a corridor and is not separated from the running
+result. The egocentric left/right convention depends on whether the overhead
+camera image is mirrored, which is not yet established; group comparisons do
+not depend on it.
+
+**Temporal context** (`hm2p.analysis.temporal_context`, runner `tctx`,
+CASCADE spikes, 10 s bins). Both populations carry slow drift: about 35 % of
+cells in each group change monotonically over the session (vs 5 % chance),
+and population vectors from light/dark epochs further apart in time are more
+dissimilar in 86 % of Penk+ and 88 % of Penk⁻CamKII+ sessions (Rubin et al.
+2015 temporal-distance test; Penk+ animal Wilcoxon p = 0.001). Epoch identity
+is decoded above chance in Penk+ (accuracy minus chance 0.12; animal Wilcoxon
+p = 0.001) but no single session passes its own drift-preserving null, so this
+is mostly drift. Epoch-selective cells: 9 % Penk+, 14 % Penk⁻CamKII+. First
+versus later dark epochs do not differ. Matched-N time decoding with block
+cross-validation gives negative rho in both groups (the decoder cannot
+extrapolate to held-out session ends) and is not interpretable. No measure
+differs between groups (all FDR ≥ 0.31).
+
+**Updated reading.** The long, rare Penk+ events mark running epochs,
+especially corridor runs, which is the first positive behavioural
+correlate of the Penk+ event signature. Egocentric variables and slow
+temporal context do not distinguish the populations; both show comparable
+drift. Light coupling continues to lean Penk⁻CamKII+.
