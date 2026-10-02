@@ -80,14 +80,20 @@ CELL_P_COLS = ["drift_p", "epoch_sel_p"]
 
 def _params(args: argparse.Namespace) -> dict[str, Any]:
     """Runner parameters with defaults for attributes absent from *args*."""
+
+    def _get(name: str, default: float) -> float:
+        # shared CLI options may exist on args with a None default
+        value = getattr(args, name, None)
+        return default if value is None else value
+
     return {
-        "bin_s": float(getattr(args, "bin_s_ctx", 10.0)),
-        "bin_s_sel": float(getattr(args, "bin_s_sel", 1.0)),
-        "n_matched": int(getattr(args, "n_cells_matched", 8)),
-        "n_draws": int(getattr(args, "n_draws_tctx", 20)),
-        "n_perms_decode": int(getattr(args, "n_perms_tctx_decode", 200)),
-        "n_shuffles": int(getattr(args, "n_shuffles_tctx", 500)),
-        "n_folds": int(getattr(args, "n_folds_tctx", 5)),
+        "bin_s": float(_get("bin_s_ctx", 10.0)),
+        "bin_s_sel": float(_get("bin_s_sel", 1.0)),
+        "n_matched": int(_get("n_cells_matched", 8)),
+        "n_draws": int(_get("n_draws_tctx", 20)),
+        "n_perms_decode": int(_get("n_perms_tctx_decode", 200)),
+        "n_shuffles": int(_get("n_shuffles_tctx", 500)),
+        "n_folds": int(_get("n_folds_tctx", 5)),
     }
 
 

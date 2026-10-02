@@ -180,3 +180,13 @@ def test_within_group_wilcoxon_needs_two_animals() -> None:
     assert wil["p_value"].isna().all()
     tdist = w[(w["test"] == "session_frac") & (w["metric"] == "tdist_p")].iloc[0]
     assert tdist["n"] == 0 and np.isnan(tdist["fraction"])
+
+
+def test_params_treats_none_as_default() -> None:
+    import argparse
+
+    import celltype_extra_tctx as ext
+
+    p = ext._params(argparse.Namespace(n_cells_matched=None, bin_s_ctx=None))
+    assert p["n_matched"] == 8 and p["bin_s"] == 10.0
+    assert ext._params(argparse.Namespace(n_cells_matched=5))["n_matched"] == 5
