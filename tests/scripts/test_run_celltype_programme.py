@@ -414,3 +414,16 @@ def test_load_extra_runners(tmp_path, monkeypatch) -> None:
 
 def test_sync_keys_include_head_body() -> None:
     assert {"x_head_mm", "y_head_mm", "x_body_mm", "y_body_mm"} <= set(rcp.SYNC_KEYS)
+
+
+def test_read_session_arrays_trims_position_channels(tmp_path: Path) -> None:
+    p = tmp_path / "sync.h5"
+    _write_sync(p)
+    with h5py.File(p, "r+") as f:
+        f.create_dataset("x_head_mm", data=np.zeros(205, dtype=np.float32))
+        f.create_dataset("x_maze", data=np.zeros(207))
+    with h5py.File(p, "r") as f:
+        arr = rcp.read_session_arrays(f, soma_only=False)
+    assert arr is not None
+    assert arr["x_head_mm"].shape == (200,) and arr["x_head_mm"].dtype == np.float64
+    assert arr["x_maze"].shape == (200,)
