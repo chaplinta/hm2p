@@ -263,6 +263,7 @@ class TestCli:
             "ctl",
             "evt",
             "etb",
+            "locrun",
             "ego",
             "tctx",
         }

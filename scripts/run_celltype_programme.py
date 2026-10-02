@@ -459,10 +459,16 @@ HYPOTHESES: dict[str, dict[str, Any]] = {
         "families": [],
     },
     "tctx": {"title": "Temporal context: time and epoch identity coding", "families": []},
+    "locrun": {"title": "Corridor location vs running at matched speed", "families": []},
 }
 
 
-EXTRA_RUNNER_MODULES = ("celltype_extra_etb", "celltype_extra_ego", "celltype_extra_tctx")
+EXTRA_RUNNER_MODULES = (
+    "celltype_extra_etb",
+    "celltype_extra_ego",
+    "celltype_extra_tctx",
+    "celltype_extra_locrun",
+)
 
 
 def load_extra_runners(modules: tuple[str, ...] = EXTRA_RUNNER_MODULES) -> dict[str, Any]:
