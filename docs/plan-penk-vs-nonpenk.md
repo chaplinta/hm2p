@@ -662,8 +662,11 @@ matched subsets (effectively 10 vs 4 animals):
 | Event amplitude (dF/F) | 4.6 vs 7.8, p 0.044 | 5.0 vs 7.4, p 0.58 | 4.3 vs 7.9, MWU p 0.006 |
 
 Long, rare events keep their direction under both matchings (LOAO stable) but
-lose significance; smaller amplitude is not an expression artefact (strongest
-when baseline-matched) and tracks firing rate. Within Penk+, brighter cells
+lose significance. The smaller Penk+ amplitude persists when baseline-matched,
+but it is carried by the four brightest Penk+ animals (median amplitude about 1;
+the other seven, 4.3–8.0, overlap Penk⁻CamKII+), so it cannot be separated from
+expression (correction 2026-10-02; an earlier version of this note said it was
+not an expression artefact). Within Penk+, brighter cells
 have lower CASCADE rates (Spearman rho −0.42; +0.24 in Penk⁻), so the
 "Penk+ fire less" result from H2s is partly confounded by expression and is
 downgraded to unconfirmed.

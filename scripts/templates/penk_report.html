@@ -1,0 +1,721 @@
+<title>Penk+ RSP neurons in the maze</title>
+<meta name="description" content="Results of the Penk+ vs Penk-CamKII+ retrosplenial cortex comparison: intrinsic physiology, calcium event signature, running and light coupling.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">
+<style>
+:root {
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --ink: #1b2230;
+  --muted: #5a6475;
+  --rule: #d9dee6;
+  --soft: #eceff4;
+  --penk: #2b59c3;
+  --penk-soft: rgba(43, 89, 195, 0.14);
+  --nonpenk: #c4412f;
+  --nonpenk-soft: rgba(196, 65, 47, 0.14);
+  --neutral-line: #5a6475;
+  --good: #2f7d4f;
+  --warn: #9a6a12;
+  --focus: #2b59c3;
+  --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --sans: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #11151c;
+    --surface: #181d26;
+    --ink: #e4e8ef;
+    --muted: #9aa4b5;
+    --rule: #2c3442;
+    --soft: #1f2530;
+    --penk: #8aa8f2;
+    --penk-soft: rgba(138, 168, 242, 0.18);
+    --nonpenk: #f0897a;
+    --nonpenk-soft: rgba(240, 137, 122, 0.18);
+    --neutral-line: #9aa4b5;
+    --good: #6cc38f;
+    --warn: #e0b45a;
+    --focus: #8aa8f2;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #11151c;
+  --surface: #181d26;
+  --ink: #e4e8ef;
+  --muted: #9aa4b5;
+  --rule: #2c3442;
+  --soft: #1f2530;
+  --penk: #8aa8f2;
+  --penk-soft: rgba(138, 168, 242, 0.18);
+  --nonpenk: #f0897a;
+  --nonpenk-soft: rgba(240, 137, 122, 0.18);
+  --neutral-line: #9aa4b5;
+  --good: #6cc38f;
+  --warn: #e0b45a;
+  --focus: #8aa8f2;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 17px/1.6 var(--sans);
+  padding-inline: 20px;
+}
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-block: 40px 80px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 40px;
+}
+@media (min-width: 1040px) {
+  .page { grid-template-columns: 200px minmax(0, 1fr); }
+}
+nav.toc {
+  display: none;
+  font-size: 14px;
+}
+@media (min-width: 1040px) {
+  nav.toc {
+    display: block;
+    position: sticky;
+    top: calc(env(safe-area-inset-top, 0px) + 24px);
+    align-self: start;
+  }
+}
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+nav.toc a { color: var(--muted); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--ink); }
+nav.toc .toc-label {
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 10px;
+}
+main { min-width: 0; display: grid; gap: 56px; }
+header.top { display: grid; gap: 14px; }
+.eyebrow {
+  font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+h1, h2, h3 { font-family: var(--serif); font-weight: 600; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(30px, 4.2vw, 42px); line-height: 1.15; }
+h2 { font-size: 26px; line-height: 1.25; }
+h3 { font-size: 19px; line-height: 1.3; }
+p { margin: 0; }
+.prose { max-width: 68ch; display: grid; gap: 14px; }
+.meta { color: var(--muted); font-size: 15px; }
+.legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 15px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+.dot.penk { background: var(--penk); }
+.dot.nonpenk { background: var(--nonpenk); }
+section { display: grid; gap: 18px; scroll-margin-top: 20px; }
+.finding {
+  font-family: var(--serif); font-size: 20px; line-height: 1.4; max-width: 60ch;
+}
+.findings { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; max-width: 76ch; }
+.findings li {
+  display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: baseline;
+}
+.tag {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  border-radius: 4px; padding: 2px 7px; white-space: nowrap; border: 1px solid currentColor;
+}
+.tag.within { color: var(--good); }
+.tag.lean { color: var(--warn); }
+.tag.null { color: var(--muted); }
+.tag.revised { color: var(--muted); }
+.chart-block {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 16px 16px 12px;
+  display: grid;
+  gap: 10px;
+}
+.chart-head { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; }
+.chart-title { font-weight: 600; font-size: 15px; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.seg button {
+  font: 500 13px var(--sans); color: var(--muted); background: transparent;
+  border: 0; border-right: 1px solid var(--rule); padding: 6px 11px; cursor: pointer;
+}
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--soft); color: var(--ink); }
+.seg button:hover { color: var(--ink); }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.plot { width: 100%; height: 340px; }
+.plot.tall { height: 380px; }
+.caption { color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 80ch; }
+.stat { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+.two { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 820px) { .two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; font-size: 13px; color: var(--muted); letter-spacing: 0.02em; background: var(--soft); }
+tr:last-child td { border-bottom: 0; }
+td.num { font-family: var(--mono); font-size: 14px; white-space: nowrap; }
+ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 76ch; }
+code, .path { font-family: var(--mono); font-size: 0.86em; }
+details { border-top: 1px solid var(--rule); padding-top: 14px; }
+summary { cursor: pointer; font-weight: 600; }
+details > div { margin-top: 14px; }
+.refs li { font-size: 15px; }
+footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule); padding-top: 16px; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="page">
+  <nav class="toc" aria-label="Contents">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#summary">Summary</a></li>
+      <li><a href="#data">Data and statistics</a></li>
+      <li><a href="#physiology">Intrinsic physiology</a></li>
+      <li><a href="#events">Calcium events</a></li>
+      <li><a href="#running">Running</a></li>
+      <li><a href="#light">Light coupling</a></li>
+      <li><a href="#composites">Composite scores</a></li>
+      <li><a href="#nulls">What does not differ</a></li>
+      <li><a href="#interpretation">Interpretation</a></li>
+      <li><a href="#limits">Limitations</a></li>
+      <li><a href="#next">Next steps</a></li>
+      <li><a href="#methods">Methods and references</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="top">
+      <div class="eyebrow">hm2p · retrosplenial cortex · cell-type comparison</div>
+      <h1>Penk+ and Penk⁻CamKII+ neurons in the Rosenberg maze</h1>
+      <p class="meta">Two-photon GCaMP7f imaging in freely moving mice, 1 min light / 1 min dark, plus ex vivo whole-cell recordings. Analyses run 2026-09-25 to 2026-10-02. Exploratory results, not peer reviewed. Build __BUILD__.</p>
+      <div class="legend" aria-label="Colour key">
+        <span><i class="dot penk"></i>Penk+ (Cre-ON, 11 animals)</span>
+        <span><i class="dot nonpenk"></i>Penk⁻CamKII+ (Cre-OFF, 4 animals)</span>
+      </div>
+    </header>
+
+    <section id="summary">
+      <h2>Summary</h2>
+      <p class="finding">The two populations differ in how they fire and in what they respond to: Penk+ cells fire long, rare bursts while the mouse runs, and Penk⁻CamKII+ cells follow the room lights more closely.</p>
+      <ul class="findings">
+        <li><span class="tag within">Within Penk+</span><span>Penk+ calcium events occur during running and turning, follow the run/still state rather than speed, and last through the run (animal-level Wilcoxon p = 0.001–0.004).</span></li>
+        <li><span class="tag lean">Between groups</span><span>Rank composites: running coupling higher in Penk+ (exact permutation p = 0.037, CLES 0.82); light coupling higher in Penk⁻CamKII+ (p = 0.009, CLES 0.86). Defined after the individual measures were seen, so exploratory.</span></li>
+        <li><span class="tag lean">Between groups</span><span>Penk+ events are longer and rarer (duration 3.3 vs 2.6 s, interval 31 vs 25 s). Isolated small events decay identically, so this is not slower indicator clearance.</span></li>
+        <li><span class="tag lean">Ex vivo</span><span>Penk+ cells have narrower spikes, higher maximal firing and a burst-then-adapt pattern. Cell types come from largely separate mice, so this cannot be separated from animal identity.</span></li>
+        <li><span class="tag null">Bounded nulls</span><span>Head-direction tuning, population HD decoding, encoding models, syllables, egocentric and navigational coding do not differ. With 11 vs 4 animals, effects below about d = 1.5 would usually be missed.</span></li>
+      </ul>
+    </section>
+
+    <section id="data">
+      <h2>Data and statistics</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Item</th><th>Penk+</th><th>Penk⁻CamKII+</th></tr></thead>
+          <tbody>
+            <tr><td>Animals imaged</td><td class="num">11</td><td class="num">4</td></tr>
+            <tr><td>Non-excluded sessions</td><td class="num">16</td><td class="num">7</td></tr>
+            <tr><td>Soma ROIs</td><td class="num">309</td><td class="num">141</td></tr>
+            <tr><td>Ex vivo cells (layer 2/3, mostly dysgranular RSP)</td><td class="num">23</td><td class="num">14</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="prose">
+        <p>The two populations are never in the same animal, so inference is at the animal level. Each between-group result is reported as a descriptive cell-level test, an animal-level Mann-Whitney U, an animal-level permutation test, and a leave-one-animal-out (LOAO) direction check. Effect size is the common-language effect size, CLES = P(Penk+ animal &gt; Penk⁻CamKII+ animal); 0.5 means no difference. With 11 vs 4 animals an exact two-sided animal-level test cannot go below p = 0.0015, and 80 % power needs about d = 1.5.</p>
+        <p>Chart statistics are recomputed from animal medians (two-sided exact Mann-Whitney U). Tables report the programme's own tests, which summarise each animal by its cell mean, so the two can differ.</p>
+      </div>
+    </section>
+
+    <section id="physiology">
+      <h2>1. Intrinsic physiology ex vivo</h2>
+      <p class="finding">Penk+ cells fire narrower spikes, reach higher maximal rates, and start with a fast burst that then slows.</p>
+      <div class="chart-block">
+        <div class="chart-head">
+          <span class="chart-title" id="patch-title">Patched cells by mouse</span>
+          <div class="seg" role="group" aria-label="Ex vivo measure" id="patch-seg"></div>
+        </div>
+        <div id="plot-patch" class="plot" role="img" aria-labelledby="patch-title"></div>
+        <p class="caption" id="patch-caption"></p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Measure (cell medians)</th><th>Penk+</th><th>Penk⁻</th><th>Cliff's δ</th><th>Cell p</th><th>Animal perm p</th></tr></thead>
+          <tbody>
+            <tr><td>Spike half-width (ms)</td><td class="num">1.8</td><td class="num">2.45</td><td class="num">−0.78</td><td class="num">&lt;0.001</td><td class="num">—</td></tr>
+            <tr><td>Maximum spikes per sweep</td><td class="num">20</td><td class="num">13.5</td><td class="num">+0.69</td><td class="num">&lt;0.001</td><td class="num">0.14</td></tr>
+            <tr><td>Input resistance (MΩ)</td><td class="num">150</td><td class="num">119</td><td class="num">+0.37</td><td class="num">ns</td><td class="num">0.23</td></tr>
+            <tr><td>Rheobase (pA)</td><td class="num">70</td><td class="num">90</td><td class="num">−0.30</td><td class="num">ns</td><td class="num">—</td></tr>
+            <tr><td>Last / first ISI, ≥ 6-spike sweep</td><td class="num">3.2</td><td class="num">1.9</td><td class="num">+0.62</td><td class="num">0.002</td><td class="num">0.26</td></tr>
+            <tr><td>Adaptation index</td><td class="num">0.088</td><td class="num">0.051</td><td class="num">+0.48</td><td class="num">0.017</td><td class="num">0.13</td></tr>
+            <tr><td>First ISI, max-spike sweep (ms)</td><td class="num">15</td><td class="num">35</td><td class="num">−0.68</td><td class="num">&lt;0.001</td><td class="num">0.14</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="prose">
+        <p>Four mice gave only Penk+ cells, one only Penk⁻ cells and one both, so the animal-level comparison is effectively 5 vs 2 mice and cannot reach p below about 0.13. The cell-level effects are large but cannot be separated from mouse identity.</p>
+        <p><strong>Not the low-rheobase type.</strong> The phenotype moves in the direction of the RSP low-rheobase cells of Brennan et al. (2020), but those cells barely adapt, whereas Penk+ cells adapt more than Penk⁻ cells, and absolute values are far apart (input resistance 150 vs ~400 MΩ, half-width 1.8 vs ~0.55 ms). The working description is a smaller, narrower-spiking layer 2/3 pyramid that fires a burst and then adapts.</p>
+      </div>
+    </section>
+
+    <section id="events">
+      <h2>2. Calcium event signature</h2>
+      <p class="finding">Penk+ calcium events are longer and rarer, with the same indicator kinetics.</p>
+      <div class="chart-block">
+        <div class="chart-head">
+          <span class="chart-title" id="ev-title">Animal medians over cell spread</span>
+          <div class="seg" role="group" aria-label="Event measure" id="ev-seg"></div>
+        </div>
+        <div id="plot-ev" class="plot" role="img" aria-labelledby="ev-title"></div>
+        <p class="caption" id="ev-caption"></p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Metric (animal means)</th><th>Penk+</th><th>Penk⁻CamKII+</th><th>Animal p</th><th>Perm p</th><th>FDR</th><th>CLES</th></tr></thead>
+          <tbody>
+            <tr><td>Event duration (s)</td><td class="num">3.27</td><td class="num">2.63</td><td class="num">0.078</td><td class="num">0.010</td><td class="num">0.061</td><td class="num">0.82</td></tr>
+            <tr><td>Inter-event interval (s)</td><td class="num">30.9</td><td class="num">25.4</td><td class="num">0.040</td><td class="num">0.007</td><td class="num">0.061</td><td class="num">0.86</td></tr>
+            <tr><td>Event decay time (s)</td><td class="num">2.43</td><td class="num">2.00</td><td class="num">0.078</td><td class="num">0.011</td><td class="num">0.061</td><td class="num">0.82</td></tr>
+            <tr><td>Event amplitude (dF/F units)</td><td class="num">4.6</td><td class="num">7.8</td><td class="num">0.026</td><td class="num">0.044</td><td class="num">0.106</td><td class="num">0.11</td></tr>
+            <tr><td>CASCADE spike rate (spikes/s)</td><td class="num">0.13</td><td class="num">0.19</td><td class="num">0.078</td><td class="num">0.063</td><td class="num">0.13</td><td class="num">0.18</td></tr>
+            <tr><td>Event SNR</td><td class="num">11.5</td><td class="num">11.0</td><td class="num">0.57</td><td class="num">0.81</td><td class="num">0.81</td><td class="num">0.39</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="plain">
+        <li><strong>Indicator kinetics are equal.</strong> Isolated small events decay with the same time constant (median 0.31 vs 0.31 s; brightness-matched 0.34 vs 0.35 s), so longer Penk+ events reflect longer firing episodes.</li>
+        <li><strong>Penk+ cells are about twice as bright</strong> at baseline (84 vs 37 raw F), most likely from the different Cre-ON and Cre-OFF constructs.</li>
+        <li><strong>Duration and interval</strong> keep their direction on rate-matched and brightness-matched cells (CLES 0.70–0.82) but lose significance.</li>
+        <li><strong>Amplitude and rate are tied to expression.</strong> The amplitude difference comes from the four brightest Penk+ animals (median amplitude about 1; the other seven overlap Penk⁻CamKII+), and within Penk+ brighter cells get lower inferred rates (ρ = −0.42). "Penk+ cells fire less" is treated as unconfirmed.</li>
+      </ul>
+    </section>
+
+    <section id="running">
+      <h2>3. Running</h2>
+      <p class="finding">Penk+ events happen while the mouse runs and turns; the cells report that the mouse is running, not how fast, and stay active through the run.</p>
+      <div class="chart-block">
+        <div class="chart-head">
+          <span class="chart-title" id="eta-title">Behaviour around calcium event onsets</span>
+          <div class="seg" role="group" aria-label="Behavioural variable" id="eta-seg"></div>
+        </div>
+        <div id="plot-eta" class="plot" role="img" aria-labelledby="eta-title"></div>
+        <p class="caption">Mean over sessions, time 0 = event onset. The vertical offset between groups reflects how fast animals ran in those sessions; the rise around onset is the event-locked part.</p>
+      </div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="dz-title">Speed during events vs each cell's null (z)</span></div>
+          <div id="plot-dz" class="plot" role="img" aria-labelledby="dz-title"></div>
+          <p class="caption" id="dz-caption"></p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head">
+            <span class="chart-title" id="rs-title">Run state vs graded speed</span>
+            <div class="seg" role="group" aria-label="Running measure" id="rs-seg"></div>
+          </div>
+          <div id="plot-rs" class="plot" role="img" aria-labelledby="rs-title"></div>
+          <p class="caption" id="rs-caption"></p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Measure</th><th>Penk+</th><th>Penk⁻CamKII+</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>During-event speed / movement z</td><td class="num">1.8 / 1.9</td><td class="num">1.1 / 1.3</td><td>Penk+ animal Wilcoxon p = 0.001–0.002; between groups CLES 0.77–0.80, ns</td></tr>
+            <tr><td>Cells with significant run-vs-still step</td><td class="num">63 %</td><td class="num">40 %</td><td>CASCADE spikes, Penk+ p = 0.004; dF/F 47 % vs 35 %, Penk+ p = 0.003. Between groups CLES 0.81–0.82, permutation p 0.21–0.24</td></tr>
+            <tr><td>Graded speed correlation while running</td><td class="num">chance</td><td class="num">chance</td><td>neither group encodes speed within runs</td></tr>
+            <tr><td>Early vs late activity within runs</td><td class="num">≈ 0</td><td class="num">≈ 0</td><td>sustained through runs</td></tr>
+            <tr><td>Summed activity vs run length (ρ)</td><td class="num">0.22</td><td class="num">—</td><td>Penk+ animal Wilcoxon p = 0.004</td></tr>
+            <tr><td>Corridor vs junction at matched speed</td><td class="num">≈ 0</td><td class="num">≈ 0</td><td>the corridor bias of event onsets is explained by running</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="prose">
+        <p>Brightness does not explain the running effect: within Penk+ the running index barely tracks baseline fluorescence (ρ = 0.11), and it holds on brightness-matched cells (p = 0.003). Responses aligned to light-on, junction or dead-end entry and movement onset are present in both groups at 9–19 % of cells and do not differ. Egocentric boundary and head-body angle tuning are near chance in both.</p>
+      </div>
+    </section>
+
+    <section id="light">
+      <h2>4. Light coupling</h2>
+      <p class="finding">Penk⁻CamKII+ activity follows the room lights more closely; all six measures lean the same way, none significant alone after FDR.</p>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="lt-title">Population response to light switches (both groups pooled)</span></div>
+          <div id="plot-lt" class="plot" role="img" aria-labelledby="lt-title"></div>
+          <p class="caption">The source table is not split by cell type, so this shows the shared response only.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head">
+            <span class="chart-title" id="la-title">Per-animal light responses</span>
+            <div class="seg" role="group" aria-label="Light measure" id="la-seg"></div>
+          </div>
+          <div id="plot-la" class="plot" role="img" aria-labelledby="la-title"></div>
+          <p class="caption" id="la-caption"></p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Measure</th><th>Penk+</th><th>Penk⁻CamKII+</th><th>Animal p</th><th>Perm p</th><th>CLES</th></tr></thead>
+          <tbody>
+            <tr><td>Event onsets in light (z)</td><td class="num">0.53</td><td class="num">1.12</td><td class="num">0.026</td><td class="num">0.042</td><td class="num">0.11</td></tr>
+            <tr><td>Stationary-light mean dF/F</td><td class="num">0.085</td><td class="num">0.188</td><td class="num">0.010</td><td class="num">0.014</td><td class="num">0.07</td></tr>
+            <tr><td>Light modulation index</td><td class="num">0.097</td><td class="num">0.195</td><td class="num">0.056</td><td class="num">0.27</td><td class="num">0.16</td></tr>
+            <tr><td>Light-on late response (dF/F)</td><td class="num">0.053</td><td class="num">0.155</td><td class="num">0.056</td><td class="num">0.094</td><td class="num">0.16</td></tr>
+            <tr><td>Light-off early response (dF/F)</td><td class="num">−0.031</td><td class="num">−0.096</td><td class="num">0.078</td><td class="num">0.135</td><td class="num">0.82</td></tr>
+            <tr><td>Loss of speed-matched AHV depth in dark</td><td class="num">−0.03</td><td class="num">−0.18</td><td class="num">0.018</td><td class="num">0.058</td><td class="num">0.91</td></tr>
+            <tr><td>GLM light share (dF/F, descriptive)</td><td class="num">0.25</td><td class="num">0.39</td><td class="num">0.026</td><td class="num">0.12</td><td class="num">0.11</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">For the light-off and AHV-loss rows, CLES above 0.5 means a smaller change in Penk+. Light-on and light-off responses come from the same transitions.</p>
+    </section>
+
+    <section id="composites">
+      <h2>5. Composite scores</h2>
+      <p class="finding">Averaging ranks across measures, both differences reach p &lt; 0.05 at the animal level, with every measure leaning the same way.</p>
+      <div class="chart-block">
+        <div class="chart-head">
+          <span class="chart-title" id="cp-title">Composite rank per animal (higher = more coupled)</span>
+          <div class="seg" role="group" aria-label="Composite" id="cp-seg"></div>
+        </div>
+        <div id="plot-cp" class="plot tall" role="img" aria-labelledby="cp-title"></div>
+        <p class="caption" id="cp-caption"></p>
+      </div>
+      <div class="prose">
+        <p>For each measure the animal median is oriented so that higher means more coupled, ranked across the 15 animals, and averaged. The two composites are uncorrelated across animals (ρ = −0.08), so they describe separate properties, and both directions hold within each equipment configuration. With a Bonferroni correction for two composites, permutation p is 0.074 (running) and 0.018 (light). The definitions are now fixed for testing in new animals.</p>
+      </div>
+    </section>
+
+    <section id="nulls">
+      <h2>6. What does not differ</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Analysis</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td>Head-direction tuning (MVL, width, visual dependence, HD-cell fraction)</td><td>no difference, all p &gt; 0.17</td></tr>
+            <tr><td>Population HD decoding, 8 cells per session</td><td>at chance in both (median error 89° vs 87°)</td></tr>
+            <tr><td>Ring topology of population activity</td><td>angle–HD correlation ≈ 0 in both</td></tr>
+            <tr><td>Poisson encoding models (HD, AHV, speed, position, light)</td><td>held-out deviance explained ≈ 0 in both</td></tr>
+            <tr><td>Movement onset/offset dynamics</td><td>p &gt; 0.49</td></tr>
+            <tr><td>Behavioural syllable information</td><td>0.058 vs 0.045 bits, p = 0.41</td></tr>
+            <tr><td>Junction-choice decoding, place information, familiarity</td><td>null in both</td></tr>
+            <tr><td>Egocentric boundary and head-body angle tuning</td><td>near chance in both</td></tr>
+            <tr><td>Slow drift and temporal context</td><td>present in about 35 % of cells in both; no difference</td></tr>
+            <tr><td>Population coupling, noise correlations</td><td>lean Penk+ (CLES 0.73–0.77), p ≥ 0.09</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">One heterogeneity result survives removal of animal means: Penk+ cells are more dispersed in feature space within animals (dispersion ratio 0.80, p = 0.003), the opposite of the expectation that a single transcriptomic type would be the more compact population.</p>
+    </section>
+
+    <section id="interpretation">
+      <h2>Interpretation</h2>
+      <ul class="plain">
+        <li><strong>Penk+ as a sparse, sustained run-state population.</strong> Seconds-long events that coincide with running, follow the run/still state and persist through a run fit cells that report "the animal is running" rather than a continuous variable. A 3 s event is about the length of one corridor run.</li>
+        <li><strong>Penk⁻CamKII+ as more visually coupled.</strong> This fits a mixture of excitatory types that includes cells receiving visual or landmark input, as reported for dysgranular RSP (Jacob et al. 2017). Because the composites were defined post hoc and the groups were labelled with different constructs, this is a lead to confirm.</li>
+        <li><strong>Burst firing and enkephalin (speculative).</strong> Burst-then-adapt firing produces clustered spikes at the start of a drive, the mode generally needed for neuropeptide release, so Penk+ cells could release enkephalin during runs. Nothing here measures peptide release.</li>
+      </ul>
+    </section>
+
+    <section id="limits">
+      <h2>Limitations</h2>
+      <ul class="plain">
+        <li>11 vs 4 animals; most between-group results lean consistently without being significant alone.</li>
+        <li>Different constructs (Cre-ON vs Cre-OFF) and a twofold brightness difference; amplitude, inferred rate and the light composite are not controlled for construct.</li>
+        <li>Ex vivo cell types come from largely separate mice (effectively 5 vs 2).</li>
+        <li>CASCADE was trained on other cell types; inferred rates partly track brightness.</li>
+        <li>Composites are exploratory, and some measures share data (light-on/off from the same transitions; speed and movement during the same events).</li>
+        <li>Running and visual flow are confounded in a freely moving animal.</li>
+        <li>The overhead image is assumed unmirrored; only left/right labels depend on this, no group comparison does.</li>
+        <li>The mixed-model level of reporting was not computed (statsmodels not installed). Imaging depth and anterior–posterior position are not recorded per session.</li>
+      </ul>
+    </section>
+
+    <section id="next">
+      <h2>Next steps</h2>
+      <ol class="plain">
+        <li>Image more Penk⁻CamKII+ animals and apply the two fixed composites as the confirmatory test.</li>
+        <li>Record Penk+ and Penk⁻ cells in the same slices to separate cell type from mouse.</li>
+        <li>Head-fixed treadmill imaging with controlled visual flow, to separate running from optic flow and light.</li>
+        <li>Construct-matched labelling (same promoter and indicator, or dual colour in one animal) to remove the brightness confound.</li>
+      </ol>
+    </section>
+
+    <section id="methods">
+      <h2>Methods and references</h2>
+      <details>
+        <summary>Where each analysis lives</summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Analysis</th><th>Code</th><th>Runner</th></tr></thead>
+            <tbody>
+              <tr><td>Event kinetics, feature table</td><td class="path">hm2p.analysis.cell_features</td><td class="path">run_celltype_programme.py h2</td></tr>
+              <tr><td>Indicator and expression controls</td><td class="path">hm2p.analysis.indicator_controls</td><td class="path">run_celltype_programme.py ctl</td></tr>
+              <tr><td>Light transitions</td><td class="path">hm2p.analysis.transitions</td><td class="path">run_celltype_programme.py h5</td></tr>
+              <tr><td>Event-triggered behaviour</td><td class="path">hm2p.analysis.event_triggered_behaviour</td><td class="path">run_celltype_programme.py etb</td></tr>
+              <tr><td>Corridor vs running</td><td class="path">hm2p.analysis.location_running</td><td class="path">run_celltype_programme.py locrun</td></tr>
+              <tr><td>Running-coding shape</td><td class="path">hm2p.analysis.running_coding</td><td class="path">run_celltype_programme.py runshape</td></tr>
+              <tr><td>Egocentric coding</td><td class="path">hm2p.analysis.egocentric</td><td class="path">run_celltype_programme.py ego</td></tr>
+              <tr><td>Temporal context</td><td class="path">hm2p.analysis.temporal_context</td><td class="path">run_celltype_programme.py tctx</td></tr>
+              <tr><td>Composite scores</td><td>—</td><td class="path">run_celltype_composites.py</td></tr>
+              <tr><td>Ex vivo adaptation</td><td class="path">hm2p.patching.adaptation</td><td class="path">run_patching_adaptation.py</td></tr>
+              <tr><td>Animal-level statistics, LOAO</td><td class="path">hm2p.analysis.mixed_stats</td><td>all runners</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="caption">Full log of tests and decisions: <span class="path">docs/plan-penk-vs-nonpenk.md</span>. This page is built by <span class="path">scripts/build_penk_report_html.py</span> from <span class="path">docs/figures/penk/data/</span>.</p>
+      </details>
+      <details>
+        <summary>References</summary>
+        <div>
+          <ul class="plain refs">
+            <li>Brennan EKW, Sudhakar SK, Jedrasiak-Cape I, John TT, Ahmed OJ. 2020. "Hyperexcitable Neurons Enable Precise and Persistent Information Encoding in the Superficial Retrosplenial Cortex." Cell Reports 30:1598–1612. doi:10.1016/j.celrep.2019.12.093</li>
+            <li>Jacob PY, Casali G, Spieser L, Page H, Overington D, Jeffery K. 2017. "An independent, landmark-dominated head-direction signal in dysgranular retrosplenial cortex." Nature Neuroscience 20:173–175. doi:10.1038/nn.4465</li>
+            <li>Rupprecht P et al. 2021. "A database and deep learning toolbox for noise-optimized, generalized spike inference from calcium imaging." Nature Neuroscience 24:1324–1337. doi:10.1038/s41593-021-00895-5</li>
+            <li>Rubin A, Geva N, Sheintuch L, Ziv Y. 2015. "Hippocampal ensemble dynamics timestamp events in long-term memory." eLife 4:e12247. doi:10.7554/eLife.12247</li>
+            <li>Okun M et al. 2015. "Diverse coupling of neurons to populations in sensory cortex." Nature 521:511–515. doi:10.1038/nature14273</li>
+            <li>Chaudhuri R, Gerçek B, Pandey B, Peyrache A, Fiete I. 2019. "The intrinsic attractor manifold and population dynamics of a canonical cognitive circuit across waking and sleep." Nature Neuroscience 22:1512–1520. doi:10.1038/s41593-019-0460-x</li>
+            <li>Rosenberg M, Zhang T, Perona P, Meister M. 2021. "Mice in a labyrinth show rapid learning, sudden insight, and efficient exploration." eLife 10:e66175. doi:10.7554/eLife.66175</li>
+          </ul>
+        </div>
+      </details>
+    </section>
+
+    <footer>Generated from the hm2p repository. Numbers in tables come from the analysis programme reports; charts are recomputed from animal medians.</footer>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly-basic.min.js"></script>
+<script>
+const DATA = /*__DATA__*/null;
+const LABEL = { penk: "Penk+", nonpenk: "Penk⁻CamKII+", penkpos: "Penk+", penkneg: "Penk⁻" };
+const GROUPS = ["penk", "nonpenk"];
+
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function colorOf(ct) { return (ct === "penk" || ct === "penkpos") ? css("--penk") : css("--nonpenk"); }
+function fmtP(p) {
+  if (p === null || p === undefined || Number.isNaN(p)) return "n/a";
+  return p < 0.001 ? "p < 0.001" : "p = " + (p < 0.01 ? p.toFixed(3) : p.toFixed(2));
+}
+function fmt(v, d = 2) { return (v === null || v === undefined || Number.isNaN(v)) ? "n/a" : Number(v).toFixed(d); }
+function jitter(i, n) { const k = (i * 0.61803398875) % 1; return (k - 0.5) * 0.36; }
+
+function baseLayout(extra) {
+  const ink = css("--ink"), muted = css("--muted"), rule = css("--rule");
+  return Object.assign({
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: css("--sans") || "sans-serif", size: 13, color: ink },
+    margin: { l: 62, r: 16, t: 10, b: 46 },
+    showlegend: false,
+    hoverlabel: { font: { family: "IBM Plex Mono, monospace", size: 12 } },
+    xaxis: { gridcolor: rule, zerolinecolor: rule, linecolor: rule, tickcolor: rule, color: muted },
+    yaxis: { gridcolor: rule, zerolinecolor: muted, linecolor: rule, tickcolor: rule, color: muted, automargin: true },
+  }, extra || {});
+}
+const CONFIG = { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] };
+
+// Strip plot: animal dots per group, optional cell IQR band and median tick.
+function strip(div, animals, opts) {
+  const traces = [], shapes = [];
+  GROUPS.forEach((g, gi) => {
+    const pts = animals.filter(a => a.celltype === g && a.value !== null && !Number.isNaN(a.value));
+    traces.push({
+      type: "scatter", mode: "markers",
+      x: pts.map((a, i) => gi + jitter(i, pts.length)),
+      y: pts.map(a => a.value),
+      marker: { size: 11, color: colorOf(g), line: { width: 1, color: css("--surface") } },
+      customdata: pts.map(a => [a.animal_id, a.n ?? ""]),
+      hovertemplate: "animal %{customdata[0]}<br>" + (opts.ylabel || "value") + " %{y:.3g}<br>cells %{customdata[1]}<extra>" + LABEL[g] + "</extra>",
+    });
+    const q = opts.quartiles && opts.quartiles[g];
+    if (q) {
+      shapes.push({ type: "rect", x0: gi - 0.32, x1: gi + 0.32, y0: q.q25, y1: q.q75,
+        fillcolor: g === "penk" ? css("--penk-soft") : css("--nonpenk-soft"), line: { width: 0 }, layer: "below" });
+    }
+    const vals = pts.map(a => a.value).sort((a, b) => a - b);
+    if (vals.length) {
+      const m = vals.length % 2 ? vals[(vals.length - 1) / 2] : (vals[vals.length / 2 - 1] + vals[vals.length / 2]) / 2;
+      shapes.push({ type: "line", x0: gi - 0.26, x1: gi + 0.26, y0: m, y1: m, line: { width: 2.5, color: colorOf(g) } });
+    }
+  });
+  if (opts.zero) shapes.push({ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { width: 1, dash: "dot", color: css("--muted") } });
+  const layout = baseLayout({ shapes });
+  layout.xaxis = Object.assign(layout.xaxis, { tickvals: [0, 1], ticktext: GROUPS.map(g => LABEL[g]), range: [-0.6, 1.6], showgrid: false, fixedrange: true });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: opts.ylabel, font: { size: 13 } }, type: opts.log ? "log" : "linear" });
+  Plotly.react(div, traces, layout, CONFIG);
+}
+
+function statLine(s, unitNote) {
+  if (!s) return "";
+  const cles = s.cles_penk_gt_nonpenk ?? s.cles;
+  const p = s.mwu_p_two_sided ?? s.perm_p_one_sided;
+  return `Animal medians ${fmt(s.median_penk, 3)} vs ${fmt(s.median_nonpenk, 3)} (Penk+ vs Penk⁻CamKII+; ${s.n_penk} vs ${s.n_nonpenk} animals). CLES ${fmt(cles)}, exact two-sided ${fmtP(p)}.${unitNote || ""}`;
+}
+
+function segmented(id, options, onPick, initial) {
+  const host = document.getElementById(id);
+  host.innerHTML = "";
+  options.forEach(([key, label]) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.id = `${id}-${key}`; b.textContent = label;
+    b.setAttribute("aria-pressed", key === initial ? "true" : "false");
+    b.addEventListener("click", () => {
+      host.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", "false"));
+      b.setAttribute("aria-pressed", "true");
+      state[id] = key; onPick(key);
+    });
+    host.appendChild(b);
+  });
+}
+const state = {};
+
+// ---- 1. patching
+const PATCH_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "cross", "x", "star"];
+function drawPatch(key) {
+  const d = DATA.patching_adaptation, p = d.panels[key];
+  const mice = [...new Set(d.cells.map(c => c.animal_id))].sort();
+  const traces = ["penkpos", "penkneg"].map((g, gi) => {
+    const pts = d.cells.filter(c => c.celltype === g && c[key] !== null && !Number.isNaN(c[key]));
+    return {
+      type: "scatter", mode: "markers",
+      x: pts.map((c, i) => gi + jitter(i, pts.length)), y: pts.map(c => c[key]),
+      marker: { size: 10, color: colorOf(g), opacity: 0.85, symbol: pts.map(c => PATCH_SYMBOLS[mice.indexOf(c.animal_id) % PATCH_SYMBOLS.length]), line: { width: 1, color: css("--surface") } },
+      customdata: pts.map(c => [c.animal_id, c.cell_index]),
+      hovertemplate: "mouse %{customdata[0]}<br>cell %{customdata[1]}<br>%{y:.3g}<extra>" + LABEL[g] + "</extra>",
+    };
+  });
+  const layout = baseLayout();
+  layout.xaxis = Object.assign(layout.xaxis, { tickvals: [0, 1], ticktext: ["Penk+", "Penk⁻"], range: [-0.6, 1.6], showgrid: false, fixedrange: true });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: p.label, font: { size: 13 } }, type: key === "matched_sfa_ratio" ? "log" : "linear" });
+  Plotly.react("plot-patch", traces, layout, CONFIG);
+  document.getElementById("patch-caption").textContent =
+    `${p.n_cells.penk} Penk+ and ${p.n_cells.nonpenk} Penk⁻ cells; marker shape = mouse. Cliff's δ on cells ${fmt(p.cliffs_delta_cells)}; this cannot be separated from mouse identity.`;
+}
+
+// ---- 2. events
+function drawEv(key) {
+  const p = DATA.event_kinetics.panels[key];
+  strip("plot-ev", p.animals, { ylabel: p.label, quartiles: p.cell_quartiles, log: ["ev_mean_amplitude", "f_baseline", "iso_decay_s"].includes(key) });
+  const notes = {
+    iso_decay_s: " Equal indicator decay means longer events are not slower clearance.",
+    f_baseline: " Penk+ cells are about twice as bright, likely from the different constructs.",
+    ev_mean_amplitude: " The four brightest Penk+ animals carry the difference.",
+  };
+  document.getElementById("ev-caption").textContent = "Dots = animals, line = median of animals, band = cell interquartile range. " + statLine(p.stats, notes[key]);
+}
+
+// ---- 3. running
+function drawEta(key) {
+  const t = DATA.running_around_events.timecourses[key];
+  const traces = GROUPS.map(g => ({
+    type: "scatter", mode: "lines", x: t.time_s, y: t.mean_by_celltype[g],
+    line: { width: 2.5, color: colorOf(g) }, name: LABEL[g],
+    hovertemplate: "%{x:.1f} s · %{y:.3g}<extra>" + LABEL[g] + " (" + t.n_sessions[g] + " sessions)</extra>",
+  }));
+  const layout = baseLayout({ showlegend: true, legend: { orientation: "h", y: 1.08, x: 0, font: { color: css("--muted") } },
+    shapes: [{ type: "line", x0: 0, x1: 0, yref: "paper", y0: 0, y1: 1, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "time from event onset (s)", font: { size: 13 } } });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: key === "speed_cm_s" ? "speed (cm/s)" : "|AHV| (deg/s)", font: { size: 13 } } });
+  Plotly.react("plot-eta", traces, layout, CONFIG);
+}
+function drawDz() {
+  const d = DATA.running_around_events.during_speed_z;
+  strip("plot-dz", d.animals, { ylabel: "speed z during events", quartiles: d.cell_quartiles, zero: true });
+  document.getElementById("dz-caption").textContent = "z > 0: faster during events than when the cell's event times are shifted. " + statLine(d.stats);
+}
+function drawRs(key) {
+  const p = DATA.running_state.panels[key];
+  strip("plot-rs", p.animals, { ylabel: p.label, quartiles: p.cell_quartiles, zero: key !== "frac_sig_step_index" });
+  const note = key === "graded_rho" ? " Near zero in both: activity does not scale with speed within runs." : "";
+  document.getElementById("rs-caption").textContent = statLine(p.stats, note);
+}
+
+// ---- 4. light
+function drawLt() {
+  const t = DATA.light_transitions.pooled_timecourse;
+  const traces = [
+    { type: "scatter", mode: "lines", x: t.time_s, y: t.ltd, name: "lights off", line: { width: 2.5, color: css("--ink") },
+      hovertemplate: "%{x:.1f} s · %{y:.3f}<extra>lights off</extra>" },
+    { type: "scatter", mode: "lines", x: t.time_s, y: t.dtl, name: "lights on", line: { width: 2.5, color: css("--muted"), dash: "dash" },
+      hovertemplate: "%{x:.1f} s · %{y:.3f}<extra>lights on</extra>" },
+  ];
+  const layout = baseLayout({ showlegend: true, legend: { orientation: "h", y: 1.08, x: 0, font: { color: css("--muted") } },
+    shapes: [{ type: "line", x0: 0, x1: 0, yref: "paper", y0: 0, y1: 1, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "time from light switch (s)", font: { size: 13 } } });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: "population activity (Δ from pre)", font: { size: 13 } } });
+  Plotly.react("plot-lt", traces, layout, CONFIG);
+}
+function drawLa(key) {
+  const p = DATA.light_transitions.panels[key];
+  strip("plot-la", p.animals, { ylabel: p.label, zero: true });
+  document.getElementById("la-caption").textContent = statLine(p.stats);
+}
+
+// ---- 5. composites
+const MEASURE_NAMES = {
+  R1_movement_modulation: "movement modulation", R2_fast_vs_slow_corridor: "fast vs slow movement in corridors",
+  R3_speed_during_events: "speed during events", R4_moving_during_events: "movement during events", R5_run_vs_still_step: "run vs still step",
+  L1_events_at_light_on: "event onsets in light", L2_light_modulation: "light modulation", L3_lights_on_sustained: "sustained lights-on response",
+  L4_lights_off_drop: "lights-off drop", L5_ahv_loss_in_dark: "AHV loss in dark", L6_glm_light_share: "GLM light share",
+};
+function drawCp(key) {
+  const panel = DATA.composites.panels[key];
+  const traces = [];
+  GROUPS.forEach((g, gi) => {
+    const pm = panel.per_measure_ranks.filter(r => r.celltype === g);
+    traces.push({ type: "scatter", mode: "markers",
+      x: pm.map((r, i) => gi + 0.18 + jitter(i * 3, pm.length) * 0.5), y: pm.map(r => r.rank),
+      marker: { size: 6, color: colorOf(g), opacity: 0.28 },
+      customdata: pm.map(r => [r.animal_id, MEASURE_NAMES[r.measure] || r.measure]),
+      hovertemplate: "animal %{customdata[0]}<br>%{customdata[1]}: rank %{y}<extra></extra>" });
+  });
+  const animals = panel.animals.map(a => Object.assign({}, a));
+  GROUPS.forEach((g, gi) => {
+    const pts = animals.filter(a => a.celltype === g);
+    traces.push({ type: "scatter", mode: "markers",
+      x: pts.map((a, i) => gi - 0.12 + jitter(i, pts.length) * 0.6), y: pts.map(a => a.value),
+      marker: { size: 13, color: colorOf(g), line: { width: 1.2, color: css("--surface") } },
+      customdata: pts.map(a => [a.animal_id, a.n]),
+      hovertemplate: "animal %{customdata[0]}<br>composite rank %{y:.2f}<br>measures %{customdata[1]}<extra>" + LABEL[g] + "</extra>" });
+  });
+  const layout = baseLayout();
+  layout.xaxis = Object.assign(layout.xaxis, { tickvals: [0, 1], ticktext: GROUPS.map(g => LABEL[g]), range: [-0.6, 1.6], showgrid: false, fixedrange: true });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: "rank among 15 animals (higher = more coupled)", font: { size: 13 } }, range: [0, 16] });
+  Plotly.react("plot-cp", traces, layout, CONFIG);
+  const s = panel.stats;
+  const dir = s.higher_group === "penk" ? "Penk+ higher" : "Penk⁻CamKII+ higher";
+  document.getElementById("cp-caption").textContent =
+    `Large dots = composite per animal; faint dots = the per-measure ranks it averages (hover for the measure). Hypothesis ${dir}: median ${fmt(s.median_higher, 1)} vs ${fmt(s.median_lower, 1)}, CLES ${fmt(s.cles)}, one-sided exact permutation ${fmtP(s.perm_p_one_sided)} over ${s.n_assignments} label assignments, ${s.measures_agreeing}/${s.measures_used.length} measures agree, leave-one-animal-out ${s.loao_direction_stable ? "stable" : "not stable"}.`;
+}
+
+function renderAll() {
+  if (!window.Plotly || !DATA) return;
+  drawPatch(state["patch-seg"]); drawEv(state["ev-seg"]); drawEta(state["eta-seg"]); drawDz();
+  drawRs(state["rs-seg"]); drawLt(); drawLa(state["la-seg"]); drawCp(state["cp-seg"]);
+}
+
+function init() {
+  const P = DATA.patching_adaptation.panels, E = DATA.event_kinetics.panels, R = DATA.running_state.panels, L = DATA.light_transitions.panels;
+  state["patch-seg"] = "matched_sfa_ratio";
+  segmented("patch-seg", [["matched_sfa_ratio", "Adaptation"], ["matched_first_isi_ms", "First ISI"], ["max_n_spikes", "Max spikes"]], drawPatch, state["patch-seg"]);
+  state["ev-seg"] = "ev_mean_duration_s";
+  segmented("ev-seg", [["ev_mean_duration_s", "Duration"], ["ev_mean_iei_s", "Interval"], ["iso_decay_s", "Isolated decay"], ["ev_mean_amplitude", "Amplitude"], ["f_baseline", "Brightness"]], drawEv, state["ev-seg"]);
+  state["eta-seg"] = "speed_cm_s";
+  segmented("eta-seg", [["speed_cm_s", "Speed"], ["abs_ahv", "Head turning"]], drawEta, state["eta-seg"]);
+  state["rs-seg"] = "step_index";
+  segmented("rs-seg", [["step_index", "Run vs still"], ["graded_rho", "Graded speed"], ["frac_sig_step_index", "% cells"]], drawRs, state["rs-seg"]);
+  state["la-seg"] = "dtl_late_amplitude";
+  segmented("la-seg", [["dtl_late_amplitude", "Lights on"], ["ltd_early_amplitude", "Lights off"]], drawLa, state["la-seg"]);
+  state["cp-seg"] = "running";
+  segmented("cp-seg", [["running", "Running"], ["light", "Light"]], drawCp, state["cp-seg"]);
+  renderAll();
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+  new MutationObserver(renderAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
+if (window.Plotly && DATA) init();
+else window.addEventListener("load", () => { if (window.Plotly && DATA) init(); });
+</script>

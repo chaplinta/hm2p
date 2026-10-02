@@ -1,0 +1,721 @@
+<title>Penk+ RSP neurons in the maze</title>
+<meta name="description" content="Results of the Penk+ vs Penk-CamKII+ retrosplenial cortex comparison: intrinsic physiology, calcium event signature, running and light coupling.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">
+<style>
+:root {
+  --bg: #f5f7fa;
+  --surface: #ffffff;
+  --ink: #1b2230;
+  --muted: #5a6475;
+  --rule: #d9dee6;
+  --soft: #eceff4;
+  --penk: #2b59c3;
+  --penk-soft: rgba(43, 89, 195, 0.14);
+  --nonpenk: #c4412f;
+  --nonpenk-soft: rgba(196, 65, 47, 0.14);
+  --neutral-line: #5a6475;
+  --good: #2f7d4f;
+  --warn: #9a6a12;
+  --focus: #2b59c3;
+  --serif: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  --sans: "Source Sans 3", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #11151c;
+    --surface: #181d26;
+    --ink: #e4e8ef;
+    --muted: #9aa4b5;
+    --rule: #2c3442;
+    --soft: #1f2530;
+    --penk: #8aa8f2;
+    --penk-soft: rgba(138, 168, 242, 0.18);
+    --nonpenk: #f0897a;
+    --nonpenk-soft: rgba(240, 137, 122, 0.18);
+    --neutral-line: #9aa4b5;
+    --good: #6cc38f;
+    --warn: #e0b45a;
+    --focus: #8aa8f2;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #11151c;
+  --surface: #181d26;
+  --ink: #e4e8ef;
+  --muted: #9aa4b5;
+  --rule: #2c3442;
+  --soft: #1f2530;
+  --penk: #8aa8f2;
+  --penk-soft: rgba(138, 168, 242, 0.18);
+  --nonpenk: #f0897a;
+  --nonpenk-soft: rgba(240, 137, 122, 0.18);
+  --neutral-line: #9aa4b5;
+  --good: #6cc38f;
+  --warn: #e0b45a;
+  --focus: #8aa8f2;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 17px/1.6 var(--sans);
+  padding-inline: 20px;
+}
+.page {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-block: 40px 80px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 40px;
+}
+@media (min-width: 1040px) {
+  .page { grid-template-columns: 200px minmax(0, 1fr); }
+}
+nav.toc {
+  display: none;
+  font-size: 14px;
+}
+@media (min-width: 1040px) {
+  nav.toc {
+    display: block;
+    position: sticky;
+    top: calc(env(safe-area-inset-top, 0px) + 24px);
+    align-self: start;
+  }
+}
+nav.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+nav.toc a { color: var(--muted); text-decoration: none; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--ink); }
+nav.toc .toc-label {
+  font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--muted); margin-bottom: 10px;
+}
+main { min-width: 0; display: grid; gap: 56px; }
+header.top { display: grid; gap: 14px; }
+.eyebrow {
+  font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+}
+h1, h2, h3 { font-family: var(--serif); font-weight: 600; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(30px, 4.2vw, 42px); line-height: 1.15; }
+h2 { font-size: 26px; line-height: 1.25; }
+h3 { font-size: 19px; line-height: 1.3; }
+p { margin: 0; }
+.prose { max-width: 68ch; display: grid; gap: 14px; }
+.meta { color: var(--muted); font-size: 15px; }
+.legend { display: flex; flex-wrap: wrap; gap: 18px; font-size: 15px; }
+.legend span { display: inline-flex; align-items: center; gap: 8px; }
+.dot { width: 11px; height: 11px; border-radius: 50%; display: inline-block; }
+.dot.penk { background: var(--penk); }
+.dot.nonpenk { background: var(--nonpenk); }
+section { display: grid; gap: 18px; scroll-margin-top: 20px; }
+.finding {
+  font-family: var(--serif); font-size: 20px; line-height: 1.4; max-width: 60ch;
+}
+.findings { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; max-width: 76ch; }
+.findings li {
+  display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: baseline;
+}
+.tag {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+  border-radius: 4px; padding: 2px 7px; white-space: nowrap; border: 1px solid currentColor;
+}
+.tag.within { color: var(--good); }
+.tag.lean { color: var(--warn); }
+.tag.null { color: var(--muted); }
+.tag.revised { color: var(--muted); }
+.chart-block {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 16px 16px 12px;
+  display: grid;
+  gap: 10px;
+}
+.chart-head { display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; }
+.chart-title { font-weight: 600; font-size: 15px; }
+.seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+.seg button {
+  font: 500 13px var(--sans); color: var(--muted); background: transparent;
+  border: 0; border-right: 1px solid var(--rule); padding: 6px 11px; cursor: pointer;
+}
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--soft); color: var(--ink); }
+.seg button:hover { color: var(--ink); }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.plot { width: 100%; height: 340px; }
+.plot.tall { height: 380px; }
+.caption { color: var(--muted); font-size: 14px; line-height: 1.5; max-width: 80ch; }
+.stat { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+.two { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 820px) { .two { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.table-wrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 15px; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font-weight: 600; font-size: 13px; color: var(--muted); letter-spacing: 0.02em; background: var(--soft); }
+tr:last-child td { border-bottom: 0; }
+td.num { font-family: var(--mono); font-size: 14px; white-space: nowrap; }
+ul.plain { margin: 0; padding-left: 20px; display: grid; gap: 8px; max-width: 76ch; }
+code, .path { font-family: var(--mono); font-size: 0.86em; }
+details { border-top: 1px solid var(--rule); padding-top: 14px; }
+summary { cursor: pointer; font-weight: 600; }
+details > div { margin-top: 14px; }
+.refs li { font-size: 15px; }
+footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule); padding-top: 16px; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+</style>
+
+<div class="page">
+  <nav class="toc" aria-label="Contents">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#summary">Summary</a></li>
+      <li><a href="#data">Data and statistics</a></li>
+      <li><a href="#physiology">Intrinsic physiology</a></li>
+      <li><a href="#events">Calcium events</a></li>
+      <li><a href="#running">Running</a></li>
+      <li><a href="#light">Light coupling</a></li>
+      <li><a href="#composites">Composite scores</a></li>
+      <li><a href="#nulls">What does not differ</a></li>
+      <li><a href="#interpretation">Interpretation</a></li>
+      <li><a href="#limits">Limitations</a></li>
+      <li><a href="#next">Next steps</a></li>
+      <li><a href="#methods">Methods and references</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="top">
+      <div class="eyebrow">hm2p · retrosplenial cortex · cell-type comparison</div>
+      <h1>Penk+ and Penk⁻CamKII+ neurons in the Rosenberg maze</h1>
+      <p class="meta">Two-photon GCaMP7f imaging in freely moving mice, 1 min light / 1 min dark, plus ex vivo whole-cell recordings. Analyses run 2026-09-25 to 2026-10-02. Exploratory results, not peer reviewed. Build 2026-10-02 · 891418b.</p>
+      <div class="legend" aria-label="Colour key">
+        <span><i class="dot penk"></i>Penk+ (Cre-ON, 11 animals)</span>
+        <span><i class="dot nonpenk"></i>Penk⁻CamKII+ (Cre-OFF, 4 animals)</span>
+      </div>
+    </header>
+
+    <section id="summary">
+      <h2>Summary</h2>
+      <p class="finding">The two populations differ in how they fire and in what they respond to: Penk+ cells fire long, rare bursts while the mouse runs, and Penk⁻CamKII+ cells follow the room lights more closely.</p>
+      <ul class="findings">
+        <li><span class="tag within">Within Penk+</span><span>Penk+ calcium events occur during running and turning, follow the run/still state rather than speed, and last through the run (animal-level Wilcoxon p = 0.001–0.004).</span></li>
+        <li><span class="tag lean">Between groups</span><span>Rank composites: running coupling higher in Penk+ (exact permutation p = 0.037, CLES 0.82); light coupling higher in Penk⁻CamKII+ (p = 0.009, CLES 0.86). Defined after the individual measures were seen, so exploratory.</span></li>
+        <li><span class="tag lean">Between groups</span><span>Penk+ events are longer and rarer (duration 3.3 vs 2.6 s, interval 31 vs 25 s). Isolated small events decay identically, so this is not slower indicator clearance.</span></li>
+        <li><span class="tag lean">Ex vivo</span><span>Penk+ cells have narrower spikes, higher maximal firing and a burst-then-adapt pattern. Cell types come from largely separate mice, so this cannot be separated from animal identity.</span></li>
+        <li><span class="tag null">Bounded nulls</span><span>Head-direction tuning, population HD decoding, encoding models, syllables, egocentric and navigational coding do not differ. With 11 vs 4 animals, effects below about d = 1.5 would usually be missed.</span></li>
+      </ul>
+    </section>
+
+    <section id="data">
+      <h2>Data and statistics</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Item</th><th>Penk+</th><th>Penk⁻CamKII+</th></tr></thead>
+          <tbody>
+            <tr><td>Animals imaged</td><td class="num">11</td><td class="num">4</td></tr>
+            <tr><td>Non-excluded sessions</td><td class="num">16</td><td class="num">7</td></tr>
+            <tr><td>Soma ROIs</td><td class="num">309</td><td class="num">141</td></tr>
+            <tr><td>Ex vivo cells (layer 2/3, mostly dysgranular RSP)</td><td class="num">23</td><td class="num">14</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="prose">
+        <p>The two populations are never in the same animal, so inference is at the animal level. Each between-group result is reported as a descriptive cell-level test, an animal-level Mann-Whitney U, an animal-level permutation test, and a leave-one-animal-out (LOAO) direction check. Effect size is the common-language effect size, CLES = P(Penk+ animal &gt; Penk⁻CamKII+ animal); 0.5 means no difference. With 11 vs 4 animals an exact two-sided animal-level test cannot go below p = 0.0015, and 80 % power needs about d = 1.5.</p>
+        <p>Chart statistics are recomputed from animal medians (two-sided exact Mann-Whitney U). Tables report the programme's own tests, which summarise each animal by its cell mean, so the two can differ.</p>
+      </div>
+    </section>
+
+    <section id="physiology">
+      <h2>1. Intrinsic physiology ex vivo</h2>
+      <p class="finding">Penk+ cells fire narrower spikes, reach higher maximal rates, and start with a fast burst that then slows.</p>
+      <div class="chart-block">
+        <div class="chart-head">
+          <span class="chart-title" id="patch-title">Patched cells by mouse</span>
+          <div class="seg" role="group" aria-label="Ex vivo measure" id="patch-seg"></div>
+        </div>
+        <div id="plot-patch" class="plot" role="img" aria-labelledby="patch-title"></div>
+        <p class="caption" id="patch-caption"></p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Measure (cell medians)</th><th>Penk+</th><th>Penk⁻</th><th>Cliff's δ</th><th>Cell p</th><th>Animal perm p</th></tr></thead>
+          <tbody>
+            <tr><td>Spike half-width (ms)</td><td class="num">1.8</td><td class="num">2.45</td><td class="num">−0.78</td><td class="num">&lt;0.001</td><td class="num">—</td></tr>
+            <tr><td>Maximum spikes per sweep</td><td class="num">20</td><td class="num">13.5</td><td class="num">+0.69</td><td class="num">&lt;0.001</td><td class="num">0.14</td></tr>
+            <tr><td>Input resistance (MΩ)</td><td class="num">150</td><td class="num">119</td><td class="num">+0.37</td><td class="num">ns</td><td class="num">0.23</td></tr>
+            <tr><td>Rheobase (pA)</td><td class="num">70</td><td class="num">90</td><td class="num">−0.30</td><td class="num">ns</td><td class="num">—</td></tr>
+            <tr><td>Last / first ISI, ≥ 6-spike sweep</td><td class="num">3.2</td><td class="num">1.9</td><td class="num">+0.62</td><td class="num">0.002</td><td class="num">0.26</td></tr>
+            <tr><td>Adaptation index</td><td class="num">0.088</td><td class="num">0.051</td><td class="num">+0.48</td><td class="num">0.017</td><td class="num">0.13</td></tr>
+            <tr><td>First ISI, max-spike sweep (ms)</td><td class="num">15</td><td class="num">35</td><td class="num">−0.68</td><td class="num">&lt;0.001</td><td class="num">0.14</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="prose">
+        <p>Four mice gave only Penk+ cells, one only Penk⁻ cells and one both, so the animal-level comparison is effectively 5 vs 2 mice and cannot reach p below about 0.13. The cell-level effects are large but cannot be separated from mouse identity.</p>
+        <p><strong>Not the low-rheobase type.</strong> The phenotype moves in the direction of the RSP low-rheobase cells of Brennan et al. (2020), but those cells barely adapt, whereas Penk+ cells adapt more than Penk⁻ cells, and absolute values are far apart (input resistance 150 vs ~400 MΩ, half-width 1.8 vs ~0.55 ms). The working description is a smaller, narrower-spiking layer 2/3 pyramid that fires a burst and then adapts.</p>
+      </div>
+    </section>
+
+    <section id="events">
+      <h2>2. Calcium event signature</h2>
+      <p class="finding">Penk+ calcium events are longer and rarer, with the same indicator kinetics.</p>
+      <div class="chart-block">
+        <div class="chart-head">
+          <span class="chart-title" id="ev-title">Animal medians over cell spread</span>
+          <div class="seg" role="group" aria-label="Event measure" id="ev-seg"></div>
+        </div>
+        <div id="plot-ev" class="plot" role="img" aria-labelledby="ev-title"></div>
+        <p class="caption" id="ev-caption"></p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Metric (animal means)</th><th>Penk+</th><th>Penk⁻CamKII+</th><th>Animal p</th><th>Perm p</th><th>FDR</th><th>CLES</th></tr></thead>
+          <tbody>
+            <tr><td>Event duration (s)</td><td class="num">3.27</td><td class="num">2.63</td><td class="num">0.078</td><td class="num">0.010</td><td class="num">0.061</td><td class="num">0.82</td></tr>
+            <tr><td>Inter-event interval (s)</td><td class="num">30.9</td><td class="num">25.4</td><td class="num">0.040</td><td class="num">0.007</td><td class="num">0.061</td><td class="num">0.86</td></tr>
+            <tr><td>Event decay time (s)</td><td class="num">2.43</td><td class="num">2.00</td><td class="num">0.078</td><td class="num">0.011</td><td class="num">0.061</td><td class="num">0.82</td></tr>
+            <tr><td>Event amplitude (dF/F units)</td><td class="num">4.6</td><td class="num">7.8</td><td class="num">0.026</td><td class="num">0.044</td><td class="num">0.106</td><td class="num">0.11</td></tr>
+            <tr><td>CASCADE spike rate (spikes/s)</td><td class="num">0.13</td><td class="num">0.19</td><td class="num">0.078</td><td class="num">0.063</td><td class="num">0.13</td><td class="num">0.18</td></tr>
+            <tr><td>Event SNR</td><td class="num">11.5</td><td class="num">11.0</td><td class="num">0.57</td><td class="num">0.81</td><td class="num">0.81</td><td class="num">0.39</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="plain">
+        <li><strong>Indicator kinetics are equal.</strong> Isolated small events decay with the same time constant (median 0.31 vs 0.31 s; brightness-matched 0.34 vs 0.35 s), so longer Penk+ events reflect longer firing episodes.</li>
+        <li><strong>Penk+ cells are about twice as bright</strong> at baseline (84 vs 37 raw F), most likely from the different Cre-ON and Cre-OFF constructs.</li>
+        <li><strong>Duration and interval</strong> keep their direction on rate-matched and brightness-matched cells (CLES 0.70–0.82) but lose significance.</li>
+        <li><strong>Amplitude and rate are tied to expression.</strong> The amplitude difference comes from the four brightest Penk+ animals (median amplitude about 1; the other seven overlap Penk⁻CamKII+), and within Penk+ brighter cells get lower inferred rates (ρ = −0.42). "Penk+ cells fire less" is treated as unconfirmed.</li>
+      </ul>
+    </section>
+
+    <section id="running">
+      <h2>3. Running</h2>
+      <p class="finding">Penk+ events happen while the mouse runs and turns; the cells report that the mouse is running, not how fast, and stay active through the run.</p>
+      <div class="chart-block">
+        <div class="chart-head">
+          <span class="chart-title" id="eta-title">Behaviour around calcium event onsets</span>
+          <div class="seg" role="group" aria-label="Behavioural variable" id="eta-seg"></div>
+        </div>
+        <div id="plot-eta" class="plot" role="img" aria-labelledby="eta-title"></div>
+        <p class="caption">Mean over sessions, time 0 = event onset. The vertical offset between groups reflects how fast animals ran in those sessions; the rise around onset is the event-locked part.</p>
+      </div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="dz-title">Speed during events vs each cell's null (z)</span></div>
+          <div id="plot-dz" class="plot" role="img" aria-labelledby="dz-title"></div>
+          <p class="caption" id="dz-caption"></p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head">
+            <span class="chart-title" id="rs-title">Run state vs graded speed</span>
+            <div class="seg" role="group" aria-label="Running measure" id="rs-seg"></div>
+          </div>
+          <div id="plot-rs" class="plot" role="img" aria-labelledby="rs-title"></div>
+          <p class="caption" id="rs-caption"></p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Measure</th><th>Penk+</th><th>Penk⁻CamKII+</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>During-event speed / movement z</td><td class="num">1.8 / 1.9</td><td class="num">1.1 / 1.3</td><td>Penk+ animal Wilcoxon p = 0.001–0.002; between groups CLES 0.77–0.80, ns</td></tr>
+            <tr><td>Cells with significant run-vs-still step</td><td class="num">63 %</td><td class="num">40 %</td><td>CASCADE spikes, Penk+ p = 0.004; dF/F 47 % vs 35 %, Penk+ p = 0.003. Between groups CLES 0.81–0.82, permutation p 0.21–0.24</td></tr>
+            <tr><td>Graded speed correlation while running</td><td class="num">chance</td><td class="num">chance</td><td>neither group encodes speed within runs</td></tr>
+            <tr><td>Early vs late activity within runs</td><td class="num">≈ 0</td><td class="num">≈ 0</td><td>sustained through runs</td></tr>
+            <tr><td>Summed activity vs run length (ρ)</td><td class="num">0.22</td><td class="num">—</td><td>Penk+ animal Wilcoxon p = 0.004</td></tr>
+            <tr><td>Corridor vs junction at matched speed</td><td class="num">≈ 0</td><td class="num">≈ 0</td><td>the corridor bias of event onsets is explained by running</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="prose">
+        <p>Brightness does not explain the running effect: within Penk+ the running index barely tracks baseline fluorescence (ρ = 0.11), and it holds on brightness-matched cells (p = 0.003). Responses aligned to light-on, junction or dead-end entry and movement onset are present in both groups at 9–19 % of cells and do not differ. Egocentric boundary and head-body angle tuning are near chance in both.</p>
+      </div>
+    </section>
+
+    <section id="light">
+      <h2>4. Light coupling</h2>
+      <p class="finding">Penk⁻CamKII+ activity follows the room lights more closely; all six measures lean the same way, none significant alone after FDR.</p>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="lt-title">Population response to light switches (both groups pooled)</span></div>
+          <div id="plot-lt" class="plot" role="img" aria-labelledby="lt-title"></div>
+          <p class="caption">The source table is not split by cell type, so this shows the shared response only.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head">
+            <span class="chart-title" id="la-title">Per-animal light responses</span>
+            <div class="seg" role="group" aria-label="Light measure" id="la-seg"></div>
+          </div>
+          <div id="plot-la" class="plot" role="img" aria-labelledby="la-title"></div>
+          <p class="caption" id="la-caption"></p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Measure</th><th>Penk+</th><th>Penk⁻CamKII+</th><th>Animal p</th><th>Perm p</th><th>CLES</th></tr></thead>
+          <tbody>
+            <tr><td>Event onsets in light (z)</td><td class="num">0.53</td><td class="num">1.12</td><td class="num">0.026</td><td class="num">0.042</td><td class="num">0.11</td></tr>
+            <tr><td>Stationary-light mean dF/F</td><td class="num">0.085</td><td class="num">0.188</td><td class="num">0.010</td><td class="num">0.014</td><td class="num">0.07</td></tr>
+            <tr><td>Light modulation index</td><td class="num">0.097</td><td class="num">0.195</td><td class="num">0.056</td><td class="num">0.27</td><td class="num">0.16</td></tr>
+            <tr><td>Light-on late response (dF/F)</td><td class="num">0.053</td><td class="num">0.155</td><td class="num">0.056</td><td class="num">0.094</td><td class="num">0.16</td></tr>
+            <tr><td>Light-off early response (dF/F)</td><td class="num">−0.031</td><td class="num">−0.096</td><td class="num">0.078</td><td class="num">0.135</td><td class="num">0.82</td></tr>
+            <tr><td>Loss of speed-matched AHV depth in dark</td><td class="num">−0.03</td><td class="num">−0.18</td><td class="num">0.018</td><td class="num">0.058</td><td class="num">0.91</td></tr>
+            <tr><td>GLM light share (dF/F, descriptive)</td><td class="num">0.25</td><td class="num">0.39</td><td class="num">0.026</td><td class="num">0.12</td><td class="num">0.11</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">For the light-off and AHV-loss rows, CLES above 0.5 means a smaller change in Penk+. Light-on and light-off responses come from the same transitions.</p>
+    </section>
+
+    <section id="composites">
+      <h2>5. Composite scores</h2>
+      <p class="finding">Averaging ranks across measures, both differences reach p &lt; 0.05 at the animal level, with every measure leaning the same way.</p>
+      <div class="chart-block">
+        <div class="chart-head">
+          <span class="chart-title" id="cp-title">Composite rank per animal (higher = more coupled)</span>
+          <div class="seg" role="group" aria-label="Composite" id="cp-seg"></div>
+        </div>
+        <div id="plot-cp" class="plot tall" role="img" aria-labelledby="cp-title"></div>
+        <p class="caption" id="cp-caption"></p>
+      </div>
+      <div class="prose">
+        <p>For each measure the animal median is oriented so that higher means more coupled, ranked across the 15 animals, and averaged. The two composites are uncorrelated across animals (ρ = −0.08), so they describe separate properties, and both directions hold within each equipment configuration. With a Bonferroni correction for two composites, permutation p is 0.074 (running) and 0.018 (light). The definitions are now fixed for testing in new animals.</p>
+      </div>
+    </section>
+
+    <section id="nulls">
+      <h2>6. What does not differ</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Analysis</th><th>Result</th></tr></thead>
+          <tbody>
+            <tr><td>Head-direction tuning (MVL, width, visual dependence, HD-cell fraction)</td><td>no difference, all p &gt; 0.17</td></tr>
+            <tr><td>Population HD decoding, 8 cells per session</td><td>at chance in both (median error 89° vs 87°)</td></tr>
+            <tr><td>Ring topology of population activity</td><td>angle–HD correlation ≈ 0 in both</td></tr>
+            <tr><td>Poisson encoding models (HD, AHV, speed, position, light)</td><td>held-out deviance explained ≈ 0 in both</td></tr>
+            <tr><td>Movement onset/offset dynamics</td><td>p &gt; 0.49</td></tr>
+            <tr><td>Behavioural syllable information</td><td>0.058 vs 0.045 bits, p = 0.41</td></tr>
+            <tr><td>Junction-choice decoding, place information, familiarity</td><td>null in both</td></tr>
+            <tr><td>Egocentric boundary and head-body angle tuning</td><td>near chance in both</td></tr>
+            <tr><td>Slow drift and temporal context</td><td>present in about 35 % of cells in both; no difference</td></tr>
+            <tr><td>Population coupling, noise correlations</td><td>lean Penk+ (CLES 0.73–0.77), p ≥ 0.09</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">One heterogeneity result survives removal of animal means: Penk+ cells are more dispersed in feature space within animals (dispersion ratio 0.80, p = 0.003), the opposite of the expectation that a single transcriptomic type would be the more compact population.</p>
+    </section>
+
+    <section id="interpretation">
+      <h2>Interpretation</h2>
+      <ul class="plain">
+        <li><strong>Penk+ as a sparse, sustained run-state population.</strong> Seconds-long events that coincide with running, follow the run/still state and persist through a run fit cells that report "the animal is running" rather than a continuous variable. A 3 s event is about the length of one corridor run.</li>
+        <li><strong>Penk⁻CamKII+ as more visually coupled.</strong> This fits a mixture of excitatory types that includes cells receiving visual or landmark input, as reported for dysgranular RSP (Jacob et al. 2017). Because the composites were defined post hoc and the groups were labelled with different constructs, this is a lead to confirm.</li>
+        <li><strong>Burst firing and enkephalin (speculative).</strong> Burst-then-adapt firing produces clustered spikes at the start of a drive, the mode generally needed for neuropeptide release, so Penk+ cells could release enkephalin during runs. Nothing here measures peptide release.</li>
+      </ul>
+    </section>
+
+    <section id="limits">
+      <h2>Limitations</h2>
+      <ul class="plain">
+        <li>11 vs 4 animals; most between-group results lean consistently without being significant alone.</li>
+        <li>Different constructs (Cre-ON vs Cre-OFF) and a twofold brightness difference; amplitude, inferred rate and the light composite are not controlled for construct.</li>
+        <li>Ex vivo cell types come from largely separate mice (effectively 5 vs 2).</li>
+        <li>CASCADE was trained on other cell types; inferred rates partly track brightness.</li>
+        <li>Composites are exploratory, and some measures share data (light-on/off from the same transitions; speed and movement during the same events).</li>
+        <li>Running and visual flow are confounded in a freely moving animal.</li>
+        <li>The overhead image is assumed unmirrored; only left/right labels depend on this, no group comparison does.</li>
+        <li>The mixed-model level of reporting was not computed (statsmodels not installed). Imaging depth and anterior–posterior position are not recorded per session.</li>
+      </ul>
+    </section>
+
+    <section id="next">
+      <h2>Next steps</h2>
+      <ol class="plain">
+        <li>Image more Penk⁻CamKII+ animals and apply the two fixed composites as the confirmatory test.</li>
+        <li>Record Penk+ and Penk⁻ cells in the same slices to separate cell type from mouse.</li>
+        <li>Head-fixed treadmill imaging with controlled visual flow, to separate running from optic flow and light.</li>
+        <li>Construct-matched labelling (same promoter and indicator, or dual colour in one animal) to remove the brightness confound.</li>
+      </ol>
+    </section>
+
+    <section id="methods">
+      <h2>Methods and references</h2>
+      <details>
+        <summary>Where each analysis lives</summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Analysis</th><th>Code</th><th>Runner</th></tr></thead>
+            <tbody>
+              <tr><td>Event kinetics, feature table</td><td class="path">hm2p.analysis.cell_features</td><td class="path">run_celltype_programme.py h2</td></tr>
+              <tr><td>Indicator and expression controls</td><td class="path">hm2p.analysis.indicator_controls</td><td class="path">run_celltype_programme.py ctl</td></tr>
+              <tr><td>Light transitions</td><td class="path">hm2p.analysis.transitions</td><td class="path">run_celltype_programme.py h5</td></tr>
+              <tr><td>Event-triggered behaviour</td><td class="path">hm2p.analysis.event_triggered_behaviour</td><td class="path">run_celltype_programme.py etb</td></tr>
+              <tr><td>Corridor vs running</td><td class="path">hm2p.analysis.location_running</td><td class="path">run_celltype_programme.py locrun</td></tr>
+              <tr><td>Running-coding shape</td><td class="path">hm2p.analysis.running_coding</td><td class="path">run_celltype_programme.py runshape</td></tr>
+              <tr><td>Egocentric coding</td><td class="path">hm2p.analysis.egocentric</td><td class="path">run_celltype_programme.py ego</td></tr>
+              <tr><td>Temporal context</td><td class="path">hm2p.analysis.temporal_context</td><td class="path">run_celltype_programme.py tctx</td></tr>
+              <tr><td>Composite scores</td><td>—</td><td class="path">run_celltype_composites.py</td></tr>
+              <tr><td>Ex vivo adaptation</td><td class="path">hm2p.patching.adaptation</td><td class="path">run_patching_adaptation.py</td></tr>
+              <tr><td>Animal-level statistics, LOAO</td><td class="path">hm2p.analysis.mixed_stats</td><td>all runners</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="caption">Full log of tests and decisions: <span class="path">docs/plan-penk-vs-nonpenk.md</span>. This page is built by <span class="path">scripts/build_penk_report_html.py</span> from <span class="path">docs/figures/penk/data/</span>.</p>
+      </details>
+      <details>
+        <summary>References</summary>
+        <div>
+          <ul class="plain refs">
+            <li>Brennan EKW, Sudhakar SK, Jedrasiak-Cape I, John TT, Ahmed OJ. 2020. "Hyperexcitable Neurons Enable Precise and Persistent Information Encoding in the Superficial Retrosplenial Cortex." Cell Reports 30:1598–1612. doi:10.1016/j.celrep.2019.12.093</li>
+            <li>Jacob PY, Casali G, Spieser L, Page H, Overington D, Jeffery K. 2017. "An independent, landmark-dominated head-direction signal in dysgranular retrosplenial cortex." Nature Neuroscience 20:173–175. doi:10.1038/nn.4465</li>
+            <li>Rupprecht P et al. 2021. "A database and deep learning toolbox for noise-optimized, generalized spike inference from calcium imaging." Nature Neuroscience 24:1324–1337. doi:10.1038/s41593-021-00895-5</li>
+            <li>Rubin A, Geva N, Sheintuch L, Ziv Y. 2015. "Hippocampal ensemble dynamics timestamp events in long-term memory." eLife 4:e12247. doi:10.7554/eLife.12247</li>
+            <li>Okun M et al. 2015. "Diverse coupling of neurons to populations in sensory cortex." Nature 521:511–515. doi:10.1038/nature14273</li>
+            <li>Chaudhuri R, Gerçek B, Pandey B, Peyrache A, Fiete I. 2019. "The intrinsic attractor manifold and population dynamics of a canonical cognitive circuit across waking and sleep." Nature Neuroscience 22:1512–1520. doi:10.1038/s41593-019-0460-x</li>
+            <li>Rosenberg M, Zhang T, Perona P, Meister M. 2021. "Mice in a labyrinth show rapid learning, sudden insight, and efficient exploration." eLife 10:e66175. doi:10.7554/eLife.66175</li>
+          </ul>
+        </div>
+      </details>
+    </section>
+
+    <footer>Generated from the hm2p repository. Numbers in tables come from the analysis programme reports; charts are recomputed from animal medians.</footer>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly-basic.min.js"></script>
+<script>
+const DATA = {"composites":{"panels":{"running":{"animals":[{"animal_id":"1114353","celltype":"penk","value":4.75,"n":4},{"animal_id":"1114356","celltype":"penk","value":10.75,"n":4},{"animal_id":"1115464","celltype":"penk","value":11.8,"n":5},{"animal_id":"1115465","celltype":"penk","value":13.8,"n":5},{"animal_id":"1115816","celltype":"penk","value":10.2,"n":5},{"animal_id":"1116663","celltype":"penk","value":8.8,"n":5},{"animal_id":"1116994","celltype":"penk","value":12.0,"n":5},{"animal_id":"1117217","celltype":"nonpenk","value":5.4,"n":5},{"animal_id":"1117646","celltype":"nonpenk","value":5.0,"n":5},{"animal_id":"1117788","celltype":"nonpenk","value":7.0,"n":5},{"animal_id":"1118018","celltype":"penk","value":6.2,"n":5},{"animal_id":"1118020","celltype":"penk","value":8.0,"n":5},{"animal_id":"1118023","celltype":"penk","value":1.2,"n":5},{"animal_id":"1118213","celltype":"nonpenk","value":2.4,"n":5},{"animal_id":"1118320","celltype":"penk","value":10.0,"n":5}],"per_measure_ranks":[{"animal_id":"1114353","celltype":"penk","measure":"R1_movement_modulation","rank":6.0},{"animal_id":"1114356","celltype":"penk","measure":"R1_movement_modulation","rank":9.0},{"animal_id":"1115464","celltype":"penk","measure":"R1_movement_modulation","rank":5.0},{"animal_id":"1115465","celltype":"penk","measure":"R1_movement_modulation","rank":13.0},{"animal_id":"1115816","celltype":"penk","measure":"R1_movement_modulation","rank":15.0},{"animal_id":"1116663","celltype":"penk","measure":"R1_movement_modulation","rank":12.0},{"animal_id":"1116994","celltype":"penk","measure":"R1_movement_modulation","rank":10.0},{"animal_id":"1117217","celltype":"nonpenk","measure":"R1_movement_modulation","rank":4.0},{"animal_id":"1117646","celltype":"nonpenk","measure":"R1_movement_modulation","rank":3.0},{"animal_id":"1117788","celltype":"nonpenk","measure":"R1_movement_modulation","rank":8.0},{"animal_id":"1118018","celltype":"penk","measure":"R1_movement_modulation","rank":11.0},{"animal_id":"1118020","celltype":"penk","measure":"R1_movement_modulation","rank":7.0},{"animal_id":"1118023","celltype":"penk","measure":"R1_movement_modulation","rank":1.0},{"animal_id":"1118213","celltype":"nonpenk","measure":"R1_movement_modulation","rank":2.0},{"animal_id":"1118320","celltype":"penk","measure":"R1_movement_modulation","rank":14.0},{"animal_id":"1114353","celltype":"penk","measure":"R2_fast_vs_slow_corridor","rank":7.0},{"animal_id":"1114356","celltype":"penk","measure":"R2_fast_vs_slow_corridor","rank":12.0},{"animal_id":"1115464","celltype":"penk","measure":"R2_fast_vs_slow_corridor","rank":15.0},{"animal_id":"1115465","celltype":"penk","measure":"R2_fast_vs_slow_corridor","rank":13.0},{"animal_id":"1115816","celltype":"penk","measure":"R2_fast_vs_slow_corridor","rank":4.0},{"animal_id":"1116663","celltype":"penk","measure":"R2_fast_vs_slow_corridor","rank":5.0},{"animal_id":"1116994","celltype":"penk","measure":"R2_fast_vs_slow_corridor","rank":14.0},{"animal_id":"1117217","celltype":"nonpenk","measure":"R2_fast_vs_slow_corridor","rank":9.0},{"animal_id":"1117646","celltype":"nonpenk","measure":"R2_fast_vs_slow_corridor","rank":3.0},{"animal_id":"1117788","celltype":"nonpenk","measure":"R2_fast_vs_slow_corridor","rank":8.0},{"animal_id":"1118018","celltype":"penk","measure":"R2_fast_vs_slow_corridor","rank":6.0},{"animal_id":"1118020","celltype":"penk","measure":"R2_fast_vs_slow_corridor","rank":10.0},{"animal_id":"1118023","celltype":"penk","measure":"R2_fast_vs_slow_corridor","rank":2.0},{"animal_id":"1118213","celltype":"nonpenk","measure":"R2_fast_vs_slow_corridor","rank":1.0},{"animal_id":"1118320","celltype":"penk","measure":"R2_fast_vs_slow_corridor","rank":11.0},{"animal_id":"1114353","celltype":"penk","measure":"R3_speed_during_events","rank":4.0},{"animal_id":"1114356","celltype":"penk","measure":"R3_speed_during_events","rank":10.0},{"animal_id":"1115464","celltype":"penk","measure":"R3_speed_during_events","rank":14.0},{"animal_id":"1115465","celltype":"penk","measure":"R3_speed_during_events","rank":15.0},{"animal_id":"1115816","celltype":"penk","measure":"R3_speed_during_events","rank":12.0},{"animal_id":"1116663","celltype":"penk","measure":"R3_speed_during_events","rank":8.0},{"animal_id":"1116994","celltype":"penk","measure":"R3_speed_during_events","rank":13.0},{"animal_id":"1117217","celltype":"nonpenk","measure":"R3_speed_during_events","rank":5.0},{"animal_id":"1117646","celltype":"nonpenk","measure":"R3_speed_during_events","rank":6.0},{"animal_id":"1117788","celltype":"nonpenk","measure":"R3_speed_during_events","rank":7.0},{"animal_id":"1118018","celltype":"penk","measure":"R3_speed_during_events","rank":2.0},{"animal_id":"1118020","celltype":"penk","measure":"R3_speed_during_events","rank":9.0},{"animal_id":"1118023","celltype":"penk","measure":"R3_speed_during_events","rank":1.0},{"animal_id":"1118213","celltype":"nonpenk","measure":"R3_speed_during_events","rank":3.0},{"animal_id":"1118320","celltype":"penk","measure":"R3_speed_during_events","rank":11.0},{"animal_id":"1114353","celltype":"penk","measure":"R4_moving_during_events","rank":2.0},{"animal_id":"1114356","celltype":"penk","measure":"R4_moving_during_events","rank":12.0},{"animal_id":"1115464","celltype":"penk","measure":"R4_moving_during_events","rank":14.0},{"animal_id":"1115465","celltype":"penk","measure":"R4_moving_during_events","rank":15.0},{"animal_id":"1115816","celltype":"penk","measure":"R4_moving_during_events","rank":8.0},{"animal_id":"1116663","celltype":"penk","measure":"R4_moving_during_events","rank":11.0},{"animal_id":"1116994","celltype":"penk","measure":"R4_moving_during_events","rank":13.0},{"animal_id":"1117217","celltype":"nonpenk","measure":"R4_moving_during_events","rank":4.0},{"animal_id":"1117646","celltype":"nonpenk","measure":"R4_moving_during_events","rank":9.0},{"animal_id":"1117788","celltype":"nonpenk","measure":"R4_moving_during_events","rank":6.0},{"animal_id":"1118018","celltype":"penk","measure":"R4_moving_during_events","rank":10.0},{"animal_id":"1118020","celltype":"penk","measure":"R4_moving_during_events","rank":7.0},{"animal_id":"1118023","celltype":"penk","measure":"R4_moving_during_events","rank":1.0},{"animal_id":"1118213","celltype":"nonpenk","measure":"R4_moving_during_events","rank":3.0},{"animal_id":"1118320","celltype":"penk","measure":"R4_moving_during_events","rank":5.0},{"animal_id":"1115464","celltype":"penk","measure":"R5_run_vs_still_step","rank":11.0},{"animal_id":"1115465","celltype":"penk","measure":"R5_run_vs_still_step","rank":13.0},{"animal_id":"1115816","celltype":"penk","measure":"R5_run_vs_still_step","rank":12.0},{"animal_id":"1116663","celltype":"penk","measure":"R5_run_vs_still_step","rank":8.0},{"animal_id":"1116994","celltype":"penk","measure":"R5_run_vs_still_step","rank":10.0},{"animal_id":"1117217","celltype":"nonpenk","measure":"R5_run_vs_still_step","rank":5.0},{"animal_id":"1117646","celltype":"nonpenk","measure":"R5_run_vs_still_step","rank":4.0},{"animal_id":"1117788","celltype":"nonpenk","measure":"R5_run_vs_still_step","rank":6.0},{"animal_id":"1118018","celltype":"penk","measure":"R5_run_vs_still_step","rank":2.0},{"animal_id":"1118020","celltype":"penk","measure":"R5_run_vs_still_step","rank":7.0},{"animal_id":"1118023","celltype":"penk","measure":"R5_run_vs_still_step","rank":1.0},{"animal_id":"1118213","celltype":"nonpenk","measure":"R5_run_vs_still_step","rank":3.0},{"animal_id":"1118320","celltype":"penk","measure":"R5_run_vs_still_step","rank":9.0}],"stats":{"higher_group":"penk","n_higher":11,"n_lower":4,"median_higher":10.0,"median_lower":5.2,"mwu_p_one_sided":0.03882783882783883,"cles":0.8181818181818182,"perm_diff":3.913636363636366,"perm_p_one_sided":0.03736263736263736,"n_assignments":1365,"loao_direction_stable":true,"measures_used":["R1_movement_modulation","R2_fast_vs_slow_corridor","R3_speed_during_events","R4_moving_during_events","R5_run_vs_still_step"],"measures_agreeing":5}},"light":{"animals":[{"animal_id":"1114353","celltype":"penk","value":4.75,"n":6},{"animal_id":"1114356","celltype":"penk","value":5.25,"n":6},{"animal_id":"1115464","celltype":"penk","value":5.166666666666667,"n":6},{"animal_id":"1115465","celltype":"penk","value":8.083333333333334,"n":6},{"animal_id":"1115816","celltype":"penk","value":11.166666666666666,"n":6},{"animal_id":"1116663","celltype":"penk","value":12.5,"n":6},{"animal_id":"1116994","celltype":"penk","value":4.25,"n":6},{"animal_id":"1117217","celltype":"nonpenk","value":10.666666666666666,"n":6},{"animal_id":"1117646","celltype":"nonpenk","value":12.333333333333334,"n":6},{"animal_id":"1117788","celltype":"nonpenk","value":11.666666666666666,"n":6},{"animal_id":"1118018","celltype":"penk","value":6.666666666666667,"n":6},{"animal_id":"1118020","celltype":"penk","value":7.833333333333333,"n":6},{"animal_id":"1118023","celltype":"penk","value":2.75,"n":6},{"animal_id":"1118213","celltype":"nonpenk","value":11.0,"n":6},{"animal_id":"1118320","celltype":"penk","value":5.916666666666667,"n":6}],"per_measure_ranks":[{"animal_id":"1114353","celltype":"penk","measure":"L1_events_at_light_on","rank":4.0},{"animal_id":"1114356","celltype":"penk","measure":"L1_events_at_light_on","rank":5.0},{"animal_id":"1115464","celltype":"penk","measure":"L1_events_at_light_on","rank":6.0},{"animal_id":"1115465","celltype":"penk","measure":"L1_events_at_light_on","rank":13.0},{"animal_id":"1115816","celltype":"penk","measure":"L1_events_at_light_on","rank":14.0},{"animal_id":"1116663","celltype":"penk","measure":"L1_events_at_light_on","rank":12.0},{"animal_id":"1116994","celltype":"penk","measure":"L1_events_at_light_on","rank":1.0},{"animal_id":"1117217","celltype":"nonpenk","measure":"L1_events_at_light_on","rank":10.0},{"animal_id":"1117646","celltype":"nonpenk","measure":"L1_events_at_light_on","rank":11.0},{"animal_id":"1117788","celltype":"nonpenk","measure":"L1_events_at_light_on","rank":7.0},{"animal_id":"1118018","celltype":"penk","measure":"L1_events_at_light_on","rank":2.0},{"animal_id":"1118020","celltype":"penk","measure":"L1_events_at_light_on","rank":8.0},{"animal_id":"1118023","celltype":"penk","measure":"L1_events_at_light_on","rank":3.0},{"animal_id":"1118213","celltype":"nonpenk","measure":"L1_events_at_light_on","rank":15.0},{"animal_id":"1118320","celltype":"penk","measure":"L1_events_at_light_on","rank":9.0},{"animal_id":"1114353","celltype":"penk","measure":"L2_light_modulation","rank":4.0},{"animal_id":"1114356","celltype":"penk","measure":"L2_light_modulation","rank":5.0},{"animal_id":"1115464","celltype":"penk","measure":"L2_light_modulation","rank":7.0},{"animal_id":"1115465","celltype":"penk","measure":"L2_light_modulation","rank":12.0},{"animal_id":"1115816","celltype":"penk","measure":"L2_light_modulation","rank":9.0},{"animal_id":"1116663","celltype":"penk","measure":"L2_light_modulation","rank":13.0},{"animal_id":"1116994","celltype":"penk","measure":"L2_light_modulation","rank":1.0},{"animal_id":"1117217","celltype":"nonpenk","measure":"L2_light_modulation","rank":10.0},{"animal_id":"1117646","celltype":"nonpenk","measure":"L2_light_modulation","rank":15.0},{"animal_id":"1117788","celltype":"nonpenk","measure":"L2_light_modulation","rank":14.0},{"animal_id":"1118018","celltype":"penk","measure":"L2_light_modulation","rank":3.0},{"animal_id":"1118020","celltype":"penk","measure":"L2_light_modulation","rank":6.0},{"animal_id":"1118023","celltype":"penk","measure":"L2_light_modulation","rank":2.0},{"animal_id":"1118213","celltype":"nonpenk","measure":"L2_light_modulation","rank":8.0},{"animal_id":"1118320","celltype":"penk","measure":"L2_light_modulation","rank":11.0},{"animal_id":"1114353","celltype":"penk","measure":"L3_lights_on_sustained","rank":8.0},{"animal_id":"1114356","celltype":"penk","measure":"L3_lights_on_sustained","rank":5.0},{"animal_id":"1115464","celltype":"penk","measure":"L3_lights_on_sustained","rank":2.0},{"animal_id":"1115465","celltype":"penk","measure":"L3_lights_on_sustained","rank":7.0},{"animal_id":"1115816","celltype":"penk","measure":"L3_lights_on_sustained","rank":12.0},{"animal_id":"1116663","celltype":"penk","measure":"L3_lights_on_sustained","rank":15.0},{"animal_id":"1116994","celltype":"penk","measure":"L3_lights_on_sustained","rank":1.0},{"animal_id":"1117217","celltype":"nonpenk","measure":"L3_lights_on_sustained","rank":10.0},{"animal_id":"1117646","celltype":"nonpenk","measure":"L3_lights_on_sustained","rank":14.0},{"animal_id":"1117788","celltype":"nonpenk","measure":"L3_lights_on_sustained","rank":13.0},{"animal_id":"1118018","celltype":"penk","measure":"L3_lights_on_sustained","rank":6.0},{"animal_id":"1118020","celltype":"penk","measure":"L3_lights_on_sustained","rank":11.0},{"animal_id":"1118023","celltype":"penk","measure":"L3_lights_on_sustained","rank":4.0},{"animal_id":"1118213","celltype":"nonpenk","measure":"L3_lights_on_sustained","rank":9.0},{"animal_id":"1118320","celltype":"penk","measure":"L3_lights_on_sustained","rank":3.0},{"animal_id":"1114353","celltype":"penk","measure":"L4_lights_off_drop","rank":5.0},{"animal_id":"1114356","celltype":"penk","measure":"L4_lights_off_drop","rank":6.0},{"animal_id":"1115464","celltype":"penk","measure":"L4_lights_off_drop","rank":3.0},{"animal_id":"1115465","celltype":"penk","measure":"L4_lights_off_drop","rank":7.0},{"animal_id":"1115816","celltype":"penk","measure":"L4_lights_off_drop","rank":14.0},{"animal_id":"1116663","celltype":"penk","measure":"L4_lights_off_drop","rank":9.0},{"animal_id":"1116994","celltype":"penk","measure":"L4_lights_off_drop","rank":4.0},{"animal_id":"1117217","celltype":"nonpenk","measure":"L4_lights_off_drop","rank":12.0},{"animal_id":"1117646","celltype":"nonpenk","measure":"L4_lights_off_drop","rank":13.0},{"animal_id":"1117788","celltype":"nonpenk","measure":"L4_lights_off_drop","rank":11.0},{"animal_id":"1118018","celltype":"penk","measure":"L4_lights_off_drop","rank":15.0},{"animal_id":"1118020","celltype":"penk","measure":"L4_lights_off_drop","rank":2.0},{"animal_id":"1118023","celltype":"penk","measure":"L4_lights_off_drop","rank":1.0},{"animal_id":"1118213","celltype":"nonpenk","measure":"L4_lights_off_drop","rank":10.0},{"animal_id":"1118320","celltype":"penk","measure":"L4_lights_off_drop","rank":8.0},{"animal_id":"1114353","celltype":"penk","measure":"L5_ahv_loss_in_dark","rank":4.0},{"animal_id":"1114356","celltype":"penk","measure":"L5_ahv_loss_in_dark","rank":7.0},{"animal_id":"1115464","celltype":"penk","measure":"L5_ahv_loss_in_dark","rank":5.0},{"animal_id":"1115465","celltype":"penk","measure":"L5_ahv_loss_in_dark","rank":6.0},{"animal_id":"1115816","celltype":"penk","measure":"L5_ahv_loss_in_dark","rank":9.0},{"animal_id":"1116663","celltype":"penk","measure":"L5_ahv_loss_in_dark","rank":11.0},{"animal_id":"1116994","celltype":"penk","measure":"L5_ahv_loss_in_dark","rank":15.0},{"animal_id":"1117217","celltype":"nonpenk","measure":"L5_ahv_loss_in_dark","rank":8.0},{"animal_id":"1117646","celltype":"nonpenk","measure":"L5_ahv_loss_in_dark","rank":14.0},{"animal_id":"1117788","celltype":"nonpenk","measure":"L5_ahv_loss_in_dark","rank":12.0},{"animal_id":"1118018","celltype":"penk","measure":"L5_ahv_loss_in_dark","rank":2.0},{"animal_id":"1118020","celltype":"penk","measure":"L5_ahv_loss_in_dark","rank":10.0},{"animal_id":"1118023","celltype":"penk","measure":"L5_ahv_loss_in_dark","rank":3.0},{"animal_id":"1118213","celltype":"nonpenk","measure":"L5_ahv_loss_in_dark","rank":13.0},{"animal_id":"1118320","celltype":"penk","measure":"L5_ahv_loss_in_dark","rank":1.0},{"animal_id":"1114353","celltype":"penk","measure":"L6_glm_light_share","rank":3.5},{"animal_id":"1114356","celltype":"penk","measure":"L6_glm_light_share","rank":3.5},{"animal_id":"1115464","celltype":"penk","measure":"L6_glm_light_share","rank":8.0},{"animal_id":"1115465","celltype":"penk","measure":"L6_glm_light_share","rank":3.5},{"animal_id":"1115816","celltype":"penk","measure":"L6_glm_light_share","rank":9.0},{"animal_id":"1116663","celltype":"penk","measure":"L6_glm_light_share","rank":15.0},{"animal_id":"1116994","celltype":"penk","measure":"L6_glm_light_share","rank":3.5},{"animal_id":"1117217","celltype":"nonpenk","measure":"L6_glm_light_share","rank":14.0},{"animal_id":"1117646","celltype":"nonpenk","measure":"L6_glm_light_share","rank":7.0},{"animal_id":"1117788","celltype":"nonpenk","measure":"L6_glm_light_share","rank":13.0},{"animal_id":"1118018","celltype":"penk","measure":"L6_glm_light_share","rank":12.0},{"animal_id":"1118020","celltype":"penk","measure":"L6_glm_light_share","rank":10.0},{"animal_id":"1118023","celltype":"penk","measure":"L6_glm_light_share","rank":3.5},{"animal_id":"1118213","celltype":"nonpenk","measure":"L6_glm_light_share","rank":11.0},{"animal_id":"1118320","celltype":"penk","measure":"L6_glm_light_share","rank":3.5}],"stats":{"higher_group":"nonpenk","n_higher":4,"n_lower":11,"median_higher":11.333333333333332,"median_lower":5.916666666666667,"mwu_p_one_sided":0.01978021978021978,"cles":0.8636363636363636,"perm_diff":4.659090909090909,"perm_p_one_sided":0.008791208791208791,"n_assignments":1365,"loao_direction_stable":true,"measures_used":["L1_events_at_light_on","L2_light_modulation","L3_lights_on_sustained","L4_lights_off_drop","L5_ahv_loss_in_dark","L6_glm_light_share"],"measures_agreeing":6}}}},"event_kinetics":{"panels":{"ev_mean_duration_s":{"label":"Event duration (s)","animals":[{"animal_id":"1117217","celltype":"nonpenk","value":2.740799999999698,"n":65},{"animal_id":"1117646","celltype":"nonpenk","value":2.27242457002432,"n":28},{"animal_id":"1117788","celltype":"nonpenk","value":2.608301886792165,"n":19},{"animal_id":"1118213","celltype":"nonpenk","value":2.435915294117379,"n":29},{"animal_id":"1114353","celltype":"penk","value":3.601377966101815,"n":19},{"animal_id":"1114356","celltype":"penk","value":3.6886260869561154,"n":29},{"animal_id":"1115464","celltype":"penk","value":3.158943396226068,"n":33},{"animal_id":"1115465","celltype":"penk","value":3.312387878787514,"n":84},{"animal_id":"1115816","celltype":"penk","value":3.2015058823525884,"n":5},{"animal_id":"1116663","celltype":"penk","value":2.8137739130431685,"n":59},{"animal_id":"1116994","celltype":"penk","value":2.202282666666424,"n":11},{"animal_id":"1118018","celltype":"penk","value":2.1047762376235304,"n":3},{"animal_id":"1118020","celltype":"penk","value":2.2770036363633857,"n":19},{"animal_id":"1118023","celltype":"penk","value":2.7179568075114378,"n":32},{"animal_id":"1118320","celltype":"penk","value":3.857989189188764,"n":15}],"cell_quartiles":{"nonpenk":{"n_cells":141,"q25":2.1810022988503346,"median":2.577599999999716,"q75":3.0181966101691597},"penk":{"n_cells":309,"q25":2.4519890410956204,"median":3.077119999999661,"q75":4.031749019607399}},"stats":{"n_penk":11,"n_nonpenk":4,"median_penk":3.158943396226068,"median_nonpenk":2.522108590454772,"cles_penk_gt_nonpenk":0.7272727272727273,"mwu_p_two_sided":0.22564102564102564}},"ev_mean_iei_s":{"label":"Inter-event interval (s)","animals":[{"animal_id":"1117217","celltype":"nonpenk","value":27.02757647058526,"n":65},{"animal_id":"1117646","celltype":"nonpenk","value":23.9014671223487,"n":28},{"animal_id":"1117788","celltype":"nonpenk","value":25.461670175435792,"n":19},{"animal_id":"1118213","celltype":"nonpenk","value":22.88127999999748,"n":29},{"animal_id":"1114353","celltype":"penk","value":36.321962000001214,"n":19},{"animal_id":"1114356","celltype":"penk","value":37.90506666666249,"n":29},{"animal_id":"1115464","celltype":"penk","value":28.15496393442313,"n":33},{"animal_id":"1115465","celltype":"penk","value":31.27045236703338,"n":84},{"animal_id":"1115816","celltype":"penk","value":21.005112195119644,"n":5},{"animal_id":"1116663","celltype":"penk","value":28.660799999996843,"n":59},{"animal_id":"1116994","celltype":"penk","value":27.57197575757272,"n":11},{"animal_id":"1118018","celltype":"penk","value":19.14666666666456,"n":3},{"animal_id":"1118020","celltype":"penk","value":30.405857627115296,"n":19},{"animal_id":"1118023","celltype":"penk","value":25.589112989042565,"n":32},{"animal_id":"1118320","celltype":"penk","value":41.171944186041976,"n":15}],"cell_quartiles":{"nonpenk":{"n_cells":141,"q25":21.9353212121188,"median":25.30318840579432,"q75":29.20518620689333},"penk":{"n_cells":309,"q25":25.31982222221944,"median":30.345710344824248,"q75":37.25579130434373}},"stats":{"n_penk":11,"n_nonpenk":4,"median_penk":28.660799999996843,"median_nonpenk":24.681568648892245,"cles_penk_gt_nonpenk":0.7954545454545454,"mwu_p_two_sided":0.10402930402930403}},"ev_mean_amplitude":{"label":"Event amplitude (dF/F units)","animals":[{"animal_id":"1117217","celltype":"nonpenk","value":7.226956095695495,"n":65},{"animal_id":"1117646","celltype":"nonpenk","value":10.22425796111472,"n":28},{"animal_id":"1117788","celltype":"nonpenk","value":6.303903245214206,"n":19},{"animal_id":"1118213","celltype":"nonpenk","value":7.475154947351526,"n":29},{"animal_id":"1114353","celltype":"penk","value":1.005724235966399,"n":19},{"animal_id":"1114356","celltype":"penk","value":1.3911882119301038,"n":29},{"animal_id":"1115464","celltype":"penk","value":1.0351411995261606,"n":33},{"animal_id":"1115465","celltype":"penk","value":0.9167982070740949,"n":84},{"animal_id":"1115816","celltype":"penk","value":8.033935937811346,"n":5},{"animal_id":"1116663","celltype":"penk","value":8.02182515699472,"n":59},{"animal_id":"1116994","celltype":"penk","value":5.557161515409296,"n":11},{"animal_id":"1118018","celltype":"penk","value":4.559553662149033,"n":3},{"animal_id":"1118020","celltype":"penk","value":4.332403160955595,"n":19},{"animal_id":"1118023","celltype":"penk","value":6.199690083354723,"n":32},{"animal_id":"1118320","celltype":"penk","value":7.216589262750413,"n":15}],"cell_quartiles":{"nonpenk":{"n_cells":141,"q25":5.866566205428819,"median":7.75192293786166,"q75":9.561965837317},"penk":{"n_cells":309,"q25":0.833330582996661,"median":1.849787917293486,"q75":6.280923654784018}},"stats":{"n_penk":11,"n_nonpenk":4,"median_penk":4.559553662149033,"median_nonpenk":7.35105552152351,"cles_penk_gt_nonpenk":0.1590909090909091,"mwu_p_two_sided":0.055677655677655674}},"iso_decay_s":{"label":"Isolated small-event decay (s)","animals":[{"animal_id":"1117217","celltype":"nonpenk","value":0.3071999999999661,"n":65},{"animal_id":"1117646","celltype":"nonpenk","value":0.2047999999999774,"n":28},{"animal_id":"1117788","celltype":"nonpenk","value":0.2047999999999774,"n":19},{"animal_id":"1118213","celltype":"nonpenk","value":0.4095999999999549,"n":29},{"animal_id":"1114353","celltype":"penk","value":0.6740500000000225,"n":19},{"animal_id":"1114356","celltype":"penk","value":0.3071999999999661,"n":28},{"animal_id":"1115464","celltype":"penk","value":0.4095999999999549,"n":33},{"animal_id":"1115465","celltype":"penk","value":0.4095999999999549,"n":84},{"animal_id":"1115816","celltype":"penk","value":0.17919999999998026,"n":4},{"animal_id":"1116663","celltype":"penk","value":0.3071999999999661,"n":59},{"animal_id":"1116994","celltype":"penk","value":0.2047999999999774,"n":11},{"animal_id":"1118018","celltype":"penk","value":0.3071999999999661,"n":3},{"animal_id":"1118020","celltype":"penk","value":0.2559999999999718,"n":19},{"animal_id":"1118023","celltype":"penk","value":0.43519999999995207,"n":32},{"animal_id":"1118320","celltype":"penk","value":0.3071999999999661,"n":15}],"cell_quartiles":{"nonpenk":{"n_cells":141,"q25":0.2047999999999774,"median":0.3071999999999661,"q75":0.4148000000000139},"penk":{"n_cells":307,"q25":0.2559999999999718,"median":0.3101999999998952,"q75":0.5119999999999436}},"stats":{"n_penk":11,"n_nonpenk":4,"median_penk":0.3071999999999661,"median_nonpenk":0.25599999999997175,"cles_penk_gt_nonpenk":0.6363636363636364,"mwu_p_two_sided":0.4612898348772225}},"f_baseline":{"label":"Baseline fluorescence (raw F)","animals":[{"animal_id":"1117217","celltype":"nonpenk","value":30.082362174987797,"n":65},{"animal_id":"1117646","celltype":"nonpenk","value":56.31331253051758,"n":28},{"animal_id":"1117788","celltype":"nonpenk","value":14.859393310546876,"n":19},{"animal_id":"1118213","celltype":"nonpenk","value":56.36461296081543,"n":29},{"animal_id":"1114353","celltype":"penk","value":121.87382049560549,"n":19},{"animal_id":"1114356","celltype":"penk","value":107.5871925354004,"n":29},{"animal_id":"1115464","celltype":"penk","value":103.44176025390624,"n":33},{"animal_id":"1115465","celltype":"penk","value":109.9597827911377,"n":84},{"animal_id":"1115816","celltype":"penk","value":72.31168365478516,"n":5},{"animal_id":"1116663","celltype":"penk","value":72.64658279418946,"n":59},{"animal_id":"1116994","celltype":"penk","value":30.27762470245361,"n":11},{"animal_id":"1118018","celltype":"penk","value":11.547731018066406,"n":3},{"animal_id":"1118020","celltype":"penk","value":15.125096607208253,"n":19},{"animal_id":"1118023","celltype":"penk","value":54.20247192382813,"n":32},{"animal_id":"1118320","celltype":"penk","value":19.735373878479,"n":15}],"cell_quartiles":{"nonpenk":{"n_cells":141,"q25":25.799113273620605,"median":36.92496566772461,"q75":53.43296127319336},"penk":{"n_cells":309,"q25":52.26168670654297,"median":84.06005783081055,"q75":120.8240852355957}},"stats":{"n_penk":11,"n_nonpenk":4,"median_penk":72.31168365478516,"median_nonpenk":43.197837352752686,"cles_penk_gt_nonpenk":0.6818181818181818,"mwu_p_two_sided":0.34285714285714286}}}},"running_around_events":{"timecourses":{"speed_cm_s":{"time_s":[-5.0,-4.9,-4.8,-4.7,-4.6,-4.5,-4.4,-4.3,-4.2,-4.1,-4.0,-3.9,-3.8,-3.7,-3.6,-3.5,-3.4,-3.3,-3.2,-3.1,-3.0,-2.9,-2.8,-2.7,-2.6,-2.5,-2.4,-2.3,-2.2,-2.1,-2.0,-1.9,-1.8,-1.7,-1.6,-1.5,-1.4,-1.3,-1.2,-1.1,-1.0,-0.9,-0.8,-0.7,-0.6,-0.5,-0.4,-0.3,-0.2,-0.1,-0.0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0,2.1,2.2,2.3,2.4,2.5,2.6,2.7,2.8,2.9,3.0,3.1,3.2,3.3,3.4,3.5,3.6,3.7,3.8,3.9,4.0,4.1,4.2,4.3,4.4,4.5,4.6,4.7,4.8,4.9,5.0],"mean_by_celltype":{"penk":[4.6948594332372195,4.70634986538216,4.72714335823128,4.7280961750080985,4.6318624161620106,4.647808009612571,4.738946293195463,4.718222797668889,4.722427002260093,4.7041701180329145,4.743169758701082,4.715276888885594,4.733091228691203,4.785989960971505,4.727267115142698,4.719139376867804,4.798600267543894,4.714941396850281,4.675526404720771,4.759981413217978,4.711846436437983,4.797447025799457,4.844716825910116,4.905225962617987,4.871140720003784,4.871920548489041,4.906777707041507,4.944647738366651,4.914549098778796,4.936571587851826,4.931067647650032,4.897866822671492,4.895787134048222,4.950798219758595,5.02213875756201,5.000184222535474,4.963879469148766,4.957645857482806,4.946209635968507,4.952956444000648,5.02087017760264,5.060989297397409,5.04823678360748,4.97261044196298,5.051263139034537,5.130928901512948,5.203203371750583,5.22231634874345,5.239004387849746,5.350181048330467,5.41030411989078,5.430673943696831,5.325155558194573,5.347786797539076,5.312126390079301,5.2239256321107055,5.2402172860414,5.235118793006503,5.1400294024246245,5.054025347180048,4.982360993888815,5.0236875226942,5.0768306331593065,5.0725348325355135,4.9995245935886565,5.011561519984421,4.997925188752121,4.951210873939795,4.921635132603268,4.927251879831877,4.860281059639177,4.7969577622005355,4.919460699270299,4.967955287674607,5.011403198169555,5.007311057617977,4.968030801114495,4.939368910580882,4.912181991715074,4.9187729437938215,4.841301922002407,4.8464557806423425,4.88995556447158,4.7901201785853855,4.772647341334889,4.765979980744733,4.825924543067503,4.886111119417492,4.8943702832454035,4.914356002655842,4.902376854790299,4.858621962291803,4.836910454896024,4.850150104138716,4.7941931524391155,4.7565626524824225,4.734524067268057,4.838068976512207,4.790815899863595,4.865129973706558,null],"nonpenk":[5.320735364320844,5.268044292041322,5.271570177549692,5.262500045530657,5.321650640148822,4.995987608968909,5.13442050815189,5.2202910741541455,5.2416995536134285,5.3314668634576154,5.272910540899981,5.252796001186295,5.158514543691306,5.271283480572994,5.41097196391385,5.399082322752441,5.243959658848587,5.315444862772922,5.402250892932043,5.415048912062472,5.505151406761124,5.488735714864927,5.508126471972096,5.497101278314652,5.4528604382648584,5.4446453502028955,5.405711271959376,5.3899799042970615,5.480753807444074,5.4541630891387225,5.424338409650794,5.527530627888928,5.55658110305678,5.5183118695829005,5.473592253190879,5.516077748996248,5.545378736038131,5.5370468206895,5.51795586895461,5.53480520403469,5.625290224347649,5.632729602473958,5.635690335594766,5.719881464225514,5.708184838253318,5.733197329168509,5.741963807053463,5.887373773851768,5.92751692455674,6.010864471711925,5.832795577912135,5.8111989216124735,6.068462380607818,5.999690180568421,5.9744396055497235,5.915251056570697,5.882025221162637,5.663300662974708,5.815145331008919,5.855297224659992,5.767922911293036,5.666512043166484,5.664518374411057,5.668204507795301,5.541537008616224,5.515817814567014,5.599150888277799,5.715260720192715,5.7393411739016384,5.680464322102376,5.614869224664193,5.62169682179034,5.6506290578149185,5.634944779997196,5.678336384628715,5.666150359594931,5.564773871538406,5.52295641081598,5.649974398798827,5.689068387831158,5.535775257614968,5.515634844156494,5.6832324990036485,5.601823365888675,5.512347592875758,5.520027681679278,5.545554526789514,5.52331844923539,5.536513943024105,5.460349514921681,5.373472446227173,5.449381246660442,5.50725823379065,5.46027036542659,5.533503119345775,5.57461845328592,5.449928890635731,5.584723993415139,5.446568572310847,5.566782794243225,null]},"n_sessions":{"penk":16,"nonpenk":7}},"abs_ahv":{"time_s":[-5.0,-4.9,-4.8,-4.7,-4.6,-4.5,-4.4,-4.3,-4.2,-4.1,-4.0,-3.9,-3.8,-3.7,-3.6,-3.5,-3.4,-3.3,-3.2,-3.1,-3.0,-2.9,-2.8,-2.7,-2.6,-2.5,-2.4,-2.3,-2.2,-2.1,-2.0,-1.9,-1.8,-1.7,-1.6,-1.5,-1.4,-1.3,-1.2,-1.1,-1.0,-0.9,-0.8,-0.7,-0.6,-0.5,-0.4,-0.3,-0.2,-0.1,-0.0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0,2.1,2.2,2.3,2.4,2.5,2.6,2.7,2.8,2.9,3.0,3.1,3.2,3.3,3.4,3.5,3.6,3.7,3.8,3.9,4.0,4.1,4.2,4.3,4.4,4.5,4.6,4.7,4.8,4.9,5.0],"mean_by_celltype":{"penk":[204.16887277876134,193.50211264220945,192.92849239453864,194.5483630617274,198.4077335856342,200.33410446285234,201.004361000613,199.21800098698168,192.77094809821534,196.50284407771068,195.3194879889597,200.48148154353473,201.041120584274,199.18009974482524,195.8831172962889,196.6189945817152,198.96368179154908,195.10833667941924,196.83235752254976,199.51671606457063,201.16100834562698,196.4400836830968,194.72877967143,193.02057691124776,194.3597918380006,195.64244114623358,195.3970264320029,203.69241704208721,206.8940012210022,202.4034858470645,200.1363773389284,199.06593572930427,200.1067738238144,202.82591404440495,205.9606036377692,206.57949123269546,203.64793472065264,203.2005572138556,203.60699512913675,202.85067859193038,199.216071062639,194.5799885465827,197.37801419085366,198.1126967731611,201.4939620602352,202.06054744822038,207.3061856423225,214.07094098757764,209.35926422683946,212.59791206620042,202.6209035929787,209.9960870618212,205.49599266970432,209.31001162566056,204.87446732242987,205.97337557704085,211.47051691826766,208.15595929418444,208.35676882133936,206.70563813374412,201.2535008499647,199.17741428267846,200.15582664529327,198.67701408350257,198.8336338007262,199.2372621376332,199.96651636706804,202.41014667114754,202.52648911343812,202.945284738304,200.34160236373444,199.01521652619118,197.44771448369937,196.8576156921794,195.54151952788672,198.77660075305727,202.30957676975203,200.79082889073814,197.53708727644448,195.12155181809848,194.66214435649016,196.54529821857196,197.0165853088062,200.6031547815739,195.29816643534025,194.91194466403684,192.20603893375784,193.88728280907804,196.34071595438922,196.8570455482104,195.64514634654995,196.4210545397642,198.6046373198411,201.60193608330874,204.28479641677302,202.83910865601553,203.8588071013231,204.89695865066608,201.8182855521304,211.5844798291094,null],"nonpenk":[215.67949680453626,212.15127782069567,216.60300679547262,212.5199789849417,217.97813369497865,212.99409605246592,219.32780764125621,225.06397579342425,215.64693437049735,211.7380073664615,210.7895938591055,223.67496370507405,213.1066894433455,206.03616547783488,209.0915204247155,208.45300582159743,209.78703869941134,212.46041067259074,207.3858771028931,210.89311168218887,213.86331210776157,211.55227734202398,213.0746675318347,215.08523627827188,213.86454720525376,206.58696275440238,207.52386575280318,213.7585588470909,214.8054934457245,215.5531362577722,216.93593929048782,215.73261893761523,214.88480864263852,214.37017733568078,213.50304968373754,215.25323470680306,217.42876690838278,219.49236209703486,219.8062407264145,218.13707566302168,219.8627435294747,223.26756648770996,221.23579319530336,221.93714927666082,224.5800655485545,229.85312994425377,231.53713533287973,226.79561467385156,225.68505198856948,232.93575179904832,224.18849662922293,227.0223767996625,229.88685658542175,226.0020208481942,219.02751500713384,221.76499868927527,220.98683899415644,223.814052732934,226.30150601410554,222.15898940591663,217.68813696825322,218.28689506463948,215.4084726770215,218.23706000294115,221.68295687069877,221.10095678331942,219.7260691302058,223.39343263988434,225.84026564902481,226.65549221242836,222.51104249532196,219.73390718145632,221.19808015676713,223.10720099983362,213.54475466532816,212.1152574359186,212.7910504884939,211.6513028508322,221.0551290542665,220.45397969144668,213.77530994678386,215.4451988330163,215.65114834093131,214.92120092679457,217.77965917462015,218.35315938747675,221.78622143385843,215.64028707451078,218.23077639883468,209.54317511297947,218.18761817216546,213.6245996565753,218.90137186507738,217.24926627580064,219.58006146175853,219.06879066740507,221.8124383244569,216.22291284189683,217.98384484781533,219.43626684330513,null]},"n_sessions":{"penk":16,"nonpenk":7}}},"during_speed_z":{"animals":[{"animal_id":"1117217","celltype":"nonpenk","value":1.1581885744380462,"n":65},{"animal_id":"1117646","celltype":"nonpenk","value":1.2093284230442092,"n":28},{"animal_id":"1117788","celltype":"nonpenk","value":1.4849466798248383,"n":19},{"animal_id":"1118213","celltype":"nonpenk","value":0.3417260812154392,"n":29},{"animal_id":"1114353","celltype":"penk","value":0.5246588304309528,"n":19},{"animal_id":"1114356","celltype":"penk","value":1.7951522337003656,"n":29},{"animal_id":"1115464","celltype":"penk","value":2.564067857034392,"n":33},{"animal_id":"1115465","celltype":"penk","value":3.517471903412917,"n":84},{"animal_id":"1115816","celltype":"penk","value":2.165445365488711,"n":5},{"animal_id":"1116663","celltype":"penk","value":1.4959779131629256,"n":59},{"animal_id":"1116994","celltype":"penk","value":2.411741512898109,"n":11},{"animal_id":"1118018","celltype":"penk","value":0.3370426001490136,"n":3},{"animal_id":"1118020","celltype":"penk","value":1.5344209980431989,"n":19},{"animal_id":"1118023","celltype":"penk","value":0.29906920887078325,"n":32},{"animal_id":"1118320","celltype":"penk","value":2.0650468894545835,"n":15}],"cell_quartiles":{"nonpenk":{"n_cells":141,"q25":0.2434497846368593,"median":1.0288553765462427,"q75":2.018185261944171},"penk":{"n_cells":309,"q25":0.8844925978459539,"median":2.005401927105104,"q75":3.281456908434281}},"stats":{"n_penk":11,"n_nonpenk":4,"median_penk":1.7951522337003656,"median_nonpenk":1.1837584987411276,"cles_penk_gt_nonpenk":0.75,"mwu_p_two_sided":0.1772893772893773}}},"running_state":{"panels":{"step_index":{"label":"Run-vs-still step index","animals":[{"animal_id":"1117217","celltype":"nonpenk","value":0.0644117471271097,"n":65},{"animal_id":"1117646","celltype":"nonpenk","value":0.0622266681495746,"n":28},{"animal_id":"1117788","celltype":"nonpenk","value":0.090055280839271,"n":19},{"animal_id":"1118213","celltype":"nonpenk","value":0.0241780702962479,"n":29},{"animal_id":"1115464","celltype":"penk","value":0.2507355454588399,"n":33},{"animal_id":"1115465","celltype":"penk","value":0.395870528706039,"n":61},{"animal_id":"1115816","celltype":"penk","value":0.2576797117405187,"n":5},{"animal_id":"1116663","celltype":"penk","value":0.1160970325115911,"n":59},{"animal_id":"1116994","celltype":"penk","value":0.1393644112832033,"n":11},{"animal_id":"1118018","celltype":"penk","value":0.0190798938753795,"n":3},{"animal_id":"1118020","celltype":"penk","value":0.1102014200560154,"n":19},{"animal_id":"1118023","celltype":"penk","value":0.0051512853463423,"n":32},{"animal_id":"1118320","celltype":"penk","value":0.1226576414753982,"n":15}],"stats":{"n_penk":9,"n_nonpenk":4,"median_penk":0.1226576414753982,"median_nonpenk":0.06331920763834215,"cles_penk_gt_nonpenk":0.7777777777777778,"mwu_p_two_sided":0.14825174825174825},"cell_quartiles":{"nonpenk":{"n_cells":141,"q25":-0.0068492006831694,"median":0.0616445015757601,"q75":0.1395529906150319},"penk":{"n_cells":238,"q25":0.04805615162416773,"median":0.1654316611307674,"q75":0.319812912556737}}},"graded_rho":{"label":"Graded speed rho (running bins)","animals":[{"animal_id":"1117217","celltype":"nonpenk","value":-0.0285714285714285,"n":65},{"animal_id":"1117646","celltype":"nonpenk","value":-0.17142857142857143,"n":28},{"animal_id":"1117788","celltype":"nonpenk","value":-0.0857142857142857,"n":19},{"animal_id":"1118213","celltype":"nonpenk","value":0.0285714285714285,"n":29},{"animal_id":"1115464","celltype":"penk","value":-0.2571428571428572,"n":33},{"animal_id":"1115465","celltype":"penk","value":0.0857142857142857,"n":61},{"animal_id":"1115816","celltype":"penk","value":-0.1428571428571428,"n":5},{"animal_id":"1116663","celltype":"penk","value":-0.2,"n":59},{"animal_id":"1116994","celltype":"penk","value":0.0857142857142857,"n":11},{"animal_id":"1118018","celltype":"penk","value":-0.0857142857142857,"n":3},{"animal_id":"1118020","celltype":"penk","value":0.6571428571428573,"n":19},{"animal_id":"1118023","celltype":"penk","value":0.0,"n":32},{"animal_id":"1118320","celltype":"penk","value":0.4285714285714286,"n":15}],"stats":{"n_penk":9,"n_nonpenk":4,"median_penk":0.0,"median_nonpenk":-0.0571428571428571,"cles_penk_gt_nonpenk":0.5972222222222222,"mwu_p_two_sided":0.6425137416601019},"cell_quartiles":{"nonpenk":{"n_cells":141,"q25":-0.5428571428571429,"median":-0.0285714285714285,"q75":0.2571428571428572},"penk":{"n_cells":238,"q25":-0.4857142857142857,"median":-0.0285714285714285,"q75":0.4857142857142857}}},"frac_sig_step_index":{"label":"Fraction of cells with significant step index","animals":[{"animal_id":"1117217","celltype":"nonpenk","value":0.4461538461538462,"n":65},{"animal_id":"1117646","celltype":"nonpenk","value":0.4642857142857143,"n":28},{"animal_id":"1117788","celltype":"nonpenk","value":0.47368421052631576,"n":19},{"animal_id":"1118213","celltype":"nonpenk","value":0.20689655172413793,"n":29},{"animal_id":"1115464","celltype":"penk","value":0.7575757575757576,"n":33},{"animal_id":"1115465","celltype":"penk","value":0.9016393442622951,"n":61},{"animal_id":"1115816","celltype":"penk","value":0.6,"n":5},{"animal_id":"1116663","celltype":"penk","value":0.4915254237288136,"n":59},{"animal_id":"1116994","celltype":"penk","value":0.5454545454545454,"n":11},{"animal_id":"1118018","celltype":"penk","value":0.3333333333333333,"n":3},{"animal_id":"1118020","celltype":"penk","value":0.5263157894736842,"n":19},{"animal_id":"1118023","celltype":"penk","value":0.375,"n":32},{"animal_id":"1118320","celltype":"penk","value":0.6666666666666666,"n":15}],"stats":{"n_penk":9,"n_nonpenk":4,"median_penk":0.5454545454545454,"median_nonpenk":0.45521978021978027,"cles_penk_gt_nonpenk":0.8333333333333334,"mwu_p_two_sided":0.07552447552447553}}}},"light_transitions":{"pooled_timecourse":{"note":"pooled over all sessions; not split by cell type in the source file","time_s":[-10.0,-9.9,-9.8,-9.7,-9.6,-9.5,-9.4,-9.3,-9.2,-9.1,-9.0,-8.9,-8.8,-8.7,-8.6,-8.5,-8.4,-8.3,-8.2,-8.1,-8.0,-7.9,-7.8,-7.7,-7.6,-7.5,-7.4,-7.3,-7.2,-7.1,-7.0,-6.9,-6.8,-6.7,-6.6,-6.5,-6.4,-6.3,-6.2,-6.1,-6.0,-5.9,-5.8,-5.7,-5.6,-5.5,-5.4,-5.3,-5.2,-5.1,-5.0,-4.9,-4.8,-4.7,-4.6,-4.5,-4.4,-4.3,-4.2,-4.1,-4.0,-3.9,-3.8,-3.7,-3.6,-3.5,-3.4,-3.3,-3.2,-3.1,-3.0,-2.9,-2.8,-2.7,-2.6,-2.5,-2.4,-2.3,-2.2,-2.1,-2.0,-1.9,-1.8,-1.7,-1.6,-1.5,-1.4,-1.3,-1.2,-1.1,-1.0,-0.9,-0.8,-0.7,-0.6,-0.5,-0.4,-0.3,-0.2,-0.1,-0.0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1.0,1.1,1.2,1.3,1.4,1.5,1.6,1.7,1.8,1.9,2.0,2.1,2.2,2.3,2.4,2.5,2.6,2.7,2.8,2.9,3.0,3.1,3.2,3.3,3.4,3.5,3.6,3.7,3.8,3.9,4.0,4.1,4.2,4.3,4.4,4.5,4.6,4.7,4.8,4.9,5.0,5.1,5.2,5.3,5.4,5.5,5.6,5.7,5.8,5.9,6.0,6.1,6.2,6.3,6.4,6.5,6.6,6.7,6.8,6.9,7.0,7.1,7.2,7.3,7.4,7.5,7.6,7.7,7.8,7.9,8.0,8.1,8.2,8.3,8.4,8.5,8.6,8.7,8.8,8.9,9.0,9.1,9.2,9.3,9.4,9.5,9.6,9.7,9.8,9.9,10.0,10.1,10.2,10.3,10.4,10.5,10.6,10.7,10.8,10.9,11.0,11.1,11.2,11.3,11.4,11.5,11.6,11.7,11.8,11.9,12.0,12.1,12.2,12.3,12.4,12.5,12.6,12.7,12.8,12.9,13.0,13.1,13.2,13.3,13.4,13.5,13.6,13.7,13.8,13.9,14.0,14.1,14.2,14.3,14.4,14.5,14.6,14.7,14.8,14.9,15.0,15.1,15.2,15.3,15.4,15.5,15.6,15.7,15.8,15.9,16.0,16.1,16.2,16.3,16.4,16.5,16.6,16.7,16.8,16.9,17.0,17.1,17.2,17.3,17.4,17.5,17.6,17.7,17.8,17.9,18.0,18.1,18.2,18.3,18.4,18.5,18.6,18.7,18.8,18.9,19.0,19.1,19.2,19.3,19.4,19.5,19.6,19.7,19.8,19.9,20.0,20.1,20.2,20.3,20.4,20.5,20.6,20.7,20.8,20.9,21.0,21.1,21.2,21.3,21.4,21.5,21.6,21.7,21.8,21.9,22.0,22.1,22.2,22.3,22.4,22.5,22.6,22.7,22.8,22.9,23.0,23.1,23.2,23.3,23.4,23.5,23.6,23.7,23.8,23.9,24.0,24.1,24.2,24.3,24.4,24.5,24.6,24.7,24.8,24.9,25.0,25.1,25.2,25.3,25.4,25.5,25.6,25.7,25.8,25.9,26.0,26.1,26.2,26.3,26.4,26.5,26.6,26.7,26.8,26.9,27.0,27.1,27.2,27.3,27.4,27.5,27.6,27.7,27.8,27.9,28.0,28.1,28.2,28.3,28.4,28.5,28.6,28.7,28.8,28.9,29.0,29.1,29.2,29.3,29.4,29.5,29.6,29.7,29.8,29.9],"ltd":[-0.037829440984569675,-0.03864712613910657,-0.037993825851171184,-0.028380400619233734,-0.020395305468007573,-0.016874830916105223,-0.028864268365544468,-0.020428264704450454,-0.025548114631343467,-0.02445153723931312,-0.036785503743526626,-0.037429813958040306,-0.038773957760169675,-0.052268473002681566,-0.045029526424766646,-0.018273473979593093,-0.011689342487411837,-0.02107916296862114,-0.035530075205279045,-0.02685080380557167,-0.03268547968927573,-0.002683379808945636,0.0036501913796479456,0.0012093305636888944,-0.001530954919898213,0.0055600716641170675,0.01943292225154797,0.018770302114210567,0.004192279633744374,0.000692839493115285,0.008159145290917345,0.007612030157582195,0.008332022902068924,-0.0041089493176140425,-0.009546037685139752,-0.004790483997213364,-0.005612154836606424,-0.004053092703268353,-0.0008032795367433878,3.0739480780050474e-05,0.00031596042320259656,0.0075373906933582915,0.019558907038551513,0.036021451758673266,0.04650639527682572,0.02859628445338368,0.007445381050432331,0.016138021151038053,0.012491548770832838,0.016784149801790334,0.01744969040322959,0.012674262429824236,0.004066278737292206,-0.005542766433975579,0.00627483839601913,-0.0002822283558241075,0.024482708952227258,0.02677947958032351,0.003678959282890252,0.008795635262615372,0.00749793121593892,0.0009981506279393795,0.013754966220697534,-0.014205878949055412,-0.017797158539968123,-0.010491183894612947,-0.008310543307361931,-0.0052047317442382715,0.024936843163498958,0.015067928640121155,0.018274059133559332,0.01981068536856649,0.02678236690686654,0.026341319442271856,0.013856590164539299,0.006844221308647388,0.019134895682814467,0.022062614437108462,0.021007736912896875,0.031757956465531416,0.04556026938739681,0.05184568924121984,0.03886545551396913,0.019819510966955858,0.013186147237085357,0.013632921840676035,0.0025496875938174272,-0.010575744338799419,-0.01164303997338344,-0.00348771482386196,0.001202163845371524,-0.011496430451218238,-0.014634376458455828,-0.007828535935903934,0.00813573424959626,0.004418199797213507,0.00127843087957561,-0.020016587285165845,-0.009794176742431245,-0.01213131134321246,-0.01217264076503689,-0.010617137266019922,-0.020242207650043233,-0.02792211172804997,-0.010953843964241676,-0.019550003147130724,-0.015540431927028616,-0.010371764144176416,-0.03793456925567597,-0.04316564680279782,-0.055297506824598004,-0.05332294369511523,-0.07012552931349333,-0.07018631327147548,-0.055243376864533754,-0.05427591362474455,-0.06083528334363503,-0.06703436419101705,-0.060851285311343165,-0.041113844806527966,-0.034571813809124496,-0.0413023977347393,-0.040725324341695845,-0.0315508199990645,-0.031475362717781605,-0.042762819339100415,-0.04153093698192362,-0.04144379970540593,-0.058734819506056926,-0.07456793970252437,-0.07669836399217296,-0.0686685094266772,-0.0628501544531149,-0.06205204618994081,-0.060814720425656034,-0.07317655744468345,-0.05429391954893445,-0.06100643878135716,-0.05612207046786014,-0.06512333921096611,-0.06872070352125911,-0.0667785725425127,-0.056196667636718024,-0.05815836121951129,-0.05304673030030166,-0.06653254617434819,-0.05679878077304683,-0.05476608831361901,-0.07138205137765055,-0.06268126455684549,-0.06815460192505135,-0.06727270912189746,-0.06804753587618598,-0.05634915834922223,-0.06620286777056796,-0.0707918732896119,-0.069677207434932,-0.05931239849874114,-0.05501655882718071,-0.05021134963208886,-0.05549686181794413,-0.05954132197959806,-0.05807463648651935,-0.056974973411171755,-0.05518988947798598,-0.05860349503232909,-0.05669957667701747,-0.05017374388632394,-0.055630372843496215,-0.06342151149934029,-0.06650450247575698,-0.06572515686792404,-0.06954490028522554,-0.08537923524588864,-0.08615935761494697,-0.08485598318102067,-0.09007521565762541,-0.08460713039092503,-0.08331957464382123,-0.08830683798367786,-0.11341350344195528,-0.11650192823726586,-0.09491990721443323,-0.09222472203088765,-0.08843173569344573,-0.0622190249620697,-0.05983991452653586,-0.06407145689029548,-0.07995719663635956,-0.07260207042004817,-0.06230999529884062,-0.06268268565553689,-0.05280683838607443,-0.06659613442298903,-0.06552095598074754,-0.0699409380260723,-0.06281997898764088,-0.07014855450797534,-0.0861448377658389,-0.08502332308906912,-0.08442811835413366,-0.0958429344338031,-0.08935444628130614,-0.07480488937028289,-0.07432117143568599,-0.0795581594057836,-0.08811419917265115,-0.09134910820933721,-0.10219533467510442,-0.10102121574402619,-0.08729775722116478,-0.08742438209461213,-0.09092830550606566,-0.07640323243283881,-0.08880179614824954,-0.10996564219072551,-0.09976789312530625,-0.10692176335970051,-0.10843905068255454,-0.11498099209361401,-0.11464676865089042,-0.0988075990273991,-0.09804789400939444,-0.0916453242845214,-0.10158717469376588,-0.1107244707228836,-0.10040613117986485,-0.11643478953107535,-0.08712654957964898,-0.11892215316984463,-0.10747104943893211,-0.11652047702352475,-0.10919272646079037,-0.12380604867905183,-0.10344180452352295,-0.08520563660944103,-0.08493301890887271,-0.08953816930770644,-0.08722321116307884,-0.09589201517085515,-0.09904620333250025,-0.09619792023209216,-0.0965053736217469,-0.08036944255248686,-0.08194874611460568,-0.08889792547138352,-0.0901477263094436,-0.09171734947519683,-0.08731826306019175,-0.09380581318632937,-0.10490000516875476,-0.10674732831546511,-0.10276525746636815,-0.09502613198811011,-0.09116753579638977,-0.09440393227328897,-0.09568540449681735,-0.08997469274027266,-0.08419176019295012,-0.07167614677814735,-0.0787576754011416,-0.06930157096918768,-0.08190401462886039,-0.07092793911929883,-0.0787814586322322,-0.0828073666364639,-0.08343952859579719,-0.07324623995992878,-0.08653676201984864,-0.0744370969943473,-0.06493501026877299,-0.07551041203201161,-0.07700309471571253,-0.07450871101184632,-0.056168263306911825,-0.05477145378886488,-0.06530304876486903,-0.06492252480398938,-0.055497204440896966,-0.0767692095347208,-0.09154706752316062,-0.07791507493271885,-0.06955597148234863,-0.060188500709230645,-0.06069005841158598,-0.06065905663295345,-0.049601711201702765,-0.04570465882544722,-0.041656398021325314,-0.04362442843205265,-0.05664299361839893,-0.057371708100370795,-0.05649146557655489,-0.06237730662018317,-0.06255066819696486,-0.06682196163742532,-0.07209921154991447,-0.07392883570204321,-0.06944296199221435,-0.06726193449266342,-0.06154133027226383,-0.06611519036119422,-0.060363605475218296,-0.07878896646920511,-0.08035050479348477,-0.07783926599181093,-0.0790982018741306,-0.07182662060620111,-0.08816323707720819,-0.07224804973145184,-0.07785547136637963,-0.07405016423588341,-0.09093241056136596,-0.08711095468277064,-0.08898987395383035,-0.08708263454855579,-0.09581010708806216,-0.07871168898293539,-0.06586406570270788,-0.05466763470150727,-0.06150609928757773,-0.0717339290426476,-0.07772692770882617,-0.07043703642856293,-0.08537186463480848,-0.07692056658620049,-0.07163948140802325,-0.06853762594113366,-0.06406856895623339,-0.061906280666707836,-0.0579995057786807,-0.05496777990326615,-0.05354940727035919,-0.055157148175823165,-0.05259120015502327,-0.04306504143539038,-0.041704360769106635,-0.04478274156639327,-0.045036162056098415,-0.05536891093436087,-0.06014430720248007,-0.05755470703857167,-0.05968155242019566,-0.06403565322334032,-0.07005002364831578,-0.07559409110076656,-0.06337275133505385,-0.06665153112941043,-0.06769706098334823,-0.06092999042480975,-0.08502994339247245,-0.0876409166792785,-0.07599655336530395,-0.08456020201754458,-0.06252317042481821,-0.0775446477444341,-0.07247471109039236,-0.06530808957113123,-0.07022822937941411,-0.06194716151371567,-0.06161235860804738,-0.06666626004286566,-0.05936949800397247,-0.045234494433723384,-0.047707596614070515,-0.03888394697894028,-0.05390905765421946,-0.061178902959119326,-0.07015093811478595,-0.06580171990844053,-0.06232399997079605,-0.0762443782669255,-0.054170534053106706,-0.048476503714769914,-0.05017682989754636,-0.04096797545172619,-0.04153843797123975,-0.0433605492073934,-0.04613771294749133,-0.04186789347933577,-0.03607267028914807,-0.041911741491030316,-0.04830655306447268,-0.05198478346834176,-0.06810590883281656,-0.06782639945438947,-0.06937156206830751,-0.06897801493180075,-0.08718920470599201,-0.09007908359743362,-0.08106555154704143,-0.07704512629681397,-0.07244031383992657,-0.0868972329277154,-0.0851934336222853,-0.09046556847489434,-0.08145428508706952,-0.09115985613114208,-0.09090808681450635,-0.08554878987099868],"dtl":[0.00832621770830206,0.001143282106890188,0.0008241564408721611,0.008065730548527777,0.010810684389512378,-0.00011172201739813858,-0.0009917895240310096,0.01128196232545221,0.00045696701584512655,0.001321425119751618,0.0018148087270563897,0.0007804290844799982,0.004101321872530042,-0.02053893824115916,-0.002035919427369379,-0.019278407925076072,-0.005925903253947226,-0.015110649164668744,-0.019416339494498107,-0.024453205263440313,-0.010473979444353368,-0.013246472078567773,-0.01334545499103322,0.018637205493036383,0.010221954180910856,-0.0036134472353025328,0.004299460643831525,0.015179058812132527,0.020881206395664573,0.027774702381853124,0.027496681181511596,0.02912749791609415,0.0341680268775626,0.025064647746639673,0.015438276093229208,0.006602196960192669,0.0030797388095608843,0.005684232477200485,0.017579030991257176,0.025318968644317742,0.011262586476009485,-0.004792748306262122,-0.0001784398628342443,-0.008691153963024003,-0.009615087488060819,0.019206327078858543,0.021459296313024977,0.02092621936610847,0.017864548063726976,-0.00300562522827471,-6.335492791238558e-05,8.863558402283729e-05,0.0023178621627969968,-0.01244061979847785,-0.006452845963808402,-0.0022012351182301307,-0.0029869208019252954,0.004639321979693479,-0.004996521100886341,-0.017602605062085382,-0.02425724725158541,-0.006977610756869392,-0.011544052797950614,-0.0166940609728012,-0.020291971929288256,-0.014033491903302076,-0.020890718630631074,-0.02647225571323921,-0.01393180855125067,-0.018012137648514937,-0.013538621544336599,-0.017244463928215454,-0.009256048765082193,0.010307951182447145,0.019807959435442335,0.009313403867186518,0.00044567896946538636,0.0050356988678660255,-0.004257451110484586,-0.012278646236993583,-0.009372648012848036,-0.008353623894400957,0.002770839538274145,0.0035194592414657467,-0.002030228065770973,0.009182674833092154,0.005533773191504254,-0.0001354115120778751,0.015934001876473376,0.026506279294178148,0.017870420079732562,0.006760426117394387,-0.003283245695552911,-0.006660424359400575,-0.013216557020432586,-0.015063679873134918,-0.01634775360671256,-0.012382937221848824,-0.028272891228368253,-0.0025869230006385995,-0.003458734837286962,0.004311716485821765,0.03248927049323678,0.03782458036508513,0.07402501418322883,0.0805418208533861,0.09021487782238059,0.08847710938441708,0.0971829027639433,0.1158435012989517,0.11760816629217524,0.11102032083390502,0.10989598263670351,0.11500803395242114,0.12466051017538883,0.12080307521180052,0.11096465818776789,0.0947505094455792,0.08788646807251087,0.09786831600644519,0.10506727099792557,0.10267096591706172,0.08873114416630419,0.0802592098070314,0.08531653618322943,0.07966651299551421,0.07680671017144533,0.08881469931192863,0.08899001676024165,0.09636728329053997,0.09640176331503007,0.09318906197758162,0.08127881751495755,0.07939527125335404,0.07932310602279607,0.09345392181053729,0.09748171538280569,0.08611022402179462,0.09571225217685644,0.11035309081743015,0.12222791313512238,0.11341171010434561,0.11562441857989414,0.12065083651043955,0.12565544935844405,0.11133626077357314,0.12077347557259292,0.12770398602700755,0.11117472338313873,0.11190533278985174,0.09322636606089789,0.10807456702424506,0.10686314454693029,0.13040996057897355,0.11884490476484844,0.11762861671433245,0.1229787376004818,0.11812146580995793,0.11583008673993571,0.11896622255803348,0.1156224398598005,0.11424438768266101,0.12471933804901605,0.12429003528313981,0.1150096123326012,0.11038010033016112,0.10731313993020493,0.10929806118852083,0.11329103702768002,0.125798889290527,0.1375903901475431,0.14820789055049605,0.13376793270086618,0.1279944971563733,0.13036242670241216,0.13180073078421836,0.13617589211837614,0.13776771505182667,0.11385419267068637,0.11973968439441549,0.1310651487090638,0.1311309030588853,0.1264637439555132,0.12385307543107951,0.1206857880643272,0.11650753473138659,0.12615880990589706,0.11368266660537618,0.10078592538330952,0.11350798842115584,0.10258319866284164,0.11782531638818676,0.12459992031732656,0.11923201950207671,0.11954049574596236,0.11626896590520004,0.12033286141406417,0.14113982879758788,0.1611937847665373,0.16901452293992736,0.17855754473393848,0.19316344987811923,0.18078391123518872,0.17618823112957216,0.1657982413820847,0.15313747351859258,0.16019359713689374,0.15418262248477058,0.14876799422020665,0.1534974570615221,0.15426677301260003,0.13905872413723547,0.1363525013615889,0.13883128542468143,0.14479222466567543,0.15305602026361373,0.1492812721642887,0.1268369177619216,0.13262572895132843,0.14625385775524544,0.15292980104236448,0.11965020856912831,0.1131894057298451,0.11106271972359365,0.12174831153189426,0.13257202456209244,0.13926177288550867,0.16294057754380212,0.12962600107544267,0.1324077547151077,0.12055244143798867,0.11905644467042602,0.12054169087152786,0.10250309575817707,0.11852566991177706,0.11381016085861435,0.09105209905297891,0.08496203727312401,0.07576257092492784,0.06603421715921722,0.05596348927993028,0.06278081281113716,0.06239742022321449,0.06284010767332546,0.05697922010814649,0.04318868689970582,0.051948010611995936,0.05614093460400472,0.06133155910938998,0.07327893406022543,0.07226639666728076,0.07708281120354281,0.08769759368921103,0.0784578500554509,0.06444612876820169,0.06892812406566398,0.0628873910602757,0.06977629424188547,0.07720295867465839,0.07635257956316636,0.07442269652386649,0.07037535815400335,0.08174350176354564,0.08765559076852301,0.09308807518133326,0.0830439136958899,0.07883270724265494,0.06463363627351192,0.06472685634184219,0.064437429023691,0.06289244305631696,0.0625966609176935,0.0728283108213782,0.09005971333290293,0.10930661963203761,0.11059730101632075,0.11529122808240441,0.11397221864048275,0.12248386865314483,0.12954934283991223,0.13416748042515173,0.12404647106081412,0.1266328203426575,0.1197813054573447,0.10136610445139249,0.09132637077891978,0.08669018652386601,0.08435444332801778,0.08818636689841261,0.11168052588599092,0.11436613347625274,0.10996506128480431,0.1134030279454999,0.10278861424012176,0.10295349460235616,0.12686918709755507,0.14242880449012307,0.14011288719040646,0.14515131889962643,0.15155871678129507,0.1442827650564239,0.1388133999370922,0.1475395636897271,0.14841240154748772,0.1566967309066682,0.17688635829253682,0.17203818158461015,0.1652012758010992,0.1520869569979792,0.15200602950186437,0.1539732865662622,0.13823172440595058,0.12072864447301916,0.12234006892536699,0.12830745873306487,0.10934997026256733,0.11623897045581237,0.11178650868332098,0.0951399110902136,0.11030359004701579,0.10121922284514549,0.08367633203974396,0.07596914205580826,0.0878175896030282,0.09015048777250556,0.07941059031860441,0.07581320104995953,0.07584689731198017,0.07524309869328782,0.07584516116948029,0.08671440538756423,0.08513711617389787,0.08632513818515077,0.08893824390175699,0.09396817553654122,0.10374717091625799,0.10755720341367267,0.09534412070513726,0.07665169015229942,0.06319432091808404,0.05759261863894616,0.06297733614515963,0.07822499204140901,0.0885279250563331,0.08072986903651234,0.08107848857995831,0.07478857986316484,0.0622753989380963,0.07014316859635583,0.09222169327453555,0.06889622476557888,0.08261738231603544,0.08483663825480658,0.07002539229538969,0.06180393688285569,0.06464333064831979,0.081692608040283,0.07855573354246918,0.07538409890372862,0.0904241479922889,0.10877136238138392,0.09357944211670652,0.10619775916571324,0.08895605782181402,0.09815758749783524,0.09276006158452384,0.07474935289115374,0.07766214559859198,0.0732738919662411,0.06985370352552782,0.07609581095906626,0.07404042344131395,0.07127975285263022,0.06608881601440332,0.06346400028417862,0.060694345077835755,0.058738275627068806,0.0487492864018442,0.049821698462673585,0.04666865906224333,0.03850153415032047,0.03155867451541243,0.025008516883353725,0.03212892781870736,0.04182822897448269,0.0416769327943177,0.05055487996047625,0.04054045543559603,0.03288149477035995,0.01842324798132141,0.014569751768537005,0.03269446294231727,0.03705628306613244,0.030488972427589692,0.026396359286090458,0.020879321933153897,0.022166633583818946,0.014173784415554525,0.03358864653792757,0.02260817166337134]},"panels":{"ltd_early_amplitude":{"label":"Light-off early response (dF/F)","animals":[{"animal_id":"1117217","celltype":"nonpenk","value":-0.1127280281286476,"n":3},{"animal_id":"1117646","celltype":"nonpenk","value":-0.15588135505886336,"n":2},{"animal_id":"1117788","celltype":"nonpenk","value":-0.0995204624889726,"n":1},{"animal_id":"1118213","celltype":"nonpenk","value":-0.0467457143267111,"n":1},{"animal_id":"1114353","celltype":"penk","value":0.0008917094893702,"n":1},{"animal_id":"1114356","celltype":"penk","value":-0.0136086323526825,"n":3},{"animal_id":"1115464","celltype":"penk","value":0.0176749654195176,"n":1},{"animal_id":"1115465","celltype":"penk","value":-0.0303322954016543,"n":3},{"animal_id":"1115816","celltype":"penk","value":-0.157132762212281,"n":1},{"animal_id":"1116663","celltype":"penk","value":-0.04569635695119755,"n":2},{"animal_id":"1116994","celltype":"penk","value":0.0091511531390727,"n":1},{"animal_id":"1118018","celltype":"penk","value":-0.2892958947966515,"n":1},{"animal_id":"1118020","celltype":"penk","value":0.0698157905741248,"n":1},{"animal_id":"1118023","celltype":"penk","value":0.1240385339756827,"n":1},{"animal_id":"1118320","celltype":"penk","value":-0.0421003954577414,"n":1}],"sessions":[{"animal_id":"1114353","celltype":"penk","exp_id":"20210823_16_59_50_1114353","value":0.0008917094893702},{"animal_id":"1114356","celltype":"penk","exp_id":"20210920_11_09_37_1114356","value":-0.0326825345752086},{"animal_id":"1114356","celltype":"penk","exp_id":"20210923_15_05_14_1114356","value":-0.0136086323526825},{"animal_id":"1114356","celltype":"penk","exp_id":"20210924_16_09_21_1114356","value":0.0009955071856052},{"animal_id":"1115465","celltype":"penk","exp_id":"20211028_11_25_50_1115465","value":-0.0325346328704946},{"animal_id":"1115465","celltype":"penk","exp_id":"20211029_13_50_08_1115465","value":0.0172960008547498},{"animal_id":"1115465","celltype":"penk","exp_id":"20211102_15_11_34_1115465","value":-0.0303322954016543},{"animal_id":"1115464","celltype":"penk","exp_id":"20211203_15_10_27_1115464","value":0.0176749654195176},{"animal_id":"1115816","celltype":"penk","exp_id":"20211216_14_36_39_1115816","value":-0.157132762212281},{"animal_id":"1116663","celltype":"penk","exp_id":"20220408_15_01_57_1116663","value":-0.0699797973079965},{"animal_id":"1116663","celltype":"penk","exp_id":"20220411_16_45_08_1116663","value":-0.0214129165943986},{"animal_id":"1117217","celltype":"nonpenk","exp_id":"20220531_11_06_13_1117217","value":-0.1362889579707624},{"animal_id":"1117217","celltype":"nonpenk","exp_id":"20220601_13_53_18_1117217","value":-0.1127280281286476},{"animal_id":"1117217","celltype":"nonpenk","exp_id":"20220608_15_27_32_1117217","value":0.0079867699439624},{"animal_id":"1116994","celltype":"penk","exp_id":"20220608_16_22_06_1116994","value":0.0091511531390727},{"animal_id":"1117646","celltype":"nonpenk","exp_id":"20220802_15_06_53_1117646","value":-0.079929936175814},{"animal_id":"1117646","celltype":"nonpenk","exp_id":"20220804_11_21_59_1117646","value":-0.2318327739419127},{"animal_id":"1118020","celltype":"penk","exp_id":"20221003_14_36_54_1118020","value":0.0698157905741248},{"animal_id":"1118023","celltype":"penk","exp_id":"20221004_10_42_58_1118023","value":0.1240385339756827},{"animal_id":"1118018","celltype":"penk","exp_id":"20221010_11_43_35_1118018","value":-0.2892958947966515},{"animal_id":"1117788","celltype":"nonpenk","exp_id":"20221018_10_56_17_1117788","value":-0.0995204624889726},{"animal_id":"1118213","celltype":"nonpenk","exp_id":"20221115_13_27_42_1118213","value":-0.0467457143267111},{"animal_id":"1118320","celltype":"penk","exp_id":"20221116_14_31_12_1118320","value":-0.0421003954577414}],"stats":{"n_penk":11,"n_nonpenk":4,"median_penk":-0.0136086323526825,"median_nonpenk":-0.1061242453088101,"cles_penk_gt_nonpenk":0.8181818181818182,"mwu_p_two_sided":0.07765567765567766}},"dtl_late_amplitude":{"label":"Light-on late response (dF/F)","animals":[{"animal_id":"1117217","celltype":"nonpenk","value":0.0628521111857389,"n":3},{"animal_id":"1117646","celltype":"nonpenk","value":0.2293556408940839,"n":2},{"animal_id":"1117788","celltype":"nonpenk","value":0.2290441618516956,"n":1},{"animal_id":"1118213","celltype":"nonpenk","value":0.0547871369534736,"n":1},{"animal_id":"1114353","celltype":"penk","value":0.0397387175821425,"n":1},{"animal_id":"1114356","celltype":"penk","value":0.016017362371116,"n":3},{"animal_id":"1115464","celltype":"penk","value":-0.0072412288315635,"n":1},{"animal_id":"1115465","celltype":"penk","value":0.0368456421625376,"n":3},{"animal_id":"1115816","celltype":"penk","value":0.1860382304513081,"n":1},{"animal_id":"1116663","celltype":"penk","value":0.2345940999220495,"n":2},{"animal_id":"1116994","celltype":"penk","value":-0.0202369632995821,"n":1},{"animal_id":"1118018","celltype":"penk","value":0.0207919120248753,"n":1},{"animal_id":"1118020","celltype":"penk","value":0.0751437057027278,"n":1},{"animal_id":"1118023","celltype":"penk","value":0.0071838029392291,"n":1},{"animal_id":"1118320","celltype":"penk","value":0.0006689991157533,"n":1}],"sessions":[{"animal_id":"1114353","celltype":"penk","exp_id":"20210823_16_59_50_1114353","value":0.0397387175821425},{"animal_id":"1114356","celltype":"penk","exp_id":"20210920_11_09_37_1114356","value":0.016017362371116},{"animal_id":"1114356","celltype":"penk","exp_id":"20210923_15_05_14_1114356","value":0.0103885603010477},{"animal_id":"1114356","celltype":"penk","exp_id":"20210924_16_09_21_1114356","value":0.0302441584834747},{"animal_id":"1115465","celltype":"penk","exp_id":"20211028_11_25_50_1115465","value":0.0073281645748478},{"animal_id":"1115465","celltype":"penk","exp_id":"20211029_13_50_08_1115465","value":0.0368456421625376},{"animal_id":"1115465","celltype":"penk","exp_id":"20211102_15_11_34_1115465","value":0.0437235934724782},{"animal_id":"1115464","celltype":"penk","exp_id":"20211203_15_10_27_1115464","value":-0.0072412288315635},{"animal_id":"1115816","celltype":"penk","exp_id":"20211216_14_36_39_1115816","value":0.1860382304513081},{"animal_id":"1116663","celltype":"penk","exp_id":"20220408_15_01_57_1116663","value":0.2801828081326293},{"animal_id":"1116663","celltype":"penk","exp_id":"20220411_16_45_08_1116663","value":0.1890053917114697},{"animal_id":"1117217","celltype":"nonpenk","exp_id":"20220531_11_06_13_1117217","value":0.0306349422041493},{"animal_id":"1117217","celltype":"nonpenk","exp_id":"20220601_13_53_18_1117217","value":0.0628521111857389},{"animal_id":"1117217","celltype":"nonpenk","exp_id":"20220608_15_27_32_1117217","value":0.2260679221445032},{"animal_id":"1116994","celltype":"penk","exp_id":"20220608_16_22_06_1116994","value":-0.0202369632995821},{"animal_id":"1117646","celltype":"nonpenk","exp_id":"20220802_15_06_53_1117646","value":0.3063195212973063},{"animal_id":"1117646","celltype":"nonpenk","exp_id":"20220804_11_21_59_1117646","value":0.1523917604908615},{"animal_id":"1118020","celltype":"penk","exp_id":"20221003_14_36_54_1118020","value":0.0751437057027278},{"animal_id":"1118023","celltype":"penk","exp_id":"20221004_10_42_58_1118023","value":0.0071838029392291},{"animal_id":"1118018","celltype":"penk","exp_id":"20221010_11_43_35_1118018","value":0.0207919120248753},{"animal_id":"1117788","celltype":"nonpenk","exp_id":"20221018_10_56_17_1117788","value":0.2290441618516956},{"animal_id":"1118213","celltype":"nonpenk","exp_id":"20221115_13_27_42_1118213","value":0.0547871369534736},{"animal_id":"1118320","celltype":"penk","exp_id":"20221116_14_31_12_1118320","value":0.0006689991157533}],"stats":{"n_penk":11,"n_nonpenk":4,"median_penk":0.0207919120248753,"median_nonpenk":0.14594813651871724,"cles_penk_gt_nonpenk":0.18181818181818182,"mwu_p_two_sided":0.07765567765567766}}}},"patching_adaptation":{"panels":{"matched_sfa_ratio":{"label":"Last / first ISI (\u2265 6-spike sweep)","cliffs_delta_cells":0.6233766233766234,"animal_medians":[{"animal_id":"CAA-1116873","celltype":"nonpenk","value":1.8818553279175503,"n":8},{"animal_id":"CAA-1117044","celltype":"nonpenk","value":1.9457820896584561,"n":6},{"animal_id":"CAA-1116160","celltype":"penk","value":6.389221556886225,"n":5},{"animal_id":"CAA-1116161","celltype":"penk","value":2.0516415525934035,"n":4},{"animal_id":"CAA-1116459","celltype":"penk","value":2.728328818840625,"n":4},{"animal_id":"CAA-1116461","celltype":"penk","value":3.4689631411753714,"n":6},{"animal_id":"CAA-1117044","celltype":"penk","value":1.9680940386230048,"n":3}],"n_cells":{"penk":22,"nonpenk":14}},"matched_first_isi_ms":{"label":"First ISI (ms, \u2265 6-spike sweep)","cliffs_delta_cells":-0.4512987012987013,"animal_medians":[{"animal_id":"CAA-1116873","celltype":"nonpenk","value":78.17500000000001,"n":8},{"animal_id":"CAA-1117044","celltype":"nonpenk","value":78.05000000000001,"n":6},{"animal_id":"CAA-1116160","celltype":"penk","value":16.699999999999992,"n":5},{"animal_id":"CAA-1116161","celltype":"penk","value":62.574999999999996,"n":4},{"animal_id":"CAA-1116459","celltype":"penk","value":56.32500000000001,"n":4},{"animal_id":"CAA-1116461","celltype":"penk","value":47.65,"n":6},{"animal_id":"CAA-1117044","celltype":"penk","value":59.55000000000002,"n":3}],"n_cells":{"penk":22,"nonpenk":14}},"max_n_spikes":{"label":"Maximum spikes per sweep","cliffs_delta_cells":0.6925465838509317,"animal_medians":[{"animal_id":"CAA-1116873","celltype":"nonpenk","value":13.5,"n":8},{"animal_id":"CAA-1117044","celltype":"nonpenk","value":14.0,"n":6},{"animal_id":"CAA-1116160","celltype":"penk","value":25.0,"n":6},{"animal_id":"CAA-1116161","celltype":"penk","value":19.5,"n":4},{"animal_id":"CAA-1116459","celltype":"penk","value":20.0,"n":4},{"animal_id":"CAA-1116461","celltype":"penk","value":21.5,"n":6},{"animal_id":"CAA-1117044","celltype":"penk","value":18.0,"n":3}],"n_cells":{"penk":23,"nonpenk":14}}},"cells":[{"cell_index":1,"animal_id":"CAA-1116161","celltype":"penk","matched_sfa_ratio":6.713592233009714,"matched_first_isi_ms":20.59999999999998,"max_n_spikes":18.0},{"cell_index":2,"animal_id":"CAA-1116161","celltype":"penk","matched_sfa_ratio":1.6042194092827018,"matched_first_isi_ms":59.25,"max_n_spikes":21.0},{"cell_index":3,"animal_id":"CAA-1116161","celltype":"penk","matched_sfa_ratio":1.692716236722306,"matched_first_isi_ms":65.89999999999999,"max_n_spikes":17.0},{"cell_index":4,"animal_id":"CAA-1116161","celltype":"penk","matched_sfa_ratio":2.410566868464501,"matched_first_isi_ms":90.84999999999998,"max_n_spikes":27.0},{"cell_index":6,"animal_id":"CAA-1116160","celltype":"penk","matched_sfa_ratio":2.525099601593625,"matched_first_isi_ms":62.75,"max_n_spikes":20.0},{"cell_index":7,"animal_id":"CAA-1116160","celltype":"penk","matched_sfa_ratio":29.030120481927703,"matched_first_isi_ms":8.300000000000002,"max_n_spikes":13.0},{"cell_index":8,"animal_id":"CAA-1116160","celltype":"penk","matched_sfa_ratio":null,"matched_first_isi_ms":null,"max_n_spikes":5.0},{"cell_index":9,"animal_id":"CAA-1116160","celltype":"penk","matched_sfa_ratio":6.389221556886225,"matched_first_isi_ms":16.699999999999992,"max_n_spikes":30.0},{"cell_index":10,"animal_id":"CAA-1116160","celltype":"penk","matched_sfa_ratio":4.534441805225655,"matched_first_isi_ms":42.09999999999997,"max_n_spikes":36.0},{"cell_index":11,"animal_id":"CAA-1116160","celltype":"penk","matched_sfa_ratio":7.37988826815643,"matched_first_isi_ms":8.949999999999985,"max_n_spikes":34.0},{"cell_index":12,"animal_id":"CAA-1116461","celltype":"penk","matched_sfa_ratio":4.0125944584382855,"matched_first_isi_ms":39.69999999999999,"max_n_spikes":10.0},{"cell_index":13,"animal_id":"CAA-1116461","celltype":"penk","matched_sfa_ratio":3.321043165467627,"matched_first_isi_ms":55.60000000000001,"max_n_spikes":17.0},{"cell_index":14,"animal_id":"CAA-1116461","celltype":"penk","matched_sfa_ratio":1.8704000000000005,"matched_first_isi_ms":93.74999999999996,"max_n_spikes":15.0},{"cell_index":15,"animal_id":"CAA-1116461","celltype":"penk","matched_sfa_ratio":2.1672008547008548,"matched_first_isi_ms":93.6,"max_n_spikes":26.0},{"cell_index":16,"animal_id":"CAA-1116461","celltype":"penk","matched_sfa_ratio":6.517150395778363,"matched_first_isi_ms":18.95,"max_n_spikes":32.0},{"cell_index":17,"animal_id":"CAA-1116461","celltype":"penk","matched_sfa_ratio":3.616883116883116,"matched_first_isi_ms":23.09999999999998,"max_n_spikes":27.0},{"cell_index":18,"animal_id":"CAA-1116459","celltype":"penk","matched_sfa_ratio":4.2012987012987,"matched_first_isi_ms":15.399999999999997,"max_n_spikes":40.0},{"cell_index":19,"animal_id":"CAA-1116459","celltype":"penk","matched_sfa_ratio":2.4355828220858884,"matched_first_isi_ms":65.2,"max_n_spikes":24.0},{"cell_index":20,"animal_id":"CAA-1116459","celltype":"penk","matched_sfa_ratio":2.324786324786324,"matched_first_isi_ms":99.45000000000005,"max_n_spikes":15.0},{"cell_index":21,"animal_id":"CAA-1116459","celltype":"penk","matched_sfa_ratio":3.021074815595362,"matched_first_isi_ms":47.45000000000002,"max_n_spikes":16.0},{"cell_index":22,"animal_id":"CAA-1116873","celltype":"nonpenk","matched_sfa_ratio":1.4434050514499543,"matched_first_isi_ms":53.45,"max_n_spikes":14.0},{"cell_index":23,"animal_id":"CAA-1116873","celltype":"nonpenk","matched_sfa_ratio":1.7893761581222962,"matched_first_isi_ms":80.95000000000002,"max_n_spikes":11.0},{"cell_index":24,"animal_id":"CAA-1116873","celltype":"nonpenk","matched_sfa_ratio":2.1591511936339525,"matched_first_isi_ms":75.40000000000002,"max_n_spikes":11.0},{"cell_index":25,"animal_id":"CAA-1116873","celltype":"nonpenk","matched_sfa_ratio":2.354484441732765,"matched_first_isi_ms":81.94999999999999,"max_n_spikes":14.0},{"cell_index":26,"animal_id":"CAA-1116873","celltype":"nonpenk","matched_sfa_ratio":2.065281899109793,"matched_first_isi_ms":67.40000000000002,"max_n_spikes":15.0},{"cell_index":27,"animal_id":"CAA-1116873","celltype":"nonpenk","matched_sfa_ratio":1.642661804922516,"matched_first_isi_ms":109.70000000000002,"max_n_spikes":13.0},{"cell_index":28,"animal_id":"CAA-1116873","celltype":"nonpenk","matched_sfa_ratio":1.816717791411042,"matched_first_isi_ms":65.2,"max_n_spikes":16.0},{"cell_index":29,"animal_id":"CAA-1116873","celltype":"nonpenk","matched_sfa_ratio":1.9469928644240584,"matched_first_isi_ms":98.09999999999997,"max_n_spikes":12.0},{"cell_index":30,"animal_id":"CAA-1117044","celltype":"nonpenk","matched_sfa_ratio":2.273288093769278,"matched_first_isi_ms":81.05000000000001,"max_n_spikes":12.0},{"cell_index":31,"animal_id":"CAA-1117044","celltype":"nonpenk","matched_sfa_ratio":2.8362676056338016,"matched_first_isi_ms":56.79999999999999,"max_n_spikes":15.0},{"cell_index":32,"animal_id":"CAA-1117044","celltype":"nonpenk","matched_sfa_ratio":1.568714376187461,"matched_first_isi_ms":78.94999999999999,"max_n_spikes":13.0},{"cell_index":33,"animal_id":"CAA-1117044","celltype":"penk","matched_sfa_ratio":9.42718446601942,"matched_first_isi_ms":10.300000000000004,"max_n_spikes":29.0},{"cell_index":34,"animal_id":"CAA-1117044","celltype":"nonpenk","matched_sfa_ratio":2.81115879828326,"matched_first_isi_ms":34.95000000000001,"max_n_spikes":18.0},{"cell_index":35,"animal_id":"CAA-1117044","celltype":"penk","matched_sfa_ratio":1.9680940386230048,"matched_first_isi_ms":59.55000000000002,"max_n_spikes":18.0},{"cell_index":36,"animal_id":"CAA-1117044","celltype":"nonpenk","matched_sfa_ratio":1.618276085547634,"matched_first_isi_ms":77.15000000000002,"max_n_spikes":16.0},{"cell_index":37,"animal_id":"CAA-1117044","celltype":"penk","matched_sfa_ratio":1.482916666666667,"matched_first_isi_ms":120.0,"max_n_spikes":18.0},{"cell_index":38,"animal_id":"CAA-1117044","celltype":"nonpenk","matched_sfa_ratio":1.4519464720194657,"matched_first_isi_ms":82.19999999999999,"max_n_spikes":11.0}]}};
+const LABEL = { penk: "Penk+", nonpenk: "Penk⁻CamKII+", penkpos: "Penk+", penkneg: "Penk⁻" };
+const GROUPS = ["penk", "nonpenk"];
+
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function colorOf(ct) { return (ct === "penk" || ct === "penkpos") ? css("--penk") : css("--nonpenk"); }
+function fmtP(p) {
+  if (p === null || p === undefined || Number.isNaN(p)) return "n/a";
+  return p < 0.001 ? "p < 0.001" : "p = " + (p < 0.01 ? p.toFixed(3) : p.toFixed(2));
+}
+function fmt(v, d = 2) { return (v === null || v === undefined || Number.isNaN(v)) ? "n/a" : Number(v).toFixed(d); }
+function jitter(i, n) { const k = (i * 0.61803398875) % 1; return (k - 0.5) * 0.36; }
+
+function baseLayout(extra) {
+  const ink = css("--ink"), muted = css("--muted"), rule = css("--rule");
+  return Object.assign({
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: css("--sans") || "sans-serif", size: 13, color: ink },
+    margin: { l: 62, r: 16, t: 10, b: 46 },
+    showlegend: false,
+    hoverlabel: { font: { family: "IBM Plex Mono, monospace", size: 12 } },
+    xaxis: { gridcolor: rule, zerolinecolor: rule, linecolor: rule, tickcolor: rule, color: muted },
+    yaxis: { gridcolor: rule, zerolinecolor: muted, linecolor: rule, tickcolor: rule, color: muted, automargin: true },
+  }, extra || {});
+}
+const CONFIG = { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] };
+
+// Strip plot: animal dots per group, optional cell IQR band and median tick.
+function strip(div, animals, opts) {
+  const traces = [], shapes = [];
+  GROUPS.forEach((g, gi) => {
+    const pts = animals.filter(a => a.celltype === g && a.value !== null && !Number.isNaN(a.value));
+    traces.push({
+      type: "scatter", mode: "markers",
+      x: pts.map((a, i) => gi + jitter(i, pts.length)),
+      y: pts.map(a => a.value),
+      marker: { size: 11, color: colorOf(g), line: { width: 1, color: css("--surface") } },
+      customdata: pts.map(a => [a.animal_id, a.n ?? ""]),
+      hovertemplate: "animal %{customdata[0]}<br>" + (opts.ylabel || "value") + " %{y:.3g}<br>cells %{customdata[1]}<extra>" + LABEL[g] + "</extra>",
+    });
+    const q = opts.quartiles && opts.quartiles[g];
+    if (q) {
+      shapes.push({ type: "rect", x0: gi - 0.32, x1: gi + 0.32, y0: q.q25, y1: q.q75,
+        fillcolor: g === "penk" ? css("--penk-soft") : css("--nonpenk-soft"), line: { width: 0 }, layer: "below" });
+    }
+    const vals = pts.map(a => a.value).sort((a, b) => a - b);
+    if (vals.length) {
+      const m = vals.length % 2 ? vals[(vals.length - 1) / 2] : (vals[vals.length / 2 - 1] + vals[vals.length / 2]) / 2;
+      shapes.push({ type: "line", x0: gi - 0.26, x1: gi + 0.26, y0: m, y1: m, line: { width: 2.5, color: colorOf(g) } });
+    }
+  });
+  if (opts.zero) shapes.push({ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { width: 1, dash: "dot", color: css("--muted") } });
+  const layout = baseLayout({ shapes });
+  layout.xaxis = Object.assign(layout.xaxis, { tickvals: [0, 1], ticktext: GROUPS.map(g => LABEL[g]), range: [-0.6, 1.6], showgrid: false, fixedrange: true });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: opts.ylabel, font: { size: 13 } }, type: opts.log ? "log" : "linear" });
+  Plotly.react(div, traces, layout, CONFIG);
+}
+
+function statLine(s, unitNote) {
+  if (!s) return "";
+  const cles = s.cles_penk_gt_nonpenk ?? s.cles;
+  const p = s.mwu_p_two_sided ?? s.perm_p_one_sided;
+  return `Animal medians ${fmt(s.median_penk, 3)} vs ${fmt(s.median_nonpenk, 3)} (Penk+ vs Penk⁻CamKII+; ${s.n_penk} vs ${s.n_nonpenk} animals). CLES ${fmt(cles)}, exact two-sided ${fmtP(p)}.${unitNote || ""}`;
+}
+
+function segmented(id, options, onPick, initial) {
+  const host = document.getElementById(id);
+  host.innerHTML = "";
+  options.forEach(([key, label]) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.id = `${id}-${key}`; b.textContent = label;
+    b.setAttribute("aria-pressed", key === initial ? "true" : "false");
+    b.addEventListener("click", () => {
+      host.querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", "false"));
+      b.setAttribute("aria-pressed", "true");
+      state[id] = key; onPick(key);
+    });
+    host.appendChild(b);
+  });
+}
+const state = {};
+
+// ---- 1. patching
+const PATCH_SYMBOLS = ["circle", "square", "diamond", "triangle-up", "cross", "x", "star"];
+function drawPatch(key) {
+  const d = DATA.patching_adaptation, p = d.panels[key];
+  const mice = [...new Set(d.cells.map(c => c.animal_id))].sort();
+  const traces = ["penkpos", "penkneg"].map((g, gi) => {
+    const pts = d.cells.filter(c => c.celltype === g && c[key] !== null && !Number.isNaN(c[key]));
+    return {
+      type: "scatter", mode: "markers",
+      x: pts.map((c, i) => gi + jitter(i, pts.length)), y: pts.map(c => c[key]),
+      marker: { size: 10, color: colorOf(g), opacity: 0.85, symbol: pts.map(c => PATCH_SYMBOLS[mice.indexOf(c.animal_id) % PATCH_SYMBOLS.length]), line: { width: 1, color: css("--surface") } },
+      customdata: pts.map(c => [c.animal_id, c.cell_index]),
+      hovertemplate: "mouse %{customdata[0]}<br>cell %{customdata[1]}<br>%{y:.3g}<extra>" + LABEL[g] + "</extra>",
+    };
+  });
+  const layout = baseLayout();
+  layout.xaxis = Object.assign(layout.xaxis, { tickvals: [0, 1], ticktext: ["Penk+", "Penk⁻"], range: [-0.6, 1.6], showgrid: false, fixedrange: true });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: p.label, font: { size: 13 } }, type: key === "matched_sfa_ratio" ? "log" : "linear" });
+  Plotly.react("plot-patch", traces, layout, CONFIG);
+  document.getElementById("patch-caption").textContent =
+    `${p.n_cells.penk} Penk+ and ${p.n_cells.nonpenk} Penk⁻ cells; marker shape = mouse. Cliff's δ on cells ${fmt(p.cliffs_delta_cells)}; this cannot be separated from mouse identity.`;
+}
+
+// ---- 2. events
+function drawEv(key) {
+  const p = DATA.event_kinetics.panels[key];
+  strip("plot-ev", p.animals, { ylabel: p.label, quartiles: p.cell_quartiles, log: ["ev_mean_amplitude", "f_baseline", "iso_decay_s"].includes(key) });
+  const notes = {
+    iso_decay_s: " Equal indicator decay means longer events are not slower clearance.",
+    f_baseline: " Penk+ cells are about twice as bright, likely from the different constructs.",
+    ev_mean_amplitude: " The four brightest Penk+ animals carry the difference.",
+  };
+  document.getElementById("ev-caption").textContent = "Dots = animals, line = median of animals, band = cell interquartile range. " + statLine(p.stats, notes[key]);
+}
+
+// ---- 3. running
+function drawEta(key) {
+  const t = DATA.running_around_events.timecourses[key];
+  const traces = GROUPS.map(g => ({
+    type: "scatter", mode: "lines", x: t.time_s, y: t.mean_by_celltype[g],
+    line: { width: 2.5, color: colorOf(g) }, name: LABEL[g],
+    hovertemplate: "%{x:.1f} s · %{y:.3g}<extra>" + LABEL[g] + " (" + t.n_sessions[g] + " sessions)</extra>",
+  }));
+  const layout = baseLayout({ showlegend: true, legend: { orientation: "h", y: 1.08, x: 0, font: { color: css("--muted") } },
+    shapes: [{ type: "line", x0: 0, x1: 0, yref: "paper", y0: 0, y1: 1, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "time from event onset (s)", font: { size: 13 } } });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: key === "speed_cm_s" ? "speed (cm/s)" : "|AHV| (deg/s)", font: { size: 13 } } });
+  Plotly.react("plot-eta", traces, layout, CONFIG);
+}
+function drawDz() {
+  const d = DATA.running_around_events.during_speed_z;
+  strip("plot-dz", d.animals, { ylabel: "speed z during events", quartiles: d.cell_quartiles, zero: true });
+  document.getElementById("dz-caption").textContent = "z > 0: faster during events than when the cell's event times are shifted. " + statLine(d.stats);
+}
+function drawRs(key) {
+  const p = DATA.running_state.panels[key];
+  strip("plot-rs", p.animals, { ylabel: p.label, quartiles: p.cell_quartiles, zero: key !== "frac_sig_step_index" });
+  const note = key === "graded_rho" ? " Near zero in both: activity does not scale with speed within runs." : "";
+  document.getElementById("rs-caption").textContent = statLine(p.stats, note);
+}
+
+// ---- 4. light
+function drawLt() {
+  const t = DATA.light_transitions.pooled_timecourse;
+  const traces = [
+    { type: "scatter", mode: "lines", x: t.time_s, y: t.ltd, name: "lights off", line: { width: 2.5, color: css("--ink") },
+      hovertemplate: "%{x:.1f} s · %{y:.3f}<extra>lights off</extra>" },
+    { type: "scatter", mode: "lines", x: t.time_s, y: t.dtl, name: "lights on", line: { width: 2.5, color: css("--muted"), dash: "dash" },
+      hovertemplate: "%{x:.1f} s · %{y:.3f}<extra>lights on</extra>" },
+  ];
+  const layout = baseLayout({ showlegend: true, legend: { orientation: "h", y: 1.08, x: 0, font: { color: css("--muted") } },
+    shapes: [{ type: "line", x0: 0, x1: 0, yref: "paper", y0: 0, y1: 1, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "time from light switch (s)", font: { size: 13 } } });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: "population activity (Δ from pre)", font: { size: 13 } } });
+  Plotly.react("plot-lt", traces, layout, CONFIG);
+}
+function drawLa(key) {
+  const p = DATA.light_transitions.panels[key];
+  strip("plot-la", p.animals, { ylabel: p.label, zero: true });
+  document.getElementById("la-caption").textContent = statLine(p.stats);
+}
+
+// ---- 5. composites
+const MEASURE_NAMES = {
+  R1_movement_modulation: "movement modulation", R2_fast_vs_slow_corridor: "fast vs slow movement in corridors",
+  R3_speed_during_events: "speed during events", R4_moving_during_events: "movement during events", R5_run_vs_still_step: "run vs still step",
+  L1_events_at_light_on: "event onsets in light", L2_light_modulation: "light modulation", L3_lights_on_sustained: "sustained lights-on response",
+  L4_lights_off_drop: "lights-off drop", L5_ahv_loss_in_dark: "AHV loss in dark", L6_glm_light_share: "GLM light share",
+};
+function drawCp(key) {
+  const panel = DATA.composites.panels[key];
+  const traces = [];
+  GROUPS.forEach((g, gi) => {
+    const pm = panel.per_measure_ranks.filter(r => r.celltype === g);
+    traces.push({ type: "scatter", mode: "markers",
+      x: pm.map((r, i) => gi + 0.18 + jitter(i * 3, pm.length) * 0.5), y: pm.map(r => r.rank),
+      marker: { size: 6, color: colorOf(g), opacity: 0.28 },
+      customdata: pm.map(r => [r.animal_id, MEASURE_NAMES[r.measure] || r.measure]),
+      hovertemplate: "animal %{customdata[0]}<br>%{customdata[1]}: rank %{y}<extra></extra>" });
+  });
+  const animals = panel.animals.map(a => Object.assign({}, a));
+  GROUPS.forEach((g, gi) => {
+    const pts = animals.filter(a => a.celltype === g);
+    traces.push({ type: "scatter", mode: "markers",
+      x: pts.map((a, i) => gi - 0.12 + jitter(i, pts.length) * 0.6), y: pts.map(a => a.value),
+      marker: { size: 13, color: colorOf(g), line: { width: 1.2, color: css("--surface") } },
+      customdata: pts.map(a => [a.animal_id, a.n]),
+      hovertemplate: "animal %{customdata[0]}<br>composite rank %{y:.2f}<br>measures %{customdata[1]}<extra>" + LABEL[g] + "</extra>" });
+  });
+  const layout = baseLayout();
+  layout.xaxis = Object.assign(layout.xaxis, { tickvals: [0, 1], ticktext: GROUPS.map(g => LABEL[g]), range: [-0.6, 1.6], showgrid: false, fixedrange: true });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: "rank among 15 animals (higher = more coupled)", font: { size: 13 } }, range: [0, 16] });
+  Plotly.react("plot-cp", traces, layout, CONFIG);
+  const s = panel.stats;
+  const dir = s.higher_group === "penk" ? "Penk+ higher" : "Penk⁻CamKII+ higher";
+  document.getElementById("cp-caption").textContent =
+    `Large dots = composite per animal; faint dots = the per-measure ranks it averages (hover for the measure). Hypothesis ${dir}: median ${fmt(s.median_higher, 1)} vs ${fmt(s.median_lower, 1)}, CLES ${fmt(s.cles)}, one-sided exact permutation ${fmtP(s.perm_p_one_sided)} over ${s.n_assignments} label assignments, ${s.measures_agreeing}/${s.measures_used.length} measures agree, leave-one-animal-out ${s.loao_direction_stable ? "stable" : "not stable"}.`;
+}
+
+function renderAll() {
+  if (!window.Plotly || !DATA) return;
+  drawPatch(state["patch-seg"]); drawEv(state["ev-seg"]); drawEta(state["eta-seg"]); drawDz();
+  drawRs(state["rs-seg"]); drawLt(); drawLa(state["la-seg"]); drawCp(state["cp-seg"]);
+}
+
+function init() {
+  const P = DATA.patching_adaptation.panels, E = DATA.event_kinetics.panels, R = DATA.running_state.panels, L = DATA.light_transitions.panels;
+  state["patch-seg"] = "matched_sfa_ratio";
+  segmented("patch-seg", [["matched_sfa_ratio", "Adaptation"], ["matched_first_isi_ms", "First ISI"], ["max_n_spikes", "Max spikes"]], drawPatch, state["patch-seg"]);
+  state["ev-seg"] = "ev_mean_duration_s";
+  segmented("ev-seg", [["ev_mean_duration_s", "Duration"], ["ev_mean_iei_s", "Interval"], ["iso_decay_s", "Isolated decay"], ["ev_mean_amplitude", "Amplitude"], ["f_baseline", "Brightness"]], drawEv, state["ev-seg"]);
+  state["eta-seg"] = "speed_cm_s";
+  segmented("eta-seg", [["speed_cm_s", "Speed"], ["abs_ahv", "Head turning"]], drawEta, state["eta-seg"]);
+  state["rs-seg"] = "step_index";
+  segmented("rs-seg", [["step_index", "Run vs still"], ["graded_rho", "Graded speed"], ["frac_sig_step_index", "% cells"]], drawRs, state["rs-seg"]);
+  state["la-seg"] = "dtl_late_amplitude";
+  segmented("la-seg", [["dtl_late_amplitude", "Lights on"], ["ltd_early_amplitude", "Lights off"]], drawLa, state["la-seg"]);
+  state["cp-seg"] = "running";
+  segmented("cp-seg", [["running", "Running"], ["light", "Light"]], drawCp, state["cp-seg"]);
+  renderAll();
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+  new MutationObserver(renderAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
+if (window.Plotly && DATA) init();
+else window.addEventListener("load", () => { if (window.Plotly && DATA) init(); });
+</script>
