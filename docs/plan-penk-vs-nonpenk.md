@@ -92,9 +92,15 @@ velocity (Brennan et al. 2020, 2021). They do not fire persistently under
 cholinergic drive, unlike neighbouring regular-spiking cells, which predicts
 state-independent, transient coding (Jedrasiak-Cape et al. 2025).
 
-**The Penk+ patching phenotype matches the LR description on every measured
-axis** (narrow spikes, high maximal rate, high input resistance, low rheobase,
-small dendritic trees). Whether Penk marks LR cells has not been established;
+**The Penk+ patching phenotype differs from Penk⁻ cells in the LR direction,
+but not in LR magnitude** (narrow spikes, high maximal rate, higher input
+resistance, lower rheobase, smaller dendritic trees). Absolute values are far
+from Brennan's LR cells (150 vs ~400 MΩ, 1.8 vs ~0.55 ms half-width), most
+patched cells are labelled RSPd (dysgranular), and Penk+ cells adapt more,
+not less, than Penk⁻ cells (see §11, adaptation), whereas LR cells do not
+adapt. The working description is therefore "smaller, more excitable,
+narrower-spiking, burst-then-adapting L2/3 pyramid", not "LR neuron"
+(revised 2026-10-01). Whether Penk marks LR cells has not been established;
 the Penk-IRES2-Cre line labels a sparse subset of layer 2 and layer 6
 excitatory cells in cortex.
 
@@ -158,9 +164,9 @@ on the function of cortical Penk+ neurons.
 
 These are predictions to be tested, not findings.
 
-1. **Penk+ RSP neurons are the low-rheobase cell type.** The patching
-   phenotype matches LR neurons point for point, and LR cells dominate the
-   layer being imaged. In vivo prediction: Penk+ cells show higher event
+1. **(Superseded 2026-10-01: see §11.)** *Penk+ RSP neurons are the
+   low-rheobase cell type.* The patching phenotype matches LR neurons in
+   direction only, and LR cells dominate the granular layer being imaged. In vivo prediction: Penk+ cells show higher event
    rate, lower dF/F skewness, more sustained events and stronger AHV coding
    than Penk⁻CamKII+ cells.
 2. **A self-motion versus visual coupling dissociation.** Penk+ cells are
@@ -514,8 +520,9 @@ Brennan 2020 criteria (three of five met) calls 12 of 23 Penk+ cells LR versus
 1 of 14 Penk⁻ cells (Fisher p = 0.011, descriptive; the animal-level
 permutation is uninformative for the same reason), and PC1 of the five LR
 metrics is bimodal (ΔBIC = 7) with Penk+ and Penk⁻ medians on opposite sides.
-Conclusion: the ex vivo phenotype is consistent with Penk+ = LR but the
-existing recordings cannot test it at the animal level; the decisive
+Conclusion: the ex vivo phenotype differs from Penk⁻ in the LR direction
+(not magnitude), and the adaptation analysis below argues against an LR
+identity; the existing recordings cannot test either at the animal level; the decisive
 experiment is paired recording of both cell types in the same slices.
 
 ### H8 (encoding models; run without forward selection)
@@ -617,8 +624,9 @@ carry session-level structure after centring and is descriptive.
 
 ### What this changes
 
-- Candidate difference 1 (Penk+ = LR neuron) is supported by the ex vivo
-  phenotype and by event shape, not by rate or AHV coding. The next test is
+- Candidate difference 1 (Penk+ = LR neuron) is not supported: Penk+ cells
+  adapt more than Penk⁻ cells and are far from LR absolute values (§11,
+  adaptation and indicator controls). The next test is
   H1 (patching re-analysis, `scripts/run_patching_celltype.py`) and the
   CASCADE spike branch for H2.
 - Candidate difference 2 (self-motion vs visual coupling) is half
@@ -631,3 +639,60 @@ carry session-level structure after centring and is descriptive.
   genuine functional diversity within one type is the open question; the
   virus codes recorded for Penk+ animals are treated as a single label
   (decision 2026-09-25).
+
+
+### Follow-up 2026-10-01: indicator controls, event-aligned responses, adaptation
+
+Motivated by the literature review in `reports/Penk RSP coding candidates.md`
+(local), three checks were run in order.
+
+**1. Indicator and expression controls** (`hm2p.analysis.indicator_controls`,
+runner `ctl`). Isolated small events (no other event within 10 s, amplitude
+at or below the cell median) decay at the same rate in both groups (median
+0.31 vs 0.31 s; matched on baseline fluorescence 0.34 vs 0.35 s, p = 0.70),
+so the longer Penk+ events are not slower indicator clearance. Penk+ cells are
+about twice as bright at baseline (low-percentile raw F, median 84 vs 37),
+plausibly from the different Cre-ON/Cre-OFF constructs. Re-testing kinetics on
+matched subsets (effectively 10 vs 4 animals):
+
+| Metric (Penk+ vs Penk⁻) | All cells | Spike-rate matched | Baseline-F matched |
+| --- | --- | --- | --- |
+| Event duration (s) | 3.3 vs 2.6, perm p 0.010 | 3.5 vs 2.7, CLES 0.75, p 0.12 | 3.0 vs 2.6, CLES 0.70, p 0.24 |
+| Inter-event interval (s) | 31 vs 25, p 0.007 | 33 vs 26, CLES 0.82, p 0.11 | 30 vs 25, CLES 0.77, p 0.09 |
+| Event amplitude (dF/F) | 4.6 vs 7.8, p 0.044 | 5.0 vs 7.4, p 0.58 | 4.3 vs 7.9, MWU p 0.006 |
+
+Long, rare events keep their direction under both matchings (LOAO stable) but
+lose significance; smaller amplitude is not an expression artefact (strongest
+when baseline-matched) and tracks firing rate. Within Penk+, brighter cells
+have lower CASCADE rates (Spearman rho −0.42; +0.24 in Penk⁻), so the
+"Penk+ fire less" result from H2s is partly confounded by expression and is
+downgraded to unconfirmed.
+
+**2. Event-aligned responses** (`hm2p.analysis.event_aligned`, runner `evt`,
+CASCADE spikes, ±2 s windows, 500 circular shifts of the event train per
+cell). Both populations contain cells responsive above the 5 % chance rate
+(binomial) to light-on (17 % Penk+, 15 % Penk⁻), junction entry (19 %, 15 %),
+dead-end entry (17 %, 19 %) and movement onset/offset (9–13 %); light-off is
+at chance in both (the circular-shift null is conservative for the periodic
+light schedule). No event type differs between groups (all FDR ≥ 0.45);
+junction-entry responsiveness leans Penk+ (0.22 vs 0.12, CLES 0.82, perm
+p = 0.17). Transient event responses are therefore a property of both
+populations, not specific to Penk+; junction and dead-end responses are not
+yet separated from the accompanying speed changes.
+
+**3. Spike-frequency adaptation from raw IV sweeps**
+(`hm2p.patching.adaptation`, `scripts/run_patching_adaptation.py`, 23 vs 14
+cells). On the first sweep reaching ≥ 6 spikes Penk+ cells adapt more (last /
+first ISI 3.2 vs 1.9, Cliff's δ 0.62, cell-level MWU p = 0.002; adaptation
+index 0.088 vs 0.051, δ 0.48) and start with a faster first interval (52 vs
+78 ms; 15 vs 35 ms on the max-spike sweep, δ −0.68). Animal-level permutation
+p = 0.07–0.27 (floor ≈ 0.13 with 5 vs 2 effective mice). Penk+ cells fire an
+initial high-frequency burst and then slow; this matches the bursty in vivo
+statistics and is the firing mode required for neuropeptide release, and it is
+the opposite of the non-adapting LR phenotype.
+
+**Updated reading.** The most robust single-cell difference is longer, rarer
+calcium events in Penk+ cells with unchanged indicator kinetics, consistent
+with burst-then-adapting firing. The lower inferred firing rate and the
+smaller amplitude are partly expression- and rate-related. Neither cell type
+is uniquely tuned to discrete behavioural moments.
