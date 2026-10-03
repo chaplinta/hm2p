@@ -1149,3 +1149,31 @@ def test_part_c_continuum_without_penk(tmp_path: Path) -> None:
     ctx = apq.Context(outdir=tmp_path, cache_dir=tmp_path)
     apq._part_c_continuum(ctx, r, pd.DataFrame({"dataset": ["x"]}), ["rheobase"])
     assert r.outputs == [] and any("skipped" in n for n in r.notes)
+
+
+class _NewCache:
+    def list_expression_matrix_files(self, d):
+        return [f"{d}/log2", f"{d}/raw"]
+
+
+class _OldCache:
+    def list_data_files(self, d):
+        return [f"{d}/log2"]
+
+
+def test_list_expression_files_handles_both_api_versions() -> None:
+    assert apq.list_expression_files(_NewCache(), "X") == ["X/log2", "X/raw"]
+    assert apq.list_expression_files(_OldCache(), "Y") == ["Y/log2"]
+    with pytest.raises(AttributeError):
+        apq.list_expression_files(object(), "Z")
+
+
+def test_adaptation_maps_to_isi_not_amplitude() -> None:
+    cols = [
+        "AP amplitude adaptation index",
+        "ISI adaptation index",
+        "ISI average adaptation index",
+    ]
+    assert apq.map_ephys_columns(cols)["adaptation_index"] == "ISI adaptation index"
+    assert apq.map_ephys_columns(["ef__adaptation", "x"])["adaptation_index"] == "ef__adaptation"
+    assert "adaptation_index" not in apq.map_ephys_columns(["AP amplitude adaptation index"])

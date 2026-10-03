@@ -232,13 +232,16 @@ TOP_QUANTILE = 0.75
 MIN_GROUP_N = 3
 
 # Canonical intrinsic-property names -> regex over lower-cased column names.
-# Order matters: the first column matching a pattern is used.
+# Order matters: the first column matching a pattern is used. A pattern may hold
+# priority tiers separated by " || "; the first tier with any match is used.
 EPHYS_PATTERNS: dict[str, str] = {
     "input_resistance": r"input.?resist|^ef__ri$|\bri\b",
     "rheobase": r"rheobase|threshold_i_long_square",
     "ap_width": r"ap.?(half.?)?width|half.?width|width",
     "upstroke_downstroke_ratio": r"upstroke.?downstroke",
-    "adaptation_index": r"adapt",
+    # ISI (spike-frequency) adaptation, not AP-amplitude adaptation; tiers are
+    # tried in order (" || "), so a tier-1 match wins over column order.
+    "adaptation_index": r"isi.*adapt || ^(ef__)?adapt",
     "max_firing": r"max.*(firing|number of ap|rate|spike)|avg_firing_rate",
     "fi_slope": r"f.?i.?(curve)?.?slope",
     "sag": r"\bsag",
@@ -608,6 +611,19 @@ def tenx_directory_for_label(feature_matrix_label: str) -> str:
     return m.group(1)
 
 
+def list_expression_files(abc: Any, directory: str) -> list[str]:
+    """Expression-matrix file names in an ABC directory, across abc_atlas_access versions.
+
+    Current releases name the method ``list_expression_matrix_files``; older
+    ones used ``list_data_files``.
+    """
+    for name in ("list_expression_matrix_files", "list_data_files"):
+        fn = getattr(abc, name, None)
+        if fn is not None:
+            return list(fn(directory))
+    raise AttributeError("AbcProjectCache has no expression-file listing method")
+
+
 def pick_data_file(files: Iterable[str], label: str, kind: str = "log2") -> str | None:
     """Pick the expression file for ``label`` of type ``kind`` from a listing.
 
@@ -826,13 +842,14 @@ def map_ephys_columns(
     used: set[str] = set()
     mapping: dict[str, str] = {}
     for canon, pat in patterns.items():
-        rx = re.compile(pat, re.IGNORECASE)
-        for c in cols:
-            if c in used:
-                continue
-            if rx.search(str(c).strip().lower()):
-                mapping[canon] = c
-                used.add(c)
+        for tier in pat.split(" || "):
+            rx = re.compile(tier.strip(), re.IGNORECASE)
+            hit = next(
+                (c for c in cols if c not in used and rx.search(str(c).strip().lower())), None
+            )
+            if hit is not None:
+                mapping[canon] = hit
+                used.add(hit)
                 break
     return mapping
 
@@ -1692,9 +1709,11 @@ def log_inventory(
     inv["directories"] = dirs
     for d in directories or []:
         entry: dict[str, Any] = {}
-        for kind, fn in (("metadata", "list_metadata_files"), ("data", "list_data_files")):
+        for kind, fn in (("metadata", "list_metadata_files"), ("data", None)):
             try:
-                entry[kind] = list(getattr(abc, fn)(d))
+                entry[kind] = (
+                    list_expression_files(abc, d) if fn is None else list(getattr(abc, fn)(d))
+                )
             except Exception as exc:  # noqa: BLE001
                 entry[kind] = f"error: {exc}"
             log.info("  %s %s files: %s", d, kind, entry[kind])
@@ -1931,7 +1950,7 @@ def part_a(ctx: Context, result: PartResult) -> None:  # pragma: no cover - netw
             if "dataset_label" in rsp.columns
             else tenx_directory_for_label(str(label))
         )
-        files = list(abc.list_data_files(directory))
+        files = list_expression_files(abc, directory)
         fname = pick_data_file(files, str(label), "log2")
         if fname is None:
             result.note(f"no log2 file for {label} in {directory}: {files}")
@@ -2211,7 +2230,7 @@ def part_b(ctx: Context, result: PartResult) -> None:  # pragma: no cover - netw
                     gene_meta["gene_symbol"].astype(str), ctx.genes
                 )
                 result.note(f"{ds}: panel genes present {present}; missing {missing}")
-            files = list(abc.list_data_files(ds))
+            files = list_expression_files(abc, ds)
             fm = str(rsp["feature_matrix_label"].iloc[0]) if "feature_matrix_label" in rsp else ds
             fname = pick_data_file(files, fm, "log2") or pick_data_file(files, "", "log2")
             if fname is None:
