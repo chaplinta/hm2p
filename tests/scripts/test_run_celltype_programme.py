@@ -267,6 +267,7 @@ class TestCli:
             "runshape",
             "ego",
             "tctx",
+            "mazerun",
         }
 
     def test_parser_n_shuffles_evt(self) -> None:

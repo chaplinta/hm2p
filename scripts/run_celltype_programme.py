@@ -87,7 +87,6 @@ def _s3():  # pragma: no cover - network
     global _S3
     if _S3 is None:
         import boto3
-
         from botocore.exceptions import ProfileNotFound
 
         try:
