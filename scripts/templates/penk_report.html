@@ -196,6 +196,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
       <li><a href="#cells">All measures</a></li>
       <li><a href="#cell-running">Run state</a></li>
       <li><a href="#maze">Running in the maze</a></li>
+      <li><a href="#continuum">Type or continuum?</a></li>
       <li><a href="#physiology">Ex vivo cells</a></li>
       <li class="toc-part">Part 2 · Animals</li>
       <li><a href="#animals">Why animals</a></li>
@@ -349,6 +350,58 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
       </ul>
       <div class="prose">
         <p><strong>What this means in the maze.</strong> The Penk+ signal is not tied to a place, a route, a goal (dead end) or novelty. It marks that the mouse is in a bout of travelling through the maze, at a timescale of several seconds that spans individual corridor runs. The simplest reading is a locomotor state signal (the mouse is moving through the maze now) rather than a navigational variable. Two things it could still feed: integrating self-motion over a bout (path integration needs exactly a "currently moving" gate), or marking travel epochs for later memory. Neither is tested here.</p>
+      </div>
+    </section>
+
+    <section id="continuum">
+      <h2>Discrete type or continuum?</h2>
+      <p class="finding">Penk+ cells do not form a separate cluster. Their distributions overlap Penk⁻CamKII+ at the low end and stretch further at the high end of running coupling and event length, which fits a continuum better than a discrete type.</p>
+      <div class="prose">
+        <p>So far "Penk+" has been treated as a category. Layer 2/3 excitatory neurons in transcriptomic atlases mostly vary along gradients rather than falling into clean clusters, and a Cre-ON / Cre-OFF split cuts any such gradient at a threshold. The two views make different predictions, tested here cell by cell:</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Prediction</th><th>Discrete type</th><th>Continuum</th><th>Observed</th></tr></thead>
+          <tbody>
+            <tr><td>Distribution within each label</td><td>Penk⁻ (a mixture) multimodal; Penk+ compact</td><td>Unimodal in both</td><td id="obs-modes"></td></tr>
+            <tr><td>Where the groups differ (shift function)</td><td>One tail, where the distinct type sits</td><td>Gradual change across quantiles</td><td id="obs-shift"></td></tr>
+            <tr><td>Nearest neighbours (other animals only)</td><td>Penk+ cells next to Penk+ cells</td><td>Labels mixed</td><td id="obs-knn"></td></tr>
+            <tr><td>Running and light axes</td><td>Opposite ends of one axis</td><td>Separate, independent axes</td><td id="obs-axes"></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head">
+            <span class="chart-title" id="sf-title">Shift function: Penk+ minus Penk⁻ at each decile</span>
+            <select id="sf-measure" aria-label="Shift-function measure"></select>
+          </div>
+          <div id="plot-sf" class="plot" role="img" aria-labelledby="sf-title"></div>
+          <p class="caption" id="sf-caption"></p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ax-title">Every cell on the running and light axes</span></div>
+          <div id="plot-ax" class="plot" role="img" aria-labelledby="ax-title"></div>
+          <p class="caption" id="ax-caption"></p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="modes-table">
+          <thead><tr><th>Measure</th><th>Silverman p, Penk+</th><th>Silverman p, Penk⁻</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="caption">Silverman's test of one mode against more (Silverman 1981); the uncalibrated version used here is conservative (Hall and York 2001), and with 20 tests about one p &lt; 0.05 is expected by chance. Timescales are tested on a log scale.</p>
+      <ul class="plain">
+        <li><strong>No hidden sub-population.</strong> No measure is clearly bimodal in either label. If Penk+ were a distinct type mixed into a population, or Penk⁻ a mixture of distinct types, some running or timing measure would be expected to split.</li>
+        <li><strong>The difference opens in the upper half.</strong> The lowest Penk+ cells look like Penk⁻ cells; the gap widens toward the top deciles for running coupling, step index, event duration and interval (event duration: about 9 % longer at the 10th percentile, about 50 % at the 90th). Penk+ covers a wider range that extends further, rather than sitting at a separate location.</li>
+        <li><strong>Penk⁻ cells sit closer together than Penk+ cells.</strong> Among neighbours drawn from other animals, Penk⁻ cells have more Penk⁻ neighbours than label permutation predicts (p ≈ 0.06–0.07); Penk+ cells show no clustering. This matches the earlier finding that Penk+ cells are more dispersed.</li>
+        <li><strong>The axes are not opposite ends of one variable.</strong> Running and light scores are weakly positively correlated across cells, so "running cells" are not simply "non-visual cells".</li>
+        <li><strong>A graded hint, with a caveat.</strong> Within Penk+, brighter cells score higher on the running axis (ρ = 0.16, p = 0.005), but not within Penk⁻. Brightness could track Cre or reporter level, but it also raises signal-to-noise and so the detectability of coupling.</li>
+      </ul>
+      <div class="pending">
+        <span class="tag lean">Allen data: built, running</span>
+        <p>The direct test is whether Penk mRNA in RSP layer 2/3 excitatory neurons is bimodal or graded, how much of it is explained by transcriptomic cluster, which genes (including L2 vs L3 depth markers) vary with it, and, in Patch-seq, whether Penk level tracks adaptation and spike width continuously. That job runs on EC2; results will be added here.</p>
       </div>
     </section>
 
@@ -987,10 +1040,63 @@ function buildMazeTable() {
   });
 }
 
+// ---- continuum
+const SF_ORDER = ["running_axis", "step_index", "speed_during_z", "xc_peak_r_z", "ev_mean_duration_s", "ev_mean_iei_s", "iso_decay_s", "light_axis", "act_light_modulation", "light_during_z"];
+function drawShift(key) {
+  const sf = DATA.continuum.shift[key];
+  if (!sf) return;
+  const x = sf.quantiles.map(q => q * 100);
+  const traces = [
+    { type: "scatter", mode: "lines", x: x.concat([...x].reverse()), y: sf.hi.concat([...sf.lo].reverse()), fill: "toself",
+      fillcolor: css("--penk-soft"), line: { width: 0 }, hoverinfo: "skip" },
+    { type: "scatter", mode: "lines+markers", x, y: sf.diff, line: { color: css("--penk"), width: 2.5 }, marker: { size: 8, color: css("--penk") },
+      customdata: sf.lo.map((l, i) => [l, sf.hi[i]]),
+      hovertemplate: "decile %{x}: %{y:.3f} [%{customdata[0]:.3f}, %{customdata[1]:.3f}]<extra></extra>" },
+  ];
+  const layout = baseLayout({ shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "percentile", font: { size: 13 } }, tickvals: x });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: sf.log10 ? "Penk+ − Penk⁻ (log10)" : "Penk+ − Penk⁻", font: { size: 13 } } });
+  Plotly.react("plot-sf", traces, layout, CONFIG);
+  const ratio = v => sf.log10 ? ` (×${Math.pow(10, v).toFixed(2)})` : "";
+  document.getElementById("sf-caption").textContent =
+    `${sf.label}. Difference at the 10th percentile ${fmt(sf.diff[0], 3)}${ratio(sf.diff[0])}, median ${fmt(sf.diff[4], 3)}${ratio(sf.diff[4])}, 90th ${fmt(sf.diff[8], 3)}${ratio(sf.diff[8])}. Band: 95 % bootstrap interval resampling animals, then cells within animals. A flat line means a uniform shift; a rising line means the difference is concentrated in the upper part of the distribution.`;
+}
+function drawAxes() {
+  const C = DATA.continuum;
+  const traces = GROUPS.map(g => ({
+    type: "scatter", mode: "markers", name: LABEL[g], x: C.cells[g].running_axis, y: C.cells[g].light_axis,
+    marker: { size: 6, color: colorOf(g), opacity: 0.55 }, customdata: C.cells[g].animal_id,
+    hovertemplate: "running %{x:.2f}, light %{y:.2f}<br>animal %{customdata}<extra>" + LABEL[g] + "</extra>",
+  }));
+  const layout = baseLayout({ showlegend: true, legend: { orientation: "h", y: 1.08, x: 0, font: { color: css("--muted") } } });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "running axis (mean rank, 0–1)", font: { size: 13 } }, range: [0, 1] });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: "light axis (mean rank, 0–1)", font: { size: 13 } }, range: [0, 1] });
+  Plotly.react("plot-ax", traces, layout, CONFIG);
+  const ac = C.axis_correlation, mx = C.mixing.axes.labels;
+  document.getElementById("ax-caption").textContent =
+    `Each cell's mean percentile rank over the running measures (${C.axes.running.join(", ")}) and the light measures (${C.axes.light.join(", ")}). Axes correlation across cells ρ = ${fmt(ac.all.rho)}. Same-label share among 10 nearest neighbours from other animals: Penk+ ${fmt(mx.penk.observed)} (expected ${fmt(mx.penk.null_mean)}), Penk⁻ ${fmt(mx.nonpenk.observed)} (expected ${fmt(mx.nonpenk.null_mean)}, p ${pTxt(mx.nonpenk.p_one_sided)}; ${C.mixing.axes.n_assignments} label assignments over animals).`;
+}
+function fillContinuumText() {
+  const C = DATA.continuum;
+  const tb = document.querySelector("#modes-table tbody");
+  tb.innerHTML = C.modes.map(r => `<tr><td>${r.label}</td><td class="num">${pTxt(r.penk.p)}</td><td class="num">${pTxt(r.nonpenk.p)}</td></tr>`).join("");
+  const nlow = C.modes.filter(r => (r.penk.p ?? 1) < 0.05 || (r.nonpenk.p ?? 1) < 0.05).length;
+  document.getElementById("obs-modes").textContent = `Unimodal: ${C.modes.length * 2 - nlow} of ${C.modes.length * 2} tests p ≥ 0.05`;
+  const ra = C.shift.running_axis;
+  document.getElementById("obs-shift").textContent = `Grows toward the top (running axis ${fmt(ra.diff[0])} at 10th, ${fmt(ra.diff[8])} at 90th percentile)`;
+  const mf = C.mixing.features ? C.mixing.features.labels : C.mixing.axes.labels;
+  document.getElementById("obs-knn").textContent = `Penk+ not clustered (${fmt(mf.penk.observed)} vs ${fmt(mf.penk.null_mean)}); Penk⁻ slightly (${fmt(mf.nonpenk.observed)} vs ${fmt(mf.nonpenk.null_mean)}, p ${pTxt(mf.nonpenk.p_one_sided)})`;
+  document.getElementById("obs-axes").textContent = `Weak positive correlation (ρ = ${fmt(C.axis_correlation.all.rho)})`;
+  const sel = document.getElementById("sf-measure");
+  sel.innerHTML = SF_ORDER.filter(k => C.shift[k]).map(k => `<option value="${k}">${C.shift[k].label}</option>`).join("");
+  sel.value = state["sf-measure"];
+  sel.addEventListener("change", e => { state["sf-measure"] = e.target.value; drawShift(e.target.value); });
+}
+
 function renderAll() {
   if (!window.Plotly || !DATA) return;
   const jobs = [
-    () => drawCell(state["cell-measure"]), drawRunScatter, drawFracSig, drawMaze, drawMazeDur, drawMazeZ,
+    () => drawCell(state["cell-measure"]), drawRunScatter, drawFracSig, drawMaze, drawMazeDur, drawMazeZ, () => drawShift(state["sf-measure"]), drawAxes,
     () => drawPatch(state["patch-seg"]), () => drawEv(state["ev-seg"]), () => drawEta(state["eta-seg"]), drawDz,
     () => drawRs(state["rs-seg"]), drawLt, () => drawLa(state["la-seg"]), () => drawCp(state["cp-seg"]),
   ];
@@ -1006,6 +1112,8 @@ function init() {
   document.getElementById("cell-measure").addEventListener("change", e => { state["cell-measure"] = e.target.value; drawCell(e.target.value); });
   buildCellTable();
   buildMazeTable();
+  state["sf-measure"] = "running_axis";
+  fillContinuumText();
   state["patch-seg"] = "matched_sfa_ratio";
   segmented("patch-seg", [["matched_sfa_ratio", "Adaptation"], ["matched_first_isi_ms", "First ISI"], ["max_n_spikes", "Max spikes"]], drawPatch, state["patch-seg"]);
   state["ev-seg"] = "ev_mean_duration_s";
