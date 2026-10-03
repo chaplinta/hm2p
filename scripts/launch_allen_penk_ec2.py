@@ -13,7 +13,10 @@ and terminates itself (hard limit 6 h).
 Because the query script may not yet be committed, the launcher by default
 stages the local copy at ``allen/penk/_code/allen_penk_query.py`` before
 launching; the instance prefers that copy and falls back to the repository
-clone (``--no-stage-script`` uses the clone only).
+clone (``--no-stage-script`` uses the clone only). Either way the clone's
+``src/`` directory is exported on ``PYTHONPATH`` so the script can import
+``hm2p.analysis.continuum`` (numpy only) for the continuum vs discrete
+analyses; that module must exist on the cloned branch.
 
 Usage
 -----
@@ -55,6 +58,7 @@ DONE_KEY = f"{PREFIX}/_done.json"
 LOG_KEY = f"{PREFIX}/_instance.log"
 CODE_KEY = f"{PREFIX}/_code/allen_penk_query.py"
 GIT_REPO = "https://github.com/chaplinta/hm2p.git"
+REPO_SRC = "/opt/hm2p/repo/src"  # on PYTHONPATH so the query script imports hm2p.analysis
 ABC_PKG = "abc_atlas_access @ git+https://github.com/AllenInstitute/abc_atlas_access.git"
 RUNTIME_DEPS = "anndata h5py pandas numpy scipy boto3 pyarrow"
 STATE_FILE = Path.home() / ".hm2p-allen-penk-instance.json"
@@ -104,12 +108,16 @@ def build_user_data(
         export PATH="/root/.local/bin:$PATH"
         mkdir -p /opt/hm2p && cd /opt/hm2p
         git clone -q --depth 1 --branch {git_branch} {GIT_REPO} repo
+        # shared numpy-only analysis modules (hm2p.analysis.continuum) from the clone
+        export PYTHONPATH={REPO_SRC}
         SCRIPT=/opt/hm2p/repo/scripts/allen_penk_query.py
         {stage}
         test -f "$SCRIPT" || {{ echo "query script missing"; shutdown -h now; exit 1; }}
         uv venv -q -p 3.11 venv
         uv pip install -q --python venv/bin/python {RUNTIME_DEPS} "{ABC_PKG}"
         venv/bin/python -c "import anndata, abc_atlas_access; print('anndata', anndata.__version__)"
+        venv/bin/python -c "import hm2p.analysis.continuum" \\
+            || echo "WARNING: hm2p.analysis.continuum not importable; continuum outputs will fail"
 
         # periodic instance-log upload (every 5 min)
         ( while true; do sleep 300; \\
