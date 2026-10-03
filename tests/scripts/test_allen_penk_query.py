@@ -534,3 +534,618 @@ def test_parser_defaults_and_choices() -> None:
 
 def test_part_registry() -> None:
     assert set(apq.PART_FUNCS) == set(apq.ALL_PARTS)
+
+
+# --------------------------------------------------------------------------- continuum helpers
+
+
+def test_continuum_module_importable() -> None:
+    mod = apq.continuum_module()
+    assert hasattr(mod, "silverman_mode_test") and hasattr(mod, "shift_function")
+
+
+def test_continuum_module_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(apq, "_continuum_module", None)
+    monkeypatch.setattr(apq, "_CONTINUUM_IMPORT_ERROR", ImportError("nope"))
+    with pytest.raises(ImportError, match="PYTHONPATH"):
+        apq.continuum_module()
+
+
+def test_depth_markers_and_params() -> None:
+    assert len(apq.DEPTH_MARKERS) == len(set(apq.DEPTH_MARKERS)) == 9
+    assert {"Cux2", "Otof", "Cdh13", "Ccbe1", "Cxcl14"} <= set(apq.DEPTH_MARKERS)
+    assert apq.HIST_EDGES[0] == 0.0 and apq.HIST_EDGES[-1] == 16.0
+    p = apq._continuum_params()
+    assert p["silverman"] == {"k": 1, "max_n": 3000, "n_boot": 200}
+    assert p["gene_corr"]["min_frac_expressing"] == 0.05
+    json.dumps(apq._json_safe(p))
+
+
+def test_run_substeps_isolates_failures() -> None:
+    r = apq.PartResult(part="A")
+    ran: list[str] = []
+
+    def ok() -> None:
+        ran.append("ok")
+
+    def bad() -> None:
+        raise ValueError("x")
+
+    with pytest.raises(RuntimeError, match="bad"):
+        apq.run_substeps(r, [("bad", bad), ("ok", ok)])
+    assert ran == ["ok"]
+    assert any("bad failed: ValueError" in n for n in r.notes)
+    apq.run_substeps(r, [("ok", ok)])  # no failure -> no raise
+
+
+def test_write_json_and_json_safe(tmp_path: Path) -> None:
+    r = apq.PartResult(part="A")
+    rec = apq.write_json(
+        {"a": np.float64(np.nan), "b": np.arange(2), "c": (1.0, np.inf), 3: np.int64(4)},
+        tmp_path / "x.json",
+        r,
+    )
+    data = json.loads((tmp_path / "x.json").read_text())
+    assert data == {"a": None, "b": [0, 1], "c": [1.0, None], "3": 4}
+    assert rec.n_rows is None and r.outputs[0].file == "x.json"
+
+
+def test_subsample_rows() -> None:
+    df = pd.DataFrame({"g": ["a"] * 10 + ["b"] * 3, "v": range(13)})
+    assert apq.subsample_rows(df, 20) is df
+    s = apq.subsample_rows(df, 5, seed=1)
+    assert len(s) == 5 and s.index.is_monotonic_increasing
+    assert apq.subsample_rows(df, 5, seed=1).equals(s)
+    by = apq.subsample_rows(df, 4, by="g")
+    assert by["g"].value_counts().to_dict() == {"a": 4, "b": 3}
+    assert apq.subsample_rows(df.iloc[0:0], 4, by="g").empty
+
+
+def test_subclass_by_alias_and_mask() -> None:
+    pivot = pd.DataFrame(
+        {"subclass": ["007 L2/3 IT CTX Glut", "Sst Gaba"]},
+        index=pd.Index([1, 2], name="cluster_alias"),
+    )
+    m = apq.subclass_by_alias(pivot)
+    assert m == {"1": "007 L2/3 IT CTX Glut", "2": "Sst Gaba"}
+    mask = apq.l23_it_alias_mask(pd.Series([1, 2, 99, None]), m)
+    assert mask.tolist() == [True, False, False, False]
+    with pytest.raises(KeyError):
+        apq.subclass_by_alias(pd.DataFrame({"x": [1]}))
+
+
+def test_isocortex_mask() -> None:
+    df = pd.DataFrame({apq.ISOCORTEX_COL: ["Isocortex", "HPF", None]})
+    assert apq.isocortex_mask(df).tolist() == [True, False, False]
+    assert apq.isocortex_mask(pd.DataFrame({"x": [1, 2]})).all()
+
+
+@pytest.mark.parametrize(
+    ("roi", "sub"),
+    [("RSP", "RSP"), ("RSPv", "RSPv"), ("RSPagl", "RSPagl"), ("ACA-RSP", "RSP"), ("VIS", None),
+     (None, None)],
+)  # fmt: skip
+def test_rsp_subregion_from_roi(roi: object, sub: str | None) -> None:
+    assert apq.rsp_subregion_from_roi(roi) == sub
+
+
+def test_fixed_histogram() -> None:
+    h = apq.fixed_histogram([0.0, 0.1, 0.5, 100.0, -1.0, np.nan], np.array([0.0, 0.25, 1.0]))
+    assert h["count"].tolist() == [3, 2]  # -1 clipped into first bin, 100 into last
+    assert h["frac"].sum() == pytest.approx(1.0)
+    assert list(h.columns) == ["bin_lo", "bin_hi", "count", "frac"]
+    empty = apq.fixed_histogram([], np.array([0.0, 1.0]))
+    assert empty["count"].tolist() == [0] and empty["frac"].isna().all()
+
+
+@settings(max_examples=40, deadline=None)
+@given(st.lists(st.floats(0, 20, allow_nan=False), min_size=0, max_size=40))
+def test_fixed_histogram_conserves_counts(v: list[float]) -> None:
+    h = apq.fixed_histogram(v)
+    assert h["count"].sum() == len(v)
+    assert len(h) == len(apq.HIST_EDGES) - 1
+
+
+def test_expression_distribution() -> None:
+    d = apq.expression_distribution([0.0, 0.0, 1.0, 3.0, np.nan])
+    assert d["n"] == 4 and d["n_zero"] == 2 and d["n_expressing"] == 2
+    assert d["frac_zero"] == 0.5 and d["frac_expressing"] == 0.5
+    assert d["median_expressing"] == 2.0 and d["median_all"] == 0.5
+    e = apq.expression_distribution([])
+    assert e["n"] == 0 and np.isnan(e["frac_zero"]) and np.isnan(e["median_expressing"])
+
+
+def test_silverman_expressing_bimodal_vs_unimodal() -> None:
+    rng = np.random.default_rng(0)
+    bi = np.r_[np.zeros(50), rng.normal(2, 0.3, 300), rng.normal(8, 0.3, 300)]
+    uni = np.r_[np.zeros(50), rng.normal(5, 1.0, 600)]
+    rb = apq.silverman_expressing(bi, max_n=400, n_boot=50)
+    ru = apq.silverman_expressing(uni, max_n=400, n_boot=50)
+    assert rb["n_silverman"] == 400 and rb["silverman_subsampled"]
+    assert rb["silverman_p_unimodal"] < 0.05
+    assert ru["silverman_p_unimodal"] > 0.05
+    assert not apq.silverman_expressing([1.0, 2.0], n_boot=5)["silverman_subsampled"]
+
+
+def test_groups_with_pooling() -> None:
+    df = pd.DataFrame({"d": ["x", "x", "y"], "g": ["a", "b", "a"], "v": [1, 2, 3]})
+    gs = apq._groups(df, ["d", "g"], pool_col="g")
+    keys = [kv for kv, _ in gs]
+    assert {"d": "x", "g": "ALL"} in keys and {"d": "y", "g": "ALL"} in keys
+    assert len(gs) == 5
+    pooled = dict((tuple(kv.values()), len(s)) for kv, s in gs)
+    assert pooled[("x", "ALL")] == 2
+    assert apq._groups(df, [])[0][0] == {}
+
+
+def test_penk_distribution_tables() -> None:
+    rng = np.random.default_rng(1)
+    df = pd.DataFrame(
+        {
+            "Penk": np.r_[np.zeros(20), rng.uniform(1, 5, 40)],
+            "library_method": ["v3"] * 30 + ["v2"] * 30,
+        }
+    )
+    s, h = apq.penk_distribution_tables(df, [[], ["library_method"], ["absent"]], "test", n_boot=5)
+    assert s["grouping"].tolist() == ["pooled", "library_method", "library_method"]
+    pooled = s.iloc[0]
+    assert pooled["group"] == "ALL" and pooled["n"] == 60 and pooled["n_zero"] == 20
+    assert "silverman_p_unimodal" in s.columns
+    assert set(h["population"]) == {"all", "expressing"}
+    pooled_all = h[(h.grouping == "pooled") & (h.population == "all")]
+    assert pooled_all["count"].sum() == 60
+    pooled_expr = h[(h.grouping == "pooled") & (h.population == "expressing")]
+    assert pooled_expr["count"].sum() == 40
+    s2, _ = apq.penk_distribution_tables(df, [[]], "t", silverman=False)
+    assert "silverman_p_unimodal" not in s2.columns
+
+
+def test_group_expression_table() -> None:
+    df = pd.DataFrame({"k": ["a"] * 4 + ["b"] * 4 + ["c"], "Penk": [1, 1, 1, 0, 0, 0, 0, 2, 5]})
+    t = apq.group_expression_table(df, ["k"], min_n=2)
+    assert t["k"].tolist() == ["a", "b"]
+    a = t.iloc[0]
+    assert a["n_expressing"] == 3 and a["frac_expressing"] == 0.75
+    assert a["share_of_expressing"] == pytest.approx(0.75)
+    assert t["share_of_expressing"].sum() == pytest.approx(1.0)
+    assert apq.group_expression_table(df.iloc[0:0], ["k"]).empty
+
+
+def test_kruskal_epsilon_squared_matches_scipy() -> None:
+    from scipy.stats import kruskal
+
+    rng = np.random.default_rng(2)
+    v = np.r_[rng.normal(0, 1, 20), rng.normal(1, 1, 25), np.zeros(10), [9.0] * 3]
+    g = ["a"] * 20 + ["b"] * 25 + ["c"] * 10 + ["d"] * 3
+    r = apq.kruskal_epsilon_squared(v, g, min_n=5)
+    ref = kruskal(v[:20], v[20:45], v[45:55])
+    assert r["k"] == 3 and r["n"] == 55 and r["n_groups_dropped"] == 1
+    assert r["H"] == pytest.approx(ref.statistic)
+    assert r["p"] == pytest.approx(ref.pvalue)
+    assert r["epsilon_sq"] == pytest.approx(ref.statistic / 54)
+
+
+def test_kruskal_epsilon_squared_extremes() -> None:
+    perfect = apq.kruskal_epsilon_squared([1, 2, 3, 10, 11, 12], list("aaabbb"), min_n=3)
+    assert perfect["epsilon_sq"] == pytest.approx(13.5 / 17.5)  # SSB / SST of ranks 1..6
+    tied_within = apq.kruskal_epsilon_squared([1, 1, 1, 2, 2, 2], list("aaabbb"), min_n=3)
+    assert tied_within["epsilon_sq"] == pytest.approx(1.0)
+    tied = apq.kruskal_epsilon_squared([0.0] * 6, list("aaabbb"), min_n=3)
+    assert np.isnan(tied["H"]) and np.isnan(tied["epsilon_sq"])
+    one = apq.kruskal_epsilon_squared([1.0, 2.0, 3.0], ["a", "a", None], min_n=1)
+    assert one["k"] == 1 and np.isnan(one["p"])
+
+
+@settings(max_examples=40, deadline=None)
+@given(
+    st.lists(st.integers(0, 4), min_size=6, max_size=40),
+    st.lists(st.sampled_from(["a", "b", "c"]), min_size=40, max_size=40),
+)
+def test_kruskal_epsilon_squared_equals_rank_eta_squared(v: list[int], g: list[str]) -> None:
+    from scipy.stats import rankdata
+
+    g = g[: len(v)]
+    r = apq.kruskal_epsilon_squared(v, g, min_n=1)
+    if np.isnan(r["epsilon_sq"]):
+        return
+    ranks = rankdata(v)
+    s = pd.Series(ranks).groupby(pd.Series(g))
+    ssb = (s.size() * (s.mean() - ranks.mean()) ** 2).sum()
+    sst = ((ranks - ranks.mean()) ** 2).sum()
+    assert r["epsilon_sq"] == pytest.approx(ssb / sst)
+    assert 0.0 <= r["epsilon_sq"] <= 1.0 + 1e-12
+
+
+def test_taxonomy_variance_table() -> None:
+    df = pd.DataFrame(
+        {
+            "cluster": ["k1"] * 6 + ["k2"] * 6 + ["k3"] * 6,
+            "Penk": [3, 4, 5, 3, 4, 5] + [0] * 6 + [0, 0, 0, 0, 0, 1],
+            "library_method": ["v3", "v2"] * 9,
+        }
+    )
+    t = apq.taxonomy_variance_table(df, ["cluster", "absent"], "s", strata_col="library_method",
+                                    min_n=3)  # fmt: skip
+    assert t["stratum"].tolist() == ["ALL", "v2", "v3"]
+    allrow = t.iloc[0]
+    assert allrow["k"] == 3 and allrow["epsilon_sq"] > 0.5 and allrow["p"] < 0.01
+    assert allrow["top3_share_of_expressing"] == pytest.approx(1.0)
+    assert allrow["max_group_frac_expressing"] == 1.0
+    assert allrow["min_group_frac_expressing"] == 0.0
+    assert pd.isna(allrow["stratum_col"]) and t.iloc[1]["stratum_col"] == "library_method"
+
+
+def test_spearman_against_and_rho_p() -> None:
+    from scipy.stats import spearmanr
+
+    rng = np.random.default_rng(3)
+    x = rng.normal(size=50)
+    m = np.c_[x**3, -x, rng.normal(size=50), np.ones(50)]
+    rho = apq.spearman_against(x, m)
+    assert rho[0] == pytest.approx(1.0) and rho[1] == pytest.approx(-1.0)
+    assert rho[2] == pytest.approx(spearmanr(x, m[:, 2]).statistic)
+    assert np.isnan(rho[3])
+    r, p, n = apq.spearman_rho_p(x, m[:, 2])
+    ref = spearmanr(x, m[:, 2])
+    assert (r, n) == (pytest.approx(ref.statistic), 50)
+    assert p == pytest.approx(ref.pvalue)
+    r2, p2, n2 = apq.spearman_rho_p([1.0, np.nan, 2.0], [1.0, 2.0, np.nan])
+    assert n2 == 1 and np.isnan(r2) and np.isnan(p2)
+    with pytest.raises(ValueError):
+        apq.spearman_against([1.0, 2.0], np.ones((3, 1)))
+    with pytest.raises(ValueError):
+        apq.spearman_against([1.0, np.nan], np.ones((2, 1)))
+
+
+def test_spearman_p_edge_cases() -> None:
+    assert np.isnan(apq._spearman_p(np.array([0.5]), 2)).all()
+    assert apq._spearman_p(np.array([1.0]), 10)[0] == 0.0
+    assert np.isnan(apq._spearman_p(np.array([np.nan]), 10)[0])
+
+
+def test_partial_rho() -> None:
+    # x and y both driven by z only -> partial correlation zero
+    assert apq.partial_rho(np.array([0.25]), 0.5, np.array([0.5]))[0] == pytest.approx(0.0)
+    assert apq.partial_rho(np.array([0.3]), 0.0, np.array([0.0]))[0] == pytest.approx(0.3)
+    assert np.isnan(apq.partial_rho(np.array([0.3]), 1.0, np.array([0.2]))[0])
+
+
+def _gene_matrix(seed: int = 4) -> tuple[np.ndarray, list[str]]:
+    rng = np.random.default_rng(seed)
+    n = 200
+    penk = np.where(rng.random(n) < 0.6, rng.uniform(1, 6, n), 0.0)
+    up = penk + rng.normal(0, 0.3, n)
+    down = -penk + rng.normal(0, 0.3, n) + 10
+    noise = rng.uniform(0, 5, n)
+    rare = np.where(np.arange(n) < 4, 1.0, 0.0)  # 2 % expressing
+    otof = np.where(np.arange(n) < 2, penk, 0.0)  # 1 % expressing (depth marker)
+    m = np.c_[penk, up, down, noise, rare, otof, penk]  # last: duplicate symbol
+    return m, ["Penk", "Up", "Down", "Noise", "Rare", "Otof", "Up"]
+
+
+def test_gene_correlations_dense_and_sparse() -> None:
+    import scipy.sparse as sp
+
+    m, genes = _gene_matrix()
+    out = apq.gene_correlations(m, genes)
+    assert out["gene"].iloc[0] == "Up" and out.set_index("gene").loc["Down", "rho"] < -0.8
+    assert "Penk" not in set(out["gene"]) and "Rare" not in set(out["gene"])
+    otof = out.set_index("gene").loc["Otof"]
+    assert not otof["passes_min_frac"] and np.isnan(otof["q_bh"])
+    assert out.loc[out.passes_min_frac, "q_bh"].notna().all()
+    assert (out["n_cells"] == 200).all()
+    sp_out = apq.gene_correlations(sp.csr_matrix(m), genes)
+    pd.testing.assert_frame_equal(out, sp_out)
+    with pytest.raises(KeyError):
+        apq.gene_correlations(m, ["A"] * 7)
+
+
+def test_gene_correlations_partial_on_covariate() -> None:
+    rng = np.random.default_rng(5)
+    n = 300
+    depth = rng.uniform(0, 1, n)
+    penk = depth + rng.normal(0, 0.05, n) + 1
+    g = depth + rng.normal(0, 0.05, n) + 1
+    out = apq.gene_correlations(np.c_[penk, g], ["Penk", "G"], covariate=depth)
+    row = out.iloc[0]
+    assert row["rho"] > 0.8
+    assert abs(row["rho_partial"]) < 0.3
+    assert {"p_partial", "q_bh_partial"} <= set(out.columns)
+
+
+def test_top_correlated_genes_and_markers() -> None:
+    corr = pd.DataFrame(
+        {
+            "gene": ["A", "B", "C", "D", "E"],
+            "passes_min_frac": [True, True, True, True, False],
+            "rho": [0.9, 0.5, -0.2, -0.7, 0.99],
+            "p": [0.01] * 5,
+        }
+    )
+    top = apq.top_correlated_genes(corr, n=1)
+    assert top["gene"].tolist() == ["A", "D"]
+    assert top["direction"].tolist() == ["positive", "negative"] and top["rank"].tolist() == [1, 1]
+    mk = apq.marker_correlations(corr, ["E", "Z", "A"])
+    assert mk["gene"].tolist() == ["E", "Z", "A"]
+    assert mk["in_data"].tolist() == [True, False, True]
+    assert np.isnan(mk.loc[1, "rho"]) and mk.loc[0, "rho"] == 0.99
+
+
+def test_spearman_table() -> None:
+    rng = np.random.default_rng(6)
+    n = 30
+    x = rng.normal(size=2 * n)
+    df = pd.DataFrame(
+        {
+            "dataset": ["d"] * (2 * n),
+            "grp": ["a"] * n + ["b"] * n,
+            "penk": x,
+            "up": x * 2,
+            "few": [1.0, 2.0] + [np.nan] * (2 * n - 2),
+        }
+    )
+    t = apq.spearman_table(df, "penk", ["up", "few", "missing", "penk"], ["dataset", "grp"],
+                           pool_col="grp")  # fmt: skip
+    assert set(t["grp"]) == {"a", "b", "ALL"}
+    assert set(t["variable"]) == {"up", "few"}
+    up_all = t[(t.grp == "ALL") & (t.variable == "up")].iloc[0]
+    assert up_all["rho"] == pytest.approx(1.0) and up_all["n"] == 2 * n
+    few = t[(t.grp == "a") & (t.variable == "few")].iloc[0]
+    assert np.isnan(few["rho"]) and np.isnan(few["q_bh"])
+    assert (t["q_bh"].dropna() >= t.loc[t["q_bh"].notna(), "p"] - 1e-12).all()
+    assert apq.spearman_table(df, "penk", ["missing"], ["dataset"]).empty
+
+
+def test_shift_table() -> None:
+    rng = np.random.default_rng(7)
+    n = 40
+    df = pd.DataFrame(
+        {
+            "dataset": ["d"] * (2 * n),
+            "grp": ["L2/3 IT"] * (2 * n),
+            "pos": [True] * n + [False] * n,
+            "rin": np.r_[rng.normal(10, 1, n), rng.normal(0, 1, n)],
+            "tiny": [1.0] * 3 + [np.nan] * (2 * n - 3),
+        }
+    )
+    t = apq.shift_table(df, ["rin", "tiny", "absent"], "pos", ["dataset", "grp"], pool_col="grp",
+                        n_boot=50)  # fmt: skip
+    assert set(t["feature"]) == {"rin"}
+    assert set(t["grp"]) == {"L2/3 IT", "ALL"}
+    assert len(t) == 2 * 9
+    assert (t["diff"] > 5).all() and (t["lo"] <= t["diff"]).all() and (t["hi"] >= t["diff"]).all()
+    assert (t["n_pos"] == n).all()
+
+
+def test_distance_from_midline_units() -> None:
+    assert apq.distance_from_midline([5.7, 4.7, 6.2]) == pytest.approx([0.0, 1.0, 0.5])
+    um = apq.distance_from_midline([5700.0, 4700.0, np.nan])
+    assert um[:2] == pytest.approx([0.0, 1000.0]) and np.isnan(um[2])
+
+
+def test_depth_columns_and_spatial_proxies() -> None:
+    cols = ["x_ccf", "cortical_depth", "distance_to_pia", "Penk", "layer", "z_ccf"]
+    assert apq.find_depth_columns(cols) == ["cortical_depth", "distance_to_pia"]
+    df = pd.DataFrame({"layer": ["L2/3", "L5", None], "z_ccf": [5.7, 5.2, 6.7]})
+    out = apq.add_spatial_proxies(df)
+    assert out["layer_ordinal"].tolist()[:2] == [2.0, 4.0] and np.isnan(out["layer_ordinal"][2])
+    assert out["ccf_ml_from_midline"].tolist() == pytest.approx([0.0, 0.5, 1.0])
+    assert "layer_ordinal" not in apq.add_spatial_proxies(pd.DataFrame({"a": [1]})).columns
+    sv = apq.spatial_variables([*cols, "layer_ordinal", "ccf_ml_from_midline"])
+    assert sv[:2] == ["cortical_depth", "distance_to_pia"]
+    assert {"x_ccf", "z_ccf", "layer_ordinal", "ccf_ml_from_midline"} <= set(sv)
+    assert "layer" not in sv
+
+
+def test_align_sparse_blocks() -> None:
+    import scipy.sparse as sp
+
+    b1 = (sp.csr_matrix(np.array([[1.0, 2.0, 3.0]])), ["c1"], ["A", "B", "C"])
+    b2 = (np.array([[30.0, 10.0], [0.0, 1.0]]), ["c2", "c3"], ["C", "A"])
+    m, cells, genes = apq.align_sparse_blocks([b1, b2])
+    assert genes == ["A", "C"] and cells == ["c1", "c2", "c3"]
+    assert m.toarray().tolist() == [[1.0, 3.0], [10.0, 30.0], [1.0, 0.0]]
+    dup = (np.array([[1.0, 2.0]]), ["c"], ["A", "A"])
+    m2, _, g2 = apq.align_sparse_blocks([dup])
+    assert g2 == ["A"] and m2.toarray().tolist() == [[1.0]]
+    with pytest.raises(ValueError):
+        apq.align_sparse_blocks([])
+
+
+def test_var_symbols() -> None:
+    var = pd.DataFrame({"gene_symbol": ["Penk"]}, index=["E1"])
+    assert apq.var_symbols(var).tolist() == ["Penk"]
+    assert apq.var_symbols(pd.DataFrame(index=["E1", "E2"]), {"E1": "Penk"}).tolist() == [
+        "Penk",
+        "E2",
+    ]
+    assert apq.var_symbols(pd.DataFrame(index=["Penk"])).tolist() == ["Penk"]
+
+
+def test_merfish_l23_it() -> None:
+    cells = pd.DataFrame(
+        {
+            "subclass": ["007 L2/3 IT CTX Glut", "007 L2/3 IT CTX Glut", "Sst Gaba"],
+            "Penk": [1.0, np.nan, 2.0],
+            "layer": ["L2/3", "L1", "L2/3"],
+            "z_ccf": [5.0, 5.0, 5.0],
+        }
+    )
+    out = apq.merfish_l23_it(cells)
+    assert len(out) == 1 and out["layer_ordinal"].iloc[0] == 2.0
+    assert out["ccf_ml_from_midline"].iloc[0] == pytest.approx(0.7)
+    with pytest.raises(KeyError):
+        apq.merfish_l23_it(pd.DataFrame({"Penk": [1.0]}))
+
+
+def test_patchseq_penk_continuous() -> None:
+    cells = pd.DataFrame({"penk_cpm": [0.0, 3.0, np.nan], "x": [1, 2, 3]})
+    out = apq.patchseq_penk_continuous(cells)
+    assert out["log2_penk_cpm"].tolist() == [0.0, 2.0]
+    none = apq.patchseq_penk_continuous(pd.DataFrame({"x": [1]}))
+    assert none.empty and "log2_penk_cpm" in none.columns
+
+
+def test_alias_keys() -> None:
+    out = apq.alias_keys(pd.Series([1.0, 2, None, "a7", "3"]))
+    assert out.tolist()[:2] == ["1", "2"] and out.tolist()[3:] == ["a7", "3"]
+    cells = pd.DataFrame({"cluster_alias": [1.0, np.nan]})
+    pivot = pd.DataFrame({"cluster_alias": ["1"], "subclass": ["S"]})
+    assert apq.annotate_with_taxonomy(cells, pivot)["subclass"].tolist()[0] == "S"
+
+
+# ------------------------------------------------------------------ continuum orchestration
+
+
+def _tenx_cells(n: int, roi: str, seed: int, prefix: str) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    cluster = rng.choice(["K1", "K2", "K3"], n)
+    penk = np.where(cluster == "K1", rng.uniform(2, 6, n), np.where(rng.random(n) < 0.2, 1.0, 0.0))
+    return pd.DataFrame(
+        {
+            "cell_label": [f"{prefix}{i}" for i in range(n)],
+            "library_method": rng.choice(["10Xv2", "10Xv3"], n),
+            "roi": roi,
+            "subclass": "007 L2/3 IT CTX Glut",
+            "supertype": np.where(cluster == "K3", "T2", "T1"),
+            "cluster": cluster,
+            "Penk": penk,
+            "Otof": rng.uniform(0, 1, n),
+        }
+    )
+
+
+def test_part_a_continuum_end_to_end(tmp_path: Path) -> None:
+    import scipy.sparse as sp
+
+    rsp = _tenx_cells(120, "RSP", 0, "r")
+    rsp = pd.concat([rsp, rsp.iloc[:5].assign(subclass="Sst Gaba", cell_label=list("abcde"))])
+    area = pd.concat([_tenx_cells(60, "VISp", 1, "v"), _tenx_cells(60, "MOp", 2, "m")])
+    rng = np.random.default_rng(3)
+    l23 = rsp.iloc[:120]
+    mat = np.c_[l23["Penk"], l23["Penk"] + rng.normal(0, 0.1, 120), rng.uniform(0, 3, (120, 3))]
+    genes = ["Penk", "Up", "G1", "G2", "Otof"]
+    blocks = [
+        (sp.csr_matrix(mat[:70]), l23["cell_label"].tolist()[:70], genes),
+        (sp.csr_matrix(mat[70:]), l23["cell_label"].tolist()[70:], genes),
+    ]
+    ctx = apq.Context(outdir=tmp_path, cache_dir=tmp_path)
+    r = apq.PartResult(part="A")
+    apq._part_a_continuum(ctx, r, rsp, area, blocks)
+    files = {o.file for o in r.outputs}
+    assert files == {
+        "continuum_params_A.json",
+        "l23it_10x_penk_distribution.csv",
+        "l23it_10x_penk_histogram.csv",
+        "l23it_10x_penk_by_taxon.csv",
+        "l23it_10x_penk_kruskal.csv",
+        "l23it_10x_penk_by_region.csv",
+        "l23it_10x_cells.csv.gz",
+        "rsp_l23it_10x_penk_gene_corr.csv.gz",
+        "rsp_l23it_10x_penk_gene_corr_top.csv",
+        "rsp_l23it_10x_penk_depth_markers.csv",
+    }
+    dist = pd.read_csv(tmp_path / "l23it_10x_penk_distribution.csv")
+    assert set(dist["scope"]) == {"RSP L2/3 IT", "isocortex L2/3 IT"}
+    areas = dist[(dist.scope == "isocortex L2/3 IT") & (dist.grouping == "area")]
+    assert set(areas["group"]) == {"RSP", "VISp", "MOp"}
+    assert dist.loc[dist.grouping == "pooled", "n"].iloc[0] == 120
+    kw = pd.read_csv(tmp_path / "l23it_10x_penk_kruskal.csv")
+    clus = kw[(kw.scope == "RSP L2/3 IT") & (kw.factor == "cluster") & (kw.stratum == "ALL")]
+    assert clus["epsilon_sq"].iloc[0] > 0.5
+    corr = pd.read_csv(tmp_path / "rsp_l23it_10x_penk_gene_corr.csv.gz")
+    assert set(corr["library_method"]) == {"ALL", "10Xv2", "10Xv3"}
+    top = corr[corr.library_method == "ALL"].iloc[0]
+    assert top["gene"] == "Up" and "rho_partial" in corr.columns
+    marks = pd.read_csv(tmp_path / "rsp_l23it_10x_penk_depth_markers.csv")
+    assert len(marks) == 3 * len(apq.DEPTH_MARKERS)
+    assert marks.loc[marks.gene == "Otof", "in_data"].all()
+
+
+def test_part_a_continuum_reports_missing_blocks(tmp_path: Path) -> None:
+    rsp = _tenx_cells(30, "RSP", 0, "r")
+    r = apq.PartResult(part="A")
+    ctx = apq.Context(outdir=tmp_path, cache_dir=tmp_path)
+    with pytest.raises(RuntimeError, match="gene correlations"):
+        apq._part_a_continuum(ctx, r, rsp, pd.DataFrame(), [])
+    assert "l23it_10x_penk_distribution.csv" in {o.file for o in r.outputs}
+
+
+def test_part_b_continuum_end_to_end(tmp_path: Path) -> None:
+    rng = np.random.default_rng(8)
+    n = 200
+    z = rng.uniform(5.0, 6.4, n)
+    cells = pd.DataFrame(
+        {
+            "cell_label": [f"c{i}" for i in range(n)],
+            "dataset": rng.choice(["M1", "M2"], n),
+            "rsp_subdivision": rng.choice(["RSPd", "RSPv"], n),
+            "layer": rng.choice(["L1", "L2/3", "L5"], n, p=[0.1, 0.8, 0.1]),
+            "subclass": "007 L2/3 IT CTX Glut",
+            "supertype": rng.choice(["T1", "T2"], n),
+            "cluster": rng.choice(["K1", "K2"], n),
+            "x_ccf": rng.uniform(8, 10, n),
+            "y_ccf": rng.uniform(1, 2, n),
+            "z_ccf": z,
+            "Penk": np.abs(z - 5.7) * 4,
+        }
+    )
+    ctx = apq.Context(outdir=tmp_path, cache_dir=tmp_path)
+    r = apq.PartResult(part="B")
+    apq._part_b_continuum(ctx, r, cells)
+    assert {o.file for o in r.outputs} == {
+        "continuum_params_B.json",
+        "rsp_merfish_l23it_penk_distribution.csv",
+        "rsp_merfish_l23it_penk_histogram.csv",
+        "rsp_merfish_l23it_penk_spatial_corr.csv",
+        "rsp_merfish_l23it_penk_by_subdivision.csv",
+        "rsp_merfish_l23it_penk_kruskal.csv",
+        "rsp_merfish_l23it_penk_map.csv.gz",
+    }
+    sc = pd.read_csv(tmp_path / "rsp_merfish_l23it_penk_spatial_corr.csv")
+    ml = sc[(sc.variable == "ccf_ml_from_midline") & sc["rsp_subdivision"].isna()]
+    assert len(ml) == 2 and (ml["rho"] > 0.99).all()
+    assert set(sc["axis_assumed"].dropna()) >= {"CCF left-right", "CCF layer (L1=1 ... L6b=6)"}
+    kw = pd.read_csv(tmp_path / "rsp_merfish_l23it_penk_kruskal.csv")
+    assert set(kw["dataset"]) == {"M1", "M2"}
+    m = pd.read_csv(tmp_path / "rsp_merfish_l23it_penk_map.csv.gz")
+    assert len(m) == n and "Penk" in m.columns
+
+
+def test_part_c_continuum_end_to_end(tmp_path: Path) -> None:
+    rng = np.random.default_rng(9)
+    n = 40
+    cpm = np.where(np.arange(n) < 20, rng.uniform(10, 1000, n), 0.0)
+    cells = pd.DataFrame(
+        {
+            "dataset": ["scala2021_mop"] * n + ["allen_ctdb_cre"] * 3,
+            "ttype_group": ["L2/3 IT"] * 30 + ["L5 IT"] * 10 + ["layer 2/3"] * 3,
+            "penk_cpm": np.r_[cpm, [np.nan] * 3],
+            "penk_pos_nonzero": np.r_[cpm > 0, [np.nan] * 3],
+            "adaptation_index": np.r_[np.log1p(cpm) + rng.normal(0, 0.1, n), [1.0] * 3],
+            "rheobase": rng.uniform(50, 300, n + 3),
+        }
+    )
+    ctx = apq.Context(outdir=tmp_path, cache_dir=tmp_path)
+    r = apq.PartResult(part="C")
+    apq._part_c_continuum(ctx, r, cells, ["adaptation_index", "rheobase"])
+    assert {o.file for o in r.outputs} == {
+        "continuum_params_C.json",
+        "patchseq_penk_ephys_spearman.csv",
+        "patchseq_penk_ephys_shift.csv",
+        "patchseq_penk_distribution.csv",
+        "patchseq_penk_histogram.csv",
+    }
+    sp_ = pd.read_csv(tmp_path / "patchseq_penk_ephys_spearman.csv")
+    assert set(sp_["dataset"]) == {"scala2021_mop"}
+    row = sp_[(sp_.ttype_group == "L2/3 IT") & (sp_.variable == "adaptation_index")].iloc[0]
+    assert row["rho"] > 0.8 and row["n"] == 30
+    sh = pd.read_csv(tmp_path / "patchseq_penk_ephys_shift.csv")
+    assert set(sh["ttype_group"]) == {"L2/3 IT", "ALL"}  # L5 IT has no Penk+ cells
+
+
+def test_part_c_continuum_without_penk(tmp_path: Path) -> None:
+    r = apq.PartResult(part="C")
+    ctx = apq.Context(outdir=tmp_path, cache_dir=tmp_path)
+    apq._part_c_continuum(ctx, r, pd.DataFrame({"dataset": ["x"]}), ["rheobase"])
+    assert r.outputs == [] and any("skipped" in n for n in r.notes)

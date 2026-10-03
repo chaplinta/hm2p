@@ -87,3 +87,14 @@ def test_parser() -> None:
         assert getattr(lae._build_arg_parser().parse_args([flag]), flag[2:].replace("-", "_"))
     with pytest.raises(SystemExit):
         lae._build_arg_parser().parse_args(["--parts", "Z"])
+
+
+@pytest.mark.parametrize("staged", [True, False])
+def test_user_data_exports_repo_src_on_pythonpath(staged: bool) -> None:
+    ud = lae.build_user_data(staged_script=staged)
+    assert lae.REPO_SRC == "/opt/hm2p/repo/src"
+    export = f"export PYTHONPATH={lae.REPO_SRC}"
+    assert export in ud
+    # after the clone, before any part runs
+    assert ud.index("git clone") < ud.index(export) < ud.index('timeout "${TMO[$part]}"')
+    assert 'python -c "import hm2p.analysis.continuum"' in ud
