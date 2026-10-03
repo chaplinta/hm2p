@@ -88,21 +88,28 @@ def _s3():  # pragma: no cover - network
     if _S3 is None:
         import boto3
 
-        _S3 = boto3.Session(profile_name="hm2p-agent").client("s3")
+        from botocore.exceptions import ProfileNotFound
+
+        try:
+            _S3 = boto3.Session(profile_name="hm2p-agent").client("s3")
+        except ProfileNotFound:  # EC2: instance role or environment credentials
+            _S3 = boto3.Session(region_name="ap-southeast-2").client("s3")
     return _S3
 
 
 def _download_h5(key: str, retries: int = 4):  # pragma: no cover - network
     """Download an HDF5 file from S3 into memory, retrying on transient errors."""
+    last = None
     for attempt in range(retries):
         try:
             obj = _s3().get_object(Bucket=BUCKET, Key=key)
             return h5py.File(io.BytesIO(obj["Body"].read()), "r")
         except Exception as exc:  # noqa: BLE001
+            last = exc
             log.debug("download failed %s (attempt %d): %s", key, attempt + 1, exc)
             if attempt < retries - 1:
                 time.sleep(1.5 * (attempt + 1))
-    log.warning("download FAILED after %d attempts: %s", retries, key)
+    log.warning("download FAILED after %d attempts: %s (%s)", retries, key, last)
     return None
 
 
