@@ -464,6 +464,10 @@ HYPOTHESES: dict[str, dict[str, Any]] = {
         "title": "Speed tuning shape, within-run time course, run length",
         "families": [],
     },
+    "mazerun": {
+        "title": "Running bouts in maze context: approach, novelty, route, light, timing",
+        "families": [],
+    },
 }
 
 
@@ -473,6 +477,7 @@ EXTRA_RUNNER_MODULES = (
     "celltype_extra_tctx",
     "celltype_extra_locrun",
     "celltype_extra_runshape",
+    "celltype_extra_mazerun",
 )
 
 
