@@ -231,7 +231,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
         <li><span class="tag within">Cells</span><span>Penk+ events are longer (3.1 vs 2.6 s) and rarer (interval 30 vs 25 s) with the same isolated-event decay (0.31 vs 0.31 s). Penk+ cells are about twice as bright, and their smaller amplitude and lower inferred rate cannot be separated from that.</span></li>
         <li><span class="tag within">Cells</span><span>Penk⁻CamKII+ cells are more light-modulated (light modulation, lights-on response, GLM light share; Cliff's δ −0.12 to −0.16) and lose more of their AHV modulation in the dark (dF/F units, so partly brightness-dependent).</span></li>
         <li><span class="tag lean">Animals</span><span>With each animal as one data point (11 vs 4) most of these lean the same way without reaching significance alone; rank composites reach p = 0.037 (running, Penk+ higher) and p = 0.009 (light, Penk⁻CamKII+ higher), defined post hoc.</span></li>
-        <li><span class="tag null">Maze</span><span>So far running explains the location effects: at matched speed Penk+ cells do not prefer corridors over junctions. Whether they care about where the run goes (into or out of dead ends, new or familiar routes) is the next analysis, not yet run.</span></li>
+        <li><span class="tag null">Maze</span><span>In the maze, Penk+ activity marks travelling bouts, not where the mouse goes: no preference for corridors vs junctions, runs into vs out of dead ends, or new vs familiar territory, and only weak, shared route specificity. A Penk+ event (3.1 s) usually spans several runs (median 1.3 s).</span></li>
       </ul>
     </section>
 
@@ -306,7 +306,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
 
     <section id="maze">
       <h2>Running in the maze</h2>
-      <p class="finding">In this maze a run is a corridor traversal between dead ends and junctions; so far, where the run happens does not matter to Penk+ cells once speed is matched.</p>
+      <p class="finding">In this maze a run is a short corridor traversal between dead ends and junctions. Penk+ cells care that the mouse is travelling, not where it is going.</p>
       <div class="maze-wrap">
         <div class="chart-block">
           <span class="chart-title" id="maze-title">Maze graph (23 cells)</span>
@@ -319,16 +319,36 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
           <p><strong>What the run-state code could mean in the maze.</strong> A cell that switches on for the duration of a run and does not care about speed marks "travelling along a corridor" as a unit. In a tree maze each such run is one step of a route choice. If that is what Penk+ cells carry, their activity should depend on what the run is in the maze (where it goes, whether it is new) and not only on the fact of running. If it does not, they carry a generic locomotor state.</p>
         </div>
       </div>
-      <div class="pending">
-        <span class="tag lean">Built, not yet run</span>
-        <p>The <span class="path">mazerun</span> analysis tests this per cell, with run duration and speed regressed out and a circular-shift null for each cell:</p>
-        <ul class="plain">
-          <li><strong>Approach vs return:</strong> runs into dead ends vs runs out of dead ends.</li>
-          <li><strong>Exploration vs repetition:</strong> runs entering cells not yet visited in the session vs runs over visited cells, and decline of activity with repeated traversals of the same corridor.</li>
-          <li><strong>Route specificity:</strong> whether activity is reliable per route (start → end) across repeated traversals. Near zero means a generic run signal; positive means route or place-by-direction coding.</li>
-          <li><strong>Light vs dark runs</strong> at matched speed: optic flow vs self-motion.</li>
-          <li><strong>Timing:</strong> whether activity leads running onset (preparatory) or follows it.</li>
-        </ul>
+      <h3>What the maze analysis found</h3>
+      <p class="finding">Penk+ activity tracks running wherever and however it happens in the maze: it does not care whether the run goes into or out of a dead end, into new or familiar territory, and it is only weakly route-specific, no more than Penk⁻CamKII+ cells.</p>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="md-title">Runs are shorter than Penk+ events</span></div>
+          <div id="plot-md" class="plot" role="img" aria-labelledby="md-title"></div>
+          <p class="caption" id="md-caption"></p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="mz-title">Maze tests, per cell (z vs own shuffle)</span></div>
+          <div id="plot-mz" class="plot tall" role="img" aria-labelledby="mz-title"></div>
+          <p class="caption">Each metric is a z score against the cell's own shuffle null, so 0 means no effect beyond chance. Boxes: cell interquartile range and median. Run duration and speed are regressed out of every run contrast. CASCADE spikes; dF/F gives the same pattern.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="maze-table">
+          <thead><tr><th>Test (positive z means…)</th><th>Penk+ median z</th><th>cells / animals p</th><th>% sig.</th><th>Penk⁻ median z</th><th>cells / animals p</th><th>% sig.</th><th>Between: cells / animals p</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <ul class="plain">
+        <li><strong>Coupling to running is the only strong signal.</strong> Penk+ activity is correlated with the run indicator in 51 % of cells (median z 1.9; animal-level p = 0.001), more than Penk⁻CamKII+ (37 %, z 1.2; between cell types p &lt; 0.001 on cells, 0.10 on animals).</li>
+        <li><strong>Where the run goes does not matter.</strong> Runs into vs out of dead ends: median z ≈ 0 in both, 13–16 % of cells individually significant with mixed signs. New vs visited territory and repeated traversals of the same corridor: no effect in Penk+.</li>
+        <li><strong>Route specificity is weak and shared.</strong> Per-route activity is slightly more consistent than shuffled routes in both cell types (median z 0.34 vs 0.39), but only 8–12 % of cells pass individually, close to the 5 % expected by chance. This is a small population-wide effect, not a Penk+ route code.</li>
+        <li><strong>No lead or lag.</strong> Activity rises with running, not before it; there is no preparatory signal at this time resolution (~0.1 s frames, CASCADE).</li>
+        <li><strong>Slightly more in the light.</strong> Penk+ cells are a little more active on light runs than on dark runs at matched speed (z 0.33 on cells; not significant across animals), so optic flow may add a small amount on top of self-motion.</li>
+        <li><strong>Events span runs.</strong> Most runs last 1.1–1.7 s (median 1.3 s, 4003 runs in 23 sessions); a median Penk+ event lasts 3.1 s. A Penk+ event therefore typically covers more than one run, plus the pauses at junctions in between.</li>
+      </ul>
+      <div class="prose">
+        <p><strong>What this means in the maze.</strong> The Penk+ signal is not tied to a place, a route, a goal (dead end) or novelty. It marks that the mouse is in a bout of travelling through the maze, at a timescale of several seconds that spans individual corridor runs. The simplest reading is a locomotor state signal (the mouse is moving through the maze now) rather than a navigational variable. Two things it could still feed: integrating self-motion over a bout (path integration needs exactly a "currently moving" gate), or marking travel epochs for later memory. Neither is tested here.</p>
       </div>
     </section>
 
@@ -524,7 +544,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
     <section id="interpretation">
       <h2>Interpretation</h2>
       <ul class="plain">
-        <li><strong>Penk+ as a sparse, sustained run-state population.</strong> Seconds-long events that coincide with running, follow the run/still state and persist through a run fit cells that report "the animal is running" rather than a continuous variable. A 3 s event is about the length of one corridor run.</li>
+        <li><strong>Penk+ as a sparse, sustained run-state population.</strong> Seconds-long events that coincide with running, follow the run/still state and persist through a run fit cells that report "the animal is running" rather than a continuous variable. In the maze the signal does not depend on where the run goes, and a 3 s event usually spans several 1–2 s corridor runs, so it marks a bout of travelling rather than a single corridor.</li>
         <li><strong>Penk⁻CamKII+ as more visually coupled.</strong> This fits a mixture of excitatory types that includes cells receiving visual or landmark input, as reported for dysgranular RSP (Jacob et al. 2017). Because the composites were defined post hoc and the groups were labelled with different constructs, this is a lead to confirm.</li>
         <li><strong>Burst firing and enkephalin (speculative).</strong> Burst-then-adapt firing produces clustered spikes at the start of a drive, the mode generally needed for neuropeptide release, so Penk+ cells could release enkephalin during runs. Nothing here measures peptide release.</li>
       </ul>
@@ -918,10 +938,59 @@ function drawMaze() {
     `<span><i class="dot" style="background:${css(NODE_COLOURS[t])}"></i>${NODE_NAMES[t]} (${counts[t] || 0})</span>`).join("");
 }
 
+// ---- maze results
+function drawMazeDur() {
+  const M = DATA.maze_running;
+  const bins = { start: 0, end: 8, size: 0.25 };
+  const traces = [
+    { type: "histogram", x: M.runs.duration_s, xbins: bins, histnorm: "probability", name: "runs",
+      marker: { color: css("--muted") }, opacity: 0.45,
+      hovertemplate: "%{x} s: %{y:.1%} of runs<extra></extra>" },
+  ].concat(GROUPS.map(g => ({
+    type: "histogram", x: M.event_duration_s[g], xbins: bins, histnorm: "probability", name: LABEL[g] + " events",
+    marker: { color: "rgba(0,0,0,0)", line: { color: colorOf(g), width: 2 } },
+    hovertemplate: "%{x} s: %{y:.1%} of cells<extra>" + LABEL[g] + "</extra>",
+  })));
+  const layout = baseLayout({ barmode: "overlay", bargap: 0, showlegend: true, legend: { orientation: "h", y: 1.1, x: 0, font: { color: css("--muted") } } });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "duration (s)", font: { size: 13 } }, range: [0, 8] });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: "fraction", font: { size: 13 } }, tickformat: ".0%" });
+  Plotly.react("plot-md", traces, layout, CONFIG);
+  const q = M.runs.duration_quartiles, med = g => { const v = [...M.event_duration_s[g]].sort((a, b) => a - b); return v[Math.floor(v.length / 2)]; };
+  document.getElementById("md-caption").textContent =
+    `Grey: duration of ${M.runs.n_runs} runs (speed ≥ 2.5 cm/s for ≥ 1 s) in ${M.runs.n_sessions} sessions, median ${fmt(q[1])} s (IQR ${fmt(q[0])}–${fmt(q[2])}, 90th percentile ${fmt(q[3])}). Outlines: mean calcium event duration per cell, median ${fmt(med("penk"))} s Penk+ and ${fmt(med("nonpenk"))} s Penk⁻CamKII+.`;
+}
+function drawMazeZ() {
+  const ms = DATA.maze_running.metrics;
+  const traces = GROUPS.map(g => ({
+    type: "box", orientation: "h", name: LABEL[g], offsetgroup: g,
+    y: ms.flatMap(m => m.groups[g].z.map(() => m.label)),
+    x: ms.flatMap(m => m.groups[g].z),
+    boxpoints: false, marker: { color: colorOf(g) }, line: { color: colorOf(g), width: 1.5 },
+    fillcolor: g === "penk" ? css("--penk-soft") : css("--nonpenk-soft"),
+    hoverinfo: "x",
+  }));
+  const layout = baseLayout({ boxmode: "group", showlegend: true, legend: { orientation: "h", y: 1.06, x: 0, font: { color: css("--muted") } },
+    margin: { l: 10, r: 16, t: 10, b: 46 },
+    shapes: [{ type: "line", yref: "paper", y0: 0, y1: 1, x0: 0, x1: 0, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "z vs shuffle null", font: { size: 13 } }, range: [-4, 6] });
+  layout.yaxis = Object.assign(layout.yaxis, { automargin: true, autorange: "reversed", categoryorder: "array", categoryarray: ms.map(m => m.label), tickfont: { size: 12 } });
+  Plotly.react("plot-mz", traces, layout, CONFIG);
+}
+function buildMazeTable() {
+  const tb = document.querySelector("#maze-table tbody");
+  tb.innerHTML = "";
+  DATA.maze_running.metrics.forEach(m => {
+    const c = g => { const x = m.groups[g]; return `<td class="num">${fmt(x.median_z)}</td><td class="num">${pTxt(x.cell_p)} / ${pTxt(x.animal_p)}</td><td class="num">${pct(x.frac_sig)}</td>`; };
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${m.label} <span class="meta">(${m.meaning})</span></td>${c("penk")}${c("nonpenk")}<td class="num">${pTxt(m.between_cell_p)} / ${pTxt(m.between_animal_p)}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
 function renderAll() {
   if (!window.Plotly || !DATA) return;
   const jobs = [
-    () => drawCell(state["cell-measure"]), drawRunScatter, drawFracSig, drawMaze,
+    () => drawCell(state["cell-measure"]), drawRunScatter, drawFracSig, drawMaze, drawMazeDur, drawMazeZ,
     () => drawPatch(state["patch-seg"]), () => drawEv(state["ev-seg"]), () => drawEta(state["eta-seg"]), drawDz,
     () => drawRs(state["rs-seg"]), drawLt, () => drawLa(state["la-seg"]), () => drawCp(state["cp-seg"]),
   ];
@@ -936,6 +1005,7 @@ function init() {
   fillCellSelect(state["cell-seg"]);
   document.getElementById("cell-measure").addEventListener("change", e => { state["cell-measure"] = e.target.value; drawCell(e.target.value); });
   buildCellTable();
+  buildMazeTable();
   state["patch-seg"] = "matched_sfa_ratio";
   segmented("patch-seg", [["matched_sfa_ratio", "Adaptation"], ["matched_first_isi_ms", "First ISI"], ["max_n_spikes", "Max spikes"]], drawPatch, state["patch-seg"]);
   state["ev-seg"] = "ev_mean_duration_s";

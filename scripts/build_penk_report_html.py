@@ -11,6 +11,7 @@ Usage
 -----
     python scripts/make_penk_figures.py        # refresh the animal-level data
     python scripts/make_penk_cell_level.py     # refresh the cell-level data
+    python scripts/make_penk_maze.py           # refresh the maze-context data
     python scripts/build_penk_report_html.py
 """
 
@@ -34,6 +35,7 @@ REQUIRED = (
     "light_transitions",
     "patching_adaptation",
     "cell_level",
+    "maze_running",
 )
 DATA_MARK = "/*__DATA__*/null"
 BUILD_MARK = "__BUILD__"

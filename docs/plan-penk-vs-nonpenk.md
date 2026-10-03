@@ -854,3 +854,31 @@ The construct difference (Cre-ON vs Cre-OFF, about twofold baseline
 brightness) is not controlled in the light composite. On this dataset these
 are the strongest between-group results; they need confirmation in new
 animals using the fixed definitions.
+
+### Maze context of the running signal (`mazerun`, 2026-10-03)
+
+`hm2p.analysis.maze_running`, runner `mazerun` (EC2, `scripts/launch_celltype_runner_ec2.py`,
+commit 9505494), CASCADE spikes primary, dF/F as a check. Runs = speed >= 2.5 cm/s for >= 1 s
+on `~bad_behav` frames; 4003 runs in 23 sessions, median 1.33 s (IQR 1.13-1.74, 90th
+percentile 2.36 s). Per-run activity ranks have run duration and mean speed regressed out;
+each per-cell metric is a z score against the cell's own shuffle null.
+
+| Test | Penk+ median z (cells / animals p, % sig) | Penk- median z (cells / animals p, % sig) | Between (cells / animals p) |
+| --- | --- | --- | --- |
+| Coupling to running (cross-correlation peak) | 1.92 (<1e-40 / 0.001, 51 %) | 1.15 (<1e-15 / 0.12, 37 %) | 9e-5 / 0.10 |
+| Into vs out of dead ends | -0.06 (0.47 / 0.49, 16 %) | -0.12 (0.41 / 0.88, 13 %) | 0.77 / 0.84 |
+| New vs visited cells | -0.11 (0.27 / 0.43, 8 %) | -0.36 (<0.001 / 1.0, 9 %) | 0.04 / 0.60 |
+| Change with repeated traversals | 0.01 (0.24 / 0.70, 9 %) | 0.25 (0.009 / 0.62, 6 %) | 0.006 / 0.75 |
+| Route specificity (split-half, route-label permutation) | 0.34 (<0.001 / 0.027, 8 %) | 0.39 (<0.001 / 0.12, 12 %) | 0.77 / 1.0 |
+| Light vs dark runs | 0.33 (1e-5 / 0.32, 13 %) | 0.13 (0.22 / 0.62, 13 %) | 0.14 / 0.75 |
+| Leads vs lags running | 0.05 (0.12 / 0.90, 16 %) | -0.14 (0.72 / 1.0, 24 %) | 0.26 / 0.85 |
+
+Reading: the Penk+ signal does not depend on run direction relative to dead ends, novelty,
+or familiarity; route specificity is weak, above its null by about a third of a standard
+deviation, and equal in both cell types (8-12 % of cells individually significant against 5 %
+expected). Activity neither leads nor lags running onset at this resolution. A Penk+ event
+(median 3.1 s) typically spans several runs, so the signal marks travelling bouts rather than
+individual corridors. Note: raw route split-half reliability is about 0.12 in both groups, but
+the route-permutation null is not centred on zero (duration-quartile permutation keeps some
+structure), so only the z scores are interpretable. First EC2 attempt downloaded no data (the
+programme S3 client required the local `hm2p-agent` profile); fixed in 305228a.
