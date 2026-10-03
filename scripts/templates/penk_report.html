@@ -168,6 +168,21 @@ summary { cursor: pointer; font-weight: 600; }
 details > div { margin-top: 14px; }
 .refs li { font-size: 15px; }
 footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule); padding-top: 16px; }
+nav.toc .toc-part { margin-top: 10px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); font-weight: 600; }
+header.part { display: grid; gap: 10px; padding-top: 28px; border-top: 2px solid var(--ink); }
+header.part h2 { font-size: 32px; }
+.controls { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+select { font: 500 14px var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 6px 8px; max-width: 100%; }
+select:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+td.sec { font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); background: var(--soft); font-weight: 600; }
+tr.pick { cursor: pointer; }
+tr.pick:hover td { background: var(--soft); }
+tr.pick[aria-selected="true"] td { background: var(--soft); }
+.pending { border: 1px dashed var(--rule); border-radius: 8px; padding: 14px 16px; display: grid; gap: 8px; }
+.pending .tag { justify-self: start; }
+.maze-wrap { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 820px) { .maze-wrap { grid-template-columns: minmax(0, 300px) minmax(0, 1fr); } }
+#maze-svg { width: 100%; height: auto; max-width: 300px; }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
 </style>
 
@@ -176,13 +191,20 @@ footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule)
     <div class="toc-label">Contents</div>
     <ol>
       <li><a href="#summary">Summary</a></li>
-      <li><a href="#data">Data and statistics</a></li>
-      <li><a href="#physiology">Intrinsic physiology</a></li>
+      <li><a href="#data">Data</a></li>
+      <li class="toc-part">Part 1 · Cells</li>
+      <li><a href="#cells">All measures</a></li>
+      <li><a href="#cell-running">Run state</a></li>
+      <li><a href="#maze">Running in the maze</a></li>
+      <li><a href="#physiology">Ex vivo cells</a></li>
+      <li class="toc-part">Part 2 · Animals</li>
+      <li><a href="#animals">Why animals</a></li>
       <li><a href="#events">Calcium events</a></li>
       <li><a href="#running">Running</a></li>
       <li><a href="#light">Light coupling</a></li>
       <li><a href="#composites">Composite scores</a></li>
       <li><a href="#nulls">What does not differ</a></li>
+      <li class="toc-part">Discussion</li>
       <li><a href="#interpretation">Interpretation</a></li>
       <li><a href="#limits">Limitations</a></li>
       <li><a href="#next">Next steps</a></li>
@@ -203,13 +225,13 @@ footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule)
 
     <section id="summary">
       <h2>Summary</h2>
-      <p class="finding">The two populations differ in how they fire and in what they respond to: Penk+ cells fire long, rare bursts while the mouse runs, and Penk⁻CamKII+ cells follow the room lights more closely.</p>
+      <p class="finding">Penk+ cells fire long, rare events while the mouse is running, and report whether it is running rather than how fast. Penk⁻CamKII+ cells follow the room lights more closely.</p>
       <ul class="findings">
-        <li><span class="tag within">Within Penk+</span><span>Penk+ calcium events occur during running and turning, follow the run/still state rather than speed, and last through the run (animal-level Wilcoxon p = 0.001–0.004).</span></li>
-        <li><span class="tag lean">Between groups</span><span>Rank composites: running coupling higher in Penk+ (exact permutation p = 0.037, CLES 0.82); light coupling higher in Penk⁻CamKII+ (p = 0.009, CLES 0.86). Defined after the individual measures were seen, so exploratory.</span></li>
-        <li><span class="tag lean">Between groups</span><span>Penk+ events are longer and rarer (duration 3.3 vs 2.6 s, interval 31 vs 25 s). Isolated small events decay identically, so this is not slower indicator clearance.</span></li>
-        <li><span class="tag lean">Ex vivo</span><span>Penk+ cells have narrower spikes, higher maximal firing and a burst-then-adapt pattern. Cell types come from largely separate mice, so this cannot be separated from animal identity.</span></li>
-        <li><span class="tag null">Bounded nulls</span><span>Head-direction tuning, population HD decoding, encoding models, syllables, egocentric and navigational coding do not differ. With 11 vs 4 animals, effects below about d = 1.5 would usually be missed.</span></li>
+        <li><span class="tag within">Cells</span><span>The mouse runs faster than chance during the events of 52 % of Penk+ cells vs 26 % of Penk⁻CamKII+ cells. 58 % vs 35 % of cells step up when the mouse runs; only 7 % vs 4 % track graded speed, which is chance.</span></li>
+        <li><span class="tag within">Cells</span><span>Penk+ events are longer (3.1 vs 2.6 s) and rarer (interval 30 vs 25 s) with the same isolated-event decay (0.31 vs 0.31 s). Penk+ cells are about twice as bright, and their smaller amplitude and lower inferred rate cannot be separated from that.</span></li>
+        <li><span class="tag within">Cells</span><span>Penk⁻CamKII+ cells are more light-modulated (light modulation, lights-on response, GLM light share; Cliff's δ −0.12 to −0.16) and lose more of their AHV modulation in the dark (dF/F units, so partly brightness-dependent).</span></li>
+        <li><span class="tag lean">Animals</span><span>With each animal as one data point (11 vs 4) most of these lean the same way without reaching significance alone; rank composites reach p = 0.037 (running, Penk+ higher) and p = 0.009 (light, Penk⁻CamKII+ higher), defined post hoc.</span></li>
+        <li><span class="tag null">Maze</span><span>So far running explains the location effects: at matched speed Penk+ cells do not prefer corridors over junctions. Whether they care about where the run goes (into or out of dead ends, new or familiar routes) is the next analysis, not yet run.</span></li>
       </ul>
     </section>
 
@@ -227,13 +249,91 @@ footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule)
         </table>
       </div>
       <div class="prose">
-        <p>The two populations are never in the same animal, so inference is at the animal level. Each between-group result is reported as a descriptive cell-level test, an animal-level Mann-Whitney U, an animal-level permutation test, and a leave-one-animal-out (LOAO) direction check. Effect size is the common-language effect size, CLES = P(Penk+ animal &gt; Penk⁻CamKII+ animal); 0.5 means no difference. With 11 vs 4 animals an exact two-sided animal-level test cannot go below p = 0.0015, and 80 % power needs about d = 1.5.</p>
-        <p>Chart statistics are recomputed from animal medians (two-sided exact Mann-Whitney U). Tables report the programme's own tests, which summarise each animal by its cell mean, so the two can differ.</p>
+        <p>The report has two parts. <strong>Part 1</strong> pools every cell and compares the two cell types cell by cell, ignoring which animal a cell came from. <strong>Part 2</strong> treats each animal as one data point. Cells from the same animal share expression level, imaging conditions and behaviour, so Part 1 p values are much smaller than the evidence justifies; Part 2 is the inferential test, and it is weak because there are only 4 Penk⁻CamKII+ animals.</p>
+      </div>
+    </section>
+
+    <header class="part" id="part1">
+      <div class="eyebrow">Part 1</div>
+      <h2>Cell by cell</h2>
+      <p class="prose meta">309 Penk+ cells from 11 animals and 141 Penk⁻CamKII+ cells from 4 animals, pooled. Two-sided Mann-Whitney U and Cliff's δ between cell types (δ = P(Penk+ &gt; Penk⁻) − P(Penk+ &lt; Penk⁻), 0 = no difference), Benjamini-Hochberg FDR within each section; Wilcoxon signed-rank against 0 within a cell type; Fisher exact test on the fraction of individually significant cells. None of these accounts for animal.</p>
+    </header>
+
+    <section id="cells">
+      <h2>All measures</h2>
+      <p class="finding">Cell by cell, Penk+ differs from Penk⁻CamKII+ on running, on the event signature and on population coupling; the light measures lean the other way.</p>
+      <div class="chart-block">
+        <div class="chart-head">
+          <span class="chart-title" id="cell-title">Every cell, by cell type</span>
+          <div class="controls">
+            <div class="seg" role="group" aria-label="Section" id="cell-seg"></div>
+            <label class="meta" for="cell-measure">Measure</label>
+            <select id="cell-measure"></select>
+          </div>
+        </div>
+        <div id="plot-cell" class="plot tall" role="img" aria-labelledby="cell-title"></div>
+        <p class="caption" id="cell-caption"></p>
+      </div>
+      <p class="caption">Click a row to plot it. Signal: which trace the measure was computed on. "% sig." is the fraction of cells individually significant against that cell's own shuffle null (in the stated direction); 5 % is expected by chance.</p>
+      <div class="table-wrap">
+        <table id="cell-table">
+          <thead><tr><th>Measure</th><th>Signal</th><th>Penk+ median (IQR)</th><th>Penk⁻ median (IQR)</th><th>δ</th><th>p</th><th>FDR</th><th>vs 0 (Penk+ / Penk⁻)</th><th>% sig. (Penk+ / Penk⁻)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <ul class="plain">
+        <li><strong>Brightness-dependent measures.</strong> Amplitude, inferred spike rate, AHV modulation depth (in dF/F units), noise correlation and population coupling all scale with signal size or signal-to-noise, and Penk+ cells are about twice as bright. Treat their cell-level differences as partly technical.</li>
+        <li><strong>Measures that do not scale with brightness</strong> (event timing, isolated decay, shuffle z scores, step index, fraction of significant cells) are the ones to read for biology.</li>
+      </ul>
+    </section>
+
+    <section id="cell-running">
+      <h2>Run state, not speed</h2>
+      <p class="finding">Most Penk+ cells step up when the mouse starts running and stay up, without scaling with speed.</p>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="rsc-title">Step index vs graded speed correlation, per cell</span></div>
+          <div id="plot-rsc" class="plot tall" role="img" aria-labelledby="rsc-title"></div>
+          <p class="caption">CASCADE spikes. Step index = (running − still) / (running + still). Graded rho = Spearman of activity with speed across running bins. Filled markers: step index significant against a circular-shift null. Cells spread to the right but stay near zero vertically.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="fs-title">Cells individually significant</span></div>
+          <div id="plot-fs" class="plot tall" role="img" aria-labelledby="fs-title"></div>
+          <p class="caption">Percentage of cells significant against their own shuffle null (p &lt; 0.05 in the stated direction). The dotted line marks the 5 % expected by chance. Fisher exact p printed on hover.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="maze">
+      <h2>Running in the maze</h2>
+      <p class="finding">In this maze a run is a corridor traversal between dead ends and junctions; so far, where the run happens does not matter to Penk+ cells once speed is matched.</p>
+      <div class="maze-wrap">
+        <div class="chart-block">
+          <span class="chart-title" id="maze-title">Maze graph (23 cells)</span>
+          <svg id="maze-svg" role="img" aria-labelledby="maze-title"></svg>
+          <div class="legend" id="maze-legend" style="font-size:13px"></div>
+        </div>
+        <div class="prose">
+          <p>The maze is a tree: 23 cells, 9 dead ends, 7 T-junctions and 7 corridor cells, with no loops. Every route between two dead ends passes through junctions, and the mouse's running is mostly back-and-forth runs along these short corridors, slowing at junctions and turning around in dead ends.</p>
+          <p><strong>What the data say now.</strong> Penk+ event onsets are biased to corridors, but at matched running speed the corridor-vs-junction index is near zero (median −0.015 in both cell types) and the few significant cells split both ways (11 % vs 17 %). Within corridors, faster movement still raises Penk+ activity (median index 0.071; 19 % of cells). So location in the maze adds nothing beyond running.</p>
+          <p><strong>What the run-state code could mean in the maze.</strong> A cell that switches on for the duration of a run and does not care about speed marks "travelling along a corridor" as a unit. In a tree maze each such run is one step of a route choice. If that is what Penk+ cells carry, their activity should depend on what the run is in the maze (where it goes, whether it is new) and not only on the fact of running. If it does not, they carry a generic locomotor state.</p>
+        </div>
+      </div>
+      <div class="pending">
+        <span class="tag lean">Built, not yet run</span>
+        <p>The <span class="path">mazerun</span> analysis tests this per cell, with run duration and speed regressed out and a circular-shift null for each cell:</p>
+        <ul class="plain">
+          <li><strong>Approach vs return:</strong> runs into dead ends vs runs out of dead ends.</li>
+          <li><strong>Exploration vs repetition:</strong> runs entering cells not yet visited in the session vs runs over visited cells, and decline of activity with repeated traversals of the same corridor.</li>
+          <li><strong>Route specificity:</strong> whether activity is reliable per route (start → end) across repeated traversals. Near zero means a generic run signal; positive means route or place-by-direction coding.</li>
+          <li><strong>Light vs dark runs</strong> at matched speed: optic flow vs self-motion.</li>
+          <li><strong>Timing:</strong> whether activity leads running onset (preparatory) or follows it.</li>
+        </ul>
       </div>
     </section>
 
     <section id="physiology">
-      <h2>1. Intrinsic physiology ex vivo</h2>
+      <h2>Ex vivo cells</h2>
       <p class="finding">Penk+ cells fire narrower spikes, reach higher maximal rates, and start with a fast burst that then slows.</p>
       <div class="chart-block">
         <div class="chart-head">
@@ -263,8 +363,17 @@ footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule)
       </div>
     </section>
 
+    <header class="part" id="animals">
+      <div class="eyebrow">Part 2</div>
+      <h2>Animal level</h2>
+      <div class="prose meta">
+        <p>The two cell types are never in the same animal, so a difference between them is also a difference between animals. Here each animal is reduced to one value (the median or mean of its cells) and the groups are compared with an exact animal-level Mann-Whitney U, an animal-level permutation test and a leave-one-animal-out (LOAO) direction check. Effect size is CLES = P(Penk+ animal &gt; Penk⁻CamKII+ animal); 0.5 means no difference. With 11 vs 4 animals an exact two-sided test cannot go below p = 0.0015, and 80 % power needs about d = 1.5.</p>
+        <p>Chart statistics are recomputed from animal medians. Tables report the programme's own tests, which summarise each animal by its cell mean, so the two can differ.</p>
+      </div>
+    </header>
+
     <section id="events">
-      <h2>2. Calcium event signature</h2>
+      <h2>Calcium event signature</h2>
       <p class="finding">Penk+ calcium events are longer and rarer, with the same indicator kinetics.</p>
       <div class="chart-block">
         <div class="chart-head">
@@ -296,7 +405,7 @@ footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule)
     </section>
 
     <section id="running">
-      <h2>3. Running</h2>
+      <h2>Running</h2>
       <p class="finding">Penk+ events happen while the mouse runs and turns; the cells report that the mouse is running, not how fast, and stay active through the run.</p>
       <div class="chart-block">
         <div class="chart-head">
@@ -340,7 +449,7 @@ footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule)
     </section>
 
     <section id="light">
-      <h2>4. Light coupling</h2>
+      <h2>Light coupling</h2>
       <p class="finding">Penk⁻CamKII+ activity follows the room lights more closely; all six measures lean the same way, none significant alone after FDR.</p>
       <div class="two">
         <div class="chart-block">
@@ -375,7 +484,7 @@ footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule)
     </section>
 
     <section id="composites">
-      <h2>5. Composite scores</h2>
+      <h2>Composite scores</h2>
       <p class="finding">Averaging ranks across measures, both differences reach p &lt; 0.05 at the animal level, with every measure leaning the same way.</p>
       <div class="chart-block">
         <div class="chart-head">
@@ -391,7 +500,7 @@ footer { color: var(--muted); font-size: 14px; border-top: 1px solid var(--rule)
     </section>
 
     <section id="nulls">
-      <h2>6. What does not differ</h2>
+      <h2>What does not differ</h2>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Analysis</th><th>Result</th></tr></thead>
@@ -692,14 +801,141 @@ function drawCp(key) {
     `Large dots = composite per animal; faint dots = the per-measure ranks it averages (hover for the measure). Hypothesis ${dir}: median ${fmt(s.median_higher, 1)} vs ${fmt(s.median_lower, 1)}, CLES ${fmt(s.cles)}, one-sided exact permutation ${fmtP(s.perm_p_one_sided)} over ${s.n_assignments} label assignments, ${s.measures_agreeing}/${s.measures_used.length} measures agree, leave-one-animal-out ${s.loao_direction_stable ? "stable" : "not stable"}.`;
 }
 
+// ---- Part 1: cell level
+function cellMeasures(section) { return DATA.cell_level.measures.filter(m => !section || m.section === section); }
+function pct(x) { return x === null || x === undefined ? "—" : Math.round(x * 100) + " %"; }
+function pTxt(p) { return p === null || p === undefined ? "—" : (p < 0.001 ? p.toExponential(0).replace("e", "×10^") : p.toFixed(p < 0.01 ? 3 : 2)); }
+
+function drawCell(key) {
+  const m = DATA.cell_level.measures.find(x => x.key === key);
+  if (!m) return;
+  const traces = GROUPS.map((g, gi) => ({
+    type: "violin", x0: LABEL[g], y: m.values[g], name: LABEL[g],
+    points: "all", pointpos: 0, jitter: 0.6, spanmode: "hard",
+    marker: { size: 4, color: colorOf(g), opacity: 0.55 },
+    line: { color: colorOf(g), width: 1.5 },
+    fillcolor: g === "penk" ? css("--penk-soft") : css("--nonpenk-soft"),
+    box: { visible: true, width: 0.12, fillcolor: css("--surface"), line: { color: colorOf(g) } },
+    meanline: { visible: false },
+    customdata: m.animals[g],
+    hovertemplate: "%{y:.3g}<br>animal %{customdata}<extra>" + LABEL[g] + "</extra>",
+  }));
+  const shapes = m.centred ? [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { width: 1, dash: "dot", color: css("--muted") } }] : [];
+  const layout = baseLayout({ shapes, violinmode: "group" });
+  layout.xaxis = Object.assign(layout.xaxis, { showgrid: false, fixedrange: true });
+  let ylog = m.log && [...m.values.penk, ...m.values.nonpenk].every(v => v > 0);
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: m.label, font: { size: 13 } }, type: ylog ? "log" : "linear" });
+  Plotly.react("plot-cell", traces, layout, CONFIG);
+  const q = m.quartiles, fs = m.fraction_sig;
+  let txt = `${m.label} (${m.signal}). ${m.n_penk} Penk+ cells (${m.n_animals_penk} animals) vs ${m.n_nonpenk} Penk⁻CamKII+ cells (${m.n_animals_nonpenk} animals). Medians ${fmt(q.penk.median, 3)} vs ${fmt(q.nonpenk.median, 3)}; Cliff's δ ${fmt(m.cliffs_delta)}, Mann-Whitney p ${pTxt(m.mwu_p)}, FDR ${pTxt(m.mwu_fdr)}.`;
+  if (m.within_p) txt += ` Against 0: Penk+ p ${pTxt(m.within_p.penk)}, Penk⁻ p ${pTxt(m.within_p.nonpenk)}.`;
+  if (fs) txt += ` Significant cells ${pct(fs.frac_penk)} vs ${pct(fs.frac_nonpenk)} (Fisher p ${pTxt(fs.fisher_p)}).`;
+  document.getElementById("cell-caption").textContent = txt + " Cells are not independent; see Part 2.";
+  document.querySelectorAll("#cell-table tr.pick").forEach(r => r.setAttribute("aria-selected", r.dataset.key === key ? "true" : "false"));
+}
+function fillCellSelect(section) {
+  const sel = document.getElementById("cell-measure");
+  sel.innerHTML = "";
+  cellMeasures(section).forEach(m => { const o = document.createElement("option"); o.value = m.key; o.textContent = m.label; sel.appendChild(o); });
+  if (!cellMeasures(section).some(m => m.key === state["cell-measure"])) state["cell-measure"] = sel.options[0] ? sel.options[0].value : null;
+  sel.value = state["cell-measure"];
+}
+function buildCellTable() {
+  const tb = document.querySelector("#cell-table tbody");
+  tb.innerHTML = "";
+  Object.entries(DATA.cell_level.sections).forEach(([sec, name]) => {
+    const head = document.createElement("tr");
+    head.innerHTML = `<td class="sec" colspan="9">${name}</td>`;
+    tb.appendChild(head);
+    cellMeasures(sec).forEach(m => {
+      const q = m.quartiles, fs = m.fraction_sig, w = m.within_p;
+      const tr = document.createElement("tr");
+      tr.className = "pick"; tr.dataset.key = m.key; tr.tabIndex = 0;
+      const iqr = g => `${fmt(q[g].median, 3)} <span class="meta">(${fmt(q[g].q25, 2)}–${fmt(q[g].q75, 2)})</span>`;
+      tr.innerHTML = `<td>${m.label}</td><td class="meta">${m.signal}</td><td class="num">${iqr("penk")}</td><td class="num">${iqr("nonpenk")}</td>`
+        + `<td class="num">${fmt(m.cliffs_delta)}</td><td class="num">${pTxt(m.mwu_p)}</td><td class="num">${pTxt(m.mwu_fdr)}</td>`
+        + `<td class="num">${w ? pTxt(w.penk) + " / " + pTxt(w.nonpenk) : "—"}</td>`
+        + `<td class="num">${fs ? pct(fs.frac_penk) + " / " + pct(fs.frac_nonpenk) : "—"}</td>`;
+      const pick = () => {
+        state["cell-seg"] = m.section;
+        document.querySelectorAll("#cell-seg button").forEach(b => b.setAttribute("aria-pressed", b.id === "cell-seg-" + m.section ? "true" : "false"));
+        state["cell-measure"] = m.key; fillCellSelect(m.section); drawCell(m.key);
+        document.getElementById("cell-title").scrollIntoView({ block: "center" });
+      };
+      tr.addEventListener("click", pick);
+      tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
+      tb.appendChild(tr);
+    });
+  });
+}
+function drawRunScatter() {
+  const rs = DATA.cell_level.running_scatter;
+  if (!rs) return;
+  const traces = GROUPS.map(g => ({
+    type: "scatter", mode: "markers", name: LABEL[g], x: rs[g].step_index, y: rs[g].graded_rho,
+    marker: { size: 7, color: rs[g].step_sig.map(s => s ? colorOf(g) : "rgba(0,0,0,0)"), line: { width: 1.2, color: colorOf(g) }, opacity: 0.8 },
+    customdata: rs[g].animal_id,
+    hovertemplate: "step %{x:.2f}, rho %{y:.2f}<br>animal %{customdata}<extra>" + LABEL[g] + "</extra>",
+  }));
+  const dot = { width: 1, dash: "dot", color: css("--muted") };
+  const layout = baseLayout({ showlegend: true, legend: { orientation: "h", y: 1.08, x: 0, font: { color: css("--muted") } },
+    shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: dot }, { type: "line", yref: "paper", y0: 0, y1: 1, x0: 0, x1: 0, line: dot }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "step index (running vs still)", font: { size: 13 } } });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: "graded speed rho while running", font: { size: 13 } }, range: [-1, 1] });
+  Plotly.react("plot-rsc", traces, layout, CONFIG);
+}
+function drawFracSig() {
+  const ms = DATA.cell_level.measures.filter(m => m.fraction_sig);
+  const names = ms.map(m => m.label);
+  const traces = GROUPS.map(g => ({
+    type: "bar", orientation: "h", name: LABEL[g], y: names,
+    x: ms.map(m => 100 * m.fraction_sig["frac_" + g]),
+    marker: { color: colorOf(g) },
+    customdata: ms.map(m => [m.fraction_sig["k_" + g], m.fraction_sig["n_" + g], pTxt(m.fraction_sig.fisher_p)]),
+    hovertemplate: "%{x:.0f} % (%{customdata[0]}/%{customdata[1]})<br>Fisher p %{customdata[2]}<extra>" + LABEL[g] + "</extra>",
+  }));
+  const layout = baseLayout({ barmode: "group", showlegend: true, legend: { orientation: "h", y: 1.06, x: 0, font: { color: css("--muted") } },
+    margin: { l: 10, r: 16, t: 10, b: 46 },
+    shapes: [{ type: "line", yref: "paper", y0: 0, y1: 1, x0: 5, x1: 5, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "% of cells significant", font: { size: 13 } }, range: [0, 70] });
+  layout.yaxis = Object.assign(layout.yaxis, { autorange: "reversed", automargin: true, tickfont: { size: 12 } });
+  Plotly.react("plot-fs", traces, layout, CONFIG);
+}
+const NODE_COLOURS = { dead_end: "--nonpenk", t_junction: "--penk", corridor: "--muted" };
+const NODE_NAMES = { dead_end: "dead end", t_junction: "T-junction", corridor: "corridor" };
+function drawMaze() {
+  const mz = DATA.maze, svg = document.getElementById("maze-svg");
+  const u = 40, pad = 22, cols = 7, rows = 5;
+  svg.setAttribute("viewBox", `0 0 ${cols * u + 2 * pad} ${rows * u + 2 * pad}`);
+  const X = c => pad + (c + 0.5) * u, Y = r => pad + (rows - r - 0.5) * u;  // row 0 at bottom
+  let out = "";
+  mz.edges.forEach(([a, b]) => { out += `<line x1="${X(a[0])}" y1="${Y(a[1])}" x2="${X(b[0])}" y2="${Y(b[1])}" stroke="${css("--rule")}" stroke-width="${u * 0.62}" stroke-linecap="square"/>`; });
+  mz.edges.forEach(([a, b]) => { out += `<line x1="${X(a[0])}" y1="${Y(a[1])}" x2="${X(b[0])}" y2="${Y(b[1])}" stroke="${css("--muted")}" stroke-width="1.5"/>`; });
+  mz.cells.forEach(([c, r, t]) => { out += `<circle cx="${X(c)}" cy="${Y(r)}" r="7" fill="${css(NODE_COLOURS[t])}"><title>(${c}, ${r}) ${NODE_NAMES[t]}</title></circle>`; });
+  svg.innerHTML = out;
+  const counts = {}; mz.cells.forEach(([, , t]) => counts[t] = (counts[t] || 0) + 1);
+  document.getElementById("maze-legend").innerHTML = Object.keys(NODE_NAMES).map(t =>
+    `<span><i class="dot" style="background:${css(NODE_COLOURS[t])}"></i>${NODE_NAMES[t]} (${counts[t] || 0})</span>`).join("");
+}
+
 function renderAll() {
   if (!window.Plotly || !DATA) return;
-  drawPatch(state["patch-seg"]); drawEv(state["ev-seg"]); drawEta(state["eta-seg"]); drawDz();
-  drawRs(state["rs-seg"]); drawLt(); drawLa(state["la-seg"]); drawCp(state["cp-seg"]);
+  const jobs = [
+    () => drawCell(state["cell-measure"]), drawRunScatter, drawFracSig, drawMaze,
+    () => drawPatch(state["patch-seg"]), () => drawEv(state["ev-seg"]), () => drawEta(state["eta-seg"]), drawDz,
+    () => drawRs(state["rs-seg"]), drawLt, () => drawLa(state["la-seg"]), () => drawCp(state["cp-seg"]),
+  ];
+  // One failing chart must not stop the others from drawing.
+  jobs.forEach(job => { try { job(); } catch (err) { console.error(err); } });
 }
 
 function init() {
   const P = DATA.patching_adaptation.panels, E = DATA.event_kinetics.panels, R = DATA.running_state.panels, L = DATA.light_transitions.panels;
+  state["cell-seg"] = "running"; state["cell-measure"] = "step_index";
+  segmented("cell-seg", Object.entries(DATA.cell_level.sections).map(([k, v]) => [k, v.split(",")[0].replace("Head direction", "HD and other")]), sec => { fillCellSelect(sec); drawCell(state["cell-measure"]); }, state["cell-seg"]);
+  fillCellSelect(state["cell-seg"]);
+  document.getElementById("cell-measure").addEventListener("change", e => { state["cell-measure"] = e.target.value; drawCell(e.target.value); });
+  buildCellTable();
   state["patch-seg"] = "matched_sfa_ratio";
   segmented("patch-seg", [["matched_sfa_ratio", "Adaptation"], ["matched_first_isi_ms", "First ISI"], ["max_n_spikes", "Max spikes"]], drawPatch, state["patch-seg"]);
   state["ev-seg"] = "ev_mean_duration_s";

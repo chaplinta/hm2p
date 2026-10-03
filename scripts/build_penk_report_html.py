@@ -9,7 +9,8 @@ standalone and works offline.
 
 Usage
 -----
-    python scripts/make_penk_figures.py        # refresh the data first
+    python scripts/make_penk_figures.py        # refresh the animal-level data
+    python scripts/make_penk_cell_level.py     # refresh the cell-level data
     python scripts/build_penk_report_html.py
 """
 
@@ -32,6 +33,7 @@ REQUIRED = (
     "running_state",
     "light_transitions",
     "patching_adaptation",
+    "cell_level",
 )
 DATA_MARK = "/*__DATA__*/null"
 BUILD_MARK = "__BUILD__"
@@ -51,6 +53,16 @@ def load_data(data_dir: Path = DATA_DIR) -> dict:
     if missing:
         raise FileNotFoundError(f"missing figure data: {missing} in {data_dir}")
     return {n: json.loads((data_dir / f"{n}.json").read_text()) for n in REQUIRED}
+
+
+def maze_layout() -> dict:
+    """Maze cells (col, row, node type) and corridor edges from the topology module."""
+    from hm2p.maze.topology import build_rose_maze
+
+    maze = build_rose_maze()
+    cells = [[c, r, maze.node_types[(c, r)]] for c, r in sorted(maze.cells)]
+    edges = sorted({tuple(sorted((a, b))) for a, nbrs in maze.adj.items() for b in nbrs})
+    return {"cells": cells, "edges": [[list(a), list(b)] for a, b in edges]}
 
 
 def _json_for_script(obj: dict) -> str:
@@ -88,7 +100,9 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - file I/O e
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", type=Path, default=OUT)
     args = ap.parse_args(argv)
-    html = render(TEMPLATE.read_text(), load_data(), build_label(), plotly_js())
+    data = load_data()
+    data["maze"] = maze_layout()
+    html = render(TEMPLATE.read_text(), data, build_label(), plotly_js())
     args.out.write_text(html)
     print(f"wrote {args.out} ({len(html) / 1024:.0f} KB)")
     return 0

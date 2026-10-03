@@ -51,3 +51,9 @@ def test_template_has_markers() -> None:
     tpl = b.TEMPLATE.read_text()
     assert b.DATA_MARK in tpl and b.BUILD_MARK in tpl and b.PLOTLY_MARK in tpl
     assert "cdnjs" not in tpl
+
+
+def test_maze_layout_is_a_tree() -> None:
+    m = b.maze_layout()
+    assert len(m["cells"]) == 23 and len(m["edges"]) == 22
+    assert {c[2] for c in m["cells"]} == {"dead_end", "t_junction", "corridor"}
