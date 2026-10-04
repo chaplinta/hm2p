@@ -1,0 +1,285 @@
+<title>RSP neurons in the maze</title>
+<meta name="description" content="What retrosplenial cortex layer 2/3 neurons respond to in the Rosenberg maze, all imaged cells pooled.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">
+<!--__CSS__-->
+<style>
+:root { --g-locomotion: #2f7d4f; --g-turning: #9a6a12; --g-direction: #6b4fa3; --g-maze: #2b6f8f; --g-light: #b0532b; --g-time: #5a6475; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --g-locomotion: #6cc38f; --g-turning: #e0b45a; --g-direction: #b39ae6; --g-maze: #7cc0de; --g-light: #f0a07a; --g-time: #9aa4b5; } }
+:root[data-theme="dark"] { --g-locomotion: #6cc38f; --g-turning: #e0b45a; --g-direction: #b39ae6; --g-maze: #7cc0de; --g-light: #f0a07a; --g-time: #9aa4b5; }
+.plot.xtall { height: 640px; }
+.plot.sq { height: 560px; }
+</style>
+
+<div class="page">
+  <nav class="toc" aria-label="Contents">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#summary">Summary</a></li>
+      <li><a href="#data">Data</a></li>
+      <li><a href="#responsive">What cells respond to</a></li>
+      <li><a href="#together">What goes together</a></li>
+      <li><a href="#mixed">How many things per cell</a></li>
+      <li><a href="#movement">Running vs turning</a></li>
+      <li><a href="#population">Population decoding</a></li>
+      <li><a href="#celltype">By cell type</a></li>
+      <li><a href="#limits">Limitations</a></li>
+      <li><a href="#methods">Methods</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="top">
+      <div class="eyebrow">hm2p · retrosplenial cortex · all imaged cells</div>
+      <h1>What RSP neurons respond to in the maze</h1>
+      <p class="meta">Two-photon imaging of layer 2/3 retrosplenial neurons in freely moving mice exploring the Rosenberg maze, room lights alternating 1 min on / 1 min off. All soma ROIs pooled, not split by cell type. Exploratory results. Build __BUILD__.</p>
+    </header>
+
+    <section id="summary">
+      <h2>Summary</h2>
+      <p class="finding">RSP layer 2/3 neurons in the maze are dominated by locomotion: about half of all cells track whether the mouse is running. Next come slow drift over the session, light, and entry into junctions and dead ends. Head direction, turns, novelty and junction choices are weak or absent.</p>
+      <ul class="findings">
+        <li><span class="tag within">Common</span><span>Running vs still, coupling to running and speed during events: 44–50 % of cells (animal-level p &lt; 0.001). These responses cluster in the same cells.</span></li>
+        <li><span class="tag within">Present</span><span>Slow drift over the session (36 %), lights on during events (24 %), junction and dead-end entry (18 % each, half up, half down), into vs out of dead ends (15 %).</span></li>
+        <li><span class="tag lean">Population</span><span>The population, but no simple single-cell average, tells whether the mouse is heading into or out of a dead end, and this survives removing head direction (balanced accuracy 0.61–0.64 vs 0.49 chance). It does not predict which exit the mouse takes at a junction.</span></li>
+        <li><span class="tag null">Absent or weak</span><span>Left and right turn responses, graded speed within runs, novelty, head-body angle and route specificity are at chance across animals. Head-direction cells are 10 % overall but concentrated in a few animals.</span></li>
+      </ul>
+    </section>
+
+    <section id="data">
+      <h2>Data</h2>
+      <div class="prose">
+        <p><span id="n-cells"></span> soma ROIs from 23 sessions in 15 mice (11 Penk-Cre, 4 Cre-OFF CamKII; pooled here). Every cell was tested against its own shuffle null for each variable (a circular shift of activity relative to behaviour, or the analysis's own permutation), so about 5 % of cells pass any test by chance. The animal-level test asks whether the fraction of responsive cells per mouse exceeds 5 % (Wilcoxon signed-rank across mice), which does not treat cells as independent.</p>
+      </div>
+    </section>
+
+    <section id="responsive">
+      <h2>What cells respond to</h2>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="frac-title">Cells individually significant, by variable</span></div>
+        <div id="plot-frac" class="plot xtall" role="img" aria-labelledby="frac-title"></div>
+        <p class="caption">Bars: % of all cells; diamonds: median over mice. Dotted line: 5 % expected by chance. Colour = variable group. Hover for counts and the animal-level p value.</p>
+      </div>
+      <div class="table-wrap">
+        <table id="frac-table">
+          <thead><tr><th>Variable</th><th>Group</th><th>Cells</th><th>% significant</th><th>Median % per mouse</th><th>Mice</th><th>Animal-level p</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="together">
+      <h2>What goes together</h2>
+      <p class="finding">Locomotion responses share cells: a cell that steps up with running is also more likely to be faster during its events and to be active with head turning.</p>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="co-title">Co-occurrence of significance (log odds ratio)</span></div>
+          <div id="plot-co" class="plot sq" role="img" aria-labelledby="co-title"></div>
+          <p class="caption">Each cell of the matrix: log odds that a neuron significant for one variable is also significant for the other. Positive (warm) = the two tend to occur in the same neurons. Only pairs with a Fisher exact p &lt; 0.01 are coloured.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="zc-title">Correlation of tuning strength across cells (Spearman)</span></div>
+          <div id="plot-zc" class="plot sq" role="img" aria-labelledby="zc-title"></div>
+          <p class="caption">Correlation across cells between the z scores of two variables, using the full graded values rather than pass/fail. Pairs with p &gt;= 0.01 are blank.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="mixed">
+      <h2>How many things per cell</h2>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="mx-title">Number of variables each cell responds to</span></div>
+        <div id="plot-mx" class="plot" role="img" aria-labelledby="mx-title"></div>
+        <p class="caption" id="mx-caption"></p>
+      </div>
+    </section>
+
+    <section id="movement">
+      <h2>Running vs turning</h2>
+      <div class="pending" id="movestate-box">
+        <span class="tag lean">Running</span>
+        <p>Running and head turning happen together in this maze: during running, the mouse is turning more often than running straight, and turning in place is rare (seconds per session). Tracking speed and turning during calcium events therefore cannot tell them apart. A movement-state analysis separates still, running straight, turning in place and running while turning, and tests graded turning at matched speed; its results will be added here.</p>
+      </div>
+    </section>
+
+    <section id="population">
+      <h2>Population decoding</h2>
+      <p class="finding">Pooling every cell in a session, the population carries whether the mouse is heading into or out of a dead end, beyond head direction, speed and turning. It does not carry the upcoming junction choice.</p>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="pd-title">Decoding above chance, per question</span></div>
+        <div id="plot-pd" class="plot" role="img" aria-labelledby="pd-title"></div>
+        <p class="caption">Median over sessions of observed minus shuffle-null decoding (balanced accuracy, or reduction in maze distance error for position). Three feature sets: the neural population, behaviour alone (head direction, speed, turning), and the neural population with head direction regressed out of each cell. CASCADE spikes; cross-validated over time blocks.</p>
+      </div>
+      <div class="table-wrap">
+        <table id="pd-table">
+          <thead><tr><th>Question</th><th>Features</th><th>Observed</th><th>Null</th><th>Sessions</th><th>Session p</th><th>Animal p</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="celltype">
+      <h2>By cell type</h2>
+      <p class="finding">Comparing Penk+ with Penk⁻CamKII+ on every variable, at matched brightness: Penk+ has more running cells, the same rate of head-direction and maze-event cells, and fewer light and stopping cells. It is not simply more responsive overall.</p>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="sp-title">Penk+ minus Penk⁻ in % responsive cells (brightness-matched)</span></div>
+        <div id="plot-sp" class="plot xtall" role="img" aria-labelledby="sp-title"></div>
+        <p class="caption">Cells drawn in equal numbers from each type within deciles of baseline fluorescence (200 draws); bar = mean difference, whisker = 95 % range over draws. The range reflects cell resampling only, not variation between mice; across mice (11 vs 4) none of these differences is significant on its own.</p>
+      </div>
+    </section>
+
+    <section id="limits">
+      <h2>Limitations</h2>
+      <ul class="plain">
+        <li>Variables come from different analyses on different signals (CASCADE spikes, dF/F events, dF/F), each with its own null, so the percentages are comparable only roughly.</li>
+        <li>Junction and dead-end entry responses are not speed-controlled; part of them may reflect slowing on arrival.</li>
+        <li>Head direction significance comes from an earlier analysis on the whole session (dF/F); about half the HD cells come from a few animals.</li>
+        <li>The same neurons can appear in several sessions of one mouse; the animal-level tests are the safer guide.</li>
+      </ul>
+    </section>
+
+    <section id="methods">
+      <h2>Methods</h2>
+      <details>
+        <summary>Sources and statistics</summary>
+        <div class="prose">
+          <p>Built by <span class="path">scripts/make_rsp_all_cells.py</span> and <span class="path">scripts/build_rsp_all_cells_html.py</span> from the programme runners (runshape, mazerun, etb, evt, ego, tctx, popdec) and the head-direction controls in <span class="path">results/headline_controls</span>. Co-occurrence: Fisher exact test and Haldane-corrected log odds ratio within cells tested for both variables. Number of variables per cell: observed distribution against a null permuting each variable's labels across cells within each session (1000 permutations). Population decoders: L2 logistic regression, time-block cross-validation, circular-shift null; see <span class="path">docs/population-maze-decoding.md</span>.</p>
+          <p>Rigotti M et al. 2013. "The importance of mixed selectivity in complex cognitive tasks." Nature 497:585–590. doi:10.1038/nature12160. Rosenberg M, Zhang T, Perona P, Meister M. 2021. "Mice in a labyrinth show rapid learning, sudden insight, and efficient exploration." eLife 10:e66175. doi:10.7554/eLife.66175.</p>
+        </div>
+      </details>
+    </section>
+    <footer>Generated from the hm2p repository.</footer>
+  </main>
+</div>
+
+<!--__PLOTLY__-->
+<script>
+const DATA = /*__DATA__*/null;
+function css(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function fmt(v, d = 2) { return v === null || v === undefined || Number.isNaN(v) ? "n/a" : Number(v).toFixed(d); }
+function pTxt(p) { return p === null || p === undefined ? "—" : (p < 0.001 ? p.toExponential(0).replace("e", "×10^") : p.toFixed(p < 0.01 ? 3 : 2)); }
+function gcol(g) { return css("--g-" + g) || css("--muted"); }
+const CONFIG = { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] };
+function baseLayout(extra) {
+  const muted = css("--muted"), rule = css("--rule");
+  return Object.assign({
+    paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: css("--sans") || "sans-serif", size: 13, color: css("--ink") },
+    margin: { l: 62, r: 16, t: 10, b: 46 }, showlegend: false,
+    xaxis: { gridcolor: rule, zerolinecolor: rule, linecolor: rule, color: muted },
+    yaxis: { gridcolor: rule, zerolinecolor: muted, linecolor: rule, color: muted, automargin: true },
+  }, extra || {});
+}
+const LABEL = {};
+DATA.variables.forEach(v => LABEL[v.key] = v.label);
+
+function drawFrac() {
+  const vs = [...DATA.variables].sort((a, b) => b.frac - a.frac);
+  const traces = [
+    { type: "bar", orientation: "h", y: vs.map(v => v.label), x: vs.map(v => 100 * v.frac),
+      marker: { color: vs.map(v => gcol(v.group)) },
+      customdata: vs.map(v => [v.n_sig, v.n_cells, pTxt(v.animal_p), DATA.groups[v.group]]),
+      hovertemplate: "%{x:.1f} % (%{customdata[0]}/%{customdata[1]})<br>%{customdata[3]}<br>animal-level p %{customdata[2]}<extra></extra>" },
+    { type: "scatter", mode: "markers", y: vs.map(v => v.label), x: vs.map(v => 100 * v.animal_median_frac),
+      marker: { symbol: "diamond", size: 9, color: css("--surface"), line: { width: 1.5, color: css("--ink") } },
+      hovertemplate: "median per mouse %{x:.1f} %<extra></extra>" },
+  ];
+  const layout = baseLayout({ margin: { l: 10, r: 16, t: 10, b: 46 },
+    shapes: [{ type: "line", yref: "paper", y0: 0, y1: 1, x0: 5, x1: 5, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "% of cells significant", font: { size: 13 } } });
+  layout.yaxis = Object.assign(layout.yaxis, { autorange: "reversed", tickfont: { size: 12 } });
+  Plotly.react("plot-frac", traces, layout, CONFIG);
+}
+function fracTable() {
+  const tb = document.querySelector("#frac-table tbody");
+  tb.innerHTML = [...DATA.variables].sort((a, b) => b.frac - a.frac).map(v =>
+    `<tr><td>${v.label}</td><td class="meta">${DATA.groups[v.group]}</td><td class="num">${v.n_cells}</td><td class="num">${fmt(100 * v.frac, 1)} %</td><td class="num">${fmt(100 * v.animal_median_frac, 1)} %</td><td class="num">${v.n_animals}</td><td class="num">${pTxt(v.animal_p)}</td></tr>`).join("");
+  document.getElementById("n-cells").textContent = DATA.n_cells_total;
+}
+function orderKeys() { return DATA.variables.map(v => v.key); }
+function matrix(rows, valueKey, keep) {
+  const keys = orderKeys(), idx = Object.fromEntries(keys.map((k, i) => [k, i]));
+  const z = keys.map(() => keys.map(() => null)), text = keys.map(() => keys.map(() => ""));
+  rows.forEach(r => {
+    if (!(r.a in idx) || !(r.b in idx) || !keep(r)) return;
+    const i = idx[r.a], j = idx[r.b];
+    z[i][j] = z[j][i] = r[valueKey];
+    text[i][j] = text[j][i] = `${LABEL[r.a]} × ${LABEL[r.b]}: ${fmt(r[valueKey])} (n ${r.n})`;
+  });
+  return { keys, z, text };
+}
+function heat(div, m, zmax, title) {
+  const labels = m.keys.map(k => LABEL[k]);
+  const t = [{ type: "heatmap", x: labels, y: labels, z: m.z, text: m.text, hoverinfo: "text",
+    zmin: -zmax, zmax, colorscale: [[0, "#3b6fb6"], [0.5, css("--surface")], [1, "#c4412f"]],
+    colorbar: { title: { text: title, side: "right" }, thickness: 12, tickfont: { color: css("--muted") } }, xgap: 1, ygap: 1 }];
+  const layout = baseLayout({ margin: { l: 10, r: 10, t: 10, b: 10 } });
+  layout.xaxis = Object.assign(layout.xaxis, { tickangle: -50, tickfont: { size: 10 }, automargin: true, showgrid: false });
+  layout.yaxis = Object.assign(layout.yaxis, { autorange: "reversed", tickfont: { size: 10 }, showgrid: false });
+  Plotly.react(div, t, layout, CONFIG);
+}
+function drawCo() { heat("plot-co", matrix(DATA.cooccurrence, "log_or", r => r.fisher_p < 0.01), 3, "log OR"); }
+function drawZc() { heat("plot-zc", matrix(DATA.z_correlation, "rho", r => r.p < 0.01), 0.7, "ρ"); }
+function drawMx() {
+  const m = DATA.mixed;
+  if (!m || !m.observed) return;
+  const n = m.observed.length, last = Math.max(...m.observed.map((v, i) => v > 0 || m.null_mean[i] > 0.5 ? i : 0)) + 1;
+  const x = [...Array(last).keys()];
+  const t = [
+    { type: "bar", x, y: m.observed.slice(0, last), name: "observed", marker: { color: css("--ink") }, opacity: 0.75,
+      hovertemplate: "%{x} variables: %{y} cells<extra>observed</extra>" },
+    { type: "scatter", mode: "markers", x, y: m.null_mean.slice(0, last), name: "independent (permuted)",
+      marker: { symbol: "line-ew-open", size: 22, line: { width: 3, color: css("--g-light") } },
+      error_y: { type: "data", symmetric: false, array: m.null_hi.slice(0, last).map((h, i) => h - m.null_mean[i]),
+        arrayminus: m.null_mean.slice(0, last).map((v, i) => v - m.null_lo[i]), color: css("--g-light"), thickness: 1.5 },
+      hovertemplate: "%{x} variables: %{y:.1f} cells expected<extra>null</extra>" },
+  ];
+  const layout = baseLayout({ showlegend: true, legend: { orientation: "h", y: 1.1, x: 0, font: { color: css("--muted") } } });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "number of variables significant in the cell", font: { size: 13 } }, dtick: 1 });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: "cells", font: { size: 13 } } });
+  Plotly.react("plot-mx", t, layout, CONFIG);
+  document.getElementById("mx-caption").textContent =
+    `${m.n_cells} cells with all ${m.keys.length} variables defined. Observed vs a null that shuffles which cells pass each test within each session (keeping each session's rates). Cells responding to nothing: ${m.observed[0]} (${fmt(100 * m.frac_none, 0)} %) vs ${fmt(m.null_mean[0], 1)} expected (p ${pTxt(m.p_more_none)}). The observed distribution is wider than the null at both ends: more silent cells and more cells responding to many variables.`;
+}
+const DEC = { inout: "Into vs out of a dead end", position: "Position in the maze", edge_direction: "Direction along a corridor", junction_exit: "Exit taken at a junction" };
+const FEAT = { neural: "neural", behaviour: "behaviour only", neural_hd_removed: "neural, HD removed" };
+const FCOL = { neural: "--ink", behaviour: "--g-turning", neural_hd_removed: "--g-maze" };
+function drawPd() {
+  const rows = DATA.popdec, decs = [...new Set(rows.map(r => r.decoder))];
+  const t = Object.keys(FEAT).map(f => {
+    const rs = decs.map(d => rows.find(r => r.decoder === d && r.feature_set === f));
+    return { type: "bar", name: FEAT[f], x: decs.map(d => DEC[d] || d), y: rs.map(r => r ? r.median_excess : null),
+      marker: { color: css(FCOL[f]) }, customdata: rs.map(r => r ? [fmt(r.median_observed), fmt(r.median_null_mean), pTxt(r.animal_wilcoxon_p)] : ["", "", ""]),
+      hovertemplate: "%{x}<br>observed %{customdata[0]}, null %{customdata[1]}<br>animal p %{customdata[2]}<extra>" + FEAT[f] + "</extra>" };
+  });
+  const layout = baseLayout({ barmode: "group", showlegend: true, legend: { orientation: "h", y: 1.1, x: 0, font: { color: css("--muted") } } });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: "above shuffle null", font: { size: 13 } } });
+  Plotly.react("plot-pd", t, layout, CONFIG);
+  document.querySelector("#pd-table tbody").innerHTML = rows.map(r =>
+    `<tr><td>${DEC[r.decoder] || r.decoder}${r.metric === "mean_distance" ? " (maze distance, cells)" : ""}</td><td>${FEAT[r.feature_set]}</td><td class="num">${fmt(r.median_observed)}</td><td class="num">${fmt(r.median_null_mean)}</td><td class="num">${r.n_sessions}</td><td class="num">${pTxt(r.session_wilcoxon_p)}</td><td class="num">${pTxt(r.animal_wilcoxon_p)}</td></tr>`).join("");
+}
+function drawSp() {
+  const rs = [...DATA.specificity].sort((a, b) => b.matched_diff - a.matched_diff);
+  const t = [{ type: "bar", orientation: "h", y: rs.map(r => r.label), x: rs.map(r => 100 * r.matched_diff),
+    marker: { color: rs.map(r => gcol(r.group)) },
+    error_x: { type: "data", symmetric: false, array: rs.map(r => 100 * (r.matched_hi - r.matched_diff)), arrayminus: rs.map(r => 100 * (r.matched_diff - r.matched_lo)), color: css("--muted"), thickness: 1.2 },
+    customdata: rs.map(r => [fmt(100 * r.matched_frac_penk, 0), fmt(100 * r.matched_frac_nonpenk, 0), fmt(100 * r.frac_penk, 0), fmt(100 * r.frac_nonpenk, 0), pTxt(r.animal_mwu_p)]),
+    hovertemplate: "matched: Penk+ %{customdata[0]} % vs Penk⁻ %{customdata[1]} %<br>raw: %{customdata[2]} % vs %{customdata[3]} %<br>animal-level p %{customdata[4]}<extra></extra>" }];
+  const layout = baseLayout({ margin: { l: 10, r: 16, t: 10, b: 46 },
+    shapes: [{ type: "line", yref: "paper", y0: 0, y1: 1, x0: 0, x1: 0, line: { width: 1, color: css("--muted") } }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "Penk+ minus Penk⁻ (percentage points)", font: { size: 13 } } });
+  layout.yaxis = Object.assign(layout.yaxis, { autorange: "reversed", tickfont: { size: 12 } });
+  Plotly.react("plot-sp", t, layout, CONFIG);
+}
+function renderAll() {
+  [drawFrac, drawCo, drawZc, drawMx, drawPd, drawSp].forEach(f => { try { f(); } catch (e) { console.error(e); } });
+}
+function init() {
+  fracTable();
+  renderAll();
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+  new MutationObserver(renderAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
+if (window.Plotly && DATA) init(); else window.addEventListener("load", () => { if (window.Plotly && DATA) init(); });
+</script>
