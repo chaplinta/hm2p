@@ -268,7 +268,17 @@ class TestCli:
             "ego",
             "tctx",
             "mazerun",
+            "popdec",
         }
+
+    def test_parser_popdec(self) -> None:
+        args = rcp._build_arg_parser().parse_args(["popdec"])
+        assert args.popdec_shuffles == 200 and args.n_jobs == 1
+        args = rcp._build_arg_parser().parse_args(
+            ["popdec", "--popdec-shuffles", "50", "--n-jobs", "3", "--signal", "spikes"]
+        )
+        assert args.popdec_shuffles == 50 and args.n_jobs == 3 and args.signal == "spikes"
+        assert "celltype_extra_popdec" in rcp.EXTRA_RUNNER_MODULES
 
     def test_parser_n_shuffles_evt(self) -> None:
         args = rcp._build_arg_parser().parse_args(["evt"])
