@@ -270,6 +270,7 @@ class TestCli:
             "mazerun",
             "popdec",
             "movestate",
+            "mazemem",
         }
 
     def test_parser_popdec(self) -> None:
@@ -280,6 +281,17 @@ class TestCli:
         )
         assert args.popdec_shuffles == 50 and args.n_jobs == 3 and args.signal == "spikes"
         assert "celltype_extra_popdec" in rcp.EXTRA_RUNNER_MODULES
+
+    def test_parser_mazemem(self) -> None:
+        args = rcp._build_arg_parser().parse_args(["mazemem"])
+        assert args.mazemem_shuffles == 200 and args.mazemem_recent_k == 3
+        assert args.mazemem_min_n == 5 and args.n_jobs == 1
+        args = rcp._build_arg_parser().parse_args(
+            ["mazemem", "--mazemem-shuffles", "20", "--mazemem-recent-k", "2", "--n-jobs", "4"]
+        )
+        assert args.mazemem_shuffles == 20 and args.mazemem_recent_k == 2 and args.n_jobs == 4
+        assert "celltype_extra_mazemem" in rcp.EXTRA_RUNNER_MODULES
+        assert "mazemem" in rcp.load_extra_runners()
 
     def test_parser_movestate(self) -> None:
         args = rcp._build_arg_parser().parse_args(["movestate"])
