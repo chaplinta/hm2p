@@ -882,3 +882,33 @@ individual corridors. Note: raw route split-half reliability is about 0.12 in bo
 the route-permutation null is not centred on zero (duration-quartile permutation keeps some
 structure), so only the z scores are interpretable. First EC2 attempt downloaded no data (the
 programme S3 client required the local `hm2p-agent` profile); fixed in 305228a.
+
+### Translation vs rotation, and syllable information (`movestate`, planned 2026-10-04)
+
+`hm2p.analysis.movement_state`, runner `movestate` (not yet run). Questions: (1) is the
+Penk+ running signal specific to translation, or does it also follow rotation (turning in
+place)? (2) why did syllable mutual information not separate the cell types?
+
+Speed and signed AHV are smoothed with a 0.5 s centred moving average on `~bad_behav` frames
+(AHV rectified after smoothing). States: still (speed < 1 cm/s, |AHV| < 30 deg/s), straight
+running (>= 3 cm/s, < 30 deg/s), turning in place (< 1 cm/s, >= 90 deg/s), running+turning
+(>= 3 cm/s, >= 90 deg/s); other frames unassigned; state bouts >= 0.3 s. Thresholds are
+command-line parameters (`--ms-speed-lo/-hi`, `--ms-ahv-lo/-hi`, `--ms-smooth-s`,
+`--ms-min-bout-s`); `state_summary.csv` reports frames per state (and per light condition) and
+|AHV| percentiles so the thresholds can be checked against the data. Per cell: mean activity
+per state; run, turn, run-vs-turn and interaction indices ((a - b)/(a + b)) and SD-normalised
+differences; |AHV| tuning within running with speed-stratum means removed. Syllables (>= 50
+frames): Spearman across syllables of activity vs syllable mean speed and |AHV|; binned
+mutual information with syllable identity, with three speed classes (syllable mean-speed
+tertiles), and within the fast class; the fraction of syllable information captured by speed
+class. All statistics against a circular shift of signal vs behaviour (two-sided; one-sided
+for MI, which is also reported shuffle-debiased).
+
+Weinreb C, Pearl JE, Lin S, et al. 2024. "Keypoint-MoSeq: parsing behavior by linking point
+tracking to pose dynamics." Nature Methods 21:1329-1339. doi:10.1038/s41592-024-02318-2.
+https://github.com/dattalab/keypoint-moseq
+Panzeri S, Senatore R, Montemurro MA, Petersen RS. 2007. "Correcting for the sampling bias
+problem in spike train information measures." Journal of Neurophysiology 98:1064-1072.
+doi:10.1152/jn.00559.2007
+Skaggs WE, McNaughton BL, Gothard KM, Markus EJ. 1993. "An information-theoretic approach to
+deciphering the hippocampal code." NeurIPS 5:1030-1037.

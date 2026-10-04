@@ -478,6 +478,10 @@ HYPOTHESES: dict[str, dict[str, Any]] = {
         "title": "Pooled-population decoding of maze behaviour with shift nulls",
         "families": [],
     },
+    "movestate": {
+        "title": "Translation vs rotation states and syllable information",
+        "families": [],
+    },
 }
 
 
@@ -489,6 +493,7 @@ EXTRA_RUNNER_MODULES = (
     "celltype_extra_runshape",
     "celltype_extra_mazerun",
     "celltype_extra_popdec",
+    "celltype_extra_movestate",
 )
 
 
@@ -555,6 +560,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     ap.add_argument(
         "--n-jobs", type=int, default=1, help="popdec: parallel workers over null shuffles"
     )
+    for flag, unit in (
+        ("speed-lo", "cm/s"),
+        ("speed-hi", "cm/s"),
+        ("ahv-lo", "deg/s"),
+        ("ahv-hi", "deg/s"),
+        ("smooth-s", "s"),
+        ("min-bout-s", "s"),
+    ):
+        ap.add_argument(
+            f"--ms-{flag}",
+            type=float,
+            default=None,
+            help=f"movestate: {flag.replace('-', ' ')} ({unit}); default in movement_state",
+        )
     ap.add_argument("--dry-run", action="store_true", help="validate metadata, write nothing")
     return ap
 
