@@ -269,6 +269,7 @@ class TestCli:
             "tctx",
             "mazerun",
             "popdec",
+            "movestate",
         }
 
     def test_parser_popdec(self) -> None:
@@ -279,6 +280,16 @@ class TestCli:
         )
         assert args.popdec_shuffles == 50 and args.n_jobs == 3 and args.signal == "spikes"
         assert "celltype_extra_popdec" in rcp.EXTRA_RUNNER_MODULES
+
+    def test_parser_movestate(self) -> None:
+        args = rcp._build_arg_parser().parse_args(["movestate"])
+        assert args.ms_speed_lo is None and args.ms_ahv_hi is None
+        args = rcp._build_arg_parser().parse_args(
+            ["movestate", "--ms-ahv-lo", "45", "--ms-min-bout-s", "0.5"]
+        )
+        assert args.ms_ahv_lo == 45.0 and args.ms_min_bout_s == 0.5
+        assert "celltype_extra_movestate" in rcp.EXTRA_RUNNER_MODULES
+        assert "movestate" in rcp.load_extra_runners()
 
     def test_parser_n_shuffles_evt(self) -> None:
         args = rcp._build_arg_parser().parse_args(["evt"])
