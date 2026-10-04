@@ -43,6 +43,7 @@
         <li><span class="tag within">Common</span><span>Running vs still, coupling to running and speed during events: 44–50 % of cells (animal-level p &lt; 0.001). These responses cluster in the same cells.</span></li>
         <li><span class="tag within">Present</span><span>Slow drift over the session (36 %), lights on during events (24 %), junction and dead-end entry (18 % each, half up, half down), into vs out of dead ends (15 %).</span></li>
         <li><span class="tag lean">Population</span><span>The population, but no simple single-cell average, tells whether the mouse is heading into or out of a dead end, and this survives removing head direction (balanced accuracy 0.61–0.64 vs 0.49 chance). It does not predict which exit the mouse takes at a junction.</span></li>
+        <li><span class="tag within">Translation</span><span>Cells respond to running straight (45 % up) far more than to turning in place (10 %); graded turning at matched speed is at chance. Their syllable information is mostly about syllable speed.</span></li>
         <li><span class="tag null">Absent or weak</span><span>Left and right turn responses, graded speed within runs, novelty, head-body angle and route specificity are at chance across animals. Head-direction cells are 10 % overall but concentrated in a few animals.</span></li>
       </ul>
     </section>
@@ -97,10 +98,26 @@
 
     <section id="movement">
       <h2>Running vs turning</h2>
-      <div class="pending" id="movestate-box">
-        <span class="tag lean">Running</span>
-        <p>Running and head turning happen together in this maze: during running, the mouse is turning more often than running straight, and turning in place is rare (seconds per session). Tracking speed and turning during calcium events therefore cannot tell them apart. A movement-state analysis separates still, running straight, turning in place and running while turning, and tests graded turning at matched speed; its results will be added here.</p>
+      <p class="finding">RSP cells encode translation, not rotation: activity rises when the mouse runs straight, barely when it turns in place, and turning during a run slightly lowers it.</p>
+      <div class="prose">
+        <p>In this maze the mouse turns while moving more than it runs straight, and turning in place is short (median 60 s per session, range 6–168 s). Frames are classed as still (speed &lt; 2 cm/s, |AHV| &lt; 30 deg/s), running straight (≥ 4 cm/s, &lt; 30 deg/s), turning in place (&lt; 2 cm/s, ≥ 90 deg/s) and running while turning (≥ 4 cm/s, ≥ 90 deg/s), with bouts of at least 0.3 s. Within running, speed and turning are uncorrelated (ρ ≈ 0), so the contrasts separate them.</p>
       </div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ms-title">Running straight vs turning in place, per cell</span></div>
+          <div id="plot-ms" class="plot sq" role="img" aria-labelledby="ms-title"></div>
+          <p class="caption">Each cell's activity change from still, in units of its own standard deviation (CASCADE spikes). Cells above the diagonal respond more to turning; below, more to running.</p>
+        </div>
+        <div class="table-wrap">
+          <table id="ms-table">
+            <thead><tr><th>Contrast (all cells)</th><th>Median</th><th>% cells up / down</th><th>Animal p</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <ul class="plain">
+        <li><strong>Syllables.</strong> Most cells carry information about which behavioural syllable the mouse is in, but that information is mostly about how fast the syllable is: speed class (still, slow, fast) accounts for a median <span id="ms-share"></span> of each cell's syllable information, and cells barely distinguish between syllables within the fast class.</li>
+      </ul>
     </section>
 
     <section id="population">
@@ -272,8 +289,30 @@ function drawSp() {
   layout.yaxis = Object.assign(layout.yaxis, { autorange: "reversed", tickfont: { size: 12 } });
   Plotly.react("plot-sp", t, layout, CONFIG);
 }
+function drawMs() {
+  const M = DATA.movestate;
+  if (!M || !M.cells) return;
+  const x = [...M.cells.penk.run_d, ...M.cells.nonpenk.run_d], y = [...M.cells.penk.turn_d, ...M.cells.nonpenk.turn_d];
+  const lim = 1.2;
+  const t = [{ type: "scatter", mode: "markers", x, y, marker: { size: 6, color: css("--g-locomotion"), opacity: 0.55 },
+    hovertemplate: "running %{x:.2f}, turning %{y:.2f}<extra></extra>" }];
+  const dot = { width: 1, dash: "dot", color: css("--muted") };
+  const layout = baseLayout({ shapes: [
+    { type: "line", x0: -lim, x1: lim, y0: -lim, y1: lim, line: dot },
+    { type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: dot },
+    { type: "line", yref: "paper", y0: 0, y1: 1, x0: 0, x1: 0, line: dot }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "running straight − still (SD)", font: { size: 13 } }, range: [-0.6, lim] });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: "turning in place − still (SD)", font: { size: 13 } }, range: [-0.6, lim], scaleanchor: "x" });
+  Plotly.react("plot-ms", t, layout, CONFIG);
+  const keep = ["run_d", "turn_d", "bias_d", "interaction_contrast_d", "ahv_rho_matched", "syl_speed_rho", "syl_mi", "within_fast_mi"];
+  document.querySelector("#ms-table tbody").innerHTML = M.metrics.filter(m => keep.includes(m.key)).map(m => {
+    const g = m.groups.all;
+    return `<tr><td>${m.label}</td><td class="num">${fmt(g.median, 3)}</td><td class="num">${fmt(100 * g.frac_sig_pos, 0)} / ${fmt(100 * g.frac_sig_neg, 0)}</td><td class="num">${pTxt(g.animal_p)}</td></tr>`;
+  }).join("");
+  document.getElementById("ms-share").textContent = fmt(100 * M.speed_class_share.all, 0) + " %";
+}
 function renderAll() {
-  [drawFrac, drawCo, drawZc, drawMx, drawPd, drawSp].forEach(f => { try { f(); } catch (e) { console.error(e); } });
+  [drawFrac, drawCo, drawZc, drawMx, drawPd, drawSp, drawMs].forEach(f => { try { f(); } catch (e) { console.error(e); } });
 }
 function init() {
   fracTable();

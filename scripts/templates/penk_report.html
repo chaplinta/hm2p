@@ -195,6 +195,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
       <li class="toc-part">Part 1 · Cells</li>
       <li><a href="#cells">All measures</a></li>
       <li><a href="#cell-running">Run state</a></li>
+      <li><a href="#specific">Running, not everything</a></li>
       <li><a href="#maze">Running in the maze</a></li>
       <li><a href="#continuum">Type or continuum?</a></li>
       <li><a href="#physiology">Ex vivo cells</a></li>
@@ -229,6 +230,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
       <p class="finding">Penk+ cells fire long, rare events while the mouse is running, and report whether it is running rather than how fast. Penk⁻CamKII+ cells follow the room lights more closely.</p>
       <ul class="findings">
         <li><span class="tag within">Cells</span><span>The mouse runs faster than chance during the events of 52 % of Penk+ cells vs 26 % of Penk⁻CamKII+ cells. 58 % vs 35 % of cells step up when the mouse runs; only 7 % vs 4 % track graded speed, which is chance.</span></li>
+        <li><span class="tag within">Cells</span><span>The bias is specific. At matched brightness Penk+ has more running cells (+13 to +21 points), the same rate of head-direction and maze-event cells, and fewer light (−11) and stopping (−7) cells. It is translation, not turning: running straight raises activity in half of Penk+ cells, turning in place in about 10 %. Penk+ syllable information is mostly about syllable speed (88 % vs 44 % in Penk⁻).</span></li>
         <li><span class="tag within">Cells</span><span>Penk+ events are longer (3.1 vs 2.6 s) and rarer (interval 30 vs 25 s) with the same isolated-event decay (0.31 vs 0.31 s). Penk+ cells are about twice as bright, and their smaller amplitude and lower inferred rate cannot be separated from that.</span></li>
         <li><span class="tag within">Cells</span><span>Penk⁻CamKII+ cells are more light-modulated (light modulation, lights-on response, GLM light share; Cliff's δ −0.12 to −0.16) and lose more of their AHV modulation in the dark (dF/F units, so partly brightness-dependent).</span></li>
         <li><span class="tag lean">Animals</span><span>With each animal as one data point (11 vs 4) most of these lean the same way without reaching significance alone; rank composites reach p = 0.037 (running, Penk+ higher) and p = 0.009 (light, Penk⁻CamKII+ higher), defined post hoc.</span></li>
@@ -303,6 +305,33 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
           <p class="caption">Percentage of cells significant against their own shuffle null (p &lt; 0.05 in the stated direction). The dotted line marks the 5 % expected by chance. Fisher exact p printed on hover.</p>
         </div>
       </div>
+    </section>
+
+    <section id="specific">
+      <h2>Running, not everything</h2>
+      <p class="finding">Penk+ cells are not simply more responsive. At matched brightness they have more running cells, the same rate of head-direction and maze-event cells, and fewer light and stopping cells; and their running signal is about translation, not turning.</p>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="spk-title">Penk+ minus Penk⁻ in % responsive cells, every variable (brightness-matched)</span></div>
+        <div id="plot-spk" class="plot" style="height:620px" role="img" aria-labelledby="spk-title"></div>
+        <p class="caption">Equal numbers of cells drawn from each type within deciles of baseline fluorescence (200 draws). Bar: mean difference; whisker: 95 % range over draws (cell resampling only). Across mice (11 vs 4) no single difference is significant.</p>
+      </div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="rt-title">Running straight vs turning in place, per cell</span></div>
+          <div id="plot-rt" class="plot" style="height:420px" role="img" aria-labelledby="rt-title"></div>
+          <p class="caption">Activity change from still in units of each cell's SD (CASCADE spikes). Still: &lt; 2 cm/s and &lt; 30 deg/s; running straight: ≥ 4 cm/s and &lt; 30 deg/s; turning in place: &lt; 2 cm/s and ≥ 90 deg/s. Below the diagonal: more running than turning.</p>
+        </div>
+        <div class="table-wrap">
+          <table id="rt-table">
+            <thead><tr><th>Measure</th><th>Penk+ median (% up)</th><th>Penk⁻ median (% up)</th><th>Between: cells / animals p</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <ul class="plain">
+        <li><strong>Translation, not rotation.</strong> Running straight raises activity in half of Penk+ cells (a third of Penk⁻). Turning in place raises it in about 10 % of both, and graded turning at matched running speed is at chance in both. Turning during a run slightly lowers activity. The earlier "head turning during events" result was running in disguise: in this maze the mouse turns mostly while moving.</li>
+        <li><strong>Why syllables did not separate the cell types.</strong> The earlier test compared how much syllable information each cell carries, and the amounts are similar. What differs is the kind: in Penk+ cells, speed class (still, slow, fast) accounts for a median <span id="syl-share-p"></span> of their syllable information, against <span id="syl-share-n"></span> in Penk⁻ cells, and a Penk+ cell's preference across syllables follows syllable speed (median ρ <span id="syl-rho-p"></span> vs <span id="syl-rho-n"></span>). Penk+ cells report how fast the current syllable is, not which syllable it is. Within the fast syllables, neither type distinguishes one from another.</li>
+      </ul>
     </section>
 
     <section id="maze">
@@ -479,7 +508,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
 
     <section id="running">
       <h2>Running</h2>
-      <p class="finding">Penk+ events happen while the mouse runs and turns; the cells report that the mouse is running, not how fast, and stay active through the run.</p>
+      <p class="finding">Penk+ events happen while the mouse runs; the cells report that the mouse is running, not how fast or how much it turns, and stay active through the run.</p>
       <div class="chart-block">
         <div class="chart-head">
           <span class="chart-title" id="eta-title">Behaviour around calcium event onsets</span>
@@ -1093,10 +1122,54 @@ function fillContinuumText() {
   sel.addEventListener("change", e => { state["sf-measure"] = e.target.value; drawShift(e.target.value); });
 }
 
+// ---- specificity, running vs turning, syllables
+const GROUP_COL = { locomotion: "#2f7d4f", turning: "#9a6a12", direction: "#6b4fa3", maze: "#2b6f8f", light: "#b0532b", time: "#5a6475" };
+function drawSpecific() {
+  const A = DATA.all_cells;
+  if (!A || !A.specificity) return;
+  const rs = [...A.specificity].sort((a, b) => b.matched_diff - a.matched_diff);
+  const t = [{ type: "bar", orientation: "h", y: rs.map(r => r.label), x: rs.map(r => 100 * r.matched_diff),
+    marker: { color: rs.map(r => GROUP_COL[r.group] || css("--muted")) },
+    error_x: { type: "data", symmetric: false, array: rs.map(r => 100 * (r.matched_hi - r.matched_diff)), arrayminus: rs.map(r => 100 * (r.matched_diff - r.matched_lo)), color: css("--muted"), thickness: 1.2 },
+    customdata: rs.map(r => [fmt(100 * r.matched_frac_penk, 0), fmt(100 * r.matched_frac_nonpenk, 0), pTxt(r.animal_mwu_p)]),
+    hovertemplate: "Penk+ %{customdata[0]} % vs Penk⁻ %{customdata[1]} %<br>animal-level p %{customdata[2]}<extra></extra>" }];
+  const layout = baseLayout({ margin: { l: 10, r: 16, t: 10, b: 46 },
+    shapes: [{ type: "line", yref: "paper", y0: 0, y1: 1, x0: 0, x1: 0, line: { width: 1, color: css("--muted") } }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "Penk+ minus Penk⁻ (percentage points)", font: { size: 13 } } });
+  layout.yaxis = Object.assign(layout.yaxis, { autorange: "reversed", automargin: true, tickfont: { size: 12 } });
+  Plotly.react("plot-spk", t, layout, CONFIG);
+}
+function drawRunTurn() {
+  const M = DATA.all_cells && DATA.all_cells.movestate;
+  if (!M || !M.cells) return;
+  const t = GROUPS.map(g => ({ type: "scatter", mode: "markers", name: LABEL[g], x: M.cells[g].run_d, y: M.cells[g].turn_d,
+    marker: { size: 6, color: colorOf(g), opacity: 0.55 }, customdata: M.cells[g].animal_id,
+    hovertemplate: "running %{x:.2f}, turning %{y:.2f}<br>animal %{customdata}<extra>" + LABEL[g] + "</extra>" }));
+  const dot = { width: 1, dash: "dot", color: css("--muted") };
+  const layout = baseLayout({ showlegend: true, legend: { orientation: "h", y: 1.08, x: 0, font: { color: css("--muted") } },
+    shapes: [{ type: "line", x0: -0.6, x1: 1.2, y0: -0.6, y1: 1.2, line: dot },
+      { type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: dot }, { type: "line", yref: "paper", y0: 0, y1: 1, x0: 0, x1: 0, line: dot }] });
+  layout.xaxis = Object.assign(layout.xaxis, { title: { text: "running straight − still (SD)", font: { size: 13 } }, range: [-0.6, 1.2] });
+  layout.yaxis = Object.assign(layout.yaxis, { title: { text: "turning in place − still (SD)", font: { size: 13 } }, range: [-0.6, 1.2] });
+  Plotly.react("plot-rt", t, layout, CONFIG);
+}
+function fillRunTurn() {
+  const M = DATA.all_cells && DATA.all_cells.movestate;
+  if (!M || !M.metrics) return;
+  document.querySelector("#rt-table tbody").innerHTML = M.metrics.map(m => {
+    const p = m.groups.penk, n = m.groups.nonpenk;
+    return `<tr><td>${m.label}</td><td class="num">${fmt(p.median, 3)} (${fmt(100 * p.frac_sig_pos, 0)} %)</td><td class="num">${fmt(n.median, 3)} (${fmt(100 * n.frac_sig_pos, 0)} %)</td><td class="num">${pTxt(m.between_cell_p)} / ${pTxt(m.between_animal_p)}</td></tr>`;
+  }).join("");
+  const sh = M.speed_class_share, rho = M.metrics.find(m => m.key === "syl_speed_rho");
+  document.getElementById("syl-share-p").textContent = fmt(100 * sh.penk, 0) + " %";
+  document.getElementById("syl-share-n").textContent = fmt(100 * sh.nonpenk, 0) + " %";
+  if (rho) { document.getElementById("syl-rho-p").textContent = fmt(rho.groups.penk.median); document.getElementById("syl-rho-n").textContent = fmt(rho.groups.nonpenk.median); }
+}
+
 function renderAll() {
   if (!window.Plotly || !DATA) return;
   const jobs = [
-    () => drawCell(state["cell-measure"]), drawRunScatter, drawFracSig, drawMaze, drawMazeDur, drawMazeZ, () => drawShift(state["sf-measure"]), drawAxes,
+    () => drawCell(state["cell-measure"]), drawRunScatter, drawFracSig, drawMaze, drawMazeDur, drawMazeZ, drawSpecific, drawRunTurn, () => drawShift(state["sf-measure"]), drawAxes,
     () => drawPatch(state["patch-seg"]), () => drawEv(state["ev-seg"]), () => drawEta(state["eta-seg"]), drawDz,
     () => drawRs(state["rs-seg"]), drawLt, () => drawLa(state["la-seg"]), () => drawCp(state["cp-seg"]),
   ];
@@ -1112,6 +1185,7 @@ function init() {
   document.getElementById("cell-measure").addEventListener("change", e => { state["cell-measure"] = e.target.value; drawCell(e.target.value); });
   buildCellTable();
   buildMazeTable();
+  fillRunTurn();
   state["sf-measure"] = "running_axis";
   fillContinuumText();
   state["patch-seg"] = "matched_sfa_ratio";

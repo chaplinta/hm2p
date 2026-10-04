@@ -486,6 +486,91 @@ def celltype_specificity(
     return rows
 
 
+MOVESTATE_METRICS = (
+    ("run_d", "Running straight vs still"),
+    ("turn_d", "Turning in place vs still"),
+    ("bias_d", "Running vs turning in place"),
+    ("interaction_contrast_d", "Turning added to running"),
+    ("ahv_rho_matched", "Graded turning at matched speed"),
+    ("syl_speed_rho", "Syllable preference follows syllable speed"),
+    ("syl_mi", "Syllable information"),
+    ("within_fast_mi", "Syllable information within fast syllables"),
+)
+
+
+def movestate_summary(root: Path, signal: str = "spikes") -> dict[str, Any]:
+    """Pooled and per-cell-type movestate summaries (hm2p.analysis.movement_state)."""
+    base = root / "celltype_programme_movestate_ec2" / signal / "movestate"
+    if not (base / "cells.csv").exists():
+        return {}
+    c = pd.read_csv(base / "cells.csv")
+    c["animal_id"] = c["animal_id"].astype(str)
+    st = pd.read_csv(base / "state_summary.csv") if (base / "state_summary.csv").exists() else None
+    metrics = []
+    for key, label in MOVESTATE_METRICS:
+        val = f"{key}_debiased" if f"{key}_debiased" in c.columns else key
+        if val not in c.columns:
+            continue
+        row: dict[str, Any] = {"key": key, "label": label, "groups": {}}
+        for g in ("all", "penk", "nonpenk"):
+            d = c if g == "all" else c[c.celltype == g]
+            am = d.groupby("animal_id")[val].median().dropna()
+            nz = am[am != 0]
+            p, z = d.get(f"{key}_p"), d.get(f"{key}_z")
+            row["groups"][g] = {
+                "median": float(d[val].median()),
+                "n_cells": int(d[val].notna().sum()),
+                "n_animals": int(am.size),
+                "animal_p": float(stats.wilcoxon(nz).pvalue) if nz.size >= 4 else float("nan"),
+                "frac_sig_pos": float(((p < ALPHA) & (z > 0)).mean())
+                if p is not None
+                else float("nan"),
+                "frac_sig_neg": float(((p < ALPHA) & (z < 0)).mean())
+                if p is not None
+                else float("nan"),
+            }
+        a = c.loc[c.celltype == "penk", val].dropna()
+        b = c.loc[c.celltype == "nonpenk", val].dropna()
+        am = c.groupby(["animal_id", "celltype"])[val].median().reset_index()
+        row["between_cell_p"] = (
+            float(stats.mannwhitneyu(a, b).pvalue) if len(a) and len(b) else float("nan")
+        )
+        pa, pb = (
+            am[am.celltype == "penk"][val].dropna(),
+            am[am.celltype == "nonpenk"][val].dropna(),
+        )
+        row["between_animal_p"] = (
+            float(stats.mannwhitneyu(pa, pb).pvalue) if len(pa) and len(pb) else float("nan")
+        )
+        metrics.append(row)
+    frac = {}
+    if "class_frac_of_syl_mi" in c.columns:
+        ok = c["syl_mi_p"] < ALPHA if "syl_mi_p" in c.columns else pd.Series(True, index=c.index)
+        for g in ("all", "penk", "nonpenk"):
+            d = c[ok] if g == "all" else c[ok & (c.celltype == g)]
+            frac[g] = float(d["class_frac_of_syl_mi"].clip(upper=1.5).median())
+    seconds = {}
+    if st is not None:
+        for k in ("s_still", "s_straight", "s_turn", "s_runturn"):
+            if k in st.columns:
+                seconds[k] = [float(x) for x in st[k].quantile([0, 0.5, 1.0])]
+    cells = {
+        g: {
+            "run_d": c.loc[c.celltype == g, "run_d"].round(4).tolist(),
+            "turn_d": c.loc[c.celltype == g, "turn_d"].round(4).tolist(),
+            "animal_id": c.loc[c.celltype == g, "animal_id"].tolist(),
+        }
+        for g in ("penk", "nonpenk")
+    }
+    return {
+        "signal": signal,
+        "metrics": metrics,
+        "speed_class_share": frac,
+        "state_seconds": seconds,
+        "cells": cells,
+    }
+
+
 def popdec_summary(root: Path) -> list[dict[str, Any]]:
     """Pooled-cell population decoding headline rows (CASCADE spikes)."""
     p = root / "celltype_programme_popdec_ec2" / "spikes" / "popdec" / "summary.csv"
@@ -547,6 +632,7 @@ def build(root: Path = RES, n_perm: int = 1000) -> dict[str, Any]:
         "mixed": mixed_selectivity(sig, ms_keys, n_perm=n_perm) if sig is not None else {},
         "popdec": popdec_summary(root),
         "specificity": _specificity(root, loaded),
+        "movestate": movestate_summary(root),
     }
 
 

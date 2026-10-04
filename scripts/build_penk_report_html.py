@@ -28,6 +28,7 @@ REPO = Path(__file__).resolve().parent.parent
 TEMPLATE = REPO / "scripts" / "templates" / "penk_report.html"
 DATA_DIR = REPO / "docs" / "figures" / "penk" / "data"
 OUT = REPO / "docs" / "results-penk-vs-nonpenk.html"
+ALL_CELLS = REPO / "docs" / "figures" / "rsp_all" / "data" / "all_cells.json"
 REQUIRED = (
     "composites",
     "event_kinetics",
@@ -106,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - file I/O e
     args = ap.parse_args(argv)
     data = load_data()
     data["maze"] = maze_layout()
+    data["all_cells"] = json.loads(ALL_CELLS.read_text()) if ALL_CELLS.exists() else {}
     html = render(TEMPLATE.read_text(), data, build_label(), plotly_js())
     args.out.write_text(html)
     print(f"wrote {args.out} ({len(html) / 1024:.0f} KB)")

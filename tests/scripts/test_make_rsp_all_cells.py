@@ -121,3 +121,27 @@ def test_celltype_specificity_matched() -> None:
     r = rows[0]
     assert r["frac_penk"] > r["frac_nonpenk"] and r["fisher_p"] < 1e-4
     assert r["matched_lo"] > 0 and r["matched_lo"] <= r["matched_diff"] <= r["matched_hi"]
+
+
+def test_movestate_summary(tmp_path: Path) -> None:
+    rng = np.random.default_rng(4)
+    c = _cells(6, 20)
+    c["celltype"] = np.where(c.animal_id < 4, "penk", "nonpenk")
+    for k, _ in ac.MOVESTATE_METRICS:
+        c[k] = rng.normal(0.2 if k == "run_d" else 0.0, 0.1, len(c))
+        c[f"{k}_z"] = c[k] * 10
+        c[f"{k}_p"] = np.where(c[k] > 0.25, 0.01, 0.5)
+    c["syl_mi_debiased"] = c["syl_mi"]
+    c["class_frac_of_syl_mi"] = rng.uniform(0, 1, len(c))
+    base = tmp_path / "celltype_programme_movestate_ec2" / "spikes" / "movestate"
+    base.mkdir(parents=True)
+    c.to_csv(base / "cells.csv", index=False)
+    pd.DataFrame({"s_still": [10.0, 20.0], "s_turn": [1.0, 3.0]}).to_csv(
+        base / "state_summary.csv", index=False
+    )
+    out = ac.movestate_summary(tmp_path)
+    run = next(m for m in out["metrics"] if m["key"] == "run_d")
+    assert run["groups"]["all"]["median"] > 0.15 and run["groups"]["all"]["animal_p"] < 0.05
+    assert set(out["speed_class_share"]) == {"all", "penk", "nonpenk"}
+    assert out["state_seconds"]["s_turn"][1] == 2.0 and len(out["cells"]["penk"]["run_d"]) == 80
+    assert ac.movestate_summary(tmp_path / "none") == {}
