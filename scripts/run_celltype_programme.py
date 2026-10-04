@@ -482,6 +482,10 @@ HYPOTHESES: dict[str, dict[str, Any]] = {
         "title": "Translation vs rotation states and syllable information",
         "families": [],
     },
+    "mazemem": {
+        "title": "Population memory and planning in the maze: origin, destination, distance",
+        "families": [],
+    },
 }
 
 
@@ -494,6 +498,7 @@ EXTRA_RUNNER_MODULES = (
     "celltype_extra_mazerun",
     "celltype_extra_popdec",
     "celltype_extra_movestate",
+    "celltype_extra_mazemem",
 )
 
 
@@ -558,7 +563,28 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="popdec: circular-shift null shuffles per decoder",
     )
     ap.add_argument(
-        "--n-jobs", type=int, default=1, help="popdec: parallel workers over null shuffles"
+        "--n-jobs",
+        type=int,
+        default=1,
+        help="popdec/mazemem: parallel workers over null shuffles",
+    )
+    ap.add_argument(
+        "--mazemem-shuffles",
+        type=int,
+        default=200,
+        help="mazemem: circular-shift null shuffles (shared by all analyses)",
+    )
+    ap.add_argument(
+        "--mazemem-recent-k",
+        type=int,
+        default=3,
+        help="mazemem: a destination is novel-ish if not among the k most recent dead ends",
+    )
+    ap.add_argument(
+        "--mazemem-min-n",
+        type=int,
+        default=5,
+        help="mazemem: minimum samples per label within a splitter stratum",
     )
     for flag, unit in (
         ("speed-lo", "cm/s"),
