@@ -12,11 +12,13 @@ in light + dark pooled:
    arrival neighbour, departure neighbour);
 2. distance to go: cross-validated ridge prediction of remaining graph steps
    to the destination and of elapsed steps since the origin (partial
-   Spearman), pooled and place-controlled;
+   Spearman), pooled, place-controlled and place-and-direction-controlled;
 3. planning the next trip: decode whether the next destination is novel-ish
    (or the least recently visited dead end) from the 1 s before / after
-   leaving a dead end; plus behaviour: destination novelty vs uniform and
-   non-backtracking random walks.
+   leaving a dead end, for all departures, without return trips and for
+   long trips only; behaviour baseline optionally with syllable fractions;
+   plus behaviour: destination novelty vs uniform and non-backtracking
+   random walks.
 
 Each decoder is run on neural activity, behaviour only and neural activity
 with head direction removed, with a circular-shift null shared across feature
@@ -123,6 +125,7 @@ def session_tables(arrays: dict[str, Any], args: argparse.Namespace) -> Any:
         valid_frames(arrays, n),
         float(arrays["fps"]),
         params=params_from_args(args),
+        syllable_id=None if arrays.get("syllable_id") is None else arrays["syllable_id"][:n],
     )
     used = signal_used(arrays, args.signal)
     for df in (res.sessions, res.behaviour, res.subsets):

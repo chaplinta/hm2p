@@ -54,7 +54,13 @@ correlation (Kim 2015) with the target controlling for the other step count
 and visit speed. Variant ``place_controlled`` removes the per-cell mean of
 the target and of every feature (training-fold means) before fitting, and
 evaluates against the cell-demeaned target and covariates, so place coding
-cannot contribute.
+cannot contribute. Variant ``place_direction_controlled`` does the same per
+(cell, arrival neighbour, departure neighbour) stratum: at a given cell the
+travel direction also constrains the remaining distance, so a population that
+encodes inbound vs outbound direction would otherwise score in the
+place-controlled variant. It has its own sample set (light and dark equalised
+per stratum x remaining steps; strata with fewer than two distinct remaining
+values dropped).
 
 Analysis 3 -- planning the next trip
 ------------------------------------
@@ -69,6 +75,16 @@ leaving the dead end; ``post`` = the ``plan_window_s`` after leaving. Labels:
   recent).
 
 Condition = majority rule over the window and the following trip.
+
+Variants are ``{window}{filter}``: filter ``""`` keeps all departures,
+``_noreturn`` drops trips that return to the dead end they left (short
+bounce-back trips, which always count as "recent"), and ``_noreturn_long``
+additionally keeps only trips whose origin-to-destination graph distance is
+at least ``long_trip_steps``. For planning only, the feature set
+``behaviour_plus_syllable`` adds to the behaviour channels the fraction of
+the window spent in each of the ``n_top_syllables`` most frequent
+keypoint-MoSeq syllables of the session (Weinreb et al. 2024), as a control
+for pre-departure posture and behavioural state.
 
 Behaviour: for each trip, the probability that a random walk leaving the
 same dead end first reaches a ``novel`` (or ``lru``) dead end is computed
@@ -155,6 +171,10 @@ Rosenberg M, Zhang T, Perona P, Meister M. 2021. "Mice in a labyrinth show
 rapid learning, sudden insight, and efficient exploration." eLife 10:e66175.
 doi:10.7554/eLife.66175
 
+Weinreb C, Pearl JE, Lin S, et al. 2024. "Keypoint-MoSeq: parsing behavior by
+linking point tracking to pose dynamics." Nature Methods 21:1329-1339.
+doi:10.1038/s41592-024-02318-2
+
 Kemeny JG, Snell JL. 1960. "Finite Markov Chains." Van Nostrand, Princeton.
 
 Hoerl AE, Kennard RW. 1970. "Ridge regression: biased estimation for
@@ -222,11 +242,17 @@ BEHAVIOUR_CHANNELS = (
 CLF_METRICS = ("balanced_accuracy",)
 REG_METRICS = ("spearman", "partial_spearman")
 PRO_MINUS_RETRO = "prospective_minus_retrospective"
+SYLLABLE_FEATURE_SET = "behaviour_plus_syllable"
 FEATURE_COMPARISONS = (
     ("neural", "behaviour"),
     ("neural_hd_removed", "behaviour"),
     ("neural", "neural_hd_removed"),
+    ("neural", SYLLABLE_FEATURE_SET),
+    ("neural_hd_removed", SYLLABLE_FEATURE_SET),
 )
+DISTANCE_VARIANTS = ("pooled", "place_controlled", "place_direction_controlled")
+PLAN_WINDOWS = ("pre", "post")
+PLAN_FILTERS = ("", "_noreturn", "_noreturn_long")
 SESSION_KEYS = ["analysis", "target", "variant", "condition", "feature_set", "metric"]
 
 
@@ -250,6 +276,8 @@ class MazeMemParams:
     min_reg_samples: int = 30
     min_class_samples: int = 5
     plan_window_s: float = 1.0
+    long_trip_steps: int = 3
+    n_top_syllables: int = 8
     min_dead_end_dwell_s: float = 0.5
     recent_k: int = 3
     n_rw_sims: int = 2000
@@ -1140,6 +1168,7 @@ class Task:
     folds: list[tuple[np.ndarray, np.ndarray]] = field(default_factory=list)
     groups: np.ndarray | None = None
     covs: np.ndarray | None = None
+    extra_feature_sets: tuple[str, ...] = ()
 
     @property
     def metrics(self) -> tuple[str, ...]:
@@ -1278,46 +1307,51 @@ def distance_tasks(
     gap: int,
     p: MazeMemParams,
     rng: np.random.Generator,
+    n_cells_maze: int = 23,
 ) -> list[Task]:
-    """Analysis 2 tasks: remaining and elapsed steps, pooled and place-controlled.
+    """Analysis 2 tasks: remaining and elapsed steps under three variants.
 
-    Light and dark are equalised per (cell, remaining steps). Requires
-    ``p.min_reg_samples`` samples and at least three distinct values of
-    each target.
+    - ``pooled`` and ``place_controlled`` (target, features and covariates
+      demeaned per maze cell): light and dark equalised per (cell,
+      remaining steps); at least ``p.min_reg_samples`` samples and three
+      distinct values of each target.
+    - ``place_direction_controlled``: demeaned per (cell, arrival neighbour,
+      departure neighbour) stratum, so neither place nor travel direction
+      through the cell (which also constrains the remaining distance) can
+      contribute. Own sample set: light and dark equalised per (stratum,
+      remaining steps); strata with fewer than two distinct remaining values
+      dropped; at least ``p.min_reg_samples`` samples.
     """
     tasks: list[Task] = []
-    combos = [(t, v) for t in ("remaining", "elapsed") for v in ("pooled", "place_controlled")]
+    targets = ("remaining", "elapsed")
     if pt.empty:
         return [
             _skip("distance", t, v, c, "reg", "no pass-through visits")
             for c in p.conditions
-            for t, v in combos
+            for t in targets
+            for v in DISTANCE_VARIANTS
         ]
+    n = int(n_cells_maze)
     cell = pt["cell"].to_numpy(np.int64)
-    rem = pt["remaining"].to_numpy(np.float64)
+    stratum = (cell * n + pt["prev"].to_numpy(np.int64)) * n + pt["next"].to_numpy(np.int64)
+    rem_i = pt["remaining"].to_numpy(np.int64)
+    rem = rem_i.astype(np.float64)
     ela = pt["elapsed"].to_numpy(np.float64)
-    key = cell * 1000 + pt["remaining"].to_numpy(np.int64)
-    sets = condition_index_sets(np.zeros(cell.size), key, cond, p.conditions, 1, 1, rng)
     st = pt["start"].to_numpy(np.int64)
     en = pt["end"].to_numpy(np.int64)
     spd = np.asarray(visit_speed, dtype=np.float64)
-    for c in p.conditions:
-        idx = sets.get(c, np.zeros(0, dtype=np.int64))
-        reason = ""
-        if idx.size < p.min_reg_samples:
-            reason = f"fewer than {p.min_reg_samples} samples"
-        elif np.unique(rem[idx]).size < 3 or np.unique(ela[idx]).size < 3:
-            reason = "fewer than 3 distinct step counts"
-        if reason:
-            tasks += [_skip("distance", t, v, c, "reg", reason) for t, v in combos]
-            continue
+    zeros = np.zeros(cell.size)
+    sets = condition_index_sets(zeros, cell * 1000 + rem_i, cond, p.conditions, 1, 1, rng)
+    dsets = condition_index_sets(zeros, stratum * 1000 + rem_i, cond, p.conditions, 1, 1, rng)
+
+    def _add(c: str, idx: np.ndarray, variants: tuple[str, ...], group: np.ndarray) -> None:
         widx = windows.add(st[idx], en[idx])
         folds = time_block_folds(st[idx], en[idx], n_frames, p.n_blocks, gap)
-        ci = cell[idx]
+        g = group[idx]
         for target, y, other in (("remaining", rem, ela), ("elapsed", ela, rem)):
             covs = np.column_stack([other[idx], spd[idx]])
-            for variant in ("pooled", "place_controlled"):
-                place = variant == "place_controlled"
+            for variant in variants:
+                grouped = variant != "pooled"
                 tasks.append(
                     Task(
                         "distance",
@@ -1327,15 +1361,51 @@ def distance_tasks(
                         "reg",
                         widx,
                         n_samples=int(idx.size),
-                        n_strata=int(np.unique(ci).size) if place else 1,
+                        n_strata=int(np.unique(g).size) if grouped else 1,
                         n_classes=int(np.unique(y[idx]).size),
                         y=y[idx],
                         folds=folds,
-                        groups=ci if place else None,
-                        covs=_cell_demean(covs, ci) if place else covs,
+                        groups=g if grouped else None,
+                        covs=_cell_demean(covs, g) if grouped else covs,
                     )
                 )
+
+    for c in p.conditions:
+        idx = sets.get(c, np.zeros(0, dtype=np.int64))
+        reason = ""
+        if idx.size < p.min_reg_samples:
+            reason = f"fewer than {p.min_reg_samples} samples"
+        elif np.unique(rem[idx]).size < 3 or np.unique(ela[idx]).size < 3:
+            reason = "fewer than 3 distinct step counts"
+        if reason:
+            tasks += [
+                _skip("distance", t, v, c, "reg", reason)
+                for t in targets
+                for v in DISTANCE_VARIANTS[:2]
+            ]
+        else:
+            _add(c, idx, DISTANCE_VARIANTS[:2], cell)
+        didx = dsets.get(c, np.zeros(0, dtype=np.int64))
+        didx = didx[multi_value_groups(stratum[didx], rem_i[didx])]
+        if didx.size < p.min_reg_samples:
+            reason = f"fewer than {p.min_reg_samples} samples in strata with >= 2 remaining values"
+            tasks += [
+                _skip("distance", t, DISTANCE_VARIANTS[2], c, "reg", reason) for t in targets
+            ]
+        else:
+            _add(c, didx, DISTANCE_VARIANTS[2:], stratum)
     return tasks
+
+
+def multi_value_groups(groups: npt.ArrayLike, values: npt.ArrayLike) -> np.ndarray:
+    """Boolean mask of samples whose group has at least two distinct values."""
+    g = np.asarray(groups, dtype=np.int64)
+    v = np.asarray(values, dtype=np.int64)
+    if g.size == 0:
+        return np.zeros(0, dtype=bool)
+    pairs = np.unique(np.column_stack([g, v]), axis=0)
+    ug, cnt = np.unique(pairs[:, 0], return_counts=True)
+    return np.isin(g, ug[cnt >= 2])
 
 
 def departure_table(
@@ -1346,6 +1416,7 @@ def departure_table(
     fps: float,
     n_frames: int,
     p: MazeMemParams,
+    maze: RoseMaze | None = None,
 ) -> pd.DataFrame:
     """Analysis 3 samples: dead-end departures with dwell >= ``p.min_dead_end_dwell_s``.
 
@@ -1353,14 +1424,18 @@ def departure_table(
     -------
     pandas.DataFrame
         Columns ``exit`` (first frame after the dead-end visit), ``dwell_s``,
-        ``trip_end``, ``novel``, ``lru``, and per window ``w`` in
+        ``trip_end``, ``novel``, ``lru``, ``origin``, ``dest``, ``trip_dist``
+        (graph distance origin to destination), and per window ``w`` in
         (``pre``, ``post``): ``{w}_start``, ``{w}_end``, ``{w}_ok`` (window
         inside the session) and ``{w}_cond`` (light condition over the window
         and the following trip).
     """
-    cols = ["exit", "dwell_s", "trip_end", "novel", "lru"]
+    cols = ["exit", "dwell_s", "trip_end", "novel", "lru", "origin", "dest", "trip_dist"]
     if trips.empty:
         return pd.DataFrame({k: np.zeros(0) for k in cols})
+    maze = maze or build_rose_maze()
+    org = trips["origin"].to_numpy(np.int64)
+    dst = trips["dest"].to_numpy(np.int64)
     w = max(1, int(round(p.plan_window_s * fps)))
     io = trips["i_origin"].to_numpy(np.int64)
     entry = visits["start"].to_numpy(np.int64)[io]
@@ -1375,6 +1450,9 @@ def departure_table(
             "trip_end": tend,
             "novel": novelty["novel"].to_numpy(bool),
             "lru": novelty["lru"].to_numpy(bool),
+            "origin": org,
+            "dest": dst,
+            "trip_dist": maze.dist[org, dst].astype(np.int64),
             "pre_start": ex - w,
             "pre_end": ex,
             "post_start": ex,
@@ -1389,6 +1467,21 @@ def departure_table(
     return df
 
 
+def plan_filter(dep: pd.DataFrame, name: str, long_trip_steps: int = 3) -> np.ndarray:
+    """Departures kept by a planning variant filter.
+
+    ``""``: all; ``"_noreturn"``: destination differs from origin (removes
+    short bounce-back trips); ``"_noreturn_long"``: additionally a graph
+    distance of at least *long_trip_steps* from origin to destination.
+    """
+    keep = np.ones(len(dep), dtype=bool)
+    if name in ("_noreturn", "_noreturn_long"):
+        keep &= dep["dest"].to_numpy(np.int64) != dep["origin"].to_numpy(np.int64)
+    if name == "_noreturn_long":
+        keep &= dep["trip_dist"].to_numpy(np.int64) >= long_trip_steps
+    return keep
+
+
 def planning_tasks(
     dep: pd.DataFrame,
     windows: _Windows,
@@ -1396,33 +1489,40 @@ def planning_tasks(
     gap: int,
     p: MazeMemParams,
     rng: np.random.Generator,
+    extra_feature_sets: tuple[str, ...] = (),
 ) -> list[Task]:
-    """Analysis 3 tasks: novel / least-recent destination from pre/post-departure windows."""
+    """Analysis 3 tasks: novel / least-recent destination per window x trip filter.
+
+    Variants are ``{window}{filter}`` for windows :data:`PLAN_WINDOWS` and
+    filters :data:`PLAN_FILTERS` (:func:`plan_filter`). *extra_feature_sets*
+    (e.g. ``behaviour_plus_syllable``) are attached to every task run.
+    """
     tasks: list[Task] = []
-    for variant in ("pre", "post"):
-        for target in ("novel", "lru"):
-            if dep.empty:
-                tasks += [
-                    _skip("planning", target, variant, c, "clf", "no dead-end departures")
-                    for c in p.conditions
-                ]
-                continue
-            ok = dep[f"{variant}_ok"].to_numpy(bool)
-            cond = np.where(ok, dep[f"{variant}_cond"].to_numpy(object), "mixed")
-            lab = dep[target].to_numpy(bool).astype(np.int64)
-            sets = condition_index_sets(
-                np.zeros(lab.size), lab, cond, p.conditions, p.min_class_samples, 2, rng
-            )
-            st = dep[f"{variant}_start"].to_numpy(np.int64)
-            en = dep[f"{variant}_end"].to_numpy(np.int64)
-            for c in p.conditions:
-                idx = sets.get(c, np.zeros(0, dtype=np.int64))
-                if idx.size == 0:
-                    reason = f"fewer than {p.min_class_samples} departures per class"
-                    tasks.append(_skip("planning", target, variant, c, "clf", reason))
+    for window in PLAN_WINDOWS:
+        for filt in PLAN_FILTERS:
+            variant = f"{window}{filt}"
+            for target in ("novel", "lru"):
+                if dep.empty:
+                    tasks += [
+                        _skip("planning", target, variant, c, "clf", "no dead-end departures")
+                        for c in p.conditions
+                    ]
                     continue
-                tasks.append(
-                    _clf_task(
+                ok = dep[f"{window}_ok"].to_numpy(bool) & plan_filter(dep, filt, p.long_trip_steps)
+                cond = np.where(ok, dep[f"{window}_cond"].to_numpy(object), "mixed")
+                lab = dep[target].to_numpy(bool).astype(np.int64)
+                sets = condition_index_sets(
+                    np.zeros(lab.size), lab, cond, p.conditions, p.min_class_samples, 2, rng
+                )
+                st = dep[f"{window}_start"].to_numpy(np.int64)
+                en = dep[f"{window}_end"].to_numpy(np.int64)
+                for c in p.conditions:
+                    idx = sets.get(c, np.zeros(0, dtype=np.int64))
+                    if idx.size == 0:
+                        reason = f"fewer than {p.min_class_samples} departures per class"
+                        tasks.append(_skip("planning", target, variant, c, "clf", reason))
+                        continue
+                    t = _clf_task(
                         "planning",
                         target,
                         variant,
@@ -1436,8 +1536,40 @@ def planning_tasks(
                         p,
                         gap,
                     )
-                )
+                    t.extra_feature_sets = tuple(extra_feature_sets)
+                    tasks.append(t)
     return tasks
+
+
+def syllable_channels(
+    syllable_id: npt.ArrayLike | None, valid: npt.ArrayLike, top_k: int = 8
+) -> tuple[np.ndarray | None, np.ndarray]:
+    """Indicator channels of the *top_k* most frequent syllables (valid frames).
+
+    Window means of these channels are the fraction of the window spent in
+    each syllable. Frames that are invalid or have no syllable (non-finite
+    or negative id) are NaN.
+
+    Returns
+    -------
+    channels : (k, n_frames) float or None
+        None when no syllable labels are available.
+    ids : (k,) int
+        Syllable ids, most frequent first.
+    """
+    empty = np.zeros(0, dtype=np.int64)
+    if syllable_id is None or top_k < 1:
+        return None, empty
+    s = np.asarray(syllable_id, dtype=np.float64).ravel()
+    v = np.asarray(valid, dtype=bool).ravel()[: s.size]
+    ok = np.isfinite(s) & (s >= 0) & v
+    if not ok.any():
+        return None, empty
+    ids, cnt = np.unique(s[ok].astype(np.int64), return_counts=True)
+    top = ids[np.argsort(-cnt, kind="stable")[:top_k]]
+    ch = (s[None, :] == top[:, None]).astype(np.float64)
+    ch[:, ~ok] = np.nan
+    return ch, top
 
 
 # ---------------------------------------------------------------------------
@@ -1455,6 +1587,7 @@ class SessionData:
     ends: np.ndarray
     hd0: np.ndarray
     params: MazeMemParams
+    syllable: WindowMeans | None = None
 
 
 def score_task(
@@ -1503,6 +1636,11 @@ def _score_shifts(
         st, en = data.starts[t.widx], data.ends[t.widx]
         hd = impute_columns(data.hd0[t.widx])
         parts: dict[tuple[str, str], list[np.ndarray]] = {}
+        extra = tuple(
+            f
+            for f in t.extra_feature_sets
+            if "behaviour" in feature_sets and f not in feature_sets and data.syllable is not None
+        )
         for ch in chunks:
             xn = xb = None
             if need_n:
@@ -1513,8 +1651,12 @@ def _score_shifts(
                     [behaviour_window_features(data.behaviour, st, en, int(s)) for s in ch]
                 )
                 xb = _impute_batched(xb)
-            for fs in feature_sets:
-                if fs == "behaviour":
+            for fs in feature_sets + extra:
+                if fs == SYLLABLE_FEATURE_SET:
+                    assert data.syllable is not None and xb is not None
+                    xsy = np.stack([data.syllable.means(st, en, int(s)) for s in ch])
+                    res = score_task(t, np.concatenate([xb, _impute_batched(xsy)], 2), None, p)
+                elif fs == "behaviour":
                     res = score_task(t, xb, None, p)  # type: ignore[arg-type]
                 elif fs == "neural":
                     res = score_task(t, xn, None, p)  # type: ignore[arg-type]
@@ -1587,10 +1729,14 @@ def _task_rows(
     feature_sets: tuple[str, ...],
     n_cells: int,
     short: bool,
+    n_syllables: int = 0,
 ) -> list[dict[str, Any]]:
+    n_feat = {"behaviour": len(BEHAVIOUR_CHANNELS)}
+    n_feat[SYLLABLE_FEATURE_SET] = len(BEHAVIOUR_CHANNELS) + n_syllables
     rows = []
     for i, t in enumerate(tasks):
-        for fs in feature_sets:
+        extra = tuple(f for f in t.extra_feature_sets if n_syllables and f not in feature_sets)
+        for fs in feature_sets + extra:
             for m in t.metrics:
                 arr = scores.get((i, fs, m))
                 obs = float("nan") if arr is None else float(arr[0])
@@ -1610,7 +1756,7 @@ def _task_rows(
                         "n_strata": t.n_strata,
                         "n_classes": t.n_classes,
                         "n_cells": n_cells,
-                        "n_features": len(BEHAVIOUR_CHANNELS) if fs == "behaviour" else n_cells,
+                        "n_features": n_feat.get(fs, n_cells),
                         "reason": reason,
                     }
                 )
@@ -1757,6 +1903,7 @@ def maze_memory_session(
     fps: float,
     params: MazeMemParams | None = None,
     maze: RoseMaze | None = None,
+    syllable_id: npt.ArrayLike | None = None,
 ) -> MazeMemResult:
     """All three analyses for one session, every condition and feature set, with shift nulls.
 
@@ -1778,6 +1925,11 @@ def maze_memory_session(
     fps : float
     params : MazeMemParams or None
     maze : RoseMaze or None
+    syllable_id : (n_frames,) int or None
+        Behavioural syllable per frame (keypoint-MoSeq). When given, planning
+        tasks also get the ``behaviour_plus_syllable`` feature set: the
+        behaviour channels plus the fraction of the window spent in each of
+        the ``params.n_top_syllables`` most frequent syllables.
 
     Returns
     -------
@@ -1812,13 +1964,21 @@ def maze_memory_session(
     beh = behaviour_channels(hd_deg, speed, ahv, visits, maze, fps, v)
     bwm = WindowMeans(beh)
     visit_speed = bwm.means(pt["start"], pt["end"])[:, 2] if len(pt) else np.zeros(0)
-    dep = departure_table(visits, trips, novelty, lit, fps, n_frames, p)
+    dep = departure_table(visits, trips, novelty, lit, fps, n_frames, p, maze)
+    syl_ch, syl_ids = syllable_channels(
+        None if syllable_id is None else np.asarray(syllable_id).ravel()[:n_frames],
+        v,
+        p.n_top_syllables,
+    )
+    extra = (SYLLABLE_FEATURE_SET,) if syl_ch is not None else ()
 
     gap = int(round(p.gap_s * fps))
     windows = _Windows()
     tasks = splitter_tasks(pt, pt_cond, maze, windows, n_frames, gap, p, rng)
-    tasks += distance_tasks(pt, visit_speed, pt_cond, windows, n_frames, gap, p, rng)
-    tasks += planning_tasks(dep, windows, n_frames, gap, p, rng)
+    tasks += distance_tasks(
+        pt, visit_speed, pt_cond, windows, n_frames, gap, p, rng, maze.dist.shape[0]
+    )
+    tasks += planning_tasks(dep, windows, n_frames, gap, p, rng, extra)
     starts, ends = windows.arrays()
     data = SessionData(
         WindowMeans(sig),
@@ -1827,11 +1987,12 @@ def maze_memory_session(
         ends,
         behaviour_window_features(bwm, starts, ends, 0)[:, :2],
         p,
+        None if syl_ch is None else WindowMeans(syl_ch),
     )
     shifts = draw_shifts(n_frames, p.n_shuffles, int(round(p.min_shift_s * fps)), rng)
     scores = evaluate_tasks(tasks, data, shifts, FEATURE_SETS, None, p.n_jobs)
     short = shifts.size < 2
-    rows = _task_rows(tasks, scores, FEATURE_SETS, n_cells, short)
+    rows = _task_rows(tasks, scores, FEATURE_SETS, n_cells, short, int(syl_ids.size))
     rows += _pro_minus_retro_rows(tasks, scores, FEATURE_SETS, n_cells)
     subsets = pd.DataFrame(_subset_rows(tasks, data, shifts, n_cells, rng))
     behaviour = behaviour_rows(trips, novelty, trip_cond, maze, fps, p, rng)
@@ -1851,6 +2012,8 @@ def maze_memory_session(
     for c in ("light", "dark", "mixed"):
         counts[f"n_trips_{c}"] = int(np.sum(trip_cond == c))
         counts[f"n_passthrough_{c}"] = int(np.sum(pt_cond == c))
+    counts["n_top_syllables"] = int(syl_ids.size)
+    counts["top_syllables"] = " ".join(str(int(x)) for x in syl_ids)
     log.debug("maze memory: %d cells, %d frames, %d tasks", n_cells, n_frames, len(tasks))
     return MazeMemResult(pd.DataFrame(rows), behaviour, subsets, counts)
 

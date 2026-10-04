@@ -41,13 +41,23 @@ Command-line options (through `--extra-args`): `--mazemem-shuffles` (default
 | Analysis | Samples | Target | Metric |
 | --- | --- | --- | --- |
 | `splitter` (retrospective / prospective) | pass-through visits to non-dead-end cells (arrival neighbour differs from departure neighbour); window = the visit | `origin` and `destination` dead end of the trip; strata = (cell, arrival neighbour, departure neighbour); labels with < 5 samples and strata with < 2 labels dropped | balanced accuracy per stratum, weighted by samples; `prospective_minus_retrospective` = destination minus origin at every shift |
-| `distance` | same pass-through visits | `remaining` = graph distance to the destination; `elapsed` = transitions since leaving the origin | Spearman and partial Spearman between the cross-validated ridge prediction and the target, partialling the other step count and visit speed; variants `pooled` and `place_controlled` (target and features demeaned per maze cell with training-fold means) |
-| `planning` | dead-end visits followed by a trip, dwell >= 0.5 s; window `pre` = 1 s before leaving, `post` = 1 s after | `novel`: destination not among the 3 most recently visited distinct dead ends; `lru`: destination is a least recently visited dead end (other than the origin) | balanced accuracy |
+| `distance` | same pass-through visits | `remaining` = graph distance to the destination; `elapsed` = transitions since leaving the origin | Spearman and partial Spearman between the cross-validated ridge prediction and the target, partialling the other step count and visit speed; variants `pooled`, `place_controlled` (target, features and covariates demeaned per maze cell with training-fold means) and `place_direction_controlled` (demeaned per cell x arrival neighbour x departure neighbour; strata with < 2 distinct remaining values dropped; light/dark equalised per stratum x remaining steps) |
+| `planning` | dead-end visits followed by a trip, dwell >= 0.5 s; window `pre` = 1 s before leaving, `post` = 1 s after; variant suffix `_noreturn` drops trips back to the same dead end, `_noreturn_long` also requires an origin-destination graph distance >= 3 | `novel`: destination not among the 3 most recently visited distinct dead ends; `lru`: destination is a least recently visited dead end (other than the origin) | balanced accuracy |
 
 Because the maze is a tree, the arrival neighbour fixes the subtree the
 animal came from; within a splitter stratum the origin is decoded only among
 the dead ends of that subtree (and the destination among those of the
 departure subtree), so place and travel direction cannot contribute.
+
+`place_direction_controlled` exists because, at a given cell, the direction
+of travel through it also constrains the remaining distance; a population
+that codes inbound vs outbound direction scores in `place_controlled` without
+any distance code (tested on a synthetic direction-only population, where
+`place_controlled` Spearman > 0.3 and `place_direction_controlled` < 0.15).
+
+The planning `_noreturn` variants exist because bounce-back trips (leave a
+dead end and come straight back) are always labelled "recent" and may differ
+from other departures in pre-departure state.
 
 **Behaviour** (`behaviour.csv`): per condition, the fraction of trips whose
 destination is `novel` / `lru`, against the exact expectation of two random
@@ -68,7 +78,10 @@ the stricter baseline for memory-guided choice.
   speed, |AHV|, time in session, time since leaving the last dead end, time
   since entering the last dead end, number of distinct dead ends visited so
   far — the same eight channels for all analyses); `neural_hd_removed`
-  (residualised on window HD, training fold only).
+  (residualised on window HD, training fold only); planning only:
+  `behaviour_plus_syllable` = behaviour channels plus the fraction of the
+  window in each of the 8 most frequent keypoint-MoSeq syllables of the
+  session (`syllable_id` in sync.h5; omitted when absent).
 - Null: circular shift of the predictors by >= 30 s, 200 shifts shared by all
   analyses, conditions and feature sets; `p = (1 + #null at least as good) /
   (1 + n)`; `excess` = observed minus null mean.
@@ -83,7 +96,7 @@ Implementation note: samples, labels and folds are the same at every shift,
 so the logistic (Newton's method) and ridge fits are solved for all shifts
 at once. The Newton solution matches scikit-learn's `LogisticRegression`
 (lbfgs) to 1e-6 (unit test). Runtime on a synthetic 18 000-frame session with
-20 cells and 200 shifts: about 35 s on one core (about 100 s with 50 cells).
+20 cells and 200 shifts, all variants and syllables: about 47 s.
 
 ## Outputs
 
@@ -102,6 +115,11 @@ values and a `reason`.
   the behaviour baseline (time in session) address this only partly; slow
   drift in neural activity that tracks the explored region could still be
   decoded as origin or destination.
+- `place_direction_controlled` removes direction through the current cell
+  only; direction-of-travel history over previous cells is not held fixed.
+- The syllable control uses the 8 most frequent syllables per session, so
+  the features differ between sessions; rare pre-departure syllables are not
+  represented.
 - Within a splitter stratum, visits from different origins differ in elapsed
   time since leaving the dead end and in the preceding path; the behaviour
   baseline contains time since trip start but not the path itself.
@@ -138,6 +156,9 @@ values and a `reason`.
   Current Biology 24:1331-1340. doi:10.1016/j.cub.2014.05.001
 - Pfeiffer BE, Foster DJ. 2013. "Hippocampal place-cell sequences depict future
   paths to remembered goals." Nature 497:74-79. doi:10.1038/nature12112
+- Weinreb C, Pearl JE, Lin S, et al. 2024. "Keypoint-MoSeq: parsing behavior by
+  linking point tracking to pose dynamics." Nature Methods 21:1329-1339.
+  doi:10.1038/s41592-024-02318-2
 - Rosenberg M, Zhang T, Perona P, Meister M. 2021. "Mice in a labyrinth show
   rapid learning, sudden insight, and efficient exploration." eLife 10:e66175.
   doi:10.7554/eLife.66175

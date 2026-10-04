@@ -58,6 +58,7 @@ def _arrays(seed: int, n_target: int = 3000, n_rois: int = 5) -> dict[str, Any]:
         "light_on": (np.arange(n) // 576) % 2 == 0,
         "mask": np.asarray(spd[:n]) > 2.5,
         "bad_behav": np.zeros(n, bool),
+        "syllable_id": rng.integers(0, 10, n).astype(np.int16),
         "fps": FPS,
         "roi_idx": np.arange(n_rois),
     }
@@ -110,6 +111,8 @@ def test_session_tables() -> None:
     assert set(res.sessions["analysis"]) == {"splitter", "distance", "planning"}
     assert (res.sessions["n_cells"] == 5).all()
     assert res.counts["signal"] == "spikes" and res.counts["n_cells"] == 5
+    assert res.counts["n_top_syllables"] == 8
+    assert "behaviour_plus_syllable" in set(res.sessions["feature_set"])
     arr = _arrays(1, 600)
     arr["x_maze"] = None
     assert mmx.session_tables(arr, _args()) is None

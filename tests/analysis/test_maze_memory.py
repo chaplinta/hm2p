@@ -565,7 +565,9 @@ def test_task_builders_empty() -> None:
     tasks += mm.distance_tasks(pt, np.zeros(0), np.zeros(0, dtype=object), w, 100, 5, p, rng)
     dep = mm.departure_table(pt, pd.DataFrame(), pd.DataFrame(), np.ones(100), FPS, 100, p)
     tasks += mm.planning_tasks(dep, w, 100, 5, p, rng)
-    assert len(tasks) == (2 + 4 + 4) * len(p.conditions)
+    n_dist = 2 * len(mm.DISTANCE_VARIANTS)
+    n_plan = 2 * len(mm.PLAN_WINDOWS) * len(mm.PLAN_FILTERS)
+    assert len(tasks) == (2 + n_dist + n_plan) * len(p.conditions)
     assert all(t.reason for t in tasks)
 
 
@@ -582,6 +584,7 @@ def test_departure_table() -> None:
     assert r["exit"] == 12 and r["dwell_s"] == pytest.approx(1.2)
     assert (r["pre_start"], r["pre_end"], r["post_start"], r["post_end"]) == (2, 12, 12, 22)
     assert r["pre_ok"] and r["post_ok"] and r["pre_cond"] == "light"
+    assert (r["origin"], r["dest"], r["trip_dist"]) == (a, b, 2)
 
 
 def test_score_task_and_parallel_equal() -> None:
@@ -749,3 +752,110 @@ def test_subset_summary(session: tuple[dict[str, np.ndarray], mm.MazeMemResult])
     out = mm.subset_summary(df)
     assert (out["n_sessions"] == 2).all() and "median_excess" in out
     assert mm.subset_summary(pd.DataFrame()).empty
+
+
+# ---------------------------------------------------------------------------
+# Control variants: return trips, long trips, syllables, travel direction
+# ---------------------------------------------------------------------------
+
+
+def test_multi_value_groups() -> None:
+    g = np.array([0, 0, 1, 1, 2])
+    v = np.array([1, 2, 3, 3, 4])
+    assert mm.multi_value_groups(g, v).tolist() == [True, True, False, False, False]
+    assert mm.multi_value_groups(np.zeros(0), np.zeros(0)).size == 0
+
+
+def test_plan_filter() -> None:
+    dep = pd.DataFrame({"origin": [1, 1, 1], "dest": [1, 2, 3], "trip_dist": [0, 2, 5]})
+    assert mm.plan_filter(dep, "").tolist() == [True, True, True]
+    assert mm.plan_filter(dep, "_noreturn").tolist() == [False, True, True]
+    assert mm.plan_filter(dep, "_noreturn_long", 3).tolist() == [False, False, True]
+
+
+def test_syllable_channels() -> None:
+    syl = np.array([3, 3, 3, 1, 1, 7, -1, np.nan, 3, 3])
+    valid = np.ones(10, bool)
+    valid[0] = False
+    ch, ids = mm.syllable_channels(syl, valid, top_k=2)
+    assert ids.tolist() == [3, 1]
+    assert ch is not None and ch.shape == (2, 10)
+    assert np.isnan(ch[:, [0, 6, 7]]).all()
+    assert ch[0, [1, 2, 8]].tolist() == [1, 1, 1] and ch[0, 5] == 0 and ch[1, 3] == 1
+    assert mm.syllable_channels(None, valid)[0] is None
+    assert mm.syllable_channels(np.full(10, -1), valid)[0] is None
+    assert mm.syllable_channels(syl, valid, top_k=0)[1].size == 0
+
+
+def test_session_variants_and_syllables(
+    session: tuple[dict[str, np.ndarray], mm.MazeMemResult],
+) -> None:
+    w, res = session
+    s = res.sessions
+    plan = s[s["analysis"] == "planning"]
+    expect = {f"{a}{b}" for a in mm.PLAN_WINDOWS for b in mm.PLAN_FILTERS}
+    assert set(plan["variant"]) == expect
+    dist = s[s["analysis"] == "distance"]
+    assert set(dist["variant"]) == set(mm.DISTANCE_VARIANTS)
+    assert mm.SYLLABLE_FEATURE_SET not in set(s["feature_set"])  # no syllables given
+    rng = np.random.default_rng(2)
+    syl = rng.integers(0, 12, w["x"].size)
+    res2 = mm.maze_memory_session(
+        rng.poisson(0.3, (4, w["x"].size)).astype(float),
+        w["x"],
+        w["y"],
+        w["speed"],
+        w["hd"],
+        w["ahv"],
+        w["light"],
+        w["valid"],
+        FPS,
+        _params(n_shuffles=2, conditions=("all",), n_top_syllables=5),
+        MAZE,
+        syllable_id=syl,
+    )
+    s2 = res2.sessions
+    sy = s2[s2["feature_set"] == mm.SYLLABLE_FEATURE_SET]
+    assert not sy.empty and (sy["analysis"] == "planning").all()
+    assert (sy["n_features"] == len(mm.BEHAVIOUR_CHANNELS) + 5).all()
+    assert sy.loc[sy["reason"] == "", "observed"].notna().any()
+    assert res2.counts["n_top_syllables"] == 5
+    comp = mm.paired_comparisons(
+        pd.concat([s2.assign(exp_id=f"e{i}", animal_id=f"a{i}") for i in range(3)])
+    )
+    assert f"neural - {mm.SYLLABLE_FEATURE_SET}" in set(comp["feature_set"])
+
+
+def _direction_signal(w: dict[str, np.ndarray], n_cells: int, seed: int) -> np.ndarray:
+    """Noise plus cells that fire according to the departure neighbour of each visit."""
+    rng = np.random.default_rng(seed)
+    cells = pm.session_cells(w["x"], w["y"], w["valid"], MAZE, 2)
+    visits = mm.visit_table(cells, MAZE, 10, 2)
+    sig = rng.poisson(0.2, (n_cells, w["x"].size)).astype(float)
+    for nxt, a, b in zip(visits["next"], visits["start"], visits["end"], strict=True):
+        if nxt >= 0:
+            sig[int(nxt) % n_cells, a:b] += 2.0
+    return sig
+
+
+def test_direction_code_removed_by_direction_control() -> None:
+    w = _walk(9000, 7, p_back=0.3)
+    res = mm.maze_memory_session(
+        _direction_signal(w, 23, 8),
+        w["x"],
+        w["y"],
+        w["speed"],
+        w["hd"],
+        w["ahv"],
+        w["light"],
+        w["valid"],
+        FPS,
+        _params(n_shuffles=10, conditions=("all",), n_subsets=0),
+        MAZE,
+    )
+    s = res.sessions.set_index(mm.SESSION_KEYS)["observed"]
+    key = ("distance", "remaining", "{}", "all", "neural", "spearman")
+    place = s[tuple(k.format("place_controlled") for k in key)]
+    pdir = s[tuple(k.format("place_direction_controlled") for k in key)]
+    assert place > 0.3  # direction through a cell predicts remaining distance
+    assert abs(pdir) < 0.15  # removed once direction is held fixed
