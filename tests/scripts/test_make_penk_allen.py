@@ -103,6 +103,12 @@ def _write(src: Path) -> None:
             "q_bh": [0.05, 0.9],
         }
     ).to_csv(src / "patchseq_penk_ephys_spearman.csv", index=False)
+    pd.DataFrame(
+        {
+            "line_name": ["Penk-IRES2-Cre-neo", "Penk-IRES2-Cre-neo", "Rbp4-Cre", np.nan],
+            "structure__acronym": ["VISp6a", "RSPagl6a", "VISp5", np.nan],
+        }
+    ).to_csv(src / "patchseq_penk_ephys.csv", index=False)
 
 
 def test_build(tmp_path: Path) -> None:
@@ -118,7 +124,12 @@ def test_build(tmp_path: Path) -> None:
     ] == "Lamp5"
     m = out["merfish"]
     assert m["subdivisions"][0]["rsp_subdivision"] == "RSPd" and len(m["spatial"]) == 1
-    assert out["patchseq"]["l23it"][0]["variable"] == "rheobase" and "ctdb" not in out["patchseq"]
+    assert out["patchseq"]["l23it"][0]["variable"] == "rheobase"
+    assert out["patchseq"]["ctdb_penk_cre"] == {
+        "n_cells": 2,
+        "n_other_spiny": 1,
+        "structures": {"VISp6a": 1, "RSPagl6a": 1},
+    }
 
 
 def test_build_empty_and_clean(tmp_path: Path) -> None:

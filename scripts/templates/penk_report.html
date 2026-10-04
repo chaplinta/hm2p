@@ -1255,10 +1255,10 @@ function fillAllen() {
   const ps = (A.patchseq && A.patchseq.l23it) || [];
   document.querySelector("#al-ps-table tbody").innerHTML = [...ps].sort((a, b) => a.p - b.p).map(r =>
     `<tr><td>${NICE[r.variable] || r.variable}</td><td class="num">${r.n}</td><td class="num">${fmt(r.rho)}</td><td class="num">${pTxt(r.p)}</td><td class="num">${pTxt(r.q_bh)}</td></tr>`).join("");
-  const ct = A.patchseq && A.patchseq.ctdb;
-  if (ct && ct.length) {
-    const cols = Object.keys(ct[0]);
-    document.getElementById("al-ctdb").innerHTML = `<h3>Allen Cell Types Database: Penk-Cre line</h3><div class="table-wrap"><table><thead><tr>${cols.map(c => `<th>${c}</th>`).join("")}</tr></thead><tbody>${ct.map(r => `<tr>${cols.map(c => `<td class="num">${typeof r[c] === "number" ? fmt(r[c], 3) : (r[c] ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+  const ct = A.patchseq && A.patchseq.ctdb_penk_cre;
+  if (ct && ct.n_cells !== undefined) {
+    const where = Object.entries(ct.structures).map(([k, v]) => `${k} (${v})`).join(", ");
+    document.getElementById("al-ctdb").innerHTML = `<p class="caption"><strong>Allen Cell Types Database.</strong> Only ${ct.n_cells} spiny neurons were recorded from the Penk-IRES2-Cre line, all in layer 6a: ${where}. None is in layer 2/3, so they do not inform the cells imaged here; against ${ct.n_other_spiny} spiny neurons from other lines, none of their intrinsic properties differed (all FDR &gt; 0.3).</p>`;
   }
 }
 

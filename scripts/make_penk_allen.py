@@ -163,16 +163,15 @@ def patchseq_summary(src: Path) -> dict[str, Any]:
         out["frac_expressing"] = {
             str(r.group): float(r.frac_expressing) for r in dist.itertuples()
         }
-    for name in (
-        "ctdb_penk_cre_comparison.csv",
-        "ctdb_penk_summary.csv",
-        "celltypes_penk_cre_summary.csv",
-    ):
-        c = _read(src, name)
-        if c is not None:
-            out["ctdb_file"] = name
-            out["ctdb"] = c.head(60).to_dict(orient="records")
-            break
+    eph = _read(src, "patchseq_penk_ephys.csv")
+    if eph is not None and "line_name" in eph.columns:
+        pk = eph[eph["line_name"].astype(str).str.contains("Penk", na=False)]
+        col = "structure__acronym" if "structure__acronym" in eph.columns else None
+        out["ctdb_penk_cre"] = {
+            "n_cells": int(len(pk)),
+            "n_other_spiny": int(eph["line_name"].notna().sum() - len(pk)),
+            "structures": pk[col].astype(str).value_counts().to_dict() if col else {},
+        }
     return out
 
 
