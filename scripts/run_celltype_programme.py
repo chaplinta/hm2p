@@ -474,6 +474,10 @@ HYPOTHESES: dict[str, dict[str, Any]] = {
         "title": "Running bouts in maze context: approach, novelty, route, light, timing",
         "families": [],
     },
+    "popdec": {
+        "title": "Pooled-population decoding of maze behaviour with shift nulls",
+        "families": [],
+    },
 }
 
 
@@ -484,6 +488,7 @@ EXTRA_RUNNER_MODULES = (
     "celltype_extra_locrun",
     "celltype_extra_runshape",
     "celltype_extra_mazerun",
+    "celltype_extra_popdec",
 )
 
 
@@ -540,6 +545,15 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=500,
         help="evt: circular-shift shuffles per cell and event type",
+    )
+    ap.add_argument(
+        "--popdec-shuffles",
+        type=int,
+        default=200,
+        help="popdec: circular-shift null shuffles per decoder",
+    )
+    ap.add_argument(
+        "--n-jobs", type=int, default=1, help="popdec: parallel workers over null shuffles"
     )
     ap.add_argument("--dry-run", action="store_true", help="validate metadata, write nothing")
     return ap
