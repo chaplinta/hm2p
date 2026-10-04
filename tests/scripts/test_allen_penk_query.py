@@ -1177,3 +1177,14 @@ def test_adaptation_maps_to_isi_not_amplitude() -> None:
     assert apq.map_ephys_columns(cols)["adaptation_index"] == "ISI adaptation index"
     assert apq.map_ephys_columns(["ef__adaptation", "x"])["adaptation_index"] == "ef__adaptation"
     assert "adaptation_index" not in apq.map_ephys_columns(["AP amplitude adaptation index"])
+
+
+def test_safe_url_encodes_spaces_only() -> None:
+    url = "https://x.org/q.json?criteria=a::b,[c$eq'Mus musculus'],d[n$eqall]"
+    out = apq.safe_url(url)
+    assert (
+        " " not in out
+        and "Mus%20musculus" in out
+        and out.startswith("https://x.org/q.json?criteria=a::b,[c$eq'")
+    )
+    assert apq.safe_url("https://a.b/c?d=1") == "https://a.b/c?d=1"

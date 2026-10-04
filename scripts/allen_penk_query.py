@@ -101,6 +101,7 @@ import subprocess
 import time
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import asdict, dataclass, field
@@ -2403,6 +2404,11 @@ class UrlLog:
         return pd.DataFrame(self.rows, columns=["url", "status", "detail", "size_bytes"])
 
 
+def safe_url(url: str) -> str:
+    """Percent-encode characters such as spaces that urllib rejects, keeping URL syntax."""
+    return urllib.parse.quote(url, safe=":/?&=,$[]'()*+;@%#~!")
+
+
 def http_get(
     url: str,
     dest: Path | None,
@@ -2411,7 +2417,7 @@ def http_get(
     max_bytes: int = ALLEN_MAX_DOWNLOAD_BYTES,
 ) -> bytes | Path | None:  # pragma: no cover
     """GET ``url`` to ``dest`` (or return bytes when ``dest`` is None); log the outcome."""
-    req = urllib.request.Request(url, headers={"User-Agent": "hm2p-allen-penk/1.0"})
+    req = urllib.request.Request(safe_url(url), headers={"User-Agent": "hm2p-allen-penk/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             size = resp.headers.get("Content-Length")
