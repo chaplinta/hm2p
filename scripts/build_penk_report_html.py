@@ -13,6 +13,7 @@ Usage
     python scripts/make_penk_cell_level.py     # refresh the cell-level data
     python scripts/make_penk_maze.py           # refresh the maze-context data
     python scripts/make_penk_continuum.py      # refresh the continuum analyses
+    python scripts/make_penk_allen.py          # refresh the Allen reference data
     python scripts/build_penk_report_html.py
 """
 
@@ -39,6 +40,7 @@ REQUIRED = (
     "cell_level",
     "maze_running",
     "continuum",
+    "allen",
 )
 DATA_MARK = "/*__DATA__*/null"
 BUILD_MARK = "__BUILD__"
