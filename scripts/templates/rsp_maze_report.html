@@ -1,0 +1,216 @@
+<title>RSP activity during maze exploration</title>
+<meta name="description" content="What retrosplenial layer 2/3 population activity carries about maze exploration, in light and dark, with the analyses that did not survive their controls.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,500;8..60,600&display=swap">
+<!--__CSS__-->
+<style>
+:root { --light-c: #c08a1e; --dark-c: #3b4a8c; --neural: #1b2230; --beh: #9aa4b5; --hdrm: #2b6f8f; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --light-c: #e8b955; --dark-c: #8ea2f0; --neural: #e4e8ef; --beh: #6b7486; --hdrm: #7cc0de; } }
+:root[data-theme="dark"] { --light-c: #e8b955; --dark-c: #8ea2f0; --neural: #e4e8ef; --beh: #6b7486; --hdrm: #7cc0de; }
+td.verdict { font-weight: 600; white-space: nowrap; }
+td.verdict.held { color: var(--good); }
+td.verdict.failed { color: var(--muted); }
+</style>
+
+<div class="page">
+  <nav class="toc" aria-label="Contents">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#summary">Summary</a></li>
+      <li><a href="#approach">Approach</a></li>
+      <li><a href="#direction">Direction relative to dead ends</a></li>
+      <li><a href="#behaviour">What the mice do</a></li>
+      <li><a href="#leads">Leads that did not hold</a></li>
+      <li><a href="#reading">What it means</a></li>
+      <li><a href="#limits">Limitations</a></li>
+      <li><a href="#methods">Methods</a></li>
+    </ol>
+  </nav>
+  <main>
+    <header class="top">
+      <div class="eyebrow">hm2p · retrosplenial cortex · maze exploration · all cells</div>
+      <h1>RSP activity during maze exploration</h1>
+      <p class="meta">Two-photon imaging of layer 2/3 retrosplenial neurons in mice freely exploring the Rosenberg maze (a tree with 9 dead ends and 7 T-junctions), room lights alternating 1 min on / 1 min off. All imaged soma ROIs pooled (<span id="n-cells"></span> cells, <span id="n-sessions"></span> sessions, <span id="n-animals"></span> mice). Exploratory analyses run 2026-10-03 to 2026-10-05. Build __BUILD__.</p>
+    </header>
+
+    <section id="summary">
+      <h2>Summary</h2>
+      <p class="finding" id="headline"></p>
+      <ul class="findings" id="summary-list"></ul>
+    </section>
+
+    <section id="approach">
+      <h2>Approach</h2>
+      <div class="prose">
+        <p>The question was what RSP population activity carries about how mice explore the maze, beyond the locomotion and head-direction signals already characterised, and how that changes when the lights go out. Candidate signals were memory (how long since a place was visited), planning (whether the next trip goes somewhere new), trip structure (where a trip started and where it ends, how far is left) and maze-relative direction.</p>
+        <p>Every test was run on all cells together, each session decoded or tested on its own, with a circular time-shift null (activity shifted relative to behaviour by at least 30 s). Each neural result was compared with a decoder using behaviour alone (head direction, speed, turning, and, where relevant, time in session, dwell time and posture syllables) and with the neural population after removing head direction from each cell. Inference is across sessions and across mice (Wilcoxon signed-rank on per-animal medians).</p>
+      </div>
+    </section>
+
+    <section id="direction">
+      <h2>The population knows whether the mouse is heading into or out of a dead end</h2>
+      <p class="finding" id="dir-finding"></p>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="io-title">Inbound vs outbound runs: decoding above chance</span></div>
+          <div id="plot-io" class="plot" role="img" aria-labelledby="io-title"></div>
+          <p class="caption">Balanced accuracy minus the shift-null mean, per session (dots) and median (bar). Runs into vs out of dead ends, matched on duration and speed. Neural: all cells; behaviour: head direction, speed and turning only; HD removed: neural after regressing head direction out of each cell.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ld-title">Light and dark decoded separately</span></div>
+          <div id="plot-ld" class="plot" role="img" aria-labelledby="ld-title"></div>
+          <p class="caption" id="ld-caption"></p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="io-table">
+          <thead><tr><th>Condition</th><th>Features</th><th>Sessions</th><th>Observed</th><th>Null</th><th>Animal-level p</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="prose" id="dir-notes"></div>
+    </section>
+
+    <section id="behaviour">
+      <h2>What the mice do</h2>
+      <ul class="plain" id="beh-list"></ul>
+    </section>
+
+    <section id="leads">
+      <h2>Leads that did not hold</h2>
+      <p class="finding">Four candidate memory and planning signals looked positive at first; each was explained by a simpler variable once the right control was added.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Candidate</th><th>First result</th><th>Control that removed it</th><th>Verdict</th></tr></thead>
+          <tbody id="leads-body"></tbody>
+        </table>
+      </div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="rv-title">Dead-end recency effect across variants (dark minus light, z)</span></div>
+        <div id="plot-rv" class="plot" role="img" aria-labelledby="rv-title"></div>
+        <p class="caption">Per-cell partial Spearman of the arrival response with log time since the last visit to the same dead end, controlling for time in session, speed before and after entry, turning, time since the light switch, dead-end identity and pre-entry activity; z against a shift null; median over cells of dark minus light. Grey bars: variants that also drop re-entries within 5 s or add time since any dead end. Animal-level p printed on hover.</p>
+      </div>
+    </section>
+
+    <section id="reading">
+      <h2>What it means</h2>
+      <ul class="plain">
+        <li><strong>Maze-relative direction is the clearest non-locomotor signal.</strong> At matched speed and duration, and with head direction removed, the population still separates runs toward dead ends from runs away from them. Because head direction in the lab frame is controlled, this is direction relative to the maze's structure (toward the end of a branch vs back toward the junctions), not compass heading.</li>
+        <li><strong>No evidence for planning or episodic trip memory at this resolution.</strong> Pre-departure activity, trip origin, trip destination, distance to go and time since a dead end was last visited were either not decodable or explained by posture, travel direction or immediate re-entries.</li>
+        <li><strong>The behaviour is not memory-guided at the trip level.</strong> Mice reached dead ends they had not recently visited at the rate expected of a random walk, in light and in dark, and far below a walker that never reverses. A neural planning signal would have little behavioural choice to predict.</li>
+      </ul>
+    </section>
+
+    <section id="limits">
+      <h2>Limitations</h2>
+      <ul class="plain">
+        <li>About 20 cells per session, 9.6 Hz imaging and calcium-derived activity: brief or sparse signals (e.g. sequences within a second) are below what these data can resolve.</li>
+        <li>The maze is small (23 cells) and trips are short; strata needed for trip-origin decoding had too few samples in most sessions.</li>
+        <li>Light and dark analyses each use half the data, so a null in one condition is weaker evidence than a null in pooled data.</li>
+        <li>Many analyses were tried; results are reported with their controls, but the surviving result should be confirmed in new data.</li>
+      </ul>
+    </section>
+
+    <section id="methods">
+      <h2>Methods</h2>
+      <details>
+        <summary>Code, statistics and references</summary>
+        <div class="prose">
+          <p>Population decoders: <span class="path">hm2p.analysis.population_maze</span> (runner <span class="path">popdec</span>); memory and planning decoders: <span class="path">hm2p.analysis.maze_memory</span> (runner <span class="path">mazemem</span>); dead-end recency: <span class="path">hm2p.analysis.dead_end_recency</span> and <span class="path">scripts/run_dead_end_recency.py</span>; this page: <span class="path">scripts/make_rsp_maze_report.py</span> and <span class="path">scripts/build_rsp_maze_report_html.py</span>. Decoders are L2-regularised logistic regressions with balanced class weights, cross-validated over five contiguous time blocks with 5 s gaps, scored by balanced accuracy, against 200 circular shifts. Partial rank correlations use rank residuals (Conover and Iman 1981).</p>
+          <p>Rosenberg M, Zhang T, Perona P, Meister M. 2021. "Mice in a labyrinth show rapid learning, sudden insight, and efficient exploration." eLife 10:e66175. doi:10.7554/eLife.66175. Conover WJ, Iman RL. 1981. "Rank transformations as a bridge between parametric and nonparametric statistics." The American Statistician 35:124–129. doi:10.1080/00031305.1981.10479327.</p>
+        </div>
+      </details>
+    </section>
+    <footer>Generated from the hm2p repository.</footer>
+  </main>
+</div>
+
+<!--__PLOTLY__-->
+<script>
+const DATA = /*__DATA__*/null;
+function css(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function fmt(v, d = 2) { return v === null || v === undefined || Number.isNaN(v) ? "n/a" : Number(v).toFixed(d); }
+function pTxt(p) { return p === null || p === undefined ? "—" : (p < 0.001 ? p.toExponential(0).replace("e", "×10^") : p.toFixed(p < 0.01 ? 3 : 2)); }
+const CONFIG = { displaylogo: false, responsive: true, modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] };
+function baseLayout(extra) {
+  const muted = css("--muted"), rule = css("--rule");
+  return Object.assign({ paper_bgcolor: "rgba(0,0,0,0)", plot_bgcolor: "rgba(0,0,0,0)",
+    font: { family: css("--sans") || "sans-serif", size: 13, color: css("--ink") }, margin: { l: 62, r: 16, t: 10, b: 46 }, showlegend: false,
+    xaxis: { gridcolor: rule, zerolinecolor: rule, linecolor: rule, color: muted },
+    yaxis: { gridcolor: rule, zerolinecolor: muted, linecolor: rule, color: muted, automargin: true } }, extra || {});
+}
+const FEAT = { neural: "Neural", behaviour: "Behaviour only", neural_hd_removed: "Neural, HD removed" };
+const FCOL = { neural: "--neural", behaviour: "--beh", neural_hd_removed: "--hdrm" };
+function jit(i) { return ((i * 0.618034) % 1 - 0.5) * 0.35; }
+
+function drawIO() {
+  const S = DATA.inout_sessions.filter(r => r.condition === "all");
+  const feats = Object.keys(FEAT);
+  const t = [];
+  feats.forEach((f, i) => {
+    const v = S.filter(r => r.feature_set === f).map(r => r.excess).filter(x => x !== null);
+    const sorted = [...v].sort((a, b) => a - b), med = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
+    t.push({ type: "bar", x: [FEAT[f]], y: [med], marker: { color: css(FCOL[f]) }, opacity: 0.35, hoverinfo: "skip" });
+    t.push({ type: "scatter", mode: "markers", x: v.map(() => FEAT[f]), y: v, marker: { size: 7, color: css(FCOL[f]) },
+      hovertemplate: "%{y:.3f}<extra>" + FEAT[f] + "</extra>" });
+  });
+  const lay = baseLayout({ shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  lay.yaxis = Object.assign(lay.yaxis, { title: { text: "accuracy above null", font: { size: 13 } } });
+  Plotly.react("plot-io", t, lay, CONFIG);
+}
+function drawLD() {
+  const S = DATA.inout_sessions.filter(r => r.condition !== "all" && r.feature_set !== "behaviour");
+  const t = [];
+  ["light", "dark"].forEach(c => ["neural", "neural_hd_removed"].forEach(f => {
+    const v = S.filter(r => r.condition === c && r.feature_set === f).map(r => r.excess).filter(x => x !== null);
+    t.push({ type: "box", name: `${c} · ${FEAT[f]}`, y: v, boxpoints: "all", jitter: 0.4, pointpos: 0,
+      marker: { color: css(c === "light" ? "--light-c" : "--dark-c"), size: 6 }, line: { color: css(c === "light" ? "--light-c" : "--dark-c") },
+      fillcolor: "rgba(0,0,0,0)", hovertemplate: "%{y:.3f}<extra></extra>" });
+  }));
+  const lay = baseLayout({ shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  lay.yaxis = Object.assign(lay.yaxis, { title: { text: "accuracy above null", font: { size: 13 } } });
+  lay.xaxis = Object.assign(lay.xaxis, { tickfont: { size: 11 } });
+  Plotly.react("plot-ld", t, lay, CONFIG);
+}
+function drawRV() {
+  const V = DATA.variants.filter(v => v.dark_minus_light);
+  const t = [{ type: "bar", orientation: "h", y: V.map(v => v.label), x: V.map(v => v.dark_minus_light.median_z),
+    marker: { color: V.map(v => /min5|ctrl/.test(v.key) ? css("--beh") : css("--dark-c")) },
+    customdata: V.map(v => [pTxt(v.dark_minus_light.animal_p), fmt(v.dark ? v.dark.median_z : null), fmt(v.light ? v.light.median_z : null)]),
+    hovertemplate: "dark − light z %{x:.2f}, animal p %{customdata[0]}<br>dark %{customdata[1]}, light %{customdata[2]}<extra></extra>" }];
+  const lay = baseLayout({ margin: { l: 10, r: 16, t: 10, b: 46 }, shapes: [{ type: "line", yref: "paper", y0: 0, y1: 1, x0: 0, x1: 0, line: { width: 1, color: css("--muted") } }] });
+  lay.xaxis = Object.assign(lay.xaxis, { title: { text: "median z, dark − light", font: { size: 13 } } });
+  lay.yaxis = Object.assign(lay.yaxis, { autorange: "reversed", automargin: true, tickfont: { size: 11 } });
+  Plotly.react("plot-rv", t, lay, CONFIG);
+}
+function fillText() {
+  const D = DATA;
+  document.getElementById("n-cells").textContent = D.n_cells;
+  document.getElementById("n-sessions").textContent = D.n_sessions;
+  document.getElementById("n-animals").textContent = D.n_animals;
+  const io = D.inout_summary;
+  const g = (c, f) => io.find(r => r.condition === c && r.feature_set === f) || {};
+  const a = g("all", "neural"), ah = g("all", "neural_hd_removed"), ab = g("all", "behaviour");
+  const L = g("light", "neural_hd_removed"), K = g("dark", "neural_hd_removed");
+  document.getElementById("headline").textContent = D.headline;
+  document.getElementById("dir-finding").textContent =
+    `Inbound vs outbound runs were decoded at ${fmt(a.median_observed)} balanced accuracy (null ${fmt(a.median_null_mean)}; animal-level p ${pTxt(a.animal_p)}), ${fmt(ah.median_observed)} with head direction removed (p ${pTxt(ah.animal_p)}), while head direction, speed and turning alone gave ${fmt(ab.median_observed)} (p ${pTxt(ab.animal_p)}).`;
+  document.getElementById("ld-caption").textContent =
+    `Same decoders restricted to frames in the light or in the dark (each with about half the runs). Head direction removed: light ${fmt(L.median_observed)} vs null ${fmt(L.median_null_mean)} (p ${pTxt(L.animal_p)}, ${L.n_sessions} sessions); dark ${fmt(K.median_observed)} vs null ${fmt(K.median_null_mean)} (p ${pTxt(K.animal_p)}, ${K.n_sessions} sessions).`;
+  document.querySelector("#io-table tbody").innerHTML = io.map(r =>
+    `<tr><td>${r.condition}</td><td>${FEAT[r.feature_set]}</td><td class="num">${r.n_sessions}</td><td class="num">${fmt(r.median_observed)}</td><td class="num">${fmt(r.median_null_mean)}</td><td class="num">${pTxt(r.animal_p)}</td></tr>`).join("");
+  document.getElementById("dir-notes").innerHTML = D.direction_notes.map(s => `<p>${s}</p>`).join("");
+  document.getElementById("summary-list").innerHTML = D.summary.map(([tag, cls, text]) => `<li><span class="tag ${cls}">${tag}</span><span>${text}</span></li>`).join("");
+  document.getElementById("beh-list").innerHTML = D.behaviour_points.map(s => `<li>${s}</li>`).join("");
+  document.getElementById("leads-body").innerHTML = D.leads.map(l =>
+    `<tr><td><strong>${l.name}</strong><br><span class="meta">${l.question}</span></td><td>${l.first}</td><td>${l.control}</td><td class="verdict ${l.held ? "held" : "failed"}">${l.verdict}</td></tr>`).join("");
+}
+function renderAll() { [drawIO, drawLD, drawRV].forEach(f => { try { f(); } catch (e) { console.error(e); } }); }
+function init() {
+  fillText(); renderAll();
+  window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
+  new MutationObserver(renderAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+}
+if (window.Plotly && DATA) init(); else window.addEventListener("load", () => { if (window.Plotly && DATA) init(); });
+</script>
