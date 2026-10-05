@@ -24,6 +24,10 @@ def test_dead_end_entries_recency_and_prev_light() -> None:
     assert e["frame"].tolist() == [20, 40]
     assert e["recency_s"].tolist() == [1.0, 1.0]
     assert e["prev_light"].tolist() == [True, False]
+    assert e["since_any_dead_end_s"].tolist() == [1.0, 0.0] and e["n_prev_visits"].tolist() == [
+        1,
+        2,
+    ]
     assert r.dead_end_entries([], {5}, light, 10.0).empty
 
 
@@ -127,3 +131,25 @@ def test_summarise_contrasts() -> None:
         s.loc["dark_minus_light", "animal_p"] < 0.05
         and s.loc["dark_minus_light", "n_animals"] == 6
     )
+
+
+def test_recency_cell_table_extra_covariates() -> None:
+    sig, ent, cov, w = _session(effect=1.0)
+    ent = ent.assign(since_any_dead_end_s=ent.recency_s * 0.5, n_prev_visits=1)
+    t = r.recency_cell_table(
+        sig, ent, cov, w, n_shift=30, min_shift=200, extra_covariates=("n_prev_visits",)
+    )
+    assert (t[(t.cond == "dark") & (t.roi == 0)].rho > 0.3).all()
+    t2 = r.recency_cell_table(
+        sig, ent, cov, w, n_shift=30, min_shift=200, extra_covariates=("since_any_dead_end_s",)
+    )
+    # since_any is a monotone function of recency here, so it absorbs the effect
+    assert abs(t2[(t2.cond == "dark") & (t2.roi == 0)].rho.iloc[0]) < 0.2
+
+
+def test_population_entry_response() -> None:
+    sig = np.zeros((2, 100))
+    sig[:, 50:55] = 1.0  # response after the second entry only
+    pr = r.population_entry_response(sig, np.array([20, 50]), w=5)
+    assert pr[1] > pr[0] and abs(pr.sum()) < 1e-9
+    assert np.all(r.population_entry_response(np.zeros((1, 50)), np.array([10, 20]), 5) == 0)

@@ -34,6 +34,7 @@ from hm2p.analysis.dead_end_recency import (  # noqa: E402
     dead_end_entries,
     entry_covariates,
     maze_visits,
+    population_entry_response,
     recency_cell_table,
     summarise,
 )
@@ -62,6 +63,8 @@ def session_result(
     window_s: float,
     n_shift: int,
     seed: int,
+    extra_covariates: tuple[str, ...] = (),
+    min_recency_s: float = 0.0,
 ) -> tuple[pd.DataFrame, pd.DataFrame] | None:
     """Per-cell table and per-entry table for one session, or None when unusable."""
     if signal == "dff_rise" and "dff" in arrays:
@@ -80,6 +83,7 @@ def session_result(
     x[np.asarray(arrays["bad_behav"], dtype=bool)] = np.nan
     cells_idx = discretize_position_fast(x, y, maze)
     entries = dead_end_entries(maze_visits(cells_idx), dead, arrays["light_on"], fps)
+    entries = entries[entries["recency_s"] >= min_recency_s].reset_index(drop=True)
     n_frames = np.asarray(arrays[signal]).shape[1]
     fr = entries["frame"].to_numpy()
     entries = entries[(fr - w >= 0) & (fr + w < n_frames)].reset_index(drop=True)
@@ -89,9 +93,17 @@ def session_result(
         entries, arrays["speed_cm_s"], arrays["ahv_deg_s"], arrays["light_on"], fps, w
     )
     table = recency_cell_table(
-        arrays[signal], entries, cov, w, n_shift=n_shift, min_shift=int(30 * fps), seed=seed
+        arrays[signal],
+        entries,
+        cov,
+        w,
+        n_shift=n_shift,
+        min_shift=int(30 * fps),
+        seed=seed,
+        extra_covariates=extra_covariates,
     )
     ent = pd.concat([entries, cov], axis=1)
+    ent["pop_response"] = population_entry_response(arrays[signal], entries["frame"].to_numpy(), w)
     for t in (table, ent):
         t["exp_id"] = meta["exp_id"]
         t["animal_id"] = str(meta["animal_id"])
@@ -134,19 +146,41 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - entry poin
     ap.add_argument("--cache", type=Path, default=None)
     ap.add_argument("--write-cache", type=Path, default=None)
     ap.add_argument("--out", type=Path, default=REPO / "results" / "dead_end_recency")
+    ap.add_argument(
+        "--min-recency", type=float, default=0.0, help="drop re-entries sooner than this (s)"
+    )
+    ap.add_argument(
+        "--extra-covariates",
+        nargs="*",
+        default=[],
+        choices=["since_any_dead_end_s", "n_prev_visits"],
+        help="additional covariates (memory-specificity controls)",
+    )
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     src = iter_cache(args.cache) if args.cache else iter_s3(args.signal, args.write_cache)
     cells, ents = [], []
     for meta, arrays in src:
-        res = session_result(arrays, meta, args.signal, args.window, args.n_shift, args.seed)
+        res = session_result(
+            arrays,
+            meta,
+            args.signal,
+            args.window,
+            args.n_shift,
+            args.seed,
+            tuple(args.extra_covariates),
+            args.min_recency,
+        )
         if res is None:
             log.warning("skipped %s", meta.get("exp_id"))
             continue
         cells.append(res[0])
         ents.append(res[1])
         log.info("done %s (%d entries)", meta.get("exp_id"), len(res[1]))
-    out = args.out / f"{args.signal}_w{args.window:g}"
+    tag = ("_ctrl" if args.extra_covariates else "") + (
+        f"_min{args.min_recency:g}" if args.min_recency > 0 else ""
+    )
+    out = args.out / f"{args.signal}_w{args.window:g}{tag}"
     out.mkdir(parents=True, exist_ok=True)
     c = pd.concat(cells, ignore_index=True)
     c.to_csv(out / "cells.csv", index=False)

@@ -65,3 +65,10 @@ def test_session_result_dff_rise_signal() -> None:
     d["dff"] = np.cumsum(np.random.default_rng(1).normal(0, 0.1, d["spikes"].shape), axis=1)
     res = rr.session_result(d, {"exp_id": "s1", "animal_id": 7}, "dff_rise", 1.0, 10, 0)
     assert res is not None and len(res[0]) > 0
+
+
+def test_session_result_min_recency_filter() -> None:
+    res = rr.session_result(
+        _walk_session(), {"exp_id": "s1", "animal_id": 7}, "spikes", 1.0, 5, 0, (), 5.0
+    )
+    assert res is not None and (res[1].recency_s >= 5.0).all()

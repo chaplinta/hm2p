@@ -11,7 +11,10 @@ partial Spearman correlation (rank residuals) controlling for:
 - speed before entry and after entry, and |AHV| after entry (behaviour),
 - time since the last light switch (light epochs alternate every minute),
 - dead-end identity (dummy variables; removes place tuning), and
-- the pre-entry activity of the cell.
+- the pre-entry activity of the cell,
+- optionally, time since the last visit to any dead end and the number of
+  earlier visits to this dead end (``extra_covariates``), which separate
+  memory of this dead end from a generic time-since-last-dead-end effect.
 
 Significance uses a circular shift of the activity relative to behaviour, with
 the entries and covariates held fixed. Entries are analysed in the light and
@@ -38,6 +41,15 @@ import pandas as pd
 from scipy import stats
 
 CONDITIONS = ("all", "light", "dark", "dark_prev_dark", "light_prev_light")
+ENTRY_COLUMNS = (
+    "frame",
+    "dead_end",
+    "recency_s",
+    "prev_light",
+    "since_any_dead_end_s",
+    "n_prev_visits",
+)
+BASE_COVARIATES = ("t_session_s", "speed_pre", "since_switch_s", "speed_post", "abs_ahv_post")
 
 
 def maze_visits(cell_idx: npt.ArrayLike, min_frames: int = 3) -> list[tuple[int, int, int]]:
@@ -73,10 +85,14 @@ def dead_end_entries(
 
     Columns: ``frame`` (entry frame), ``dead_end``, ``recency_s`` (entry minus
     end of the previous visit to the same dead end), ``prev_light`` (previous
-    visit mostly in light).
+    visit mostly in light), ``since_any_dead_end_s`` (entry minus end of the
+    previous visit to any dead end) and ``n_prev_visits`` (earlier visits to
+    this dead end).
     """
     lo = np.asarray(light_on, dtype=float)
     last: dict[int, tuple[int, bool]] = {}
+    n_prev: dict[int, int] = {}
+    last_any: int | None = None
     rows = []
     for c, s, e in visits:
         if c not in dead_ends:
@@ -88,10 +104,16 @@ def dead_end_entries(
                     "dead_end": c,
                     "recency_s": (s - last[c][0]) / fps,
                     "prev_light": last[c][1],
+                    "since_any_dead_end_s": (s - last_any) / fps
+                    if last_any is not None
+                    else np.nan,
+                    "n_prev_visits": n_prev[c],
                 }
             )
         last[c] = (e, bool(np.nanmean(lo[s:e]) > 0.5))
-    return pd.DataFrame(rows, columns=["frame", "dead_end", "recency_s", "prev_light"])
+        n_prev[c] = n_prev.get(c, 0) + 1
+        last_any = e
+    return pd.DataFrame(rows, columns=list(ENTRY_COLUMNS))
 
 
 def rank_residual(y: npt.ArrayLike, covariates: npt.ArrayLike) -> np.ndarray:
@@ -183,6 +205,7 @@ def recency_cell_table(
     min_shift: int = 300,
     min_entries: int = 12,
     seed: int = 0,
+    extra_covariates: Sequence[str] = (),
 ) -> pd.DataFrame:
     """Per-cell partial Spearman of entry response with log recency per condition, shift null.
 
@@ -208,7 +231,11 @@ def recency_cell_table(
     post, pre = responses(sig)
     nulls = [responses(np.roll(sig, int(k), axis=1)) for k in shifts]
     masks = condition_masks(cov["light_frac"].to_numpy(), ent["prev_light"].to_numpy())
-    base_cols = ["t_session_s", "speed_pre", "since_switch_s", "speed_post", "abs_ahv_post"]
+    for col in extra_covariates:
+        src = ent if col in ent.columns else cov
+        v = src[col].to_numpy(dtype=float)
+        cov[col] = np.where(np.isfinite(v), v, np.nanmedian(v) if np.isfinite(v).any() else 0.0)
+    base_cols = list(BASE_COVARIATES) + list(extra_covariates)
     rows = []
     for cond in CONDITIONS:
         sel = masks[cond]
@@ -249,6 +276,22 @@ def recency_cell_table(
     return pd.DataFrame(
         rows, columns=["cond", "roi", "rho", "null_mean", "null_sd", "z", "p", "n_entries"]
     )
+
+
+def population_entry_response(signal: npt.ArrayLike, frames: npt.ArrayLike, w: int) -> np.ndarray:
+    """Mean over cells of each cell's standardised entry response (post minus pre window).
+
+    Each cell's response across entries is divided by its standard deviation
+    across entries before averaging, so cells contribute equally.
+    """
+    sig = np.nan_to_num(np.asarray(signal, dtype=float))
+    on = np.asarray(frames, dtype=int)
+    resp = _window_mean(sig, on, w, before=False) - _window_mean(sig, on, w, before=True)
+    sd = resp.std(axis=1, keepdims=True)
+    z = np.divide(
+        resp - resp.mean(axis=1, keepdims=True), sd, out=np.zeros_like(resp), where=sd > 0
+    )
+    return z.mean(axis=0)
 
 
 def summarise(cells: pd.DataFrame) -> pd.DataFrame:
