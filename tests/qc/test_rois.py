@@ -77,7 +77,8 @@ def test_cv_reference_separable_classes():
     y = np.repeat([0, 1, 2], n // 3)
     X = pd.DataFrame({"a": y + rng.normal(0, 0.1, n), "b": rng.normal(size=n)})
     g = np.tile(["s1", "s2", "s3"], n // 3)
-    ref = cv_reference(X, y, g, {"n_estimators": 10, "max_depth": 2}, medians=[0.0, 0.0])
+    X.iloc[0, 1] = np.nan  # NaN filled with training-fold medians
+    ref = cv_reference(X, y, g, {"n_estimators": 10, "max_depth": 2})
     json.dumps(ref)
     assert ref["n_sessions"] == 3 and ref["macro_f1"] > 0.9
     assert np.array(ref["confusion"]).sum() == n

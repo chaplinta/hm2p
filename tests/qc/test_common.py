@@ -23,6 +23,7 @@ from hm2p.qc.common import (
     resample_bool,
     rounded,
     run_lengths,
+    span_fps,
 )
 
 
@@ -65,6 +66,14 @@ def test_circ_diff_in_range_and_consistent(a, b):
     assert np.all(d >= -180.0) and np.all(d < 180.0)
     r = np.mod(a - d - b, 360.0)  # a - d must equal b modulo 360
     assert np.all(np.minimum(r, 360.0 - r) < 1e-6)
+
+
+def test_span_fps_unbiased_for_subsampled_camera_times():
+    # 100 Hz camera times subsampled to 30 fps with rounded indices: steps 30/30/40 ms
+    t = np.round(np.linspace(0, 17999, 5400)).astype(int) / 100.0
+    assert 1.0 / np.median(np.diff(t)) == pytest.approx(33.33, abs=0.01)  # the biased estimate
+    assert span_fps(t) == pytest.approx(30.0, abs=0.01)
+    assert np.isnan(span_fps([1.0])) and np.isnan(span_fps([2.0, 1.0]))
 
 
 def test_bin_reduce_mean_and_partial_bin():

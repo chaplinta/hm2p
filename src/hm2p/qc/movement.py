@@ -24,6 +24,7 @@ from hm2p.qc.common import (
     mask_intervals,
     quantiles,
     rounded,
+    span_fps,
 )
 
 HD_ESTIMATORS = ("hd_nose_head", "hd_nose_neck", "hd_head_neck")
@@ -34,6 +35,7 @@ EXCERPT_S = 120.0
 EXCERPT_HZ = 15.0
 TIMELINE_BIN_S = 10.0
 OCC_BINS = 40
+HD_CONFIDENCE_MAX = 4.0  # sum of up to four per-estimator mean keypoint likelihoods
 
 
 def clean_attrs(attrs: dict) -> dict:
@@ -90,7 +92,7 @@ def summarise_movement(d: dict[str, npt.ArrayLike], attrs: dict | None = None) -
     n = t.size
     dt = np.diff(t)
     med_dt = float(np.median(dt))
-    fps = 1.0 / med_dt if med_dt > 0 else float("nan")
+    fps = span_fps(t)  # median dt is biased by the 30/30/40 ms subsampling steps
     light = _b(d, "light_on", n)
     bad = _b(d, "bad_behav", n)
     good = ~bad
@@ -159,7 +161,7 @@ def summarise_movement(d: dict[str, npt.ArrayLike], attrs: dict | None = None) -
         conf = _f(d, "hd_confidence")
         if conf is not None:
             out["hd_confidence"] = {
-                "hist": _split(conf, light, good, 0.0, 1.0, 40),
+                "hist": _split(conf, light, good, 0.0, HD_CONFIDENCE_MAX, 40),
                 "median_light": fnum(np.nanmedian(conf[good & light]))
                 if (good & light).any()
                 else None,

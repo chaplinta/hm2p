@@ -105,6 +105,28 @@ def test_summary_without_optional_arrays_uses_frame_times():
     assert "rate_vh" not in s["rois"][0]
 
 
+def test_cascade_output_treated_as_expected_spikes_per_frame():
+    # CASCADE gives expected spikes per frame: 0.1 in one frame is 0.1 spikes (< 0.5)
+    ca = _ca(n_rois=1)
+    ca["spikes"] = np.where(ca["spikes"] > 0, 0.1, 0.0)
+    r = summarise_spikes(ca, {"fps_imaging": 10.0})["rois"][0]
+    assert r["vh_with_spikes"] == 0.0
+    # mean rate in Hz = mean expected spikes per frame x frame rate
+    assert r["spk_rate"] == pytest.approx(ca["spikes"][0].mean() * 10.0, abs=1e-4)
+
+
+def test_qc_fail_counts_nan_as_pass():
+    ca = _ca(n_rois=1)
+    ca["roi_qc/decay_tau_s"] = np.array([np.nan])
+    s = summarise_spikes(ca, {"fps_imaging": 10.0})
+    assert s["qc_fail"]["decay_tau_s"] == 0.0
+
+
+def test_light_tolerates_one_frame_offset():
+    s = summarise_spikes(_ca(n_rois=1), {"fps_imaging": 10.0}, light_on=np.ones(2999))
+    assert "light" in s["population"]
+
+
 def test_summary_errors():
     with pytest.raises(ValueError):
         summarise_spikes({"dff": np.zeros(5)})

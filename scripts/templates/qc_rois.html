@@ -107,7 +107,7 @@
     <section id="reading">
       <h2>How to read this</h2>
       <ul class="plain">
-        <li>The reference accuracy is computed by refitting the classifier with the champion's hyper-parameters once per held-out legacy session (stricter than the single random 80/20 split behind the stored test F1, which shares sessions between training and test). It is computed from the legacy Suite2p runs with manual soma and dendrite labels in /data/s2p.</li>
+        <li>The reference accuracy is computed by refitting the classifier once per held-out legacy session with the champion's training recipe (same hyper-parameters, softmax objective, balanced class weights; missing features filled with training-fold medians) (stricter than the single random 80/20 split behind the stored test F1, which shares sessions between training and test). It is computed from the legacy Suite2p runs with manual soma and dendrite labels in /data/s2p.</li>
         <li>Acceptance criteria in docs/soma-classifier.md: macro F1 ≥ 0.85, every class F1 ≥ 0.7, and fewer than 5 % of true artefacts labelled soma.</li>
         <li>Manual labels mark only the cells a person accepted; everything else is "artefact", so some real but dim cells are counted as artefacts in the reference.</li>
       </ul>

@@ -102,8 +102,8 @@
       <ul class="plain">
         <li><strong>Likelihood values are not probabilities.</strong> DeepLabCut 3 (PyTorch) likelihoods typically sit around 0.1–0.5 for a correct detection, so a fixed 0.9 threshold (used on the older Streamlit tracking page) rejects most good frames. Compare keypoints and sessions with each other instead, and use the jump and anatomy checks as the evidence of errors.</li>
         <li><strong>Jumps</strong>: frame-to-frame displacement faster than 150 cm/s (converted to pixels with the session's video scale). Warning above 0.5 % of frames, problem above 2 % (any keypoint).</li>
-        <li><strong>Ear swaps</strong>: left ear on the right of the nose-to-neck axis. Warning above 1 %, problem above 5 %. Swaps flip the ear-based head direction by up to 180°.</li>
-        <li><strong>Ear distance and body length outliers</strong>: more than 3 median absolute deviations from the session median (NaN frames count as outliers). Warning above 5 %, problem above 15 %.</li>
+        <li><strong>Ear swaps</strong>: frames where the left ear is on the opposite side of the nose-to-neck axis from where it is in most of the session. Warning above 1 %, problem above 5 %. Swaps flip the ear-based head direction by up to 180°. Because this is relative to the session's own majority, a session labelled left/right the wrong way throughout shows 0 % here; the <strong>left ear side</strong> column catches that case (fraction of frames with the left ear on the positive side of the axis; flagged when a session falls on the other side of 50 % from most sessions).</li>
+        <li><strong>Ear distance and body length outliers</strong>: more than 3 robust SD (3 × 1.4826 median absolute deviations) from the session median; NaN frames count as outliers. About 0.3 % of frames exceed this by chance. Warning above 2 %, problem above 10 %.</li>
         <li><strong>Nose-to-tail order</strong>: projected onto the nose→tail-base axis, keypoints should fall in anatomical order. Warning above 5 %, problem above 15 %.</li>
         <li><strong>Head keypoints low</strong>: frames with at least two of nose, ears and head-midpoint below their 25th-percentile cut-off; those frames carry the least head-direction information.</li>
         <li><strong>Dark − light</strong>: median over keypoints of (median likelihood in dark − in light). Warning below −0.03, problem below −0.08.</li>
@@ -131,13 +131,20 @@ const DATA = /*__DATA__*/null;
 const S = DATA.sessions;
 const BPN = { nose_tip: "nose tip", left_ear: "left ear", right_ear: "right ear", head_midpoint: "head midpoint", neck: "neck", mid_back: "mid back", mouse_center: "mouse centre", tail_base: "tail base" };
 const lvl = (w, b) => v => v > b ? "bad" : v > w ? "warn" : null;
+// majority side of the left ear across sessions (true = mostly > 50 %)
+const EAR_MAJ = (() => {
+  const v = S.filter(s => s.overview && QC.isNum(s.overview.ear_left_pos_frac)).map(s => s.overview.ear_left_pos_frac > 0.5);
+  return v.length ? v.filter(Boolean).length * 2 >= v.length : null;
+})();
 const COLS = [
   { key: "median_lik", label: "Median likelihood", fmt: v => QC.fmt(v, 3), title: "Median over keypoints of each keypoint's median likelihood" },
   { key: "any_jump_frac", label: "Jumps", fmt: v => QC.pct(v, 2), flag: lvl(0.005, 0.02) },
   { key: "head_low2_frac", label: "Head keypoints low", fmt: v => QC.pct(v, 1) },
   { key: "ear_swap_frac", label: "Ear swaps", fmt: v => QC.pct(v, 2), flag: lvl(0.01, 0.05) },
-  { key: "ear_outlier_frac", label: "Ear-distance outliers", fmt: v => QC.pct(v, 1), flag: lvl(0.05, 0.15) },
-  { key: "body_outlier_frac", label: "Body-length outliers", fmt: v => QC.pct(v, 1), flag: lvl(0.05, 0.15) },
+  { key: "ear_left_pos_frac", label: "Left ear side", fmt: v => QC.pct(v, 0), flag: v => (EAR_MAJ === null ? null : (v > 0.5) !== EAR_MAJ ? "bad" : null),
+    title: "Fraction of frames with the left ear on the positive side of the nose→neck axis; should be on the same side of 50 % in every session" },
+  { key: "ear_outlier_frac", label: "Ear-distance outliers", fmt: v => QC.pct(v, 1), flag: lvl(0.02, 0.10) },
+  { key: "body_outlier_frac", label: "Body-length outliers", fmt: v => QC.pct(v, 1), flag: lvl(0.02, 0.10) },
   { key: "ap_frac", label: "Out of order", fmt: v => QC.pct(v, 1), flag: lvl(0.05, 0.15) },
   { key: "dark_minus_light_lik", label: "Dark − light likelihood", fmt: v => QC.fmt(v, 3), flag: v => v < -0.08 ? "bad" : v < -0.03 ? "warn" : null },
   { label: "Frames", get: s => s.summary ? s.summary.n_frames : null, fmt: v => QC.isNum(v) ? v.toLocaleString() : "—", noStrip: true },
@@ -211,9 +218,9 @@ function drawSession(id) {
     l.xaxis.title = QC.axTitle(`${label} (${unit})`); l.yaxis.tickformat = ".0%";
     QC.plot(el, [QC.histBar(obj.hist, label, QC.css("--s1"))], l);
     const off = obj.hist.below + obj.hist.above;
-    document.getElementById(cap).textContent = `Median ${QC.fmt(obj.median, 2)} ${unit}, MAD ${QC.fmt(obj.mad, 2)}; outliers (> 3 MAD or NaN) ${QC.pct(obj.outlier_frac)}${off ? `; ${off.toLocaleString()} frames off the plotted range` : ""}.${extraCap || ""}`;
+    document.getElementById(cap).textContent = `Median ${QC.fmt(obj.median, 2)} ${unit}, MAD ${QC.fmt(obj.mad, 2)}; outliers (> 3 robust SD or NaN) ${QC.pct(obj.outlier_frac)}${off ? `; ${off.toLocaleString()} frames off the plotted range` : ""}.${extraCap || ""}`;
   };
-  anat("plot-ear", "ear-cap", d.ear, "ear distance", d.ear && d.ear.swap_frac !== undefined ? ` Ears swapped relative to ${d.ear.swap_axis}: ${QC.pct(d.ear.swap_frac, 2)} of frames.` : "");
+  anat("plot-ear", "ear-cap", d.ear, "ear distance", d.ear && d.ear.swap_frac !== undefined ? ` Ears on the minority side of ${d.ear.swap_axis}: ${QC.pct(d.ear.swap_frac, 2)} of frames; left ear on the positive side in ${QC.pct(d.ear.left_pos_frac, 0)}.` : "");
   anat("plot-bl", "bl-cap", d.body_len, "body length", d.body_len ? ` Measured ${BPN[d.body_len.from] || d.body_len.from} → tail base.` : "");
   const ap = d.ap_order;
   if (ap) {

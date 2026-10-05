@@ -57,7 +57,7 @@
         <div class="chart-block">
           <div class="chart-head"><span class="chart-title" id="qf-title">Soma ROIs failing each calcium QC threshold</span></div>
           <div id="plot-qf" class="plot short" role="img" aria-labelledby="qf-title"></div>
-          <p class="caption">Thresholds from hm2p.calcium.qc: event SNR &lt; 3; decay τ outside 0.2–4 s; Spearman ρ with neuropil &gt; 0.6; bleaching slope &lt; −0.4; active fraction &lt; 5 %.</p>
+          <p class="caption">Thresholds from hm2p.calcium.qc: event SNR &lt; 3; decay τ outside 0.2–4 s; Spearman ρ with neuropil &gt; 0.6; bleaching slope &lt; −0.4; active fraction &lt; 5 %. Missing values (e.g. τ for cells with too few events) count as passing, as in flag_roi_qc.</p>
         </div>
       </div>
     </section>
@@ -93,10 +93,10 @@
       <ul class="plain">
         <li><strong>Noise SD</strong>: robust dF/F noise from the median absolute deviation of frame-to-frame differences (insensitive to slow drift and sparse transients). <strong>SNR</strong>: 99th percentile of dF/F divided by the noise SD. Session-median SNR below 5 is a warning, below 3 a problem.</li>
         <li><strong>V&amp;H vs SD Jaccard</strong>: overlap of the two event masks (frames in both / frames in either). Values near 1 mean the detectors agree; below 0.3 is a warning, below 0.15 a problem.</li>
-        <li><strong>V&amp;H events with spikes</strong>: fraction of V&amp;H events during which CASCADE inferred at least 0.2 spikes/s summed over the event. Below 70 % is a warning, below 50 % a problem: events that CASCADE ignores are either missed spikes or false events.</li>
+        <li><strong>V&amp;H events with spikes</strong>: fraction of V&amp;H events with at least 0.5 expected CASCADE spikes (CASCADE output summed over the event frames). Below 70 % is a warning, below 50 % a problem: events that CASCADE ignores are either missed spikes or false events.</li>
         <li><strong>Spike–dF/F ρ</strong>: Spearman correlation of the CASCADE rate with dF/F at zero lag. Low values are expected for very sparse cells; a negative value indicates a sign or alignment error.</li>
         <li><strong>F0 end / start</strong>: median of the last 5 % of the baseline over the first 5 %. Below 0.6 (more than 40 % loss) is a problem; it matches the bleaching threshold in hm2p.calcium.qc.</li>
-        <li><strong>CASCADE rate</strong> is in the units stored with the data (attribute <code>spikes_units</code>); CASCADE leaves NaN at the edges of the trace, reported as "spikes NaN".</li>
+        <li><strong>CASCADE rate</strong> is shown in Hz: CASCADE outputs the expected number of spikes in each frame, which is multiplied by the frame rate here (Rupprecht et al. 2021; CASCADE README). The <code>spikes_units</code> attribute written to ca.h5 by <code>scripts/run_cascade.py</code> says "spikes/s", which does not match the CASCADE output. Inference was run with <code>padding=0</code>, so trace edges are 0 rather than NaN.</li>
       </ul>
     </section>
 
@@ -132,14 +132,14 @@ const COLS = [
   { key: "rate_vh", label: "V&amp;H events / min", fmt: v => QC.fmt(v, 2) },
   { key: "rate_sd", label: "SD events / min", fmt: v => QC.fmt(v, 2) },
   { key: "jaccard_vh_sd", label: "V&amp;H vs SD Jaccard", fmt: v => QC.fmt(v, 2), flag: lo(0.3, 0.15) },
-  { key: "spk_rate", label: "CASCADE rate", fmt: v => QC.fmt(v, 3) },
+  { key: "spk_rate", label: "CASCADE rate (Hz)", fmt: v => QC.fmt(v, 2) },
   { key: "spk_dff_rho", label: "Spike–dF/F ρ", fmt: v => QC.fmt(v, 2), flag: v => v < 0 ? "bad" : null },
   { key: "vh_with_spikes", label: "V&amp;H events with spikes", fmt: v => QC.pct(v, 0), flag: lo(0.7, 0.5) },
   { key: "f0_end_over_start", label: "F0 end / start", fmt: v => QC.fmt(v, 2), flag: lo(0.75, 0.6) },
 ];
 const METRICS = {
   noise_sd: "noise SD (dF/F)", snr_p99: "SNR (p99 / noise)", rate_vh: "V&H events / min", rate_sd: "SD events / min", amp_vh: "median V&H event peak (dF/F)",
-  jaccard_vh_sd: "V&H vs SD Jaccard", spk_rate: "CASCADE mean rate", spk_dff_rho: "spike–dF/F Spearman ρ", spk_in_events: "fraction of spikes inside events",
+  jaccard_vh_sd: "V&H vs SD Jaccard", spk_rate: "CASCADE mean rate (Hz)", spk_dff_rho: "spike–dF/F Spearman ρ", spk_in_events: "fraction of spikes inside events",
   vh_with_spikes: "V&H events with spikes", f0_end_over_start: "F0 end / start", f0_min_rel: "F0 minimum / median", frac_below_f0: "fraction of frames F < F0",
   qc_snr_event: "event SNR (roi_qc)", qc_decay_tau_s: "decay τ (s, roi_qc)", qc_fneu_dff_corr: "ρ with neuropil (roi_qc)", qc_bleach_slope: "bleach slope (roi_qc)", qc_active_fraction: "active fraction (roi_qc)",
 };
@@ -153,9 +153,9 @@ function drawPopulation(d) {
   const tr = [{ type: "scatter", mode: "lines", x: t, y: md, name: "mean dF/F", line: { width: 1.5, color: QC.css("--s1") }, hovertemplate: "%{x:.2f} min: %{y:.3f}<extra>dF/F</extra>" }];
   const l = QC.layout({ shapes, margin: { l: 64, r: 14, t: 10, b: 44 } });
   if (p.mean_spk) {
-    tr.push({ type: "scatter", mode: "lines", x: t, y: QC.decode(p.mean_spk), name: "mean spike rate", xaxis: "x", yaxis: "y2", line: { width: 1.5, color: QC.css("--s2") }, hovertemplate: "%{x:.2f} min: %{y:.3f}<extra>spikes</extra>" });
+    tr.push({ type: "scatter", mode: "lines", x: t, y: QC.decode(p.mean_spk), name: "mean spike rate (Hz)", xaxis: "x", yaxis: "y2", line: { width: 1.5, color: QC.css("--s2") }, hovertemplate: "%{x:.2f} min: %{y:.3f}<extra>spikes</extra>" });
     l.grid = { rows: 2, columns: 1, subplots: [["xy"], ["xy2"]], roworder: "top to bottom" };
-    l.yaxis2 = Object.assign({}, l.yaxis, { title: QC.axTitle("spike rate") });
+    l.yaxis2 = Object.assign({}, l.yaxis, { title: QC.axTitle("spike rate (Hz)") });
   }
   l.yaxis.title = QC.axTitle("mean dF/F"); l.xaxis.title = QC.axTitle("time (min)");
   QC.plot("plot-pop", tr, l);
@@ -216,7 +216,7 @@ function selectRoi(i) {
     if (tr0.spikes) {
       traces.push({ type: "scatter", mode: "lines", x: t, y: QC.decode(tr0.spikes), name: "CASCADE", xaxis: "x", yaxis: "y2", line: { width: 1.2, color: QC.css("--s2") }, fill: "tozeroy", hovertemplate: "%{x:.1f} s: %{y:.3f}<extra>spikes</extra>" });
       l.grid = { rows: 2, columns: 1, subplots: [["xy"], ["xy2"]], roworder: "top to bottom" };
-      l.yaxis.domain = [0.38, 1]; l.yaxis2 = Object.assign({}, l.yaxis, { domain: [0, 0.3], title: QC.axTitle(d.spikes_units ? "spike rate" : "CASCADE") });
+      l.yaxis.domain = [0.38, 1]; l.yaxis2 = Object.assign({}, l.yaxis, { domain: [0, 0.3], title: QC.axTitle("spike rate (Hz)") });
     }
     QC.plot("plot-tr", traces, l);
     if (tr0.fcorr_ov) {
@@ -243,7 +243,7 @@ function drawSession(id) {
   document.getElementById("sess-stat").textContent = `${d.n_rois} ROIs (${d.counts.soma} soma, ${d.counts.dend} dendrite, ${d.counts.artefact} artefact) · ${QC.fmt(d.fps, 2)} Hz · ${QC.fmt(d.duration_min, 1)} min · F0 ${d.f0_method} · neuropil ${d.neuropil_method || "?"}`;
   const notes = [];
   if (!d.has.spikes) notes.push(["bad", "No CASCADE spikes dataset in this ca.h5."]);
-  else notes.push(["", `CASCADE model ${d.spikes_model || "?"}; units: ${d.spikes_units || "not recorded"}.`]);
+  else notes.push(["", `CASCADE model ${d.spikes_model || "?"}. Stored units attribute: "${d.spikes_units || "not recorded"}"; this page converts CASCADE output (expected spikes per frame) to Hz.`]);
   if (!d.has.vh || !d.has.sd) notes.push(["bad", `Missing event masks: ${!d.has.vh ? "V&H " : ""}${!d.has.sd ? "SD" : ""}.`]);
   document.getElementById("sess-callout").innerHTML = notes.map(([c, t]) => `<p class="callout ${c}">${QC.esc(t)}</p>`).join("");
   drawPopulation(d);

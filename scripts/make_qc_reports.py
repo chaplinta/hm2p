@@ -57,7 +57,7 @@ from hm2p.qc import rois as qroi  # noqa: E402
 from hm2p.qc import spikes as qspk  # noqa: E402
 from hm2p.qc import syllables as qsyl  # noqa: E402
 from hm2p.qc import tracking as qtrk  # noqa: E402
-from hm2p.qc.common import hist  # noqa: E402
+from hm2p.qc.common import hist, span_fps  # noqa: E402
 
 log = logging.getLogger("make_qc_reports")
 
@@ -132,8 +132,11 @@ def get_json(key: str) -> dict | None:
 def read_h5(key: str, wanted: Callable[[str], bool] | None = None) -> tuple[dict, dict] | None:
     """Datasets (all, or those whose path passes *wanted*) and root attrs of an S3 HDF5."""
     b = get_bytes(key)
-    if b is None:
-        return None
+    return None if b is None else h5_from_bytes(b, wanted)
+
+
+def h5_from_bytes(b: bytes, wanted: Callable[[str], bool] | None = None) -> tuple[dict, dict]:
+    """Datasets (all, or those whose path passes *wanted*) and root attrs of an in-memory HDF5."""
     data: dict[str, np.ndarray] = {}
     with h5py.File(io.BytesIO(b), "r") as f:
         attrs = dict(f.attrs)
@@ -199,7 +202,7 @@ class Ctx:
     def __init__(self, sub: str, ses: str, champion: dict | None) -> None:
         self.sub, self.ses, self.champion = sub, ses, champion
         self._kin: tuple[dict, dict] | None | bool = False
-        self._ca_small: tuple[dict, dict] | None | bool = False
+        self._ca_bytes: bytes | None | bool = False
 
     def kinematics(self) -> tuple[dict, dict] | None:
         if self._kin is False:
@@ -209,14 +212,19 @@ class Ctx:
             )
         return self._kin  # type: ignore[return-value]
 
+    def ca(self, wanted: Callable[[str], bool]) -> tuple[dict, dict] | None:
+        """Selected datasets of ca.h5; the file is downloaded once per session."""
+        if self._ca_bytes is False:
+            self._ca_bytes = get_bytes(f"calcium/{self.sub}/{self.ses}/ca.h5")
+        if self._ca_bytes is None:
+            return None
+        return h5_from_bytes(self._ca_bytes, wanted)  # type: ignore[arg-type]
+
     def ca_labels(self) -> tuple[dict, dict] | None:
         """roi_types, frame_times and roi_qc from ca.h5 (small datasets only)."""
-        if self._ca_small is False:
-            self._ca_small = read_h5(
-                f"calcium/{self.sub}/{self.ses}/ca.h5",
-                lambda n: n in ("roi_types", "frame_times", "iscell") or n.startswith("roi_qc/"),
-            )
-        return self._ca_small  # type: ignore[return-value]
+        return self.ca(
+            lambda n: n in ("roi_types", "frame_times", "iscell") or n.startswith("roi_qc/")
+        )
 
 
 def collect_tracking(c: Ctx) -> dict:
@@ -235,8 +243,14 @@ def collect_tracking(c: Ctx) -> dict:
         if not cands:
             raise FileNotFoundError(f"no pose .h5 under {prefix}")
         key = cands[-1]
+    kin = c.kinematics()
     meta = get_json(prefix + "dlc_meta.json") or {}
     fps = float(meta.get("tracking_fps", 30.0))
+    scale = mm_per_px(c.sub, c.ses)
+    fps_source, scale_source = (
+        "dlc_meta.json" if "tracking_fps" in meta else "default 30",
+        "video_meta",
+    )
     body = get_bytes(key)
     if body is None:
         raise FileNotFoundError(key)
@@ -245,9 +259,19 @@ def collect_tracking(c: Ctx) -> dict:
         tmp.flush()
         ds = load_pose_dataset(Path(tmp.name), "dlc")
     kp = qtrk.keypoints_from_dataset(ds)
-    kin = c.kinematics()
-    light = None if kin is None or "light_on" not in kin[0] else kin[0]["light_on"]
-    s = qtrk.summarise_tracking(kp, fps=fps, mm_per_px=mm_per_px(c.sub, c.ses), light_on=light)
+    n_pose = len(next(iter(kp.values()))["x"])
+    light = None
+    if kin is not None:
+        k, attrs = kin
+        # kinematics.h5 is computed from this pose file, frame for frame: use its
+        # frame rate and video scale so tracking QC matches stage 3
+        if "frame_times" in k and len(k["frame_times"]) == n_pose:
+            fps, fps_source = span_fps(k["frame_times"]), "kinematics frame_times"
+        if attrs.get("scale_mm_per_px"):
+            scale, scale_source = float(attrs["scale_mm_per_px"]), "kinematics.h5"
+        light = k.get("light_on")
+    s = qtrk.summarise_tracking(kp, fps=fps, mm_per_px=scale, light_on=light)
+    s["fps_source"], s["scale_source"] = fps_source, scale_source
     s["pose_file"] = key.split("/")[-1]
     s["champion_id"] = champ_id
     s["light_from_kinematics"] = light is not None and len(light) == s["n_frames"]
@@ -275,7 +299,7 @@ def collect_syllables(c: Ctx) -> dict:
     k = kin[0] if kin is not None else {}
     fps = 30.0
     if "frame_times" in k and len(k["frame_times"]) == len(sid):
-        fps = 1.0 / float(np.median(np.diff(k["frame_times"])))
+        fps = span_fps(k["frame_times"])
     s = qsyl.summarise_syllables(
         sid,
         fps=fps,
@@ -342,9 +366,7 @@ def collect_rois(c: Ctx) -> dict:
 
 
 def collect_spikes(c: Ctx) -> dict:
-    got = read_h5(
-        f"calcium/{c.sub}/{c.ses}/ca.h5", lambda n: n in CA_KEYS_SPIKES or n.startswith("roi_qc/")
-    )
+    got = c.ca(lambda n: n in CA_KEYS_SPIKES or n.startswith("roi_qc/"))
     if got is None:
         raise FileNotFoundError("ca.h5")
     ca, attrs = got
@@ -387,13 +409,8 @@ def classifier_info(with_reference: bool) -> dict:
         sys.path.insert(0, str(REPO / "scripts"))
         from train_roi_classifier import load_all_sessions
 
-        from hm2p.extraction.roi_classify import load_model
-
         X, y, groups = load_all_sessions()
-        _m, medians, _meta = load_model()
-        ref = qroi.cv_reference(
-            X, y, groups, meta.get("best_params", {}), medians=medians, n_jobs=-1
-        )
+        ref = qroi.cv_reference(X, y, groups, meta.get("best_params", {}), n_jobs=-1)
         ref_path.parent.mkdir(parents=True, exist_ok=True)
         ref_path.write_text(json.dumps(ref))
     if ref_path.exists():

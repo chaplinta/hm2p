@@ -74,6 +74,20 @@ def circ_diff_deg(a: npt.ArrayLike, b: npt.ArrayLike) -> np.ndarray:
     return (d + 180.0) % 360.0 - 180.0
 
 
+def span_fps(frame_times: npt.ArrayLike) -> float:
+    """Mean frame rate from the first-to-last time span: ``(n - 1) / (t[-1] - t[0])``.
+
+    Used instead of ``1 / median(diff)`` because kinematics frame times are
+    100 Hz camera times subsampled to the 30 fps pose length with rounded
+    indices, giving alternating 30/30/40 ms steps whose median (30 ms)
+    overstates the rate by about 11 %.
+    """
+    t = np.asarray(frame_times, dtype=np.float64).ravel()
+    if t.size < 2 or not np.isfinite(t[[0, -1]]).all() or t[-1] <= t[0]:
+        return float("nan")
+    return float((t.size - 1) / (t[-1] - t[0]))
+
+
 def bin_reduce(x: npt.ArrayLike, n_per_bin: int, how: str = "mean") -> np.ndarray:
     """Reduce *x* in consecutive bins of ``n_per_bin`` samples (last partial bin kept).
 

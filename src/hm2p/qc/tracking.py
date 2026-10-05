@@ -42,6 +42,9 @@ MAX_SPEED_MM_S = 1500.0  # 150 cm/s; faster frame-to-frame motion is treated as 
 DEFAULT_JUMP_PX = 50.0
 TIMELINE_BIN_S = 10.0
 CUT_QUANTILE = 0.25
+# hm2p.pose.quality compares |x - median| / MAD with z; MAD = 0.6745 sigma for a
+# normal distribution, so z = 3 * 1.4826 corresponds to 3 SD (~0.3 % by chance)
+OUTLIER_Z_MAD = 3.0 * 1.4826
 
 KeypointData = dict[str, dict[str, npt.NDArray[np.floating]]]
 
@@ -239,7 +242,7 @@ def _anatomy(kp: KeypointData, scale: float, light: np.ndarray | None) -> dict:
     if "left_ear" in kp and "right_ear" in kp:
         lx, ly = xy("left_ear")
         rx, ry = xy("right_ear")
-        e = detect_ear_distance_outliers(lx, ly, rx, ry)
+        e = detect_ear_distance_outliers(lx, ly, rx, ry, z_threshold=OUTLIER_Z_MAD)
         dist = e["distance"] * scale
         res["ear"] = {
             "hist": hist(dist, 0.0, 30.0 if scale != 1.0 else 120.0, 60),
@@ -257,13 +260,19 @@ def _anatomy(kp: KeypointData, scale: float, light: np.ndarray | None) -> dict:
                 px, py = xy(p)
                 sw = detect_ear_swaps(lx, ly, rx, ry, ax, ay, px, py)
                 res["ear"]["swap_frac"] = fnum(sw["pct_swapped"])
+                # detect_ear_swaps takes the majority side as correct, so it cannot see
+                # a session labelled left/right the wrong way throughout; the absolute
+                # side (compared across sessions in the report) can
+                ls = np.asarray(sw["left_sign"], dtype=np.float64)
+                ok = np.isfinite(ls) & (ls != 0)
+                res["ear"]["left_pos_frac"] = fnum(np.mean(ls[ok] > 0)) if ok.any() else None
                 res["ear"]["swap_axis"] = f"{a} → {p}"
                 break
     for front in ("mouse_center", "mid_back"):
         if front in kp and "tail_base" in kp:
             fx, fy = xy(front)
             tx, ty = xy("tail_base")
-            bl = body_length_consistency(fx, fy, tx, ty)
+            bl = body_length_consistency(fx, fy, tx, ty, z_threshold=OUTLIER_Z_MAD)
             res["body_len"] = {
                 "from": front,
                 "hist": hist(bl["length"] * scale, 0.0, 80.0 if scale != 1.0 else 300.0, 60),
@@ -297,6 +306,7 @@ def overview_row(s: dict) -> dict:
         "head_low2_frac": s["head_low2_frac"],
         "ear_outlier_frac": s.get("ear", {}).get("outlier_frac"),
         "ear_swap_frac": s.get("ear", {}).get("swap_frac"),
+        "ear_left_pos_frac": s.get("ear", {}).get("left_pos_frac"),
         "body_outlier_frac": s.get("body_len", {}).get("outlier_frac"),
         "ap_frac": s.get("ap_order", {}).get("frac"),
         "dark_minus_light_lik": fnum(np.median([d - li for li, d in lt])) if lt else None,

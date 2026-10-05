@@ -38,7 +38,7 @@ from hm2p.qc.common import bin_reduce, encode_i16, fnum, hist, mask_intervals, r
 ROI_TYPE_NAMES = {0: "soma", 1: "dend", 2: "artefact"}  # ca.h5 roi_types code
 WINDOW_S = 90.0
 OVERVIEW_BIN_S = 2.0
-SPIKE_PRESENT = 0.2  # spikes/s summed over an event counted as "CASCADE saw it"
+SPIKES_PER_EVENT_MIN = 0.5  # expected CASCADE spike count in an event for "CASCADE saw it"
 
 
 def noise_sd(trace: npt.ArrayLike) -> float:
@@ -84,6 +84,7 @@ def _roi_metrics(
     f0: np.ndarray | None,
     fcorr: np.ndarray | None,
     dur_min: float,
+    fps: float,
 ) -> dict:
     nsd = noise_sd(dff)
     r: dict = {
@@ -105,7 +106,8 @@ def _roi_metrics(
     if spk is not None:
         ok = np.isfinite(spk)
         r["spk_nan"] = fnum(np.mean(~ok), 4)
-        r["spk_rate"] = fnum(np.nanmean(spk), 4) if ok.any() else None
+        # CASCADE output is the expected number of spikes per frame; x fps gives Hz
+        r["spk_rate"] = fnum(np.nanmean(spk) * fps, 4) if ok.any() else None
         both = ok & np.isfinite(dff)
         r["spk_dff_rho"] = (
             fnum(stats.spearmanr(spk[both], dff[both]).statistic, 3)
@@ -123,7 +125,8 @@ def _roi_metrics(
         if vh is not None:
             ivs = mask_intervals(vh)
             if ivs:
-                seen = [np.nansum(spk[a:b]) > SPIKE_PRESENT for a, b in ivs]
+                # summing expected spikes per frame over the event gives its spike count
+                seen = [np.nansum(spk[a:b]) >= SPIKES_PER_EVENT_MIN for a, b in ivs]
                 r["vh_with_spikes"] = fnum(np.mean(seen), 3)
     if f0 is not None:
         f0f = f0[np.isfinite(f0)]
@@ -201,7 +204,7 @@ def summarise_spikes(
         spk = row(spk_all, i)
         f0 = row(f0_all, i)
         fc = row(fcorr_all, i)
-        m = _roi_metrics(dff_i, vh, sd, spk, f0, fc, dur_min)
+        m = _roi_metrics(dff_i, vh, sd, spk, f0, fc, dur_min, fps)
         m["i"] = i
         m["type"] = ROI_TYPE_NAMES.get(int(types[i]), str(types[i]))
         if m["type"] != "artefact":
@@ -209,7 +212,7 @@ def summarise_spikes(
             sl = slice(a, a + win)
             tr: dict = {"start": a, "dff": encode_i16(dff_i[sl])}
             if spk is not None:
-                tr["spikes"] = encode_i16(spk[sl])
+                tr["spikes"] = encode_i16(spk[sl] * fps)  # Hz
             if vh is not None:
                 tr["vh"] = mask_intervals(vh[sl])
             if sd is not None:
@@ -241,6 +244,7 @@ def summarise_spikes(
         "neuropil_method": _s(attrs.get("neuropil_method")),
         "spikes_model": _s(attrs.get("spikes_model")),
         "spikes_units": _s(attrs.get("spikes_units")),
+        "spike_rate_units": "Hz (CASCADE expected spikes per frame x frame rate)",
         "has": {
             "spikes": spk_all is not None,
             "vh": vh_all is not None,
@@ -252,7 +256,7 @@ def summarise_spikes(
         "counts": {name: int((types == k).sum()) for k, name in ROI_TYPE_NAMES.items()},
         "qc_fail": _qc_fail_fractions(qc, types),
         "rois": rois,
-        "population": _population(dff, spk_all, types, ov, light_on),
+        "population": _population(dff, spk_all, types, ov, light_on, fps),
     }
     return out
 
@@ -280,7 +284,8 @@ def _qc_fail_fractions(qc: dict[str, np.ndarray], types: np.ndarray) -> dict:
         if k in qc:
             v = qc[k][soma]
             with np.errstate(invalid="ignore"):
-                out[k] = fnum(np.mean(f(v) | ~np.isfinite(v)), 3)
+                # NaN (e.g. tau with too few events) counts as a pass, as in flag_roi_qc
+                out[k] = fnum(np.mean(np.where(np.isfinite(v), f(v), False)), 3)
     return out
 
 
@@ -290,8 +295,9 @@ def _population(
     types: np.ndarray,
     ov: int,
     light_on: npt.ArrayLike | None,
+    fps: float,
 ) -> dict:
-    """Soma-mean dF/F and spike rate over the session (detects shared artefacts)."""
+    """Soma-mean dF/F and spike rate (Hz) over the session (detects shared artefacts)."""
     soma = types == 0
     sel = soma if soma.any() else np.ones(types.size, dtype=bool)
     with np.errstate(all="ignore"):
@@ -299,7 +305,7 @@ def _population(
     p: dict = {"mean_dff": encode_i16(bin_reduce(mean_dff, ov))}
     if spk is not None and spk.shape == dff.shape:
         with np.errstate(all="ignore"):
-            p["mean_spk"] = encode_i16(bin_reduce(np.nanmean(spk[sel], axis=0), ov))
+            p["mean_spk"] = encode_i16(bin_reduce(np.nanmean(spk[sel], axis=0) * fps, ov))  # Hz
     if dff[sel].shape[0] >= 2:
         sub = dff[sel][:, np.all(np.isfinite(dff[sel]), axis=0)]
         if sub.shape[1] > 10:
@@ -308,7 +314,9 @@ def _population(
             p["pair_corr_hist"] = hist(c[iu], -0.2, 1.0, 48)
     if light_on is not None:
         lo = np.asarray(light_on, dtype=float).ravel()
-        if lo.size == dff.shape[1]:
+        T = dff.shape[1]
+        if abs(lo.size - T) <= 1 and lo.size:  # tolerate the Suite2p one-frame offset
+            lo = lo[:T] if lo.size >= T else np.append(lo, lo[-1])
             p["light"] = rounded(bin_reduce(lo, ov), 2)
     return p
 

@@ -96,6 +96,13 @@ def test_gap_and_bad_behav_detection():
     assert len(s["bad_intervals_s"]) == 1
 
 
+def test_hd_confidence_histogram_spans_four_estimators():
+    d = _kin()
+    d["hd_confidence"] = np.full(6000, 3.2)
+    h = summarise_movement(d)["hd_confidence"]["hist"]["light"]
+    assert h["hi"] == 4.0 and h["above"] == 0
+
+
 def test_missing_optional_keys_and_errors():
     d = {k: v for k, v in _kin().items() if k in ("frame_times", "speed_cm_s")}
     s = summarise_movement(d)

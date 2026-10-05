@@ -7,8 +7,9 @@ stored probabilities, the 26 classifier features of every ROI, and ROI
 outlines over the mean image.
 
 Reference: leave-one-session-out cross-validated predictions on the manually
-labelled legacy sessions, refitted with the champion model's
-hyper-parameters. The champion model itself was scored on one random 80/20
+labelled legacy sessions, refitted with the champion model's training recipe
+(hyper-parameters, objective, balanced class weights). The champion model
+itself was scored on one random 80/20
 split whose confusion matrix was not saved; the grouped cross-validation is
 stricter because no ROI from a test session is seen in training.
 
@@ -169,31 +170,45 @@ def cv_reference(
     labels: npt.ArrayLike,
     groups: npt.ArrayLike,
     params: dict[str, Any],
-    medians: npt.ArrayLike | None = None,
     n_jobs: int = 1,
+    random_state: int = 42,
 ) -> dict:
     """Leave-one-session-out predictions on manually labelled ROIs.
 
-    Refits an ``XGBClassifier`` with *params* once per held-out session and
-    returns the confusion matrix, per-class precision/recall/F1, a reliability
-    table per class, per-session accuracy and feature quantiles per manual
-    label (the reference distribution for the per-session feature plots).
+    Refits an ``XGBClassifier`` once per held-out session with the same recipe
+    as ``scripts/train_roi_classifier.py``: hyper-parameters *params*,
+    ``multi:softmax`` objective, balanced class weights
+    (``n / (3 * count)``, from the training sessions of the fold) and NaN
+    features filled with the training-fold medians (so no statistic of the
+    held-out session is used). Returns the confusion matrix,
+    per-class precision/recall/F1, a reliability table per class, per-session
+    accuracy and feature quantiles per manual label (the reference
+    distribution for the per-session feature plots).
     """
     from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
     from xgboost import XGBClassifier
 
     y = np.asarray(labels).astype(np.int64)
     g = np.asarray(groups)
-    X = features.copy()
-    if medians is not None:
-        X = X.fillna(pd.Series(np.asarray(medians, dtype=float), index=X.columns))
-    Xv = X.to_numpy(dtype=np.float64)
     prob = np.zeros((y.size, 3))
     for sess in np.unique(g):
         te = g == sess
-        clf = XGBClassifier(**params, n_jobs=n_jobs, eval_metric="mlogloss", verbosity=0)
-        clf.fit(Xv[~te], y[~te])
-        prob[te] = clf.predict_proba(Xv[te])
+        med = features[~te].median()
+        Xtr = features[~te].fillna(med).to_numpy(dtype=np.float64)
+        Xte = features[te].fillna(med).to_numpy(dtype=np.float64)
+        counts = np.bincount(y[~te], minlength=3).astype(np.float64)
+        cw = (~te).sum() / (3.0 * np.maximum(counts, 1.0))
+        clf = XGBClassifier(
+            **params,
+            objective="multi:softmax",
+            num_class=3,
+            eval_metric="mlogloss",
+            random_state=random_state,
+            n_jobs=n_jobs,
+            verbosity=0,
+        )
+        clf.fit(Xtr, y[~te], sample_weight=cw[y[~te]])
+        prob[te] = clf.predict_proba(Xte)
     pred = prob.argmax(axis=1)
     cm = confusion_matrix(y, pred, labels=[0, 1, 2])
     pr, rc, f1, sup = precision_recall_fscore_support(y, pred, labels=[0, 1, 2], zero_division=0)

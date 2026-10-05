@@ -48,8 +48,9 @@ stretches to check in the video, and checks from `hm2p.pose.quality`:
 | Check | Definition | Warning / problem |
 | --- | --- | --- |
 | Jumps | frame-to-frame displacement > 150 cm/s | > 0.5 % / > 2 % of frames |
-| Ear swaps | left ear right of the nose→neck axis | > 1 % / > 5 % |
-| Ear-distance, body-length outliers | > 3 MAD from session median, or NaN | > 5 % / > 15 % |
+| Ear swaps | left ear on the minority side of the nose→neck axis within the session | > 1 % / > 5 % |
+| Left ear side | fraction of frames with the left ear on the positive side; must fall on the same side of 50 % as most sessions (catches whole-session left/right mislabelling) | — / other side |
+| Ear-distance, body-length outliers | > 3 robust SD (3 × 1.4826 MAD) from session median, or NaN | > 2 % / > 10 % |
 | Nose-to-tail order | keypoints out of anatomical order along the body axis | > 5 % / > 15 % |
 | Dark − light likelihood | median over keypoints | < −0.03 / < −0.08 |
 
@@ -77,8 +78,8 @@ transitions.
 ### Cell classification
 
 Reference accuracy: leave-one-session-out predictions on the manually labelled
-legacy sessions in `/data/s2p`, refitting the classifier with the champion's
-hyper-parameters (`hm2p.qc.rois.cv_reference`); confusion matrix, per-class
+legacy sessions in `/data/s2p`, refitting with the champion's training recipe (hyper-parameters, balanced class weights, training-fold medians for
+missing features) (`hm2p.qc.rois.cv_reference`); confusion matrix, per-class
 precision/recall/F1, calibration, checked against the acceptance criteria in
 `docs/soma-classifier.md` (macro F1 ≥ 0.85, each class ≥ 0.7, < 5 % artefacts
 called soma). Per session: class counts, ambiguous ROIs (max probability
@@ -91,7 +92,10 @@ of the 26 features against the manual-label distributions (domain shift).
 
 Per ROI: robust noise SD (MAD of frame differences), SNR (99th percentile /
 noise), V&H and SD-threshold event rates and their frame-level Jaccard overlap,
-CASCADE mean rate, Spearman correlation of spikes with dF/F, fraction of V&H
+CASCADE mean rate (Hz: CASCADE outputs expected spikes per frame, multiplied
+here by the frame rate; the `spikes_units` attribute "spikes/s" written by
+`scripts/run_cascade.py` does not match this), Spearman correlation of spikes
+with dF/F, fraction of V&H
 events containing CASCADE spikes, fraction of spike mass inside events, F0 drift
 (last / first 5 %), fraction of frames with F below F0, plus the stored
 `roi_qc` metrics. Per session: soma-mean dF/F and spike rate over time, pairwise

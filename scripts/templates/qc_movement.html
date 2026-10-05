@@ -83,7 +83,7 @@
         <div class="chart-block">
           <div class="chart-head"><span class="chart-title" id="hc-title">Head-direction confidence</span></div>
           <div id="plot-hc" class="plot" role="img" aria-labelledby="hc-title"></div>
-          <p class="caption">Weight of the estimators that contributed to the fused head direction in each frame (0–1), lights on vs off.</p>
+          <p class="caption">Sum of the weights of the estimators that contributed to the fused head direction in each frame: each estimator weighs the mean likelihood of its two keypoints, so the range is 0–4 (4 = all four estimators available at likelihood 1). Lights on vs off.</p>
         </div>
       </div>
       <div class="two">
@@ -123,7 +123,7 @@
         <div class="chart-block">
           <div class="chart-head"><span class="chart-title">Filtering and position checks</span></div>
           <dl class="kv" id="kv-pos"></dl>
-          <p class="caption">"Filtered vs raw" is the distance between the confidence-filtered, interpolated, median-smoothed body position and the unfiltered tracker position, in maze cells. Large values mean filtering replaced many frames.</p>
+          <p class="caption">"Filtered vs raw" is the distance between the stage 3 body position (confidence-weighted centroid, filtered, interpolated, median-smoothed) and the raw position (unweighted centroid of the unfiltered keypoints), in maze cells. It combines the effect of filtering with the change of centroid estimator, so it is an upper bound on what filtering alone moves; large values still mark sessions where much of the position was replaced.</p>
         </div>
       </div>
     </section>
