@@ -109,3 +109,70 @@ def test_inout_tables(tmp_path: Path) -> None:
         len(sessions) == 20 and summary[0]["condition"] == "light" and summary[0]["n_animals"] == 5
     )
     assert summary[0]["animal_p"] < 0.1
+
+
+def test_auroc_and_mi_summaries(tmp_path: Path) -> None:
+    rng = np.random.default_rng(2)
+    d = tmp_path / "inout_auroc"
+    d.mkdir()
+    rows = []
+    for a in range(5):
+        for r in range(20):
+            auc = float(np.clip(rng.normal(0.5, 0.2), 0, 1))
+            rows.append(
+                {
+                    "condition": "all",
+                    "exp_id": f"s{a}",
+                    "animal_id": a,
+                    "roi": r,
+                    "auc": auc,
+                    "auc_null_mean": 0.5,
+                    "auc_null_sd": 0.05,
+                    "auc_p": 0.01 if abs(auc - 0.5) > 0.2 else 0.5,
+                    "auc_hd": auc,
+                    "auc_hd_null_mean": 0.5,
+                    "auc_hd_null_sd": 0.05,
+                    "auc_hd_p": 0.5,
+                }
+            )
+    pd.DataFrame(rows).to_csv(d / "cells_spikes.csv", index=False)
+    np.savez(
+        d / "null_spikes_all.npz", raw=rng.normal(0.5, 0.05, 500), hd=rng.normal(0.5, 0.05, 500)
+    )
+    a = mr.auroc_summary(tmp_path)
+    assert a["all"]["n_cells"] == 100 and a["all"]["auc"]["ks_p"] < 0.001
+    assert a["all"]["auc"]["animal_width_p"] < 0.1 and len(a["edges"]) == 41
+    m = tmp_path / "behaviour_mi"
+    m.mkdir()
+    pd.DataFrame(
+        {
+            "behaviour": ["light"] * 10,
+            "variant": ["plain"] * 10,
+            "animal_id": list(range(5)) * 2,
+            "mi_debiased": np.linspace(0.01, 0.1, 10),
+            "p": [0.01] * 10,
+        }
+    ).to_csv(m / "cells_spikes.csv", index=False)
+    s = mr.mi_summary(tmp_path)
+    assert s["rows"][0]["frac_sig"] == 1.0 and s["rows"][0]["n_animals"] == 5
+    assert mr.auroc_summary(tmp_path / "x") == {} and mr.mi_summary(tmp_path / "x") == {}
+
+
+def test_conj_summary(tmp_path: Path) -> None:
+    rng = np.random.default_rng(3)
+    rows = []
+    for a in range(5):
+        for r in range(10):
+            for beh in ("position", "position@light", "position@dark", "hd"):
+                base = rng.uniform(0, 0.01)
+                variants = {"plain": base, "given_hd": base + 0.01, "given_speed": base, "given_hd_speed": base + 0.008,
+                            "given_position": base + 0.005, "given_position_speed": base + 0.004}
+                for v, mi in variants.items():
+                    rows.append({"behaviour": beh, "variant": v, "exp_id": f"s{a}", "roi": r, "animal_id": a, "mi_debiased": mi, "p": 0.5})
+    (tmp_path / "behaviour_mi").mkdir()
+    pd.DataFrame(rows).to_csv(tmp_path / "behaviour_mi" / "cells_spikes.csv", index=False)
+    c = mr.conj_summary(tmp_path)
+    pos = next(r for r in c["rows"] if r["condition"] == "all" and r["target"] == "position")
+    assert pos["frac_higher"] == 1.0 and pos["speed"]["frac_higher"] == 1.0 and pos["n_animals"] == 5
+    assert len(c["cells"]["plain"]) == 50 and c["light_vs_dark"]["n_animals"] == 5
+    assert mr.conj_summary(tmp_path / "none") == {}

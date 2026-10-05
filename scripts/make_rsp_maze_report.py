@@ -283,6 +283,157 @@ def inout_tables(root: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]
     return sessions.to_dict(orient="records"), summary
 
 
+def auroc_summary(root: Path, signal: str = "spikes", bins: int = 40) -> dict[str, Any]:
+    """Per-cell in/out AUROC distributions (raw and HD-removed) vs the pooled shift null."""
+    p = root / "inout_auroc" / f"cells_{signal}.csv"
+    if not p.exists():
+        return {}
+    c = pd.read_csv(p)
+    c["animal_id"] = c["animal_id"].astype(str)
+    edges = np.linspace(0, 1, bins + 1)
+    out: dict[str, Any] = {"edges": edges.tolist()}
+    for cond, g in c.groupby("condition"):
+        nfile = root / "inout_auroc" / f"null_{signal}_{cond}.npz"
+        nulls = np.load(nfile) if nfile.exists() else None
+        block: dict[str, Any] = {
+            "n_cells": int(len(g)),
+            "n_sessions": int(g.exp_id.nunique()),
+            "n_animals": int(g.animal_id.nunique()),
+        }
+        for v, key in (("auc", "raw"), ("auc_hd", "hd")):
+            x = g[v].dropna().to_numpy()
+            nv = nulls[key][np.isfinite(nulls[key])] if nulls is not None else np.zeros(0)
+            exp_abs = np.sqrt(
+                (g[f"{v}_null_mean"] - 0.5) ** 2 + g[f"{v}_null_sd"] ** 2 * 2 / np.pi
+            )
+            ex = (np.abs(g[v] - 0.5) - exp_abs).groupby(g.animal_id).median()
+            sig = g[f"{v}_p"] < 0.05
+            block[v] = {
+                "values": [round(float(a), 4) for a in x],
+                "hist": np.histogram(x, edges)[0].tolist(),
+                "null_hist": (np.histogram(nv, edges)[0] / max(nv.size, 1) * len(x)).tolist(),
+                "median_abs_dev": float(np.median(np.abs(x - 0.5))),
+                "null_median_abs_dev": float(np.median(np.abs(nv - 0.5)))
+                if nv.size
+                else float("nan"),
+                "ks_p": float(stats.ks_2samp(x, nv).pvalue)
+                if nv.size and x.size
+                else float("nan"),
+                "frac_toward": float((sig & (g[v] > 0.5)).mean()),
+                "frac_away": float((sig & (g[v] < 0.5)).mean()),
+                "animal_width_p": _wilcoxon(ex),
+                "animal_width_pos": int((ex > 0).sum()),
+            }
+        out[cond] = block
+    return out
+
+
+def mi_summary(root: Path, signal: str = "spikes") -> dict[str, Any]:
+    """Per-behaviour single-cell MI: debiased values, fraction significant, animal-level tests."""
+    p = root / "behaviour_mi" / f"cells_{signal}.csv"
+    if not p.exists():
+        return {}
+    c = pd.read_csv(p)
+    c["animal_id"] = c["animal_id"].astype(str)
+    rows = []
+    for (beh, var), g in c.groupby(["behaviour", "variant"]):
+        am = g.groupby("animal_id").mi_debiased.median()
+        frac = g.assign(s=g.p < 0.05).groupby("animal_id").s.mean() - 0.05
+        rows.append(
+            {
+                "behaviour": beh,
+                "variant": var,
+                "n_cells": int(len(g)),
+                "n_animals": int(am.size),
+                "median_mi_debiased": float(g.mi_debiased.median()),
+                "q75_mi_debiased": float(g.mi_debiased.quantile(0.75)),
+                "frac_sig": float((g.p < 0.05).mean()),
+                "animal_p": _wilcoxon(am),
+                "animal_frac_p": _wilcoxon(frac),
+                "values": [round(float(v), 5) for v in g.mi_debiased],
+            }
+        )
+    return {"rows": rows}
+
+
+def _gain(c: pd.DataFrame, beh: str, cond: str, base: str) -> dict[str, Any] | None:
+    """Per-cell gain cond - base for one behaviour: medians, fraction > 0, animal-level Wilcoxon."""
+    w = (
+        c[c.behaviour == beh]
+        .pivot_table(index=["exp_id", "roi", "animal_id"], columns="variant", values="mi_debiased")
+        .reset_index()
+    )
+    if cond not in w or base not in w:
+        return None
+    w = w.dropna(subset=[cond, base])
+    d = w[cond] - w[base]
+    am = d.groupby(w.animal_id).median()
+    return {
+        "n_cells": int(len(w)),
+        "median_base": float(w[base].median()),
+        "median_cond": float(w[cond].median()),
+        "frac_higher": float((d > 0).mean()),
+        "animals_higher": int((am > 0).sum()),
+        "n_animals": int(am.size),
+        "animal_p": _wilcoxon(am),
+    }
+
+
+def conj_summary(root: Path, signal: str = "spikes") -> dict[str, Any]:
+    """Place-by-direction (conjunctive) MI gains, with and without speed control, per light condition."""
+    p = root / "behaviour_mi" / f"cells_{signal}.csv"
+    if not p.exists():
+        return {}
+    c = pd.read_csv(p)
+    c["animal_id"] = c["animal_id"].astype(str)
+    rows = []
+    for cond_name, suffix in (("all", ""), ("light", "@light"), ("dark", "@dark")):
+        for target, given, given_sp in (
+            ("position", "given_hd", "given_hd_speed"),
+            ("hd", "given_position", "given_position_speed"),
+        ):
+            g = _gain(c, target + suffix, given, "plain")
+            gs = _gain(c, target + suffix, given_sp, "given_speed")
+            if g is None:
+                continue
+            rows.append({"condition": cond_name, "target": target, **g, "speed": gs or {}})
+    w = c[c.behaviour == "position"].pivot_table(
+        index=["exp_id", "roi"], columns="variant", values="mi_debiased"
+    )
+    w = (
+        w.dropna(subset=["plain", "given_hd"])
+        if {"plain", "given_hd"} <= set(w.columns)
+        else w.iloc[:0]
+    )
+    lw = (
+        c[c.behaviour.isin(["position@light", "position@dark"])]
+        .pivot_table(
+            index=["exp_id", "roi", "animal_id"],
+            columns=["behaviour", "variant"],
+            values="mi_debiased",
+        )
+        .dropna()
+    )
+    ld: dict[str, Any] = {}
+    if len(lw):
+        gl = lw[("position@light", "given_hd")] - lw[("position@light", "plain")]
+        gd = lw[("position@dark", "given_hd")] - lw[("position@dark", "plain")]
+        dd = (gd - gl).groupby(level="animal_id").median()
+        ld = {
+            "median_dark_minus_light": float(dd.median()),
+            "animals_dark_higher": int((dd > 0).sum()),
+            "n_animals": int(dd.size),
+            "animal_p": _wilcoxon(dd),
+        }
+    cells = {"plain": [], "given_hd": []}
+    if len(w):
+        cells = {
+            "plain": [round(float(v), 5) for v in w["plain"]],
+            "given_hd": [round(float(v), 5) for v in w["given_hd"]],
+        }
+    return {"rows": rows, "light_vs_dark": ld, "cells": cells}
+
+
 def _fmtp(p: float | None) -> str:
     if p is None or not np.isfinite(p):
         return "n/a"
@@ -317,11 +468,19 @@ def narrative(d: dict[str, Any]) -> dict[str, Any]:
     n_spl = max([r["n_sessions"] for r in spl], default=0)
     g = lambda r, k: r.get(k, float("nan"))  # noqa: E731
     headline = (
-        "Pooling all cells, RSP population activity tells whether the mouse is running into or out of a "
-        "dead end, beyond head direction, speed and turning. None of the memory or planning signals we "
-        "tested survived its controls, and no population signal differed between light and dark."
+        "RSP layer 2/3 neurons respond to where the mouse is and which way it is heading together: position "
+        "information roughly triples once heading is held fixed, and heading information rises once place is held "
+        "fixed, in the light and in total darkness alike. At the population level this shows up as a code for running "
+        "into vs out of dead ends. Memory and planning signals did not survive their controls."
     )
     summary = [
+        [
+            "Main finding",
+            "within",
+            "Place-by-heading coding: single-cell mutual information with maze position rises from about 7 to 21 mbit when "
+            "head direction is held fixed (84 % of cells, 14/15 mice), and with heading from about 2 to 13 mbit when place "
+            "is held fixed; it survives holding running speed fixed and is equally present in light and dark.",
+        ],
         [
             "Holds",
             "within",
@@ -421,10 +580,49 @@ def narrative(d: dict[str, Any]) -> dict[str, Any]:
             "held": False,
         },
     ]
+    au = d.get("auroc", {}).get("all", {})
+    au_r, au_h = au.get("auc", {}), au.get("auc_hd", {})
+    cells_finding = (
+        f"Single cells carry the inbound/outbound distinction weakly: the AUROC distribution is wider than chance "
+        f"(median distance from 0.5 {g(au_r, 'median_abs_dev'):.3f} vs {g(au_r, 'null_median_abs_dev'):.3f}; "
+        f"{au_r.get('animal_width_pos', 0)}/{au.get('n_animals', 0)} mice, p {_fmtp(g(au_r, 'animal_width_p'))}), "
+        f"with about {100 * (g(au_r, 'frac_toward') + g(au_r, 'frac_away')):.0f} % of cells individually significant in "
+        f"either direction; once head direction is removed from each cell the per-mouse excess is gone "
+        f"(p {_fmtp(g(au_h, 'animal_width_p'))}), so the population result rests on many small contributions."
+        if au
+        else ""
+    )
+    cj = {(r["condition"], r["target"]): r for r in d.get("conj", {}).get("rows", [])}
+    pa, ha = cj.get(("all", "position"), {}), cj.get(("all", "hd"), {})
+    pl, pd_ = cj.get(("light", "position"), {}), cj.get(("dark", "position"), {})
+    sp = pa.get("speed", {})
+    ldc = d.get("conj", {}).get("light_vs_dark", {})
+    conj_finding = ""
+    if pa:
+        conj_finding = (
+            f"Position information more than doubles once head direction is held fixed "
+            f"({1000 * g(pa, 'median_base'):.1f} to {1000 * g(pa, 'median_cond'):.1f} mbit; higher in "
+            f"{100 * g(pa, 'frac_higher'):.0f} % of cells, {pa.get('animals_higher', 0)}/{pa.get('n_animals', 0)} mice, "
+            f"p {_fmtp(g(pa, 'animal_p'))}), and head-direction information rises once place is held fixed "
+            f"({1000 * g(ha, 'median_base'):.1f} to {1000 * g(ha, 'median_cond'):.1f} mbit, p {_fmtp(g(ha, 'animal_p'))}): "
+            "cells respond to place and heading jointly. "
+        )
+        if sp:
+            conj_finding += (
+                f"With running speed also held fixed the gain remains ({1000 * g(sp, 'median_base'):.1f} to "
+                f"{1000 * g(sp, 'median_cond'):.1f} mbit, {sp.get('animals_higher', 0)}/{sp.get('n_animals', 0)} mice, "
+                f"p {_fmtp(g(sp, 'animal_p'))}). "
+            )
+        conj_finding += (
+            f"It is present in the light (p {_fmtp(g(pl, 'animal_p'))}) and in the dark (p {_fmtp(g(pd_, 'animal_p'))}), "
+            f"with no difference between them (p {_fmtp(g(ldc, 'animal_p'))})."
+        )
     return {
         "headline": headline,
         "summary": summary,
         "direction_notes": direction_notes,
+        "cells_finding": cells_finding,
+        "conj_finding": conj_finding,
         "behaviour_points": behaviour_points,
         "leads": leads,
     }
@@ -449,6 +647,9 @@ def build(root: Path = RES) -> dict[str, Any]:
     out["trips"] = trip_behaviour(root)
     out["decoding"] = decoding(root)
     out["inout_sessions"], out["inout_summary"] = inout_tables(root)
+    out["auroc"] = auroc_summary(root)
+    out["mi"] = mi_summary(root)
+    out["conj"] = conj_summary(root)
     out.update(narrative(out))
     return out
 

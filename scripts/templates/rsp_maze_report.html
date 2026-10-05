@@ -20,6 +20,8 @@ td.verdict.failed { color: var(--muted); }
       <li><a href="#summary">Summary</a></li>
       <li><a href="#approach">Approach</a></li>
       <li><a href="#direction">Direction relative to dead ends</a></li>
+      <li><a href="#cells">Single cells: AUROC and MI</a></li>
+      <li><a href="#conj">Place by direction</a></li>
       <li><a href="#behaviour">What the mice do</a></li>
       <li><a href="#leads">Leads that did not hold</a></li>
       <li><a href="#reading">What it means</a></li>
@@ -70,6 +72,65 @@ td.verdict.failed { color: var(--muted); }
         </table>
       </div>
       <div class="prose" id="dir-notes"></div>
+    </section>
+
+    <section id="cells">
+      <h2>Single cells: AUROC and mutual information</h2>
+      <p class="finding" id="cells-finding"></p>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head">
+            <span class="chart-title" id="au-title">Into vs out of dead ends: AUROC of every cell</span>
+            <div class="seg" role="group" aria-label="AUROC variant" id="au-seg"><button type="button" id="au-raw" aria-pressed="true">Raw</button><button type="button" id="au-hd" aria-pressed="false">HD removed</button></div>
+          </div>
+          <div id="plot-au" class="plot" role="img" aria-labelledby="au-title"></div>
+          <p class="caption" id="au-caption"></p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="mi-title">Mutual information per cell, by behaviour</span></div>
+          <div id="plot-mi" class="plot" role="img" aria-labelledby="mi-title"></div>
+          <p class="caption">Shift-debiased MI (observed minus the mean of 200 circular shifts), in millibits, all cells; box = interquartile range, whiskers clipped for display. "| HD" is conditional on head direction (8 sectors); "| place" is conditional on maze cell.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="mi-table">
+          <thead><tr><th>Behaviour</th><th>Cells</th><th>Median MI (mbit)</th><th>Upper quartile</th><th>% cells significant</th><th>Animal-level p (MI &gt; 0)</th><th>Animal-level p (% sig &gt; 5 %)</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="conj">
+      <h2>Place depends on direction</h2>
+      <p class="finding" id="conj-finding"></p>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="cj-title">Position information with and without head direction held fixed</span></div>
+          <div id="plot-cj" class="plot" role="img" aria-labelledby="cj-title"></div>
+          <p class="caption">Each dot is a cell: debiased MI with maze position (x) against MI with position within head-direction sectors (y). Above the diagonal: more position information once heading is fixed.</p>
+        </div>
+        <div class="prose">
+          <p><strong>How to read this.</strong> In a maze, where the mouse is and which way it faces are linked by the corridors. A cell that only codes heading still carries some apparent position information, which disappears when heading is held fixed; a cell that only codes place loses a little; position information rises when heading is held fixed only if the cell's place response depends on heading (a conjunctive, direction-dependent place response). This was checked on simulated cells on the same maze graph:</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Simulated cell</th><th>Position MI</th><th>Position MI | heading</th></tr></thead>
+              <tbody>
+                <tr><td>Place only</td><td class="num">214</td><td class="num">202</td></tr>
+                <tr><td>Heading only</td><td class="num">85</td><td class="num">0</td></tr>
+                <tr><td>Place + heading (additive)</td><td class="num">156</td><td class="num">115</td></tr>
+                <tr><td>Place × heading (conjunctive)</td><td class="num">47</td><td class="num">90</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="caption">Millibits, debiased, 30,000 frames.</p>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table id="cj-table">
+          <thead><tr><th>Frames</th><th>Information about</th><th>Cells</th><th>Median MI (mbit)</th><th>Median MI with the other held fixed</th><th>Cells higher</th><th>Animal-level p</th><th>Same with speed also fixed: p</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
     <section id="behaviour">
@@ -206,9 +267,59 @@ function fillText() {
   document.getElementById("leads-body").innerHTML = D.leads.map(l =>
     `<tr><td><strong>${l.name}</strong><br><span class="meta">${l.question}</span></td><td>${l.first}</td><td>${l.control}</td><td class="verdict ${l.held ? "held" : "failed"}">${l.verdict}</td></tr>`).join("");
 }
-function renderAll() { [drawIO, drawLD, drawRV].forEach(f => { try { f(); } catch (e) { console.error(e); } }); }
+// ---- single cells
+let AU_VAR = "auc";
+function drawAU() {
+  const A = DATA.auroc && DATA.auroc.all; if (!A) return;
+  const v = A[AU_VAR], e = DATA.auroc.edges, mids = e.slice(0, -1).map((x, i) => (x + e[i + 1]) / 2);
+  const t = [
+    { type: "bar", x: mids, y: v.hist, width: e[1] - e[0], marker: { color: css("--neural") }, opacity: 0.75, name: "cells", hovertemplate: "AUROC %{x:.3f}: %{y} cells<extra></extra>" },
+    { type: "scatter", mode: "lines", x: mids, y: v.null_hist, line: { color: css("--light-c"), width: 2.5, shape: "hvh" }, name: "shift null", hovertemplate: "null %{y:.1f}<extra></extra>" },
+  ];
+  const lay = baseLayout({ showlegend: true, legend: { orientation: "h", y: 1.1, x: 0, font: { color: css("--muted") } },
+    shapes: [{ type: "line", yref: "paper", y0: 0, y1: 1, x0: 0.5, x1: 0.5, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  lay.xaxis = Object.assign(lay.xaxis, { title: { text: "AUROC (← prefers outbound · prefers inbound →)", font: { size: 13 } }, range: [0, 1] });
+  lay.yaxis = Object.assign(lay.yaxis, { title: { text: "cells", font: { size: 13 } } });
+  Plotly.react("plot-au", t, lay, CONFIG);
+  document.getElementById("au-caption").textContent =
+    `${A.n_cells} cells from ${A.n_sessions} sessions in ${A.n_animals} mice (sessions with at least 5 matched runs of each kind). Median distance from 0.5: ${fmt(v.median_abs_dev, 3)} vs ${fmt(v.null_median_abs_dev, 3)} under the null (pooled-cell KS p ${pTxt(v.ks_p)}). Individually significant: ${fmt(100 * v.frac_toward, 1)} % prefer inbound, ${fmt(100 * v.frac_away, 1)} % outbound. Animal-level test of width beyond each cell's own null: ${v.animal_width_pos}/${A.n_animals} mice above, p ${pTxt(v.animal_width_p)}.`;
+}
+const MI_ORDER = [["running", "plain", "Running vs still"], ["position", "plain", "Position"], ["position", "given_hd", "Position | HD"], ["hd", "plain", "Head direction"], ["hd", "given_position", "HD | place"], ["light", "plain", "Light vs dark"], ["inout", "plain", "Into vs out"], ["inout", "given_hd", "Into vs out | HD"]];
+function miRow(b, v) { return ((DATA.mi && DATA.mi.rows) || []).find(r => r.behaviour === b && r.variant === v); }
+function drawMI() {
+  const rows = MI_ORDER.map(([b, v, l]) => [miRow(b, v), l]).filter(([r]) => r);
+  const t = rows.map(([r, l]) => ({ type: "box", name: l, y: r.values.map(x => 1000 * x), boxpoints: false, marker: { color: css("--neural") },
+    line: { color: css("--neural"), width: 1.5 }, fillcolor: "rgba(0,0,0,0)", hoverinfo: "y" }));
+  const lay = baseLayout({ shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0, y1: 0, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  lay.yaxis = Object.assign(lay.yaxis, { title: { text: "debiased MI (mbit)", font: { size: 13 } }, range: [-30, 80] });
+  lay.xaxis = Object.assign(lay.xaxis, { tickfont: { size: 11 } });
+  Plotly.react("plot-mi", t, lay, CONFIG);
+  document.querySelector("#mi-table tbody").innerHTML = rows.map(([r, l]) =>
+    `<tr><td>${l}</td><td class="num">${r.n_cells}</td><td class="num">${fmt(1000 * r.median_mi_debiased, 1)}</td><td class="num">${fmt(1000 * r.q75_mi_debiased, 1)}</td><td class="num">${fmt(100 * r.frac_sig, 0)} %</td><td class="num">${pTxt(r.animal_p)}</td><td class="num">${pTxt(r.animal_frac_p)}</td></tr>`).join("");
+}
+function drawCJ() {
+  const C = DATA.conj; if (!C || !C.cells) return;
+  const t = [{ type: "scatter", mode: "markers", x: C.cells.plain.map(x => 1000 * x), y: C.cells.given_hd.map(x => 1000 * x),
+    marker: { size: 6, color: css("--hdrm"), opacity: 0.55 }, hovertemplate: "position %{x:.1f}, | HD %{y:.1f} mbit<extra></extra>" }];
+  const lay = baseLayout({ shapes: [{ type: "line", x0: -50, x1: 250, y0: -50, y1: 250, line: { width: 1, dash: "dot", color: css("--muted") } }] });
+  lay.xaxis = Object.assign(lay.xaxis, { title: { text: "position MI (mbit)", font: { size: 13 } }, range: [-40, 150] });
+  lay.yaxis = Object.assign(lay.yaxis, { title: { text: "position MI | head direction (mbit)", font: { size: 13 } }, range: [-40, 150] });
+  Plotly.react("plot-cj", t, lay, CONFIG);
+  document.querySelector("#cj-table tbody").innerHTML = C.rows.map(r =>
+    `<tr><td>${r.condition}</td><td>${r.target === "position" ? "position (| heading)" : "heading (| place)"}</td><td class="num">${r.n_cells}</td><td class="num">${fmt(1000 * r.median_base, 1)}</td><td class="num">${fmt(1000 * r.median_cond, 1)}</td><td class="num">${fmt(100 * r.frac_higher, 0)} % (${r.animals_higher}/${r.n_animals} mice)</td><td class="num">${pTxt(r.animal_p)}</td><td class="num">${r.speed && r.speed.animal_p !== undefined ? pTxt(r.speed.animal_p) : "—"}</td></tr>`).join("");
+  document.getElementById("conj-finding").textContent = DATA.conj_finding || "";
+}
+
+function renderAll() { [drawIO, drawLD, drawRV, drawAU, drawMI, drawCJ].forEach(f => { try { f(); } catch (e) { console.error(e); } }); }
 function init() {
-  fillText(); renderAll();
+  fillText();
+  document.getElementById("cells-finding").textContent = DATA.cells_finding || "";
+  ["au-raw", "au-hd"].forEach(id => document.getElementById(id).addEventListener("click", () => {
+    AU_VAR = id === "au-raw" ? "auc" : "auc_hd";
+    document.querySelectorAll("#au-seg button").forEach(b => b.setAttribute("aria-pressed", b.id === id ? "true" : "false"));
+    drawAU();
+  }));
+  renderAll();
   window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
   new MutationObserver(renderAll).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 }
