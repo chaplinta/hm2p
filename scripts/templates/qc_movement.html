@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Movement metrics quality</title>
+<meta name="description" content="Quality of the stage 3 kinematics per session: frame timing, gaps, head-direction estimator agreement, speed, angular head velocity and occupancy.">
+<!--__CSS__-->
+<!--__QCCSS__-->
+</head>
+<body>
+<div class="page">
+  <nav class="toc" aria-label="Contents">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#sessions">All sessions</a></li>
+      <li><a href="#session">One session</a></li>
+      <li><a href="#excerpt">Two-minute excerpt</a></li>
+      <li><a href="#hd">Head direction</a></li>
+      <li><a href="#speed">Speed and AHV</a></li>
+      <li><a href="#space">Position</a></li>
+      <li><a href="#reading">How to read this</a></li>
+      <li><a href="#methods">Methods</a></li>
+    </ol>
+  </nav>
+  <main>
+    <header class="top">
+      <nav class="qc-nav" id="qc-nav" aria-label="Quality reports"></nav>
+      <div class="eyebrow">hm2p · data quality · stage 3 kinematics</div>
+      <h1>Movement metrics quality</h1>
+      <p class="meta">kinematics.h5 per session (head direction, position, speed, angular head velocity, movement state, light and bad-behaviour flags), at the tracking frame rate. Current DLC champion: <span class="path" id="champion"></span>. Sessions with data: <span id="n-ok"></span>. Data collected <span id="generated"></span>; page built __BUILD__.</p>
+    </header>
+
+    <section id="sessions">
+      <h2>All sessions</h2>
+      <p class="caption">Click a row to open that session; click a header to sort. ▲ warning, ● problem (levels under "How to read this"). Statistics exclude frames flagged <em>bad_behav</em> (mouse caught on the fibre or wires) unless stated.</p>
+      <div class="table-wrap scroll" id="tbl"></div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title">Compare sessions on one measure</span><label class="controls"><select id="strip-metric" aria-label="Measure"></select></label></div>
+        <div id="plot-strip" class="plot short" role="img" aria-label="Chosen measure for each session, by cell type"></div>
+      </div>
+    </section>
+
+    <section id="session">
+      <div class="picker"><label>Session <select id="sel-session"></select></label><span class="stat" id="sess-stat"></span></div>
+      <h2>One session</h2>
+      <div id="sess-callout"></div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title">Processing record</span></div>
+          <dl class="kv" id="kv-attrs"></dl>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title">Timing and gaps</span></div>
+          <dl class="kv" id="kv-timing"></dl>
+        </div>
+      </div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="tl-title">Session timeline (10 s bins)</span>
+          <div class="seg" role="group" aria-label="Timeline measure" id="tl-seg"></div></div>
+        <div id="plot-tl" class="plot short" role="img" aria-labelledby="tl-title"></div>
+        <p class="caption">Shaded: lights off. "NaN" is the fraction of frames where head direction is missing after confidence filtering and gap interpolation (gaps longer than the interpolation limit stay NaN).</p>
+      </div>
+    </section>
+
+    <section id="excerpt">
+      <h2>Two-minute excerpt</h2>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="ex-title">Head direction, speed and angular head velocity</span></div>
+        <div id="plot-ex" class="plot xtall" role="img" aria-labelledby="ex-title"></div>
+        <p class="caption" id="ex-cap">Two minutes around the light switch nearest the middle of the session, at 15 Hz. Top: fused head direction (the analysis variable) with the ear-based and nose-neck estimates; wrap-around jumps between 0° and 360° are expected. Middle: body and head speed. Bottom: angular head velocity. Brief spikes in AHV that coincide with a jump between estimators point to tracking errors rather than real head turns.</p>
+      </div>
+    </section>
+
+    <section id="hd">
+      <h2>Head direction</h2>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ag-title">Agreement with the ear-based estimate</span></div>
+          <div id="plot-ag" class="plot" role="img" aria-labelledby="ag-title"></div>
+          <p class="caption">Circular difference of each estimator from the head direction perpendicular to the ear axis. A narrow peak at 0° means the keypoints agree on the head's axis; a constant offset reflects geometry (e.g. head-midpoint not on the ear midline); mass near ±180° means a front/back flip.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="hc-title">Head-direction confidence</span></div>
+          <div id="plot-hc" class="plot" role="img" aria-labelledby="hc-title"></div>
+          <p class="caption">Weight of the estimators that contributed to the fused head direction in each frame (0–1), lights on vs off.</p>
+        </div>
+      </div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ho-title">Head-direction occupancy</span></div>
+          <div id="plot-ho" class="plot" role="img" aria-labelledby="ho-title"></div>
+          <p class="caption">Fraction of frames in each 10° sector. A strong bias toward a few directions is expected from the maze corridors; a single dominant direction may indicate a stuck estimate.</p>
+        </div>
+        <div class="table-wrap"><table class="compact" id="ag-table"><thead><tr><th>Estimator vs ears</th><th>Median |Δ|</th><th>|Δ| &gt; 45°</th><th>|Δ| &gt; 90°</th><th>Median |Δ| light</th><th>Median |Δ| dark</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="speed">
+      <h2>Speed and angular head velocity</h2>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="sp-title">Body speed</span></div>
+          <div id="plot-sp" class="plot" role="img" aria-labelledby="sp-title"></div>
+          <p class="caption" id="sp-cap"></p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ah-title">Angular head velocity</span></div>
+          <div id="plot-ah" class="plot" role="img" aria-labelledby="ah-title"></div>
+          <p class="caption" id="ah-cap"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="space">
+      <h2>Position</h2>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="oc-title">Occupancy (body position)</span></div>
+          <div id="plot-oc" class="plot tall" role="img" aria-labelledby="oc-title"></div>
+          <p class="caption">Log-scaled frame counts in a 40 × 40 grid over the central 99.8 % of positions. The maze outline should be recognisable; isolated bright cells away from corridors suggest position errors.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title">Filtering and position checks</span></div>
+          <dl class="kv" id="kv-pos"></dl>
+          <p class="caption">"Filtered vs raw" is the distance between the confidence-filtered, interpolated, median-smoothed body position and the unfiltered tracker position, in maze cells. Large values mean filtering replaced many frames.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="reading">
+      <h2>How to read this</h2>
+      <ul class="plain">
+        <li><strong>Frame timing</strong>: gaps are steps longer than twice the median frame interval. Any gap is a warning; non-monotonic timestamps are a problem (the schema forbids them).</li>
+        <li><strong>Head direction missing</strong>: warning above 2 %, problem above 10 % of frames.</li>
+        <li><strong>Nose-neck vs ears, median |Δ|</strong>: warning above 20°, problem above 40°; <strong>|Δ| &gt; 45°</strong>: warning above 10 %, problem above 25 %.</li>
+        <li><strong>Implausible speed</strong> (&gt; 100 cm/s) and <strong>AHV</strong> (|AHV| &gt; 1500 °/s): warning above 0.1 %, problem above 1 % of frames. These are almost always tracking jumps that survived filtering.</li>
+        <li><strong>Active fraction</strong>: frames with body speed above the session's active threshold. Shown light and dark; a large difference is behaviour, not a processing error, but very low values in both suggest a scale or speed error.</li>
+        <li><strong>Champion</strong>: whether the session's kinematics were computed from the current DLC champion model. Sessions from an older model are stale and should be re-run before analysis.</li>
+      </ul>
+    </section>
+
+    <section id="methods">
+      <h2>Methods</h2>
+      <details>
+        <summary>Code and references</summary>
+        <div class="prose">
+          <p>Per-session summaries: <span class="path">hm2p.qc.movement.summarise_movement</span> on the datasets of <span class="path">kinematics.h5</span> written by <span class="path">hm2p.kinematics.compute</span> (multi-estimator head direction <span class="path">compute_hd_multi</span>, speed <span class="path">compute_speed_from_position</span>, AHV <span class="path">compute_ahv</span>). Data collection: <span class="path">scripts/make_qc_reports.py</span>; page: <span class="path">scripts/build_qc_reports_html.py</span>.</p>
+          <p>Sirmpilatze N, Lo CC, Minano S, et al. movement: Python tools for analysing animal body movements. doi:10.5281/zenodo.12755724. https://github.com/neuroinformatics-unit/movement</p>
+        </div>
+      </details>
+    </section>
+    <footer>Generated from the hm2p repository. All data are loaded from the pipeline outputs on S3; nothing on this page is simulated.</footer>
+  </main>
+</div>
+<!--__PLOTLY__-->
+<!--__QCJS__-->
+<script>
+const DATA = /*__DATA__*/null;
+const S = DATA.sessions;
+const lvl = (w, b) => v => v > b ? "bad" : v > w ? "warn" : null;
+const COLS = [
+  { label: "Champion", get: s => s.summary ? (s.summary.champion_current === null ? null : s.summary.champion_current ? 1 : 0) : null,
+    fmt: v => v === null || v === undefined ? "—" : v ? "current" : "stale", flag: v => v === 0 ? "bad" : null },
+  { key: "fps", label: "fps", fmt: v => QC.fmt(v, 1) },
+  { key: "n_gaps", label: "Timing gaps", fmt: v => QC.isNum(v) ? String(v) : "—", flag: v => v > 0 ? "warn" : null },
+  { key: "frac_bad_behav", label: "bad_behav", fmt: v => QC.pct(v, 1) },
+  { key: "hd_nan", label: "HD missing", fmt: v => QC.pct(v, 2), flag: lvl(0.02, 0.10) },
+  { key: "pos_nan", label: "Position missing", fmt: v => QC.pct(v, 2), flag: lvl(0.02, 0.10) },
+  { key: "hd_nose_neck_mad", label: "Nose-neck vs ears, median |Δ| (°)", fmt: v => QC.fmt(v, 1), flag: lvl(20, 40) },
+  { key: "hd_nose_neck_gt45", label: "|Δ| > 45°", fmt: v => QC.pct(v, 1), flag: lvl(0.10, 0.25) },
+  { key: "speed_q95", label: "Speed 95th pct (cm/s)", fmt: v => QC.fmt(v, 1) },
+  { key: "speed_implausible", label: "Speed > 100 cm/s", fmt: v => QC.pct(v, 2), flag: lvl(0.001, 0.01) },
+  { key: "ahv_implausible", label: "|AHV| > 1500 °/s", fmt: v => QC.pct(v, 2), flag: lvl(0.001, 0.01) },
+  { key: "active_light", label: "Active, light", fmt: v => QC.pct(v, 0) },
+  { key: "active_dark", label: "Active, dark", fmt: v => QC.pct(v, 0) },
+];
+const EST = { hd_nose_head: ["nose → head-midpoint", "--s1"], hd_nose_neck: ["nose → neck", "--s2"], hd_head_neck: ["head-midpoint → neck", "--s3"], hd_deg: ["fused (analysis)", "--s4"] };
+const get = id => S.find(s => s.exp_id === id);
+let tlKey = "speed_cm_s";
+const TLK = { speed_cm_s: ["Speed", "median speed (cm/s)"], abs_ahv: ["|AHV|", "median |AHV| (°/s)"], hd_confidence: ["HD confidence", "median HD confidence"], nan_frac: ["NaN", "fraction of frames with HD missing"] };
+
+function lightDark(h, label, unit, div, extra) {
+  const l = QC.layout(Object.assign({ showlegend: true }, extra || {}));
+  l.xaxis.title = QC.axTitle(unit); l.yaxis.title = QC.axTitle("fraction of frames"); l.yaxis.tickformat = ".1%";
+  QC.plot(div, [QC.histLine(h.light, "lights on", QC.css("--light-c")), QC.histLine(h.dark, "lights off", QC.css("--dark-c"))], l);
+}
+
+function drawTimeline(d) {
+  const tl = d.timeline, seg = document.getElementById("tl-seg");
+  const avail = Object.keys(TLK).filter(k => tl[k]);
+  if (!avail.includes(tlKey)) tlKey = avail[0];
+  seg.innerHTML = avail.map(k => `<button type="button" data-k="${k}" aria-pressed="${k === tlKey}">${TLK[k][0]}</button>`).join("");
+  seg.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { tlKey = b.dataset.k; drawTimeline(d); }));
+  const l = QC.layout({ shapes: QC.darkShapes(tl.t_min, tl.light) });
+  l.xaxis.title = QC.axTitle("time (min)"); l.yaxis.title = QC.axTitle(TLK[tlKey][1]);
+  if (tlKey === "nan_frac") l.yaxis.tickformat = ".0%";
+  QC.plot("plot-tl", [{ type: "scatter", mode: "lines", x: tl.t_min, y: tl[tlKey], line: { width: 2, color: QC.css("--s1") }, hovertemplate: "%{x:.2f} min: %{y:.3g}<extra></extra>" }], l);
+}
+
+function drawExcerpt(d) {
+  const ex = d.excerpt;
+  const n = ex.speed_cm_s ? ex.speed_cm_s.n : (ex.hd_deg ? ex.hd_deg.n : 0);
+  const t = Array.from({ length: n }, (_, i) => ex.t0_s + i * ex.dt_s);
+  const light = QC.decode(ex.light);
+  const shapes = [];
+  for (const yr of ["y", "y2", "y3"]) QC.darkShapes(t, light).forEach(s => shapes.push(Object.assign({}, s, { yref: yr + " domain" })));
+  const tr = [];
+  const line = (k, name, color, axis, mode = "lines", extra) => { if (ex[k]) tr.push(Object.assign({ type: "scatter", mode, x: t, y: QC.decode(ex[k]), name, xaxis: "x", yaxis: axis,
+    line: { width: mode === "lines" ? 1.5 : 0, color }, marker: { size: 3, color }, hovertemplate: `${name}: %{y:.1f}<extra></extra>` }, extra || {})); };
+  line("hd_ears", "HD, ears", QC.css("--s1"), "y", "markers");
+  line("hd_nose_neck", "HD, nose → neck", QC.css("--s2"), "y", "markers");
+  line("hd_deg", "HD, fused", QC.css("--ink"), "y", "markers", { marker: { size: 2.5, color: QC.css("--ink") } });
+  line("speed_cm_s", "body speed (cm/s)", QC.css("--s1"), "y2");
+  line("speed_head_cm_s", "head speed (cm/s)", QC.css("--s2"), "y2");
+  line("ahv_deg_s", "AHV (°/s)", QC.css("--s1"), "y3");
+  const l = QC.layout({ showlegend: true, shapes, grid: { rows: 3, columns: 1, subplots: [["xy"], ["xy2"], ["xy3"]], roworder: "top to bottom" }, margin: { l: 64, r: 14, t: 30, b: 44 } });
+  l.yaxis = Object.assign(l.yaxis, { title: QC.axTitle("HD (°)"), range: [0, 360], tickvals: [0, 90, 180, 270, 360] });
+  l.yaxis2 = Object.assign({}, l.yaxis, { title: QC.axTitle("cm/s"), range: null, tickvals: null, autorange: true });
+  l.yaxis3 = Object.assign({}, l.yaxis2, { title: QC.axTitle("°/s") });
+  l.xaxis.title = QC.axTitle("time in session (s)");
+  QC.plot("plot-ex", tr, l);
+}
+
+function drawSession(id) {
+  const s = get(id);
+  if (!s || !s.summary) return;
+  const d = s.summary, a = d.attrs || {};
+  document.getElementById("sess-stat").textContent = `${(d.n_frames || 0).toLocaleString()} frames · ${QC.fmt(d.fps, 1)} fps · ${QC.fmt(d.duration_min, 1)} min · ${QC.pct(d.frac_light, 0)} lights on`;
+  const notes = [];
+  if (d.champion_current === false) notes.push(["bad", `Computed with DLC model ${a.dlc_champion_id || "unknown"}, not the current champion (${(DATA.champion || {}).champion_id}). Re-run stages 3, 5 and 6 for this session.`]);
+  if (d.timing.non_monotonic) notes.push(["bad", `${d.timing.non_monotonic} non-increasing timestamps.`]);
+  if (s.notes) notes.push(["", `experiments.csv note: ${s.notes}`]);
+  document.getElementById("sess-callout").innerHTML = notes.map(([c, t]) => `<p class="callout ${c}">${QC.esc(t)}</p>`).join("");
+  QC.kv(document.getElementById("kv-attrs"), [
+    ["DLC champion id", a.dlc_champion_id], ["DLC model", a.dlc_model_name], ["snapshot", a.dlc_snapshot], ["tracker", a.tracker],
+    ["confidence threshold", a.confidence_threshold], ["gap fill (frames)", a.gap_fill_frames], ["scale (mm/px)", a.scale_mm_per_px],
+    ["orientation (°)", a.orientation_deg], ["active threshold (cm/s)", a.speed_active_threshold_cm_s],
+  ]);
+  const bi = d.bad_intervals_s || [];
+  QC.kv(document.getElementById("kv-timing"), [
+    ["median frame interval", `${QC.fmt(d.timing.median_dt_ms, 2)} ms`], ["longest interval", `${QC.fmt(d.timing.max_dt_ms, 1)} ms`],
+    ["gaps (> 2× median)", String(d.timing.n_gaps)], ["non-increasing steps", String(d.timing.non_monotonic)],
+    ["bad_behav", `${QC.pct(d.frac_bad_behav, 1)} in ${bi.length} interval${bi.length === 1 ? "" : "s"}`],
+    ["bad_behav intervals (s)", bi.slice(0, 12).map(([x, y]) => `${x}–${y}`).join(", ") + (bi.length > 12 ? " …" : "")],
+    ...Object.entries(d.nan_frac || {}).map(([k, v]) => [`${k} missing`, QC.pct(v, 2)]),
+  ]);
+  drawTimeline(d);
+  drawExcerpt(d);
+
+  const ag = d.hd_agreement || {};
+  const keys = Object.keys(EST).filter(k => ag[k]);
+  if (keys.length) {
+    const l = QC.layout({ showlegend: true });
+    l.xaxis.title = QC.axTitle("estimator − ears (°)"); l.xaxis.tickvals = [-180, -90, 0, 90, 180]; l.yaxis.tickformat = ".0%"; l.yaxis.title = QC.axTitle("fraction of frames");
+    QC.plot("plot-ag", keys.map(k => QC.histLine(ag[k].hist, EST[k][0], QC.css(EST[k][1]))), l);
+  } else QC.empty(document.getElementById("plot-ag"), "No per-estimator head-direction datasets in this kinematics.h5.");
+  document.querySelector("#ag-table tbody").innerHTML = keys.map(k => `<tr><td>${EST[k][0]}</td><td class="num">${QC.fmt(ag[k].median_abs, 1)}°</td><td class="num">${QC.pct(ag[k].frac_gt45)}</td><td class="num">${QC.pct(ag[k].frac_gt90)}</td><td class="num">${QC.fmt(ag[k].median_abs_light, 1)}</td><td class="num">${QC.fmt(ag[k].median_abs_dark, 1)}</td></tr>`).join("");
+  if (d.hd_confidence) lightDark(d.hd_confidence.hist, "HD confidence", "HD confidence", "plot-hc");
+  else QC.empty(document.getElementById("plot-hc"), "No hd_confidence dataset.");
+  if (d.hd_occupancy) {
+    const xy = h => QC.histXY(h);
+    const L = xy(d.hd_occupancy.light), D = xy(d.hd_occupancy.dark);
+    const l = QC.layout({ showlegend: true, polar: { bgcolor: "rgba(0,0,0,0)", angularaxis: { direction: "counterclockwise", rotation: 0, color: QC.css("--muted"), gridcolor: QC.css("--rule") }, radialaxis: { color: QC.css("--muted"), gridcolor: QC.css("--rule"), tickformat: ".0%" } }, margin: { l: 30, r: 30, t: 30, b: 30 } });
+    QC.plot("plot-ho", [
+      { type: "scatterpolar", mode: "lines", theta: [...L.x, L.x[0]], r: [...L.y, L.y[0]], name: "lights on", line: { color: QC.css("--light-c"), width: 2 }, hovertemplate: "%{theta:.0f}°: %{r:.1%}<extra>on</extra>" },
+      { type: "scatterpolar", mode: "lines", theta: [...D.x, D.x[0]], r: [...D.y, D.y[0]], name: "lights off", line: { color: QC.css("--dark-c"), width: 2 }, hovertemplate: "%{theta:.0f}°: %{r:.1%}<extra>off</extra>" },
+    ], l);
+  } else QC.empty(document.getElementById("plot-ho"), "No head direction.");
+
+  if (d.speed) {
+    lightDark(d.speed.hist, "speed", "body speed (cm/s)", "plot-sp");
+    const off = d.speed.hist.light.above + d.speed.hist.dark.above;
+    document.getElementById("sp-cap").textContent = `Quantiles 5/50/95 %: ${QC.fmt(d.speed.q.q05, 1)} / ${QC.fmt(d.speed.q.q50, 1)} / ${QC.fmt(d.speed.q.q95, 1)} cm/s; maximum ${QC.fmt(d.speed.max, 1)}; > 100 cm/s in ${QC.pct(d.speed.frac_implausible, 2)} of frames; ${off.toLocaleString()} frames above 60 cm/s not plotted. Active (above ${QC.fmt((d.active || {}).threshold_cm_s, 1)} cm/s): ${QC.pct((d.active || {}).light, 0)} light, ${QC.pct((d.active || {}).dark, 0)} dark.` + (d.head_vs_body_speed ? ` Head vs body speed Spearman ρ = ${QC.fmt(d.head_vs_body_speed.spearman, 2)}.` : "");
+  } else QC.empty(document.getElementById("plot-sp"), "No speed dataset.");
+  if (d.ahv) {
+    lightDark(d.ahv.hist, "AHV", "AHV (°/s)", "plot-ah");
+    document.getElementById("ah-cap").textContent = `|AHV| quantiles 50/95 %: ${QC.fmt(d.ahv.abs_q.q50, 0)} / ${QC.fmt(d.ahv.abs_q.q95, 0)} °/s; |AHV| > 1500 °/s in ${QC.pct(d.ahv.frac_implausible, 2)} of frames. The distribution should be symmetric about 0.`;
+  } else QC.empty(document.getElementById("plot-ah"), "No AHV dataset.");
+
+  const oc = d.occupancy;
+  if (oc && oc.counts) {
+    const cx = e => e.slice(0, -1).map((v, i) => (v + e[i + 1]) / 2);
+    const l = QC.layout({ margin: { l: 56, r: 14, t: 10, b: 44 } });
+    l.xaxis.title = QC.axTitle("x (mm)"); l.yaxis.title = QC.axTitle("y (mm)"); l.yaxis.scaleanchor = "x";
+    QC.plot("plot-oc", [{ type: "heatmap", x: cx(oc.x_edges), y: cx(oc.y_edges), z: oc.counts.map(r => r.map(c => c > 0 ? Math.log10(c) : null)), customdata: oc.counts,
+      colorscale: [[0, QC.css("--seq-lo")], [0.5, QC.css("--seq-mid")], [1, QC.css("--seq-hi")]], showscale: false, hovertemplate: "x %{x:.0f}, y %{y:.0f} mm: %{customdata:,} frames<extra></extra>" }], l);
+  } else QC.empty(document.getElementById("plot-oc"), "No position data.");
+  const rv = d.raw_vs_filtered || {};
+  QC.kv(document.getElementById("kv-pos"), [
+    ["filtered vs raw, median", rv.q ? `${QC.fmt(rv.q.q50, 3)} cells` : null], ["filtered vs raw, 95th pct", rv.q ? `${QC.fmt(rv.q.q95, 3)} cells` : null],
+    ["raw position missing", QC.pct(rv.frac_raw_nan, 2)], ["filtered position missing", QC.pct(rv.frac_filtered_nan, 2)],
+  ]);
+}
+
+QC.nav("qc-movement.html");
+QC.header(DATA);
+QC.state.session = QC.initialSession(S);
+QC.sessionTable(document.getElementById("tbl"), S, COLS);
+const redrawStrip = QC.metricStrip(document.getElementById("strip-metric"), document.getElementById("plot-strip"), S, COLS.slice(1));
+QC.sessionSelect(document.getElementById("sel-session"), S);
+QC.onSession(drawSession);
+if (QC.state.session) QC.setSession(QC.state.session);
+QC.onTheme(() => { redrawStrip(); if (QC.state.session) drawSession(QC.state.session); });
+</script>
+</body>
+</html>

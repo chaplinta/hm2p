@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cell classification quality</title>
+<meta name="description" content="Quality of the soma / dendrite / artefact ROI classifier: cross-validated accuracy on manual labels, per-session class counts, confidence, ROI outlines and feature distributions.">
+<!--__CSS__-->
+<!--__QCCSS__-->
+</head>
+<body>
+<div class="page">
+  <nav class="toc" aria-label="Contents">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#classifier">Classifier accuracy</a></li>
+      <li><a href="#sessions">All sessions</a></li>
+      <li><a href="#session">One session</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#reading">How to read this</a></li>
+      <li><a href="#methods">Methods</a></li>
+    </ol>
+  </nav>
+  <main>
+    <header class="top">
+      <nav class="qc-nav" id="qc-nav" aria-label="Quality reports"></nav>
+      <div class="eyebrow">hm2p · data quality · stage 1 ROI classification</div>
+      <h1>Cell classification quality</h1>
+      <p class="meta">XGBoost classifier (26 shape and signal features) that labels each Suite2p ROI as soma, dendrite or artefact; runs at the end of stage 1 and writes roi_class.npy, roi_class_prob.npy and iscell.npy. Sessions with data: <span id="n-ok"></span>. Data collected <span id="generated"></span>; page built __BUILD__. <span hidden id="champion"></span></p>
+      <div class="key"><span><span class="sw" style="background:var(--soma)"></span>soma</span><span><span class="sw" style="background:var(--dend)"></span>dendrite</span><span><span class="sw" style="background:var(--art)"></span>artefact</span></div>
+    </header>
+
+    <section id="classifier">
+      <h2>Classifier accuracy on manually labelled ROIs</h2>
+      <div id="clf-callout"></div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="cm-title">Confusion matrix, leave-one-session-out</span></div>
+          <div id="plot-cm" class="plot" role="img" aria-labelledby="cm-title"></div>
+          <p class="caption">Rows: manual label; columns: prediction for ROIs from a session held out of training. Colour and number: fraction of the row; hover for counts.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="rl-title">Calibration</span></div>
+          <div id="plot-rl" class="plot" role="img" aria-labelledby="rl-title"></div>
+          <p class="caption">Predicted probability for a class (binned) against the fraction of those ROIs that truly belong to it. On the diagonal = probabilities can be read at face value.</p>
+        </div>
+      </div>
+      <div class="table-wrap"><table class="compact" id="prf-table"><thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>Manual labels</th></tr></thead><tbody></tbody></table></div>
+      <details><summary>Per held-out session</summary><div class="table-wrap"><table class="compact" id="ps-table"><thead><tr><th>Legacy session</th><th>ROIs</th><th>Accuracy</th><th>Manual soma / dend / artefact</th><th>Predicted soma / dend / artefact</th></tr></thead><tbody></tbody></table></div></details>
+    </section>
+
+    <section id="sessions">
+      <h2>All sessions</h2>
+      <p class="caption">Counts from roi_class.npy. "Ambiguous": highest class probability below 0.6. "ca.h5 mismatch": ROIs whose roi_types in ca.h5 (0 soma, 1 dend, 2 artefact) disagree with roi_class.npy (0 artefact, 1 soma, 2 dend) after recoding; should be 0. "Re-run changes": ROIs whose label changes when the current model is re-applied to features recomputed from the Suite2p outputs; non-zero means the stored labels came from a different model or different inputs.</p>
+      <div class="table-wrap scroll" id="tbl"></div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="ct-title">ROIs per class and session</span></div>
+        <div id="plot-ct" class="plot tall" role="img" aria-labelledby="ct-title"></div>
+      </div>
+    </section>
+
+    <section id="session">
+      <div class="picker"><label>Session <select id="sel-session"></select></label><span class="stat" id="sess-stat"></span></div>
+      <h2>One session</h2>
+      <div id="sess-callout"></div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="mp-title">ROIs on the mean image</span>
+            <div class="seg" role="group" aria-label="Colour ROIs by" id="mp-seg"><button type="button" data-k="class" aria-pressed="true">Class</button><button type="button" data-k="psoma" aria-pressed="false">P(soma)</button></div></div>
+          <div id="plot-mp" class="plot xtall" role="img" aria-labelledby="mp-title"></div>
+          <p class="caption">Suite2p mean image (contrast 1–99.5 percentile) with every ROI outline. Click an ROI's centre to inspect it. Soma outlines should be round and ~10–15 µm across; dendrites elongated; artefacts on vessels, edges or neuropil.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="roi-title">Selected ROI</span><label class="controls"><select id="sel-roi" aria-label="ROI"></select></label></div>
+          <dl class="kv" id="kv-roi"></dl>
+          <div id="plot-rf" class="plot tall" role="img" aria-label="Selected ROI features against reference"></div>
+          <p class="caption">Each feature of the selected ROI (dot) against the middle 50 % of manually labelled soma, dendrite and artefact ROIs (bars), in units of the pooled reference spread so features share one axis.</p>
+        </div>
+      </div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="cf-title">Confidence by predicted class</span></div>
+          <div id="plot-cf" class="plot short" role="img" aria-labelledby="cf-title"></div>
+          <p class="caption">Highest class probability per ROI. Mass near 1/3 means the classifier is guessing.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ps-title">P(soma) vs P(dendrite)</span></div>
+          <div id="plot-ps" class="plot short" role="img" aria-labelledby="ps-title"></div>
+          <p class="caption">Each dot is an ROI coloured by predicted class; points near the anti-diagonal are soma/dendrite confusions.</p>
+        </div>
+      </div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title">ROIs ordered by margin (most ambiguous first)</span></div>
+        <div class="table-wrap scroll"><table class="compact" id="roi-table"><thead></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="features">
+      <h2>Features: this session against the training labels</h2>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="ft-title">Feature distribution by predicted class</span><label class="controls"><select id="sel-feat" aria-label="Feature"></select></label></div>
+        <div id="plot-ft" class="plot tall" role="img" aria-labelledby="ft-title"></div>
+        <p class="caption">Left of each pair: this session's ROIs by predicted class. Right: manually labelled ROIs of the same class from the training sessions (box = 25–75 %, whiskers = 5–95 %). A shift between the two means the new imaging differs from the training data on that feature (domain shift), which lowers classifier reliability.</p>
+      </div>
+    </section>
+
+    <section id="reading">
+      <h2>How to read this</h2>
+      <ul class="plain">
+        <li>The reference accuracy is computed by refitting the classifier with the champion's hyper-parameters once per held-out legacy session (stricter than the single random 80/20 split behind the stored test F1, which shares sessions between training and test). It is computed from the legacy Suite2p runs with manual soma and dendrite labels in /data/s2p.</li>
+        <li>Acceptance criteria in docs/soma-classifier.md: macro F1 ≥ 0.85, every class F1 ≥ 0.7, and fewer than 5 % of true artefacts labelled soma.</li>
+        <li>Manual labels mark only the cells a person accepted; everything else is "artefact", so some real but dim cells are counted as artefacts in the reference.</li>
+      </ul>
+    </section>
+
+    <section id="methods">
+      <h2>Methods</h2>
+      <details>
+        <summary>Code and references</summary>
+        <div class="prose">
+          <p>Features: <span class="path">hm2p.extraction.soma_features.extract_soma_features</span>; classifier: <span class="path">hm2p.extraction.roi_classify</span> (model <span class="path">sourcedata/trackers/suite2p/roi_classifier_xgb.joblib</span>); training: <span class="path">scripts/train_roi_classifier.py</span>; summaries and cross-validation: <span class="path">hm2p.qc.rois</span>. Data collection: <span class="path">scripts/make_qc_reports.py</span>; page: <span class="path">scripts/build_qc_reports_html.py</span>.</p>
+          <p>Chen T, Guestrin C. 2016. "XGBoost: a scalable tree boosting system." Proceedings of KDD 2016, 785–794. doi:10.1145/2939672.2939785. https://github.com/dmlc/xgboost</p>
+          <p>Pachitariu M, Stringer C, Dipoppa M, et al. 2017. "Suite2p: beyond 10,000 neurons with standard two-photon microscopy." bioRxiv. doi:10.1101/061507. https://github.com/MouseLand/suite2p</p>
+        </div>
+      </details>
+    </section>
+    <footer>Generated from the hm2p repository. All data are loaded from the pipeline outputs on S3 and the read-only legacy labels; nothing on this page is simulated.</footer>
+  </main>
+</div>
+<!--__PLOTLY__-->
+<!--__QCJS__-->
+<script>
+const DATA = /*__DATA__*/null;
+const S = DATA.sessions;
+const OK = S.filter(s => s.summary);
+const CLS = ["artefact", "soma", "dend"];
+const CNAME = { artefact: "artefact", soma: "soma", dend: "dendrite" };
+const CCOL = { artefact: "--art", soma: "--soma", dend: "--dend" };
+const get = id => S.find(s => s.exp_id === id);
+const CLF = DATA.classifier || {};
+const REF = CLF.reference || null;
+const nz = v => v > 0 ? "bad" : null;
+const COLS = [
+  { key: "n_rois", label: "ROIs", fmt: v => QC.isNum(v) ? String(v) : "—" },
+  { key: "n_soma", label: "Soma", fmt: v => QC.isNum(v) ? String(v) : "—", flag: v => v < 5 ? "warn" : null },
+  { key: "n_dend", label: "Dendrite", fmt: v => QC.isNum(v) ? String(v) : "—" },
+  { key: "n_artefact", label: "Artefact", fmt: v => QC.isNum(v) ? String(v) : "—" },
+  { key: "n_ambiguous", label: "Ambiguous", fmt: v => QC.isNum(v) ? String(v) : "—" },
+  { key: "ca_label_mismatch", label: "ca.h5 mismatch", fmt: v => QC.isNum(v) ? String(v) : "—", flag: nz },
+  { key: "recomputed_label_changes", label: "Re-run changes", fmt: v => QC.isNum(v) ? String(v) : "—", flag: nz },
+];
+const seq = () => [[0, QC.css("--seq-lo")], [0.5, QC.css("--seq-mid")], [1, QC.css("--seq-hi")]];
+
+function drawClassifier() {
+  const m = CLF.model || {}, msgs = [];
+  if (m.test_f1_macro_from_split !== undefined) msgs.push(["", `Stored test F1 (one random 80/20 split, ${m.n_training_rois || "?"} labelled ROIs): macro ${QC.fmt(m.test_f1_macro_from_split, 3)}, dendrite ${QC.fmt(m.test_f1_dend_from_split, 3)}. No confusion matrix was saved with the model.`]);
+  if (!REF) {
+    msgs.push(["bad", "No cross-validated reference in this build (run scripts/make_qc_reports.py --reports rois --classifier-reference)."]);
+    ["plot-cm", "plot-rl"].forEach(id => QC.empty(document.getElementById(id), "Reference not computed."));
+  } else {
+    const f1 = Object.fromEntries(CLS.map((c, i) => [c, REF.f1[i]]));
+    const fails = [];
+    if (REF.macro_f1 < 0.85) fails.push(`macro F1 ${QC.fmt(REF.macro_f1, 3)} < 0.85`);
+    CLS.forEach(c => { if (f1[c] < 0.7) fails.push(`${CNAME[c]} F1 ${QC.fmt(f1[c], 3)} < 0.7`); });
+    const artAsSoma = REF.confusion[0][1] / Math.max(1, REF.confusion[0].reduce((a, b) => a + b, 0));
+    if (artAsSoma >= 0.05) fails.push(`${QC.pct(artAsSoma)} of artefacts labelled soma (limit 5 %)`);
+    msgs.push(fails.length ? ["bad", `Leave-one-session-out (${REF.n} ROIs, ${REF.n_sessions} sessions) fails the documented acceptance criteria: ${fails.join("; ")}.`]
+      : ["ok", `Leave-one-session-out (${REF.n} ROIs, ${REF.n_sessions} sessions) meets the documented acceptance criteria (macro F1 ${QC.fmt(REF.macro_f1, 3)}).`]);
+    const rowP = REF.confusion.map(r => { const t = Math.max(1, r.reduce((a, b) => a + b, 0)); return r.map(v => v / t); });
+    const names = CLS.map(c => CNAME[c]);
+    const l = QC.layout({ margin: { l: 80, r: 14, t: 10, b: 50 } });
+    l.xaxis.title = QC.axTitle("predicted"); l.yaxis.title = QC.axTitle("manual label"); l.yaxis.autorange = "reversed";
+    QC.plot("plot-cm", [{ type: "heatmap", x: names, y: names, z: rowP, customdata: REF.confusion, text: rowP.map(r => r.map(v => (100 * v).toFixed(0) + "%")), texttemplate: "%{text}",
+      colorscale: seq(), zmin: 0, zmax: 1, showscale: false, hovertemplate: "manual %{y} → predicted %{x}: %{customdata:,} ROIs (%{z:.1%})<extra></extra>" }], l);
+    const lr = QC.layout({ showlegend: true, shapes: [{ type: "line", x0: 0, x1: 1, y0: 0, y1: 1, line: { dash: "dot", width: 1, color: QC.css("--muted") } }] });
+    lr.xaxis.title = QC.axTitle("predicted probability"); lr.yaxis.title = QC.axTitle("fraction truly in class"); lr.xaxis.range = [0, 1]; lr.yaxis.range = [0, 1];
+    QC.plot("plot-rl", CLS.map(c => ({ type: "scatter", mode: "lines+markers", name: CNAME[c], x: REF.reliability[c].map(b => b.p_mean), y: REF.reliability[c].map(b => b.frac_true), customdata: REF.reliability[c].map(b => b.n),
+      line: { width: 2, color: QC.css(CCOL[c]) }, marker: { size: 8, color: QC.css(CCOL[c]) }, hovertemplate: `${CNAME[c]}: p %{x:.2f} → %{y:.1%} (n = %{customdata})<extra></extra>` })), lr);
+    document.querySelector("#prf-table tbody").innerHTML = CLS.map((c, i) => `<tr><td>${CNAME[c]}</td><td class="num">${QC.fmt(REF.precision[i], 3)}</td><td class="num">${QC.fmt(REF.recall[i], 3)}</td><td class="num${REF.f1[i] < 0.7 ? " flag-bad" : ""}">${QC.fmt(REF.f1[i], 3)}</td><td class="num">${REF.support[i]}</td></tr>`).join("")
+      + `<tr><td>macro</td><td></td><td></td><td class="num${REF.macro_f1 < 0.85 ? " flag-bad" : ""}">${QC.fmt(REF.macro_f1, 3)}</td><td class="num">${REF.n}</td></tr>`;
+    const tri = a => `${a[1]} / ${a[2]} / ${a[0]}`;
+    document.querySelector("#ps-table tbody").innerHTML = REF.per_session.map(p => `<tr><td>${QC.esc(p.session)}</td><td class="num">${p.n}</td><td class="num">${QC.pct(p.acc)}</td><td class="num">${tri(p.n_true)}</td><td class="num">${tri(p.n_pred)}</td></tr>`).join("");
+  }
+  document.getElementById("clf-callout").innerHTML = msgs.map(([c, t]) => `<p class="callout ${c}">${QC.esc(t)}</p>`).join("");
+}
+
+function drawCounts() {
+  if (!OK.length) return QC.empty(document.getElementById("plot-ct"), "No sessions with classifier output.");
+  const y = OK.map(s => QC.sessionLabel(s));
+  const tr = ["soma", "dend", "artefact"].map(c => ({ type: "bar", orientation: "h", name: CNAME[c], y, x: OK.map(s => s.summary.counts[c]), marker: { color: QC.css(CCOL[c]), line: { width: 1, color: QC.css("--surface") } },
+    customdata: OK.map(s => s.exp_id), hovertemplate: `%{y}<br>${CNAME[c]}: %{x}<extra></extra>` }));
+  const l = QC.layout({ barmode: "stack", showlegend: true, margin: { l: 220, r: 14, t: 30, b: 44 } });
+  l.xaxis.title = QC.axTitle("ROIs"); l.yaxis.autorange = "reversed";
+  QC.plot("plot-ct", tr, l);
+  document.getElementById("plot-ct").on("plotly_click", ev => { const p = ev.points[0]; if (p && p.customdata) QC.setSession(p.customdata); });
+}
+
+let colourBy = "class", roiSel = null;
+function hexRgb(h) { const m = h.replace("#", ""); return [0, 2, 4].map(i => parseInt(m.slice(i, i + 2), 16)); }
+function rampColor(p) {
+  // single-hue sequential ramp: --seq-lo (P = 0) → --seq-mid → --seq-hi (P = 1)
+  const [a, b, t] = p < 0.5 ? [QC.css("--seq-lo"), QC.css("--seq-mid"), p * 2] : [QC.css("--seq-mid"), QC.css("--seq-hi"), (p - 0.5) * 2];
+  const A = hexRgb(a), B = hexRgb(b);
+  return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(",")})`;
+}
+function roiColor(r) { return QC.css(CCOL[CLS[r.c]]); }
+function drawMap(d) {
+  const tr = [];
+  if (colourBy === "class") {
+    CLS.forEach((c, ci) => {
+      const xs = [], ys = [];
+      d.rois.filter(r => r.c === ci && r.outline && r.outline.length).forEach(r => { r.outline.forEach(([x, y]) => { xs.push(x); ys.push(y); }); xs.push(r.outline[0][0], null); ys.push(r.outline[0][1], null); });
+      tr.push({ type: "scatter", mode: "lines", x: xs, y: ys, name: CNAME[c], line: { width: 1.5, color: QC.css(CCOL[c]) }, hoverinfo: "skip" });
+    });
+  } else {
+    d.rois.filter(r => r.outline && r.outline.length).forEach(r => {
+      const col = rampColor(r.p[1]);
+      tr.push({ type: "scatter", mode: "lines", x: [...r.outline.map(q => q[0]), r.outline[0][0]], y: [...r.outline.map(q => q[1]), r.outline[0][1]], line: { width: 1.5, color: col }, hoverinfo: "skip", showlegend: false });
+    });
+  }
+  const pts = d.rois.filter(r => r.med);
+  tr.push({ type: "scatter", mode: "markers", x: pts.map(r => r.med[0]), y: pts.map(r => r.med[1]), customdata: pts.map(r => [r.i, CNAME[CLS[r.c]], r.p[0], r.p[1], r.p[2]]),
+    marker: { size: pts.map(r => (r.i === roiSel ? 12 : 7)), color: pts.map(r => roiColor(r)), opacity: 0.9, line: { width: pts.map(r => (r.i === roiSel ? 3 : 1)), color: QC.css("--surface") } }, showlegend: false,
+    hovertemplate: "ROI %{customdata[0]} · %{customdata[1]}<br>P(artefact) %{customdata[2]:.2f}, P(soma) %{customdata[3]:.2f}, P(dend) %{customdata[4]:.2f}<extra></extra>" });
+  const img = d.image;
+  const W = img ? img.width : Math.max(...pts.map(r => r.med[0])) + 10, H = img ? img.height : Math.max(...pts.map(r => r.med[1])) + 10;
+  const l = QC.layout({ showlegend: colourBy === "class", margin: { l: 10, r: 10, t: 30, b: 10 },
+    images: img ? [{ source: "data:image/png;base64," + img.png, xref: "x", yref: "y", x: -0.5, y: -0.5, sizex: W, sizey: H, sizing: "stretch", layer: "below" }] : [] });
+  l.xaxis = Object.assign(l.xaxis, { range: [-0.5, W - 0.5], showgrid: false, zeroline: false, showticklabels: false, constrain: "domain" });
+  l.yaxis = Object.assign(l.yaxis, { range: [H - 0.5, -0.5], showgrid: false, zeroline: false, showticklabels: false, scaleanchor: "x" });
+  QC.plot("plot-mp", tr, l);
+  const div = document.getElementById("plot-mp");
+  div.removeAllListeners && div.removeAllListeners("plotly_click");
+  div.on("plotly_click", ev => { const p = ev.points.find(q => q.customdata); if (p) selectRoi(p.customdata[0]); });
+}
+
+function refZ(feat) {
+  // pooled reference centre and spread for standardising a feature
+  const q = REF && REF.feature_quantiles && REF.feature_quantiles[feat];
+  if (!q) return null;
+  const meds = CLS.map(c => q[c] ? q[c][2] : null).filter(QC.isNum);
+  const iqrs = CLS.map(c => q[c] ? q[c][3] - q[c][1] : null).filter(v => QC.isNum(v) && v > 0);
+  if (!meds.length || !iqrs.length) return null;
+  return { c: QC.median(meds), s: QC.median(iqrs) };
+}
+
+function selectRoi(i) {
+  roiSel = i;
+  const d = get(QC.state.session).summary, r = d.rois[i];
+  document.getElementById("sel-roi").value = String(i);
+  const qc = d.roi_qc || {};
+  QC.kv(document.getElementById("kv-roi"), [
+    ["ROI index", String(r.i)], ["predicted", CNAME[CLS[r.c]]], ["P(soma) / P(dend) / P(artefact)", `${QC.fmt(r.p[1], 3)} / ${QC.fmt(r.p[2], 3)} / ${QC.fmt(r.p[0], 3)}`],
+    ["pixels", r.npix], ["centre (x, y)", r.med ? `${r.med[0]}, ${r.med[1]}` : null],
+    ...Object.keys(qc).map(k => [k, QC.fmt(qc[k][i], 3)]),
+  ]);
+  const names = d.feature_names || [];
+  if (names.length && REF) {
+    const rows = names.map((f, fi) => ({ f, v: d.features[fi][i], z: refZ(f) })).filter(o => o.z);
+    const sc = (v, z) => (QC.isNum(v) ? (v - z.c) / z.s : null);
+    const tr = CLS.map((c, ci) => ({ type: "bar", orientation: "h", name: `manual ${CNAME[c]} (25–75 %)`, y: rows.map(o => o.f),
+      base: rows.map(o => { const q = REF.feature_quantiles[o.f][c]; return q ? sc(q[1], o.z) : null; }),
+      x: rows.map(o => { const q = REF.feature_quantiles[o.f][c]; return q ? (q[3] - q[1]) / o.z.s : null; }),
+      marker: { color: QC.css(CCOL[c]) }, opacity: 0.35, offsetgroup: String(ci), hoverinfo: "skip" }));
+    tr.push({ type: "scatter", mode: "markers", name: "this ROI", y: rows.map(o => o.f), x: rows.map(o => sc(o.v, o.z)), customdata: rows.map(o => o.v),
+      marker: { size: 10, color: QC.css("--ink"), symbol: "diamond" }, hovertemplate: "%{y}: %{customdata:.4g}<extra></extra>" });
+    const l = QC.layout({ showlegend: true, barmode: "group", margin: { l: 150, r: 14, t: 30, b: 44 }, legend: { orientation: "h", y: 1.08, x: 0, font: { size: 11 } } });
+    l.xaxis.title = QC.axTitle("standardised (pooled reference median, IQR units)"); l.yaxis.autorange = "reversed"; l.xaxis.range = [-4, 6];
+    QC.plot("plot-rf", tr, l);
+  } else QC.empty(document.getElementById("plot-rf"), names.length ? "No training reference in this build." : "Features were not recomputed for this session.");
+  drawMap(d);
+}
+
+function drawFeature(d) {
+  const sel = document.getElementById("sel-feat"), names = d.feature_names || [];
+  if (!names.length) return QC.empty(document.getElementById("plot-ft"), "Features were not recomputed for this session (F.npy / Fneu.npy missing).");
+  if (!sel.options.length || sel.dataset.sig !== names.join()) {
+    const cur = sel.value;
+    sel.innerHTML = names.map(f => `<option>${QC.esc(f)}</option>`).join("");
+    sel.dataset.sig = names.join();
+    if (names.includes(cur)) sel.value = cur;
+  }
+  const f = sel.value, fi = names.indexOf(f), tr = [];
+  ["soma", "dend", "artefact"].forEach(c => {
+    const ci = CLS.indexOf(c), v = d.rois.filter(r => r.c === ci).map(r => d.features[fi][r.i]).filter(QC.isNum);
+    tr.push({ type: "box", name: `${CNAME[c]} · this session`, y: v, boxpoints: "all", jitter: 0.5, pointpos: 0, fillcolor: "rgba(0,0,0,0)", marker: { size: 5, color: QC.css(CCOL[c]) }, line: { color: QC.css(CCOL[c]), width: 2 }, hovertemplate: "%{y:.4g}<extra></extra>" });
+    const q = REF && REF.feature_quantiles && REF.feature_quantiles[f] && REF.feature_quantiles[f][c];
+    if (q) tr.push({ type: "box", name: `${CNAME[c]} · training`, q1: [q[1]], median: [q[2]], q3: [q[3]], lowerfence: [q[0]], upperfence: [q[4]], x: [`${CNAME[c]} · training`],
+      fillcolor: QC.css(CCOL[c]), opacity: 0.35, line: { color: QC.css(CCOL[c]), width: 1 }, hoverinfo: "y" });
+  });
+  const l = QC.layout(); l.yaxis.title = QC.axTitle(f);
+  QC.plot("plot-ft", tr, l);
+}
+document.getElementById("sel-feat").addEventListener("change", () => { const s = get(QC.state.session); if (s && s.summary) drawFeature(s.summary); });
+document.getElementById("sel-roi").addEventListener("change", e => selectRoi(Number(e.target.value)));
+document.querySelectorAll("#mp-seg button").forEach(b => b.addEventListener("click", () => {
+  colourBy = b.dataset.k;
+  document.querySelectorAll("#mp-seg button").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+  const s = get(QC.state.session); if (s && s.summary) drawMap(s.summary);
+}));
+
+function drawSession(id) {
+  const s = get(id);
+  if (!s || !s.summary) return;
+  const d = s.summary;
+  document.getElementById("sess-stat").textContent = `${d.n_rois} ROIs · ${d.counts.soma} soma · ${d.counts.dend} dendrite · ${d.counts.artefact} artefact`;
+  const notes = [];
+  if (!d.argmax_matches_label) notes.push(["bad", "roi_class.npy does not equal the argmax of roi_class_prob.npy."]);
+  if (d.ca_label_mismatch) notes.push(["bad", `${d.ca_label_mismatch} ROI labels in ca.h5 disagree with roi_class.npy; stage 4 may have used a different classification.`]);
+  if (d.ca_label_mismatch === null) notes.push(["bad", `ca.h5 has ${d.ca_label_len} ROI labels but roi_class.npy has ${d.n_rois}.`]);
+  if (d.recomputed_label_changes) notes.push(["bad", `Re-applying the current model changes ${d.recomputed_label_changes} labels (largest probability change ${QC.fmt(d.recomputed_max_abs_diff, 3)}).`]);
+  document.getElementById("sess-callout").innerHTML = notes.map(([c, t]) => `<p class="callout ${c}">${QC.esc(t)}</p>`).join("");
+  document.getElementById("sel-roi").innerHTML = d.rois.map(r => `<option value="${r.i}">ROI ${r.i} · ${CNAME[CLS[r.c]]} · P(soma) ${QC.fmt(r.p[1], 2)}</option>`).join("");
+  const lc = QC.layout({ showlegend: true }); lc.xaxis.title = QC.axTitle("highest class probability"); lc.yaxis.title = QC.axTitle("ROIs");
+  QC.plot("plot-cf", ["soma", "dend", "artefact"].map(c => QC.histLine(d.conf_hist[c], CNAME[c], QC.css(CCOL[c]))).map((t, i) => { const h = d.conf_hist[["soma", "dend", "artefact"][i]]; t.y = QC.histXY(h, false).y; t.hovertemplate = "%{x:.2f}: %{y} ROIs<extra></extra>"; return t; }), lc);
+  const lp = QC.layout({ shapes: [{ type: "line", x0: 0, x1: 1, y0: 1, y1: 0, line: { dash: "dot", width: 1, color: QC.css("--muted") } }] });
+  lp.xaxis.title = QC.axTitle("P(soma)"); lp.yaxis.title = QC.axTitle("P(dendrite)"); lp.xaxis.range = [0, 1]; lp.yaxis.range = [0, 1];
+  QC.plot("plot-ps", CLS.map((c, ci) => { const R = d.rois.filter(r => r.c === ci); return { type: "scatter", mode: "markers", name: CNAME[c], x: R.map(r => r.p[1]), y: R.map(r => r.p[2]), customdata: R.map(r => r.i),
+    marker: { size: 7, color: QC.css(CCOL[c]), line: { width: 1, color: QC.css("--surface") } }, hovertemplate: "ROI %{customdata}: soma %{x:.2f}, dend %{y:.2f}<extra></extra>" }; }), lp);
+  document.getElementById("plot-ps").removeAllListeners && document.getElementById("plot-ps").removeAllListeners("plotly_click");
+  document.getElementById("plot-ps").on("plotly_click", ev => { const p = ev.points[0]; if (p) selectRoi(p.customdata); });
+  const qk = Object.keys(d.roi_qc || {});
+  const margin = r => { const p = [...r.p].sort((a, b) => b - a); return p[0] - p[1]; };
+  const rows = d.rois.slice().sort((a, b) => margin(a) - margin(b));
+  document.querySelector("#roi-table thead").innerHTML = `<tr><th>ROI</th><th>Predicted</th><th>P(soma)</th><th>P(dend)</th><th>P(artefact)</th><th>Margin</th><th>Pixels</th>${qk.map(k => `<th>${QC.esc(k)}</th>`).join("")}</tr>`;
+  document.querySelector("#roi-table tbody").innerHTML = rows.map(r => `<tr class="pick" tabindex="0" data-roi="${r.i}"><td class="num">${r.i}</td><td><span class="sw" style="background:var(${CCOL[CLS[r.c]]})"></span> ${CNAME[CLS[r.c]]}</td><td class="num">${QC.fmt(r.p[1], 2)}</td><td class="num">${QC.fmt(r.p[2], 2)}</td><td class="num">${QC.fmt(r.p[0], 2)}</td><td class="num">${QC.fmt(margin(r), 2)}</td><td class="num">${r.npix ?? "—"}</td>${qk.map(k => `<td class="num">${QC.fmt(d.roi_qc[k][r.i], 3)}</td>`).join("")}</tr>`).join("");
+  document.querySelectorAll("#roi-table tr.pick").forEach(tr => tr.addEventListener("click", () => selectRoi(Number(tr.dataset.roi))));
+  drawFeature(d);
+  const first = d.rois.find(r => r.c === 1) || d.rois[0];
+  roiSel = null;
+  if (first) selectRoi(first.i); else drawMap(d);
+}
+
+QC.nav("qc-rois.html");
+QC.header(DATA);
+drawClassifier();
+QC.state.session = QC.initialSession(S);
+QC.sessionTable(document.getElementById("tbl"), S, COLS);
+drawCounts();
+QC.sessionSelect(document.getElementById("sel-session"), S);
+QC.onSession(drawSession);
+if (QC.state.session) QC.setSession(QC.state.session);
+QC.onTheme(() => { drawClassifier(); drawCounts(); if (QC.state.session) drawSession(QC.state.session); });
+</script>
+</body>
+</html>

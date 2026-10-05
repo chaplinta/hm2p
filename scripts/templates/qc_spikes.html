@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spike extraction quality</title>
+<meta name="description" content="Quality of the calcium processing per session and ROI: dF/F baseline, noise, Voigts and Harnett and SD-threshold events, CASCADE spike inference and their agreement.">
+<!--__CSS__-->
+<!--__QCCSS__-->
+</head>
+<body>
+<div class="page">
+  <nav class="toc" aria-label="Contents">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#sessions">All sessions</a></li>
+      <li><a href="#session">One session</a></li>
+      <li><a href="#rois">ROIs in the session</a></li>
+      <li><a href="#trace">One ROI</a></li>
+      <li><a href="#reading">How to read this</a></li>
+      <li><a href="#methods">Methods</a></li>
+    </ol>
+  </nav>
+  <main>
+    <header class="top">
+      <nav class="qc-nav" id="qc-nav" aria-label="Quality reports"></nav>
+      <div class="eyebrow">hm2p · data quality · stage 4 calcium processing</div>
+      <h1>Spike extraction quality</h1>
+      <p class="meta">ca.h5 per session: neuropil-corrected fluorescence, the F0 baseline, dF/F, two event detectors (Voigts &amp; Harnett noise-probability events; SD-threshold events) and CASCADE spike-rate inference. Sessions with data: <span id="n-ok"></span>. Data collected <span id="generated"></span>; page built __BUILD__. <span hidden id="champion"></span></p>
+    </header>
+
+    <section id="sessions">
+      <h2>All sessions</h2>
+      <p class="caption">Medians over the session's soma ROIs. Click a row to open that session; click a header to sort. ▲ warning, ● problem (levels under "How to read this").</p>
+      <div class="table-wrap scroll" id="tbl"></div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title">Compare sessions on one measure</span><label class="controls"><select id="strip-metric" aria-label="Measure"></select></label></div>
+        <div id="plot-strip" class="plot short" role="img" aria-label="Chosen measure for each session, by cell type"></div>
+      </div>
+    </section>
+
+    <section id="session">
+      <div class="picker"><label>Session <select id="sel-session"></select></label><span class="stat" id="sess-stat"></span></div>
+      <h2>One session</h2>
+      <div id="sess-callout"></div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="pop-title">Soma-mean dF/F and CASCADE spike rate over the session</span></div>
+        <div id="plot-pop" class="plot tall" role="img" aria-labelledby="pop-title"></div>
+        <p class="caption">2 s bins; shaded: lights off. Sharp deflections shared by all cells usually come from motion, focus (z) drift or illumination artefacts rather than activity; a slow trend points to baseline or bleaching problems.</p>
+      </div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="pc-title">Pairwise dF/F correlations (soma ROIs)</span></div>
+          <div id="plot-pc" class="plot short" role="img" aria-labelledby="pc-title"></div>
+          <p class="caption">Pearson correlation of every soma pair across the session (descriptive, no test). A distribution shifted well above 0 suggests shared neuropil or motion contamination.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="qf-title">Soma ROIs failing each calcium QC threshold</span></div>
+          <div id="plot-qf" class="plot short" role="img" aria-labelledby="qf-title"></div>
+          <p class="caption">Thresholds from hm2p.calcium.qc: event SNR &lt; 3; decay τ outside 0.2–4 s; Spearman ρ with neuropil &gt; 0.6; bleaching slope &lt; −0.4; active fraction &lt; 5 %.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="rois">
+      <h2>ROIs in the session</h2>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="sc-title">Per-ROI measures</span>
+          <span class="controls"><label>x <select id="sel-x" aria-label="x measure"></select></label><label>y <select id="sel-y" aria-label="y measure"></select></label></span></div>
+        <div id="plot-sc" class="plot tall" role="img" aria-labelledby="sc-title"></div>
+        <p class="caption">Each dot is an ROI, coloured by class (soma / dendrite / artefact). Click a dot to show its traces below.</p>
+      </div>
+    </section>
+
+    <section id="trace">
+      <div class="picker"><label>ROI <select id="sel-roi"></select></label><span class="stat" id="roi-stat"></span></div>
+      <h2>One ROI</h2>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="tr-title">90 s of dF/F with detected events, and CASCADE spike rate</span></div>
+        <div id="plot-tr" class="plot xtall" role="img" aria-labelledby="tr-title"></div>
+        <p class="caption">The 90 s window with the most Voigts &amp; Harnett event frames for this ROI. Top: dF/F with V&amp;H events (blue band) and SD-threshold events (orange band). Bottom: CASCADE spike rate. Every clear transient should be marked by both detectors and carry spikes; spikes or events during flat stretches are false positives.</p>
+      </div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="f0-title">Whole session: neuropil-corrected F and the F0 baseline</span></div>
+        <div id="plot-f0" class="plot short" role="img" aria-labelledby="f0-title"></div>
+        <p class="caption">2 s bins. F0 should follow the lower envelope of F; F0 above most of F (or near zero) produces negative or inflated dF/F.</p>
+      </div>
+      <dl class="kv" id="kv-roi"></dl>
+    </section>
+
+    <section id="reading">
+      <h2>How to read this</h2>
+      <ul class="plain">
+        <li><strong>Noise SD</strong>: robust dF/F noise from the median absolute deviation of frame-to-frame differences (insensitive to slow drift and sparse transients). <strong>SNR</strong>: 99th percentile of dF/F divided by the noise SD. Session-median SNR below 5 is a warning, below 3 a problem.</li>
+        <li><strong>V&amp;H vs SD Jaccard</strong>: overlap of the two event masks (frames in both / frames in either). Values near 1 mean the detectors agree; below 0.3 is a warning, below 0.15 a problem.</li>
+        <li><strong>V&amp;H events with spikes</strong>: fraction of V&amp;H events during which CASCADE inferred at least 0.2 spikes/s summed over the event. Below 70 % is a warning, below 50 % a problem: events that CASCADE ignores are either missed spikes or false events.</li>
+        <li><strong>Spike–dF/F ρ</strong>: Spearman correlation of the CASCADE rate with dF/F at zero lag. Low values are expected for very sparse cells; a negative value indicates a sign or alignment error.</li>
+        <li><strong>F0 end / start</strong>: median of the last 5 % of the baseline over the first 5 %. Below 0.6 (more than 40 % loss) is a problem; it matches the bleaching threshold in hm2p.calcium.qc.</li>
+        <li><strong>CASCADE rate</strong> is in the units stored with the data (attribute <code>spikes_units</code>); CASCADE leaves NaN at the edges of the trace, reported as "spikes NaN".</li>
+      </ul>
+    </section>
+
+    <section id="methods">
+      <h2>Methods</h2>
+      <details>
+        <summary>Code and references</summary>
+        <div class="prose">
+          <p>Calcium processing: <span class="path">hm2p.calcium</span> (baseline <span class="path">dff.compute_baseline</span>, V&amp;H events <span class="path">events.detect_events_batch</span>, SD events <span class="path">events.detect_events_sd</span>, CASCADE <span class="path">spikes.predict_spike_rates</span>, per-ROI QC <span class="path">qc.compute_roi_qc</span>). Summaries: <span class="path">hm2p.qc.spikes.summarise_spikes</span>. Data collection: <span class="path">scripts/make_qc_reports.py</span>; page: <span class="path">scripts/build_qc_reports_html.py</span>.</p>
+          <p>Voigts J, Harnett MT. 2020. "Somatic and dendritic encoding of spatial variables in retrosplenial cortex differs during 2D navigation." Neuron 105:237–245. doi:10.1016/j.neuron.2019.10.016.</p>
+          <p>Zong W, Obenhaus HA, Skytøen ER, et al. 2022. "Large-scale two-photon calcium imaging in freely moving mice." Cell 185:1240–1256. doi:10.1016/j.cell.2022.02.017.</p>
+          <p>Rupprecht P, Carta S, Hoffmann A, et al. 2021. "A database and deep learning toolbox for noise-optimized, generalized spike inference from calcium imaging." Nature Neuroscience 24:1324–1337. doi:10.1038/s41593-021-00895-5. https://github.com/HelmchenLabSoftware/Cascade</p>
+          <p>Mukamel EA, Nimmerjahn A, Schnitzer MJ. 2009. "Automated analysis of cellular signals from large-scale calcium imaging data." Neuron 63:747–760. doi:10.1016/j.neuron.2009.08.009 (robust noise estimation from frame differences).</p>
+        </div>
+      </details>
+    </section>
+    <footer>Generated from the hm2p repository. All data are loaded from the pipeline outputs on S3; nothing on this page is simulated.</footer>
+  </main>
+</div>
+<!--__PLOTLY__-->
+<!--__QCJS__-->
+<script>
+const DATA = /*__DATA__*/null;
+const S = DATA.sessions;
+const get = id => S.find(s => s.exp_id === id);
+const TCOL = { soma: "--soma", dend: "--dend", artefact: "--art" };
+const TNAME = { soma: "soma", dend: "dendrite", artefact: "artefact" };
+const lo = (w, b) => v => v < b ? "bad" : v < w ? "warn" : null;
+const COLS = [
+  { key: "n_soma", label: "Soma ROIs", fmt: v => QC.isNum(v) ? String(v) : "—" },
+  { key: "noise_sd", label: "Noise SD (dF/F)", fmt: v => QC.fmt(v, 3) },
+  { key: "snr_p99", label: "SNR", fmt: v => QC.fmt(v, 1), flag: lo(5, 3) },
+  { key: "rate_vh", label: "V&amp;H events / min", fmt: v => QC.fmt(v, 2) },
+  { key: "rate_sd", label: "SD events / min", fmt: v => QC.fmt(v, 2) },
+  { key: "jaccard_vh_sd", label: "V&amp;H vs SD Jaccard", fmt: v => QC.fmt(v, 2), flag: lo(0.3, 0.15) },
+  { key: "spk_rate", label: "CASCADE rate", fmt: v => QC.fmt(v, 3) },
+  { key: "spk_dff_rho", label: "Spike–dF/F ρ", fmt: v => QC.fmt(v, 2), flag: v => v < 0 ? "bad" : null },
+  { key: "vh_with_spikes", label: "V&amp;H events with spikes", fmt: v => QC.pct(v, 0), flag: lo(0.7, 0.5) },
+  { key: "f0_end_over_start", label: "F0 end / start", fmt: v => QC.fmt(v, 2), flag: lo(0.75, 0.6) },
+];
+const METRICS = {
+  noise_sd: "noise SD (dF/F)", snr_p99: "SNR (p99 / noise)", rate_vh: "V&H events / min", rate_sd: "SD events / min", amp_vh: "median V&H event peak (dF/F)",
+  jaccard_vh_sd: "V&H vs SD Jaccard", spk_rate: "CASCADE mean rate", spk_dff_rho: "spike–dF/F Spearman ρ", spk_in_events: "fraction of spikes inside events",
+  vh_with_spikes: "V&H events with spikes", f0_end_over_start: "F0 end / start", f0_min_rel: "F0 minimum / median", frac_below_f0: "fraction of frames F < F0",
+  qc_snr_event: "event SNR (roi_qc)", qc_decay_tau_s: "decay τ (s, roi_qc)", qc_fneu_dff_corr: "ρ with neuropil (roi_qc)", qc_bleach_slope: "bleach slope (roi_qc)", qc_active_fraction: "active fraction (roi_qc)",
+};
+let curRoi = null;
+
+function drawPopulation(d) {
+  const p = d.population, md = QC.decode(p.mean_dff), dt = d.overview_bin_s / 60;
+  const t = md.map((_, i) => (i + 0.5) * dt);
+  const shapes = [];
+  ["y", "y2"].forEach(yr => QC.darkShapes(t, p.light).forEach(s => shapes.push(Object.assign({}, s, { yref: yr + " domain" }))));
+  const tr = [{ type: "scatter", mode: "lines", x: t, y: md, name: "mean dF/F", line: { width: 1.5, color: QC.css("--s1") }, hovertemplate: "%{x:.2f} min: %{y:.3f}<extra>dF/F</extra>" }];
+  const l = QC.layout({ shapes, margin: { l: 64, r: 14, t: 10, b: 44 } });
+  if (p.mean_spk) {
+    tr.push({ type: "scatter", mode: "lines", x: t, y: QC.decode(p.mean_spk), name: "mean spike rate", xaxis: "x", yaxis: "y2", line: { width: 1.5, color: QC.css("--s2") }, hovertemplate: "%{x:.2f} min: %{y:.3f}<extra>spikes</extra>" });
+    l.grid = { rows: 2, columns: 1, subplots: [["xy"], ["xy2"]], roworder: "top to bottom" };
+    l.yaxis2 = Object.assign({}, l.yaxis, { title: QC.axTitle("spike rate") });
+  }
+  l.yaxis.title = QC.axTitle("mean dF/F"); l.xaxis.title = QC.axTitle("time (min)");
+  QC.plot("plot-pop", tr, l);
+  if (p.pair_corr_hist) {
+    const lp = QC.layout({ shapes: [{ type: "line", x0: 0, x1: 0, yref: "paper", y0: 0, y1: 1, line: { dash: "dot", width: 1, color: QC.css("--muted") } }] });
+    lp.xaxis.title = QC.axTitle("pairwise correlation"); lp.yaxis.tickformat = ".0%";
+    QC.plot("plot-pc", [QC.histBar(p.pair_corr_hist, "pairs", QC.css("--s1"))], lp);
+  } else QC.empty(document.getElementById("plot-pc"), "Fewer than two soma ROIs with complete traces.");
+  const qf = d.qc_fail || {}, keys = Object.keys(qf);
+  if (keys.length) {
+    const NAMES = { snr_event: "event SNR < 3", decay_tau_s: "τ outside 0.2–4 s", fneu_dff_corr: "neuropil ρ > 0.6", bleach_slope: "bleaching > 40 %", active_fraction: "active < 5 %" };
+    const lq = QC.layout({ margin: { l: 130, r: 14, t: 10, b: 44 } }); lq.xaxis.tickformat = ".0%"; lq.xaxis.range = [0, 1]; lq.xaxis.title = QC.axTitle("fraction of soma ROIs");
+    QC.plot("plot-qf", [{ type: "bar", orientation: "h", y: keys.map(k => NAMES[k] || k), x: keys.map(k => qf[k]), marker: { color: QC.css("--s1") }, hovertemplate: "%{y}: %{x:.0%}<extra></extra>" }], lq);
+  } else QC.empty(document.getElementById("plot-qf"), "No roi_qc group in ca.h5, or no soma ROIs.");
+}
+
+function drawScatter(d) {
+  const sx = document.getElementById("sel-x"), sy = document.getElementById("sel-y");
+  const avail = Object.keys(METRICS).filter(k => d.rois.some(r => QC.isNum(r[k])));
+  const sig = avail.join();
+  if (sx.dataset.sig !== sig) {
+    const opt = avail.map(k => `<option value="${k}">${QC.esc(METRICS[k])}</option>`).join("");
+    const ox = sx.value, oy = sy.value;
+    sx.innerHTML = opt; sy.innerHTML = opt; sx.dataset.sig = sig;
+    sx.value = avail.includes(ox) ? ox : (avail.includes("snr_p99") ? "snr_p99" : avail[0]);
+    sy.value = avail.includes(oy) ? oy : (avail.includes("rate_vh") ? "rate_vh" : avail[1] || avail[0]);
+  }
+  const kx = sx.value, ky = sy.value;
+  const tr = ["soma", "dend", "artefact"].map(t => { const R = d.rois.filter(r => r.type === t && QC.isNum(r[kx]) && QC.isNum(r[ky]));
+    return { type: "scatter", mode: "markers", name: TNAME[t], x: R.map(r => r[kx]), y: R.map(r => r[ky]), customdata: R.map(r => r.i),
+      marker: { size: R.map(r => (r.i === curRoi ? 13 : 8)), color: QC.css(TCOL[t]), line: { width: R.map(r => (r.i === curRoi ? 3 : 1)), color: QC.css("--surface") } },
+      hovertemplate: `ROI %{customdata}<br>${QC.esc(METRICS[kx])}: %{x:.4g}<br>${QC.esc(METRICS[ky])}: %{y:.4g}<extra>${TNAME[t]}</extra>` }; });
+  const l = QC.layout({ showlegend: true }); l.xaxis.title = QC.axTitle(METRICS[kx]); l.yaxis.title = QC.axTitle(METRICS[ky]);
+  QC.plot("plot-sc", tr, l);
+  const div = document.getElementById("plot-sc");
+  div.removeAllListeners && div.removeAllListeners("plotly_click");
+  div.on("plotly_click", ev => { const p = ev.points[0]; if (p) selectRoi(p.customdata); });
+}
+["sel-x", "sel-y"].forEach(id => document.getElementById(id).addEventListener("change", () => { const s = get(QC.state.session); if (s && s.summary) drawScatter(s.summary); }));
+
+function bands(iv, t0, dt, color, y0, y1) {
+  return (iv || []).map(([a, b]) => ({ type: "rect", xref: "x", yref: "y domain", x0: t0 + a * dt, x1: t0 + b * dt, y0, y1, fillcolor: color, opacity: 0.35, line: { width: 0 }, layer: "below" }));
+}
+
+function selectRoi(i) {
+  curRoi = i;
+  const d = get(QC.state.session).summary, r = d.rois[i];
+  document.getElementById("sel-roi").value = String(i);
+  document.getElementById("roi-stat").textContent = `${TNAME[r.type] || r.type} · SNR ${QC.fmt(r.snr_p99, 1)} · ${QC.fmt(r.rate_vh, 2)} V&H events/min`;
+  const dt = 1 / d.fps;
+  if (r.trace) {
+    const tr0 = r.trace, dff = QC.decode(tr0.dff), t0 = tr0.start * dt;
+    const t = dff.map((_, k) => t0 + k * dt);
+    const shapes = [...bands(tr0.vh, t0, dt, QC.css("--s1"), 0.93, 1.0), ...bands(tr0.sd, t0, dt, QC.css("--s2"), 0.86, 0.93)];
+    const traces = [{ type: "scatter", mode: "lines", x: t, y: dff, name: "dF/F", line: { width: 1.2, color: QC.css("--ink") }, hovertemplate: "%{x:.1f} s: %{y:.3f}<extra>dF/F</extra>" }];
+    const l = QC.layout({ shapes, margin: { l: 64, r: 14, t: 10, b: 44 } });
+    l.yaxis.title = QC.axTitle("dF/F"); l.xaxis.title = QC.axTitle("time in session (s)");
+    if (tr0.spikes) {
+      traces.push({ type: "scatter", mode: "lines", x: t, y: QC.decode(tr0.spikes), name: "CASCADE", xaxis: "x", yaxis: "y2", line: { width: 1.2, color: QC.css("--s2") }, fill: "tozeroy", hovertemplate: "%{x:.1f} s: %{y:.3f}<extra>spikes</extra>" });
+      l.grid = { rows: 2, columns: 1, subplots: [["xy"], ["xy2"]], roworder: "top to bottom" };
+      l.yaxis.domain = [0.38, 1]; l.yaxis2 = Object.assign({}, l.yaxis, { domain: [0, 0.3], title: QC.axTitle(d.spikes_units ? "spike rate" : "CASCADE") });
+    }
+    QC.plot("plot-tr", traces, l);
+    if (tr0.fcorr_ov) {
+      const F = QC.decode(tr0.fcorr_ov), F0 = tr0.f0_ov ? QC.decode(tr0.f0_ov) : null, tb = F.map((_, k) => (k + 0.5) * d.overview_bin_s / 60);
+      const tf = [{ type: "scatter", mode: "lines", x: tb, y: F, name: "F (neuropil-corrected)", line: { width: 1, color: QC.css("--s1") }, hovertemplate: "%{x:.2f} min: %{y:.1f}<extra>F</extra>" }];
+      if (F0) tf.push({ type: "scatter", mode: "lines", x: tb, y: F0, name: `F0 (${d.f0_method})`, line: { width: 2, color: QC.css("--s2") }, hovertemplate: "%{x:.2f} min: %{y:.1f}<extra>F0</extra>" });
+      const lf = QC.layout({ showlegend: true }); lf.xaxis.title = QC.axTitle("time (min)"); lf.yaxis.title = QC.axTitle("fluorescence (a.u.)");
+      QC.plot("plot-f0", tf, lf);
+    } else QC.empty(document.getElementById("plot-f0"), "F_corr not stored in ca.h5.");
+  } else {
+    QC.empty(document.getElementById("plot-tr"), "Traces are not stored for artefact ROIs.");
+    QC.empty(document.getElementById("plot-f0"), "Traces are not stored for artefact ROIs.");
+  }
+  QC.kv(document.getElementById("kv-roi"), Object.keys(METRICS).filter(k => k in r).map(k => [METRICS[k], QC.fmt(r[k], 4)])
+    .concat([["dF/F NaN", QC.pct(r.dff_nan, 2)], ["spikes NaN", QC.pct(r.spk_nan, 2)], ["F0 ≤ 0", QC.pct(r.f0_le0, 2)]]));
+  drawScatter(d);
+}
+document.getElementById("sel-roi").addEventListener("change", e => selectRoi(Number(e.target.value)));
+
+function drawSession(id) {
+  const s = get(id);
+  if (!s || !s.summary) return;
+  const d = s.summary;
+  document.getElementById("sess-stat").textContent = `${d.n_rois} ROIs (${d.counts.soma} soma, ${d.counts.dend} dendrite, ${d.counts.artefact} artefact) · ${QC.fmt(d.fps, 2)} Hz · ${QC.fmt(d.duration_min, 1)} min · F0 ${d.f0_method} · neuropil ${d.neuropil_method || "?"}`;
+  const notes = [];
+  if (!d.has.spikes) notes.push(["bad", "No CASCADE spikes dataset in this ca.h5."]);
+  else notes.push(["", `CASCADE model ${d.spikes_model || "?"}; units: ${d.spikes_units || "not recorded"}.`]);
+  if (!d.has.vh || !d.has.sd) notes.push(["bad", `Missing event masks: ${!d.has.vh ? "V&H " : ""}${!d.has.sd ? "SD" : ""}.`]);
+  document.getElementById("sess-callout").innerHTML = notes.map(([c, t]) => `<p class="callout ${c}">${QC.esc(t)}</p>`).join("");
+  drawPopulation(d);
+  const opts = d.rois.filter(r => r.type !== "artefact");
+  document.getElementById("sel-roi").innerHTML = d.rois.map(r => `<option value="${r.i}">ROI ${r.i} · ${TNAME[r.type] || r.type} · SNR ${QC.fmt(r.snr_p99, 1)}</option>`).join("");
+  curRoi = null;
+  const first = opts.slice().sort((a, b) => (b.snr_p99 || 0) - (a.snr_p99 || 0))[0] || d.rois[0];
+  if (first) selectRoi(first.i); else drawScatter(d);
+}
+
+QC.nav("qc-spikes.html");
+QC.header(DATA);
+QC.state.session = QC.initialSession(S);
+QC.sessionTable(document.getElementById("tbl"), S, COLS);
+const redrawStrip = QC.metricStrip(document.getElementById("strip-metric"), document.getElementById("plot-strip"), S, COLS);
+QC.sessionSelect(document.getElementById("sel-session"), S);
+QC.onSession(drawSession);
+if (QC.state.session) QC.setSession(QC.state.session);
+QC.onTheme(() => { redrawStrip(); if (QC.state.session) drawSession(QC.state.session); });
+</script>
+</body>
+</html>

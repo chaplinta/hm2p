@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tracking quality</title>
+<meta name="description" content="Pose-tracking quality per session: keypoint likelihoods, jumps, anatomical consistency and light vs dark confidence.">
+<!--__CSS__-->
+<!--__QCCSS__-->
+</head>
+<body>
+<div class="page">
+  <nav class="toc" aria-label="Contents">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#sessions">All sessions</a></li>
+      <li><a href="#session">One session</a></li>
+      <li><a href="#timeline">Over time</a></li>
+      <li><a href="#anatomy">Anatomical checks</a></li>
+      <li><a href="#reading">How to read this</a></li>
+      <li><a href="#methods">Methods</a></li>
+    </ol>
+  </nav>
+  <main>
+    <header class="top">
+      <nav class="qc-nav" id="qc-nav" aria-label="Quality reports"></nav>
+      <div class="eyebrow">hm2p · data quality · stage 2b pose tracking</div>
+      <h1>Tracking quality</h1>
+      <p class="meta">Raw DeepLabCut output for the champion model (<span class="path" id="champion"></span>), before any filtering or interpolation. Sessions with data: <span id="n-ok"></span>. Data collected <span id="generated"></span>; page built __BUILD__.</p>
+    </header>
+
+    <section id="sessions">
+      <h2>All sessions</h2>
+      <p class="caption">Click a row to open that session below; click a column header to sort. Shaded cells pass a warning (▲) or problem (●) level; the levels are listed under "How to read this". ✕ markers in the strip plot are sessions flagged <em>exclude</em> in experiments.csv (still processed).</p>
+      <div class="table-wrap scroll" id="tbl"></div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title">Compare sessions on one measure</span><label class="controls"><select id="strip-metric" aria-label="Measure"></select></label></div>
+        <div id="plot-strip" class="plot short" role="img" aria-label="Chosen measure for each session, by cell type"></div>
+      </div>
+    </section>
+
+    <section id="session">
+      <div class="picker"><label>Session <select id="sel-session"></select></label><span class="stat" id="sess-stat"></span></div>
+      <h2>One session</h2>
+      <div id="sess-callout"></div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="lk-title">Likelihood distribution per keypoint</span></div>
+          <div id="plot-lik" class="plot tall" role="img" aria-labelledby="lk-title"></div>
+          <p class="caption">Each row is one keypoint's likelihood histogram (row-normalised; darker = more frames). The tick marks the keypoint's 25th percentile, which is the cut-off the kinematics stage applies by default; frames below it are interpolated (gaps up to 5 frames) or left as NaN.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ld-title">Median likelihood, lights on vs off</span></div>
+          <div id="plot-ld" class="plot tall" role="img" aria-labelledby="ld-title"></div>
+          <p class="caption">The camera is infrared, so the room lights should not change tracking confidence. Points below the diagonal mean lower confidence in the dark.</p>
+        </div>
+      </div>
+      <div class="table-wrap"><table class="compact" id="bp-table"><thead><tr><th>Keypoint</th><th>Median likelihood</th><th>25th pct (cut-off)</th><th>Below 0.1</th><th>NaN</th><th>Jumps</th><th>Frozen ≥ 1 s</th><th>Median light</th><th>Median dark</th></tr></thead><tbody></tbody></table></div>
+    </section>
+
+    <section id="timeline">
+      <h2>Over time</h2>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="tl-title">Median likelihood per keypoint in 10 s bins</span></div>
+        <div id="plot-tl" class="plot tall" role="img" aria-labelledby="tl-title"></div>
+        <p class="caption">Shaded columns: lights off. Look for stretches where several keypoints drop together (occlusion by the fibre or wires, mouse out of view, lighting or focus changes).</p>
+      </div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="tj-title">Frames with a jump, and frames with ≥ 2 head keypoints below their cut-off</span></div>
+        <div id="plot-tj" class="plot short" role="img" aria-labelledby="tj-title"></div>
+      </div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title">Lowest-confidence stretches: check these in the video</span></div>
+        <div class="table-wrap"><table class="compact" id="worst-table"><thead><tr><th>Start (min:s)</th><th>Mean likelihood rank (0 = worst)</th></tr></thead><tbody></tbody></table></div>
+        <p class="caption">The eight 10 s bins with the lowest mean per-keypoint likelihood rank (each keypoint's likelihood converted to its within-session percentile, so keypoints on different scales count equally).</p>
+      </div>
+    </section>
+
+    <section id="anatomy">
+      <h2>Anatomical checks</h2>
+      <div class="three">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ear-title">Distance between the ears</span></div>
+          <div id="plot-ear" class="plot short" role="img" aria-labelledby="ear-title"></div>
+          <p class="caption" id="ear-cap"></p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="bl-title">Body length</span></div>
+          <div id="plot-bl" class="plot short" role="img" aria-labelledby="bl-title"></div>
+          <p class="caption" id="bl-cap"></p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ap-title">Keypoints out of nose-to-tail order</span></div>
+          <div id="plot-ap" class="plot short" role="img" aria-labelledby="ap-title"></div>
+          <p class="caption" id="ap-cap"></p>
+        </div>
+      </div>
+    </section>
+
+    <section id="reading">
+      <h2>How to read this</h2>
+      <ul class="plain">
+        <li><strong>Likelihood values are not probabilities.</strong> DeepLabCut 3 (PyTorch) likelihoods typically sit around 0.1–0.5 for a correct detection, so a fixed 0.9 threshold (used on the older Streamlit tracking page) rejects most good frames. Compare keypoints and sessions with each other instead, and use the jump and anatomy checks as the evidence of errors.</li>
+        <li><strong>Jumps</strong>: frame-to-frame displacement faster than 150 cm/s (converted to pixels with the session's video scale). Warning above 0.5 % of frames, problem above 2 % (any keypoint).</li>
+        <li><strong>Ear swaps</strong>: left ear on the right of the nose-to-neck axis. Warning above 1 %, problem above 5 %. Swaps flip the ear-based head direction by up to 180°.</li>
+        <li><strong>Ear distance and body length outliers</strong>: more than 3 median absolute deviations from the session median (NaN frames count as outliers). Warning above 5 %, problem above 15 %.</li>
+        <li><strong>Nose-to-tail order</strong>: projected onto the nose→tail-base axis, keypoints should fall in anatomical order. Warning above 5 %, problem above 15 %.</li>
+        <li><strong>Head keypoints low</strong>: frames with at least two of nose, ears and head-midpoint below their 25th-percentile cut-off; those frames carry the least head-direction information.</li>
+        <li><strong>Dark − light</strong>: median over keypoints of (median likelihood in dark − in light). Warning below −0.03, problem below −0.08.</li>
+      </ul>
+    </section>
+
+    <section id="methods">
+      <h2>Methods</h2>
+      <details>
+        <summary>Code and references</summary>
+        <div class="prose">
+          <p>Per-session summaries: <span class="path">hm2p.qc.tracking.summarise_tracking</span>, using the checks in <span class="path">hm2p.pose.quality</span> (jumps, ear distance and swaps, body length, anterior-posterior order). Pose files are loaded with the pipeline loader <span class="path">hm2p.kinematics.compute.load_pose_dataset</span> (movement); the champion file is chosen with <span class="path">hm2p.pose.select.select_champion_h5</span>. Light epochs come from the session's kinematics.h5. Data collection: <span class="path">scripts/make_qc_reports.py</span>; page: <span class="path">scripts/build_qc_reports_html.py</span>.</p>
+          <p>Mathis A, Mamidanna P, Cury KM, et al. 2018. "DeepLabCut: markerless pose estimation of user-defined body parts with deep learning." Nature Neuroscience 21:1281–1289. doi:10.1038/s41593-018-0209-y. https://github.com/DeepLabCut/DeepLabCut</p>
+          <p>Sirmpilatze N, Lo CC, Minano S, et al. movement: Python tools for analysing animal body movements. doi:10.5281/zenodo.12755724. https://github.com/neuroinformatics-unit/movement</p>
+        </div>
+      </details>
+    </section>
+    <footer>Generated from the hm2p repository. All data are loaded from the pipeline outputs on S3; nothing on this page is simulated.</footer>
+  </main>
+</div>
+<!--__PLOTLY__-->
+<!--__QCJS__-->
+<script>
+const DATA = /*__DATA__*/null;
+const S = DATA.sessions;
+const BPN = { nose_tip: "nose tip", left_ear: "left ear", right_ear: "right ear", head_midpoint: "head midpoint", neck: "neck", mid_back: "mid back", mouse_center: "mouse centre", tail_base: "tail base" };
+const lvl = (w, b) => v => v > b ? "bad" : v > w ? "warn" : null;
+const COLS = [
+  { key: "median_lik", label: "Median likelihood", fmt: v => QC.fmt(v, 3), title: "Median over keypoints of each keypoint's median likelihood" },
+  { key: "any_jump_frac", label: "Jumps", fmt: v => QC.pct(v, 2), flag: lvl(0.005, 0.02) },
+  { key: "head_low2_frac", label: "Head keypoints low", fmt: v => QC.pct(v, 1) },
+  { key: "ear_swap_frac", label: "Ear swaps", fmt: v => QC.pct(v, 2), flag: lvl(0.01, 0.05) },
+  { key: "ear_outlier_frac", label: "Ear-distance outliers", fmt: v => QC.pct(v, 1), flag: lvl(0.05, 0.15) },
+  { key: "body_outlier_frac", label: "Body-length outliers", fmt: v => QC.pct(v, 1), flag: lvl(0.05, 0.15) },
+  { key: "ap_frac", label: "Out of order", fmt: v => QC.pct(v, 1), flag: lvl(0.05, 0.15) },
+  { key: "dark_minus_light_lik", label: "Dark − light likelihood", fmt: v => QC.fmt(v, 3), flag: v => v < -0.08 ? "bad" : v < -0.03 ? "warn" : null },
+  { label: "Frames", get: s => s.summary ? s.summary.n_frames : null, fmt: v => QC.isNum(v) ? v.toLocaleString() : "—", noStrip: true },
+  { label: "fps", get: s => s.summary ? s.summary.fps : null, fmt: v => QC.fmt(v, 0), noStrip: true },
+];
+const mmss = m => { const s = Math.round(m * 60); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+const get = id => S.find(s => s.exp_id === id);
+
+function drawSession(id) {
+  const s = get(id);
+  if (!s || !s.summary) return;
+  const d = s.summary, parts = d.bodyparts, unit = d.unit;
+  document.getElementById("sess-stat").textContent = `${(d.n_frames || 0).toLocaleString()} frames · ${QC.fmt(d.fps, 0)} fps · ${QC.fmt(d.duration_min, 1)} min · ${d.pose_file || ""}`;
+  const warn = [];
+  if (!d.light_from_kinematics) warn.push("Light epochs could not be matched from kinematics.h5 (missing or different frame count), so light vs dark comparisons are not shown.");
+  if (d.unit === "px") warn.push("No video scale (mm per pixel) found for this session; distances are in pixels.");
+  document.getElementById("sess-callout").innerHTML = warn.map(w => `<p class="callout">${QC.esc(w)}</p>`).join("");
+
+  // likelihood heatmap: rows = keypoints
+  const h0 = d.per_bp[parts[0]].lik_hist, nb = h0.counts.length, w = (h0.hi - h0.lo) / nb;
+  const xs = h0.counts.map((_, i) => h0.lo + (i + 0.5) * w);
+  const z = parts.map(b => { const c = d.per_bp[b].lik_hist.counts, t = Math.max(1, c.reduce((a, x) => a + x, 0)); return c.map(x => x / t); });
+  const names = parts.map(b => BPN[b] || b);
+  const lay = QC.layout({ margin: { l: 104, r: 14, t: 10, b: 44 } });
+  lay.xaxis.title = QC.axTitle("likelihood");
+  lay.yaxis.autorange = "reversed";
+  QC.plot("plot-lik", [
+    { type: "heatmap", x: xs, y: names, z, colorscale: [[0, QC.css("--seq-lo")], [0.5, QC.css("--seq-mid")], [1, QC.css("--seq-hi")]], showscale: false,
+      hovertemplate: "%{y}: likelihood %{x:.2f} → %{z:.1%} of frames<extra></extra>" },
+    { type: "scatter", mode: "markers", x: parts.map(b => d.per_bp[b].cut_q25), y: names, marker: { symbol: "line-ns-open", size: 18, line: { width: 3, color: QC.css("--nonpenk") } },
+      hovertemplate: "%{y}: 25th percentile %{x:.3f}<extra></extra>" },
+  ], lay);
+
+  // light vs dark medians
+  const has = parts.filter(b => QC.isNum(d.per_bp[b].lik_median_light));
+  if (has.length) {
+    const L = has.map(b => d.per_bp[b].lik_median_light), D = has.map(b => d.per_bp[b].lik_median_dark);
+    const lo = Math.min(...L, ...D) - 0.02, hi = Math.max(...L, ...D) + 0.02;
+    const l2 = QC.layout({ shapes: [{ type: "line", x0: lo, x1: hi, y0: lo, y1: hi, line: { dash: "dot", width: 1, color: QC.css("--muted") } }] });
+    l2.xaxis.title = QC.axTitle("median likelihood, lights on"); l2.yaxis.title = QC.axTitle("median likelihood, lights off");
+    l2.xaxis.range = [lo, hi]; l2.yaxis.range = [lo, hi];
+    QC.plot("plot-ld", [{ type: "scatter", mode: "markers+text", x: L, y: D, text: has.map(b => BPN[b] || b), textposition: "top center", textfont: { size: 11, color: QC.css("--muted") },
+      marker: { size: 10, color: QC.css("--s1"), line: { width: 2, color: QC.css("--surface") } }, hovertemplate: "%{text}<br>light %{x:.3f}, dark %{y:.3f}<extra></extra>" }], l2);
+  } else QC.empty(document.getElementById("plot-ld"), "No light-epoch information for this session.");
+
+  // per-keypoint table
+  document.querySelector("#bp-table tbody").innerHTML = parts.map(b => {
+    const p = d.per_bp[b], h = p.lik_hist, below = h.counts.slice(0, Math.round(0.1 / ((h.hi - h.lo) / h.counts.length))).reduce((a, x) => a + x, 0) / Math.max(1, h.n);
+    return `<tr><td>${QC.esc(BPN[b] || b)}</td><td class="num">${QC.fmt(p.lik_q.q50, 3)}</td><td class="num">${QC.fmt(p.cut_q25, 3)}</td><td class="num">${QC.pct(below)}</td><td class="num">${QC.pct(p.frac_nan, 2)}</td><td class="num">${QC.pct(p.jump_frac, 2)}</td><td class="num">${QC.pct(p.frozen_frac, 1)}</td><td class="num">${QC.fmt(p.lik_median_light, 3)}</td><td class="num">${QC.fmt(p.lik_median_dark, 3)}</td></tr>`;
+  }).join("");
+
+  // timeline heatmap
+  const tl = d.timeline, t = tl.t_min;
+  const lay3 = QC.layout({ margin: { l: 104, r: 14, t: 10, b: 44 }, shapes: QC.darkShapes(t, tl.light) });
+  lay3.xaxis.title = QC.axTitle("time (min)"); lay3.yaxis.autorange = "reversed";
+  QC.plot("plot-tl", [{ type: "heatmap", x: t, y: names, z: parts.map(b => tl.lik[b]), colorscale: [[0, QC.css("--seq-lo")], [0.5, QC.css("--seq-mid")], [1, QC.css("--seq-hi")]],
+    colorbar: { thickness: 10, title: { text: "median", side: "right", font: { size: 11 } } }, hovertemplate: "%{y} at %{x:.2f} min: %{z:.3f}<extra></extra>" }], lay3);
+  const lay4 = QC.layout({ showlegend: true, shapes: QC.darkShapes(t, tl.light) });
+  lay4.xaxis.title = QC.axTitle("time (min)"); lay4.yaxis.title = QC.axTitle("fraction of frames"); lay4.yaxis.tickformat = ".0%";
+  QC.plot("plot-tj", [
+    { type: "scatter", mode: "lines", name: "any keypoint jump", x: t, y: tl.jump_frac, line: { width: 2, color: QC.css("--s1") }, hovertemplate: "%{x:.2f} min: %{y:.2%}<extra>jumps</extra>" },
+    { type: "scatter", mode: "lines", name: "≥ 2 head keypoints below cut-off", x: t, y: tl.head_low2_frac, line: { width: 2, color: QC.css("--s2") }, hovertemplate: "%{x:.2f} min: %{y:.1%}<extra>head low</extra>" },
+  ], lay4);
+  document.querySelector("#worst-table tbody").innerHTML = d.worst_bins.map(b => `<tr><td class="num">${mmss(b.t_min)}</td><td class="num">${QC.fmt(b.rank, 3)}</td></tr>`).join("");
+
+  // anatomy
+  const anat = (div, cap, obj, label, extraCap) => {
+    const el = document.getElementById(div);
+    if (!obj) { QC.empty(el, "Keypoints for this check are not in the pose file."); document.getElementById(cap).textContent = ""; return; }
+    const l = QC.layout({ shapes: QC.isNum(obj.median) ? [{ type: "line", x0: obj.median, x1: obj.median, yref: "paper", y0: 0, y1: 1, line: { dash: "dot", width: 1, color: QC.css("--muted") } }] : [] });
+    l.xaxis.title = QC.axTitle(`${label} (${unit})`); l.yaxis.tickformat = ".0%";
+    QC.plot(el, [QC.histBar(obj.hist, label, QC.css("--s1"))], l);
+    const off = obj.hist.below + obj.hist.above;
+    document.getElementById(cap).textContent = `Median ${QC.fmt(obj.median, 2)} ${unit}, MAD ${QC.fmt(obj.mad, 2)}; outliers (> 3 MAD or NaN) ${QC.pct(obj.outlier_frac)}${off ? `; ${off.toLocaleString()} frames off the plotted range` : ""}.${extraCap || ""}`;
+  };
+  anat("plot-ear", "ear-cap", d.ear, "ear distance", d.ear && d.ear.swap_frac !== undefined ? ` Ears swapped relative to ${d.ear.swap_axis}: ${QC.pct(d.ear.swap_frac, 2)} of frames.` : "");
+  anat("plot-bl", "bl-cap", d.body_len, "body length", d.body_len ? ` Measured ${BPN[d.body_len.from] || d.body_len.from} → tail base.` : "");
+  const ap = d.ap_order;
+  if (ap) {
+    const pairs = Object.keys(ap.per_pair);
+    if (pairs.length) {
+      const l = QC.layout({ margin: { l: 150, r: 14, t: 10, b: 44 } });
+      l.xaxis.title = QC.axTitle("frames"); l.yaxis.automargin = true;
+      QC.plot("plot-ap", [{ type: "bar", orientation: "h", y: pairs.map(p => p.split(">").map(b => BPN[b] || b).join(" behind ")), x: pairs.map(p => ap.per_pair[p]), marker: { color: QC.css("--s1") }, hovertemplate: "%{y}: %{x:,} frames<extra></extra>" }], l);
+    } else QC.empty(document.getElementById("plot-ap"), "No frames out of order.");
+    document.getElementById("ap-cap").textContent = `${QC.pct(ap.frac)} of frames have at least one keypoint out of the order ${ap.order.map(b => BPN[b] || b).join(" → ")}.`;
+  } else QC.empty(document.getElementById("plot-ap"), "Not enough midline keypoints.");
+}
+
+QC.nav("qc-tracking.html");
+QC.header(DATA);
+QC.state.session = QC.initialSession(S);
+const redrawTable = QC.sessionTable(document.getElementById("tbl"), S, COLS);
+const redrawStrip = QC.metricStrip(document.getElementById("strip-metric"), document.getElementById("plot-strip"), S, COLS);
+QC.sessionSelect(document.getElementById("sel-session"), S);
+QC.onSession(drawSession);
+if (QC.state.session) QC.setSession(QC.state.session);
+QC.onTheme(() => { redrawStrip(); if (QC.state.session) drawSession(QC.state.session); });
+</script>
+</body>
+</html>

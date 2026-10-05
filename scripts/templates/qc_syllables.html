@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Syllable quality</title>
+<meta name="description" content="Quality of the keypoint-MoSeq behavioural syllables per session: usage, bout durations, documented acceptance criteria, kinematic signatures and transitions.">
+<!--__CSS__-->
+<!--__QCCSS__-->
+</head>
+<body>
+<div class="page">
+  <nav class="toc" aria-label="Contents">
+    <div class="toc-label">Contents</div>
+    <ol>
+      <li><a href="#model">Which model</a></li>
+      <li><a href="#sessions">All sessions</a></li>
+      <li><a href="#usage">Usage across sessions</a></li>
+      <li><a href="#session">One session</a></li>
+      <li><a href="#signature">Do syllables differ?</a></li>
+      <li><a href="#reading">How to read this</a></li>
+      <li><a href="#methods">Methods</a></li>
+    </ol>
+  </nav>
+  <main>
+    <header class="top">
+      <nav class="qc-nav" id="qc-nav" aria-label="Quality reports"></nav>
+      <div class="eyebrow">hm2p · data quality · stage 3b keypoint-MoSeq</div>
+      <h1>Syllable quality</h1>
+      <p class="meta">keypoint-MoSeq syllable sequences (syllables.npz) per session, frame-aligned with kinematics.h5. Current DLC champion: <span class="path" id="champion"></span>. Sessions with data: <span id="n-ok"></span>. Data collected <span id="generated"></span>; page built __BUILD__.</p>
+    </header>
+
+    <section id="model">
+      <h2>Which model produced these syllables</h2>
+      <div id="model-callout"></div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title">Fit parameters (syllables.provenance.json)</span></div>
+          <dl class="kv" id="kv-prov"></dl>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="pca-title">Pose PCA: variance explained</span></div>
+          <div id="plot-pca" class="plot short" role="img" aria-labelledby="pca-title"></div>
+          <p class="caption">Cumulative variance of the aligned-pose principal components (kpms_model/pca_variance.json). The improvement plan's target was ≥ 90 % in 4 PCs.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="sessions">
+      <h2>All sessions against the acceptance criteria</h2>
+      <p class="caption">Criteria from docs/kpms-improvement-report.md: median bout 300–500 ms; 20–40 syllables cover 80 % of frames; usage entropy ratio 0.6–0.8; fewer than 5 % single-frame bouts. Green = pass, red = fail. Click a row to open that session.</p>
+      <div class="table-wrap scroll" id="tbl"></div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title">Compare sessions on one measure</span><label class="controls"><select id="strip-metric" aria-label="Measure"></select></label></div>
+        <div id="plot-strip" class="plot short" role="img" aria-label="Chosen measure for each session, by cell type"></div>
+      </div>
+    </section>
+
+    <section id="usage">
+      <h2>Usage across sessions</h2>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="uh-title">Fraction of frames per syllable (40 most-used overall)</span></div>
+        <div id="plot-uh" class="plot xtall" role="img" aria-labelledby="uh-title"></div>
+        <p class="caption">Columns ordered by pooled usage. Syllables that are shared across sessions appear as continuous vertical bands; a model fitted on all sessions together should give similar columns in every row. A row dominated by one or two columns means that session's behaviour collapsed into few states.</p>
+      </div>
+    </section>
+
+    <section id="session">
+      <div class="picker"><label>Session <select id="sel-session"></select></label><span class="stat" id="sess-stat"></span></div>
+      <h2>One session</h2>
+      <div id="sess-callout"></div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="us-title">Usage, most to least used</span></div>
+          <div id="plot-us" class="plot" role="img" aria-labelledby="us-title"></div>
+          <p class="caption">Bars: fraction of frames; line: cumulative fraction. The dotted line marks 80 %.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="bd-title">Bout durations</span></div>
+          <div id="plot-bd" class="plot" role="img" aria-labelledby="bd-title"></div>
+          <p class="caption" id="bd-cap"></p>
+        </div>
+      </div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="eg-title">Ethogram</span><div class="key" id="eg-key"></div></div>
+        <div id="plot-eg" class="plot short" role="img" aria-labelledby="eg-title"></div>
+        <p class="caption">The 8 most-used syllables of the session are coloured; all others are grey. Each column is the syllable at the start of a time bin (zoom in to see single bouts).</p>
+      </div>
+      <div class="chart-block" id="prob-block" hidden>
+        <div class="chart-head"><span class="chart-title" id="pr-title">Posterior confidence (maximum syllable probability per frame)</span></div>
+        <div id="plot-pr" class="plot short" role="img" aria-labelledby="pr-title"></div>
+      </div>
+    </section>
+
+    <section id="signature">
+      <h2>Do syllables differ from each other?</h2>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ks-title">Kinematic signature per syllable</span></div>
+          <div id="plot-ks" class="plot tall" role="img" aria-labelledby="ks-title"></div>
+          <p class="caption">Median body speed and median |angular head velocity| of the frames in each syllable (syllables with ≥ 50 good frames), marker area ∝ usage. Interpretable syllables should spread out (still, turning, running); a cloud collapsed in one corner means the syllables do not separate locomotion.</p>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="lu-title">Usage with lights on vs off</span></div>
+          <div id="plot-lu" class="plot tall" role="img" aria-labelledby="lu-title"></div>
+          <p class="caption">Each dot is a syllable (log axes). Points off the diagonal are used more in one condition. This is behaviour, not a quality failure, but a syllable that exists only in one condition can also reflect tracking differences.</p>
+        </div>
+      </div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="tm-title">Bout-to-bout transitions (20 most-used syllables)</span>
+          <div class="seg" role="group" aria-label="Transition scope" id="tm-seg"><button type="button" data-k="session" aria-pressed="true">This session</button><button type="button" data-k="pooled" aria-pressed="false">All sessions</button></div></div>
+        <div id="plot-tm" class="plot xtall" role="img" aria-labelledby="tm-title"></div>
+        <p class="caption">P(next syllable | current syllable), counted between consecutive bouts, so the diagonal is empty by construction (a frame-level matrix would be dominated by self-transitions). Rows with a few strong entries indicate structured sequences; uniform rows indicate none.</p>
+      </div>
+    </section>
+
+    <section id="reading">
+      <h2>How to read this</h2>
+      <ul class="plain">
+        <li>The first fit (2026-06-01, κ = 10⁶, 10 PCs, no AR-only stage) was judged not usable: two syllables covered about 70 % of frames, 15 % of bouts were one frame long, and the median bout was about 200 ms (docs/kpms-quality-report.md). The fitting script was rewritten on 2026-06-02 (4 PCs, AR-only stage, noise calibration). The provenance panel above shows which fit these files come from.</li>
+        <li>The four criteria are not independent: for usage distributions that fall off as a power law, 20–40 syllables covering 80 % and an entropy ratio of 0.6–0.8 are only met together in a narrow range, so failing one of the two by a small margin is not by itself a reason to reject a fit.</li>
+        <li>Short bouts of a single frame (33 ms at 30 fps) are shorter than any real movement and mostly reflect state flickering at boundaries.</li>
+      </ul>
+    </section>
+
+    <section id="methods">
+      <h2>Methods</h2>
+      <details>
+        <summary>Code and references</summary>
+        <div class="prose">
+          <p>Per-session summaries: <span class="path">hm2p.qc.syllables.summarise_syllables</span> (usage entropy ratio = Shannon entropy of syllable usage / log of the number of syllables used; bouts are maximal runs of one syllable). Fitting: <span class="path">scripts/run_kpms.py</span>. Data collection: <span class="path">scripts/make_qc_reports.py</span>; page: <span class="path">scripts/build_qc_reports_html.py</span>.</p>
+          <p>Weinreb C, Pearl JE, Lin S, et al. 2024. "Keypoint-MoSeq: parsing behavior by linking point tracking to pose dynamics." Nature Methods 21:1329–1339. doi:10.1038/s41592-024-02318-2. https://github.com/dattalab/keypoint-moseq</p>
+          <p>Wiltschko AB, Johnson MJ, Iurilli G, et al. 2015. "Mapping sub-second structure in mouse behavior." Neuron 88:1121–1135. doi:10.1016/j.neuron.2015.11.031.</p>
+        </div>
+      </details>
+    </section>
+    <footer>Generated from the hm2p repository. All data are loaded from the pipeline outputs on S3; nothing on this page is simulated.</footer>
+  </main>
+</div>
+<!--__PLOTLY__-->
+<!--__QCJS__-->
+<script>
+const DATA = /*__DATA__*/null;
+const S = DATA.sessions;
+const OK = S.filter(s => s.summary);
+const get = id => S.find(s => s.exp_id === id);
+const crit = k => s => s.summary ? s.summary.criteria[k] : null;
+const pf = v => v === true ? '<span style="color:var(--good);font-weight:600">pass</span>' : v === false ? '<span style="color:var(--bad);font-weight:600">fail</span>' : "—";
+const COLS = [
+  { key: "median_bout_ms", label: "Median bout (ms)", fmt: (v, s) => `${QC.fmt(v, 0)} ${pf(crit("median_bout_ms")(s))}` },
+  { key: "n_syll_80pct", label: "Syllables for 80 %", fmt: (v, s) => `${QC.isNum(v) ? v : "—"} ${pf(crit("n_syll_80pct")(s))}` },
+  { key: "entropy_ratio", label: "Entropy ratio", fmt: (v, s) => `${QC.fmt(v, 2)} ${pf(crit("entropy_ratio")(s))}` },
+  { key: "single_frame_frac", label: "Single-frame bouts", fmt: (v, s) => `${QC.pct(v, 1)} ${pf(crit("single_frame_frac")(s))}` },
+  { key: "n_unique", label: "Syllables used", fmt: v => QC.isNum(v) ? String(v) : "—" },
+  { key: "top5_frac", label: "Top 5 cover", fmt: v => QC.pct(v, 0) },
+  { key: "n_pass", label: "Criteria passed", fmt: v => QC.isNum(v) ? `${v} / 4` : "—", flag: v => v <= 1 ? "bad" : v <= 2 ? "warn" : null },
+];
+const CAT = ["--s1", "--s2", "--s3", "--s4", "--penk", "--good", "--dark-c", "--nonpenk"];
+
+// pooled usage and global order
+const pooled = {};
+OK.forEach(s => Object.entries(s.summary.per_syllable).forEach(([k, r]) => { pooled[k] = (pooled[k] || 0) + r.frac * s.summary.n_frames; }));
+const ORDER = Object.keys(pooled).sort((a, b) => pooled[b] - pooled[a]);
+
+function drawModel() {
+  const prov = (OK.find(s => s.summary.provenance) || {}).summary;
+  const p = prov ? prov.provenance : null;
+  const provs = OK.map(s => s.summary.provenance).filter(Boolean);
+  const kap = new Set(provs.map(x => String(x.kappa))), pcs = new Set(provs.map(x => String(x.num_pcs)));
+  const msgs = [];
+  if (!p) msgs.push(["bad", "No syllables.provenance.json found: the fit that produced these files cannot be identified."]);
+  else if (Number(p.num_pcs) === 10) msgs.push(["bad", `These files report ${p.num_pcs} PCs and κ = ${p.kappa}, matching the first fit that docs/kpms-quality-report.md judged not usable.`]);
+  else msgs.push(["ok", `These files report ${p.num_pcs} PCs and κ = ${p.kappa}${p.ar_only_iters ? `, with ${p.ar_only_iters} AR-only iterations` : ""}.`]);
+  if (kap.size > 1 || pcs.size > 1) msgs.push(["bad", `Sessions come from different fits (κ: ${[...kap].join(", ")}; PCs: ${[...pcs].join(", ")}). Syllable ids are only comparable within one fit.`]);
+  const champ = (DATA.champion || {}).champion_id;
+  const stale = provs.filter(x => champ && x.dlc_champion_id && x.dlc_champion_id !== champ).length;
+  if (stale) msgs.push(["bad", `${stale} session(s) were fitted on pose data from a DLC model other than the current champion (${champ}).`]);
+  document.getElementById("model-callout").innerHTML = msgs.map(([c, t]) => `<p class="callout ${c}">${QC.esc(t)}</p>`).join("");
+  const sm = (DATA.model || {}).summary || {};
+  QC.kv(document.getElementById("kv-prov"), p ? [
+    ["kappa", p.kappa], ["PCs", p.num_pcs], ["iterations", p.num_iters], ["AR-only iterations", p.ar_only_iters], ["confidence threshold", p.conf_threshold],
+    ["sigmasq_loc", p.sigmasq_loc], ["keypoint-MoSeq version", p.kpms_version], ["DLC champion id", p.dlc_champion_id],
+    ["bodyparts", Array.isArray(p.bodyparts) ? p.bodyparts.join(", ") : p.bodyparts], ["sessions in project summary", sm.n_sessions], ["unique syllables (project)", sm.n_unique_syllables],
+  ] : [["provenance", null]]);
+  const pv = (DATA.model || {}).pca_variance;
+  const ev = pv ? (pv.explained_variance_ratio || pv.variance_explained || pv.explained_variance || (Array.isArray(pv) ? pv : null)) : null;
+  if (Array.isArray(ev) && ev.length) {
+    let c = 0; const cum = ev.map(v => (c += v));
+    const l = QC.layout({ shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0.9, y1: 0.9, line: { dash: "dot", width: 1, color: QC.css("--muted") } }] });
+    l.xaxis.title = QC.axTitle("number of PCs"); l.yaxis.title = QC.axTitle("cumulative variance"); l.yaxis.tickformat = ".0%"; l.yaxis.range = [0, 1.02];
+    QC.plot("plot-pca", [{ type: "scatter", mode: "lines+markers", x: cum.map((_, i) => i + 1), y: cum, line: { width: 2, color: QC.css("--s1") }, marker: { size: 8, color: QC.css("--s1") }, hovertemplate: "%{x} PCs: %{y:.1%}<extra></extra>" }], l);
+  } else QC.empty(document.getElementById("plot-pca"), "kpms_model/pca_variance.json not found on S3.");
+}
+
+function drawUsageHeatmap() {
+  if (!OK.length) return QC.empty(document.getElementById("plot-uh"), "No sessions with syllables.");
+  const cols = ORDER.slice(0, 40);
+  const z = OK.map(s => cols.map(k => (s.summary.per_syllable[k] || {}).frac || 0));
+  const l = QC.layout({ margin: { l: 210, r: 14, t: 10, b: 44 } });
+  l.xaxis.title = QC.axTitle("syllable id (ordered by pooled usage)"); l.xaxis.type = "category"; l.yaxis.autorange = "reversed";
+  QC.plot("plot-uh", [{ type: "heatmap", x: cols, y: OK.map(s => QC.sessionLabel(s)), z, colorscale: [[0, QC.css("--seq-lo")], [0.5, QC.css("--seq-mid")], [1, QC.css("--seq-hi")]],
+    colorbar: { thickness: 10, tickformat: ".0%" }, hovertemplate: "%{y}<br>syllable %{x}: %{z:.1%}<extra></extra>" }], l);
+  document.getElementById("plot-uh").on("plotly_click", ev => { const p = ev.points[0]; const s = OK.find(x => QC.sessionLabel(x) === p.y); if (s) QC.setSession(s.exp_id); });
+}
+
+function decodeEthogram(e) {
+  const ids = QC.decodeTyped(e.ids, Int16Array), lens = QC.decodeTyped(e.lens, Uint16Array);
+  return { ids, lens };
+}
+
+let tmScope = "session";
+function drawTransitions(d) {
+  const top = (tmScope === "pooled" ? ORDER : Object.keys(d.per_syllable).sort((a, b) => d.per_syllable[b].frac - d.per_syllable[a].frac)).slice(0, 20);
+  const idx = Object.fromEntries(top.map((k, i) => [k, i]));
+  const M = top.map(() => top.map(() => 0));
+  const src = tmScope === "pooled" ? OK.map(s => s.summary.transitions) : [d.transitions];
+  src.forEach(tr => tr.forEach(([a, b, c]) => { if (String(a) in idx && String(b) in idx) M[idx[a]][idx[b]] += c; }));
+  const P = M.map(r => { const t = r.reduce((x, y) => x + y, 0); return r.map(v => (t ? v / t : null)); });
+  const l = QC.layout({ margin: { l: 60, r: 14, t: 10, b: 50 } });
+  l.xaxis.title = QC.axTitle("next syllable"); l.yaxis.title = QC.axTitle("current syllable"); l.xaxis.type = "category"; l.yaxis.type = "category"; l.yaxis.autorange = "reversed";
+  QC.plot("plot-tm", [{ type: "heatmap", x: top, y: top, z: P, customdata: M, colorscale: [[0, QC.css("--seq-lo")], [0.5, QC.css("--seq-mid")], [1, QC.css("--seq-hi")]], colorbar: { thickness: 10, tickformat: ".0%" },
+    hovertemplate: "%{y} → %{x}: %{z:.1%} (%{customdata:,} bouts)<extra></extra>" }], l);
+}
+document.querySelectorAll("#tm-seg button").forEach(b => b.addEventListener("click", () => {
+  tmScope = b.dataset.k;
+  document.querySelectorAll("#tm-seg button").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+  const s = get(QC.state.session); if (s && s.summary) drawTransitions(s.summary);
+}));
+
+function drawSession(id) {
+  const s = get(id);
+  if (!s || !s.summary) return;
+  const d = s.summary, ps = d.per_syllable;
+  const keys = Object.keys(ps).sort((a, b) => ps[b].frac - ps[a].frac);
+  document.getElementById("sess-stat").textContent = `${d.n_frames.toLocaleString()} frames · ${QC.fmt(d.fps, 0)} fps · ${d.n_unique} syllables · ${d.n_bouts.toLocaleString()} bouts`;
+  const notes = [];
+  if (!d.aligned_to_kinematics) notes.push("Syllable sequence length differs from kinematics.h5, so speed, AHV and light-condition breakdowns are missing for this session.");
+  if (QC.isNum(d.frac_unassigned) && d.frac_unassigned > 0) notes.push(`${QC.pct(d.frac_unassigned)} of frames have no syllable assigned.`);
+  document.getElementById("sess-callout").innerHTML = notes.map(t => `<p class="callout">${QC.esc(t)}</p>`).join("");
+
+  let c = 0; const cum = keys.map(k => (c += ps[k].frac));
+  const l = QC.layout({ showlegend: false, shapes: [{ type: "line", xref: "paper", x0: 0, x1: 1, y0: 0.8, y1: 0.8, line: { dash: "dot", width: 1, color: QC.css("--muted") } }] });
+  l.xaxis.title = QC.axTitle("syllables, most to least used"); l.xaxis.type = "category"; l.xaxis.showticklabels = keys.length <= 40;
+  l.yaxis.title = QC.axTitle("fraction of frames"); l.yaxis.tickformat = ".0%"; l.yaxis.range = [0, 1.02];
+  QC.plot("plot-us", [
+    { type: "bar", x: keys, y: keys.map(k => ps[k].frac), marker: { color: QC.css("--s1") }, customdata: keys.map(k => [ps[k].n_bouts, ps[k].median_bout_ms]), hovertemplate: "syllable %{x}: %{y:.2%} of frames, %{customdata[0]:,} bouts, median %{customdata[1]:.0f} ms<extra></extra>" },
+    { type: "scatter", mode: "lines", x: keys, y: cum, line: { width: 2, color: QC.css("--ink") }, hovertemplate: "cumulative %{y:.1%}<extra></extra>" },
+  ], l);
+
+  const h = d.bout_hist_log10_ms, n = h.counts.length, w = (h.hi - h.lo) / n;
+  const lb = QC.layout({ shapes: [{ type: "rect", x0: 300, x1: 500, yref: "paper", y0: 0, y1: 1, fillcolor: QC.css("--good"), opacity: 0.12, line: { width: 0 }, layer: "below" }] });
+  lb.xaxis.type = "log"; lb.xaxis.title = QC.axTitle("bout duration (ms, log scale)"); lb.yaxis.title = QC.axTitle("fraction of bouts"); lb.yaxis.tickformat = ".0%";
+  const tot = Math.max(1, h.counts.reduce((a, b) => a + b, 0));
+  QC.plot("plot-bd", [{ type: "bar", x: h.counts.map((_, i) => 10 ** (h.lo + (i + 0.5) * w)), y: h.counts.map(v => v / tot), width: h.counts.map((_, i) => (10 ** (h.lo + (i + 1) * w) - 10 ** (h.lo + i * w)) * 0.92),
+    marker: { color: QC.css("--s1") }, hovertemplate: "%{x:.0f} ms: %{y:.1%}<extra></extra>" }], lb);
+  document.getElementById("bd-cap").textContent = `Median ${QC.fmt(d.median_bout_ms, 0)} ms (5–95 %: ${QC.fmt(d.bout_q.q05, 0)}–${QC.fmt(d.bout_q.q95, 0)} ms); single-frame bouts ${QC.pct(d.single_frame_frac)}. Green band: the 300–500 ms target.`;
+
+  // ethogram
+  const { ids, lens } = decodeEthogram(d.ethogram);
+  const top8 = keys.slice(0, 8).map(Number);
+  const rank = new Map(top8.map((k, i) => [k, i]));
+  const total = lens.reduce((a, b) => a + b, 0), nb = Math.min(4000, total), step = total / nb;
+  const zrow = new Array(nb), hov = new Array(nb);
+  let ri = 0, acc = 0;
+  for (let b = 0; b < nb; b++) {
+    const f = Math.floor(b * step);
+    while (ri < lens.length - 1 && acc + lens[ri] <= f) { acc += lens[ri]; ri++; }
+    const v = ids[ri]; zrow[b] = rank.has(v) ? rank.get(v) : 8; hov[b] = v;
+  }
+  const tmin = Array.from({ length: nb }, (_, b) => (b * step) / d.fps / 60);
+  const scale = [];
+  CAT.forEach((c, i) => { scale.push([i / 9, QC.css(c)], [(i + 1) / 9, QC.css(c)]); });
+  scale.push([8 / 9, QC.css("--rule")], [1, QC.css("--rule")]);
+  const le = QC.layout({ margin: { l: 20, r: 14, t: 6, b: 44 } });
+  le.xaxis.title = QC.axTitle("time (min)"); le.yaxis.showticklabels = false;
+  QC.plot("plot-eg", [{ type: "heatmap", x: tmin, y: [0], z: [zrow], customdata: [hov], zmin: -0.5, zmax: 8.5, colorscale: scale, showscale: false, hovertemplate: "%{x:.2f} min: syllable %{customdata}<extra></extra>" }], le);
+  document.getElementById("eg-key").innerHTML = top8.map((k, i) => `<span><span class="sw" style="background:var(${CAT[i]})"></span>${k}</span>`).join("") + '<span><span class="sw" style="background:var(--rule)"></span>other</span>';
+
+  const pb = document.getElementById("prob-block");
+  if (d.max_prob_hist) {
+    pb.hidden = false;
+    const lp = QC.layout(); lp.xaxis.title = QC.axTitle("maximum posterior probability"); lp.yaxis.tickformat = ".0%";
+    QC.plot("plot-pr", [QC.histBar(d.max_prob_hist, "max probability", QC.css("--s1"))], lp);
+  } else pb.hidden = true;
+
+  // kinematic signature
+  const kk = keys.filter(k => QC.isNum(ps[k].speed_med) && QC.isNum(ps[k].abs_ahv_med));
+  if (kk.length) {
+    const mx = Math.max(...kk.map(k => ps[k].frac));
+    const lk = QC.layout(); lk.xaxis.title = QC.axTitle("median body speed (cm/s)"); lk.yaxis.title = QC.axTitle("median |AHV| (°/s)");
+    QC.plot("plot-ks", [{ type: "scatter", mode: "markers+text", x: kk.map(k => ps[k].speed_med), y: kk.map(k => ps[k].abs_ahv_med), text: kk.map((k, i) => (i < 8 ? k : "")), textposition: "top center", textfont: { size: 11, color: QC.css("--muted") },
+      customdata: kk.map(k => [k, ps[k].frac]), marker: { size: kk.map(k => 6 + 30 * Math.sqrt(ps[k].frac / mx)), color: QC.css("--s1"), opacity: 0.75, line: { width: 1, color: QC.css("--surface") } },
+      hovertemplate: "syllable %{customdata[0]} (%{customdata[1]:.1%})<br>speed %{x:.1f} cm/s, |AHV| %{y:.0f} °/s<extra></extra>" }], lk);
+  } else QC.empty(document.getElementById("plot-ks"), "No frame-aligned kinematics for this session.");
+  const lu = keys.filter(k => QC.isNum(ps[k].frac_light) && QC.isNum(ps[k].frac_dark) && ps[k].frac_light > 0 && ps[k].frac_dark > 0);
+  if (lu.length) {
+    const vals = lu.flatMap(k => [ps[k].frac_light, ps[k].frac_dark]);
+    const lo = Math.min(...vals) / 1.5, hi = Math.max(...vals) * 1.5;
+    const ll = QC.layout({ shapes: [{ type: "line", x0: lo, x1: hi, y0: lo, y1: hi, line: { dash: "dot", width: 1, color: QC.css("--muted") } }] });
+    ll.xaxis.type = "log"; ll.yaxis.type = "log"; ll.xaxis.title = QC.axTitle("usage, lights on"); ll.yaxis.title = QC.axTitle("usage, lights off"); ll.xaxis.tickformat = ".1%"; ll.yaxis.tickformat = ".1%";
+    QC.plot("plot-lu", [{ type: "scatter", mode: "markers", x: lu.map(k => ps[k].frac_light), y: lu.map(k => ps[k].frac_dark), customdata: lu, marker: { size: 9, color: QC.css("--s1"), line: { width: 1, color: QC.css("--surface") } },
+      hovertemplate: "syllable %{customdata}: on %{x:.2%}, off %{y:.2%}<extra></extra>" }], ll);
+  } else QC.empty(document.getElementById("plot-lu"), "No light-condition information for this session.");
+  drawTransitions(d);
+}
+
+QC.nav("qc-syllables.html");
+QC.header(DATA);
+drawModel();
+QC.state.session = QC.initialSession(S);
+QC.sessionTable(document.getElementById("tbl"), S, COLS);
+const redrawStrip = QC.metricStrip(document.getElementById("strip-metric"), document.getElementById("plot-strip"), S, COLS);
+drawUsageHeatmap();
+QC.sessionSelect(document.getElementById("sel-session"), S);
+QC.onSession(drawSession);
+if (QC.state.session) QC.setSession(QC.state.session);
+QC.onTheme(() => { drawModel(); redrawStrip(); drawUsageHeatmap(); if (QC.state.session) drawSession(QC.state.session); });
+</script>
+</body>
+</html>
