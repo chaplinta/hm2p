@@ -90,59 +90,48 @@ def tau_for_indicator(indicator: str) -> float:
 def fps_from_timestamps(timestamps_h5: Path) -> float:
     """Compute imaging frame rate from a Stage 0 timestamps.h5 file.
 
-    Computes ``mean(1.0 / diff(frame_times_imaging))`` from the timestamps
-    file. Falls back to 29.97 Hz (with a warning) if the file is absent or
-    has fewer than 2 frames.
+    Computes ``1 / median(diff(frame_times_imaging))`` from the timestamps
+    file.
+
+    There is no fallback value: an earlier version returned 29.97 Hz when the
+    file was missing, and the EC2 Stage 1 run then gave Suite2p and the ROI
+    classifier 29.97 Hz for ~9.7 Hz imaging. A missing or unreadable file now
+    raises, so the caller has to supply the rate.
 
     Args:
         timestamps_h5: Path to Stage 0 timestamps file.
 
     Returns:
-        Estimated imaging frame rate in Hz.
+        Measured imaging frame rate in Hz.
+
+    Raises:
+        FileNotFoundError: if ``timestamps_h5`` does not exist.
+        ValueError: if ``frame_times_imaging`` is missing or has < 2 entries.
     """
     import numpy as np
 
-    _FALLBACK_FPS = 29.97
+    from hm2p.io.hdf5 import read_h5
 
     if not timestamps_h5.exists():
-        log.warning(
-            "timestamps.h5 not found at %s — using fallback fps=%.2f Hz. "
-            "Re-run Stage 0 to generate per-session timestamps.",
-            timestamps_h5,
-            _FALLBACK_FPS,
+        raise FileNotFoundError(
+            f"timestamps.h5 not found at {timestamps_h5}; run Stage 0 or pass fps explicitly."
         )
-        return _FALLBACK_FPS
-
-    try:
-        from hm2p.io.hdf5 import read_h5
-
-        ts = read_h5(timestamps_h5)
-        frame_times = ts.get("frame_times_imaging")
-        if frame_times is None or len(frame_times) < 2:
-            raise ValueError("frame_times_imaging missing or has fewer than 2 entries")
-        # Median ISI estimator: ``1 / median(diff(frame_times))``. Avoids the
-        # Jensen-inequality bias of ``mean(1 / diff)`` (which is biased high
-        # relative to ``1 / mean(diff)`` for any distribution with positive
-        # variance) and is robust to single-frame drops/duplicates that the
-        # mean is sensitive to. Matches the convention used in
-        # ``hm2p.calcium.run`` (single source of truth for fps across
-        # Stage 1 and Stage 4).
-        fps = float(1.0 / np.median(np.diff(frame_times)))
-        log.info(
-            "Measured imaging fps=%.4f Hz from %s (%d frames)",
-            fps,
-            timestamps_h5,
-            len(frame_times),
-        )
-        return fps
-    except Exception as exc:
-        log.warning(
-            "Failed to read fps from %s (%s) — using fallback fps=%.2f Hz.",
-            timestamps_h5,
-            exc,
-            _FALLBACK_FPS,
-        )
-        return _FALLBACK_FPS
+    ts = read_h5(timestamps_h5)
+    frame_times = ts.get("frame_times_imaging")
+    if frame_times is None or len(frame_times) < 2:
+        raise ValueError(f"frame_times_imaging missing or has < 2 entries in {timestamps_h5}")
+    # Median ISI estimator: ``1 / median(diff(frame_times))``. Avoids the
+    # Jensen-inequality bias of ``mean(1 / diff)`` and is robust to single
+    # dropped or duplicated frames. Matches ``hm2p.calcium.run`` (single
+    # source of truth for fps across Stage 1 and Stage 4).
+    fps = float(1.0 / np.median(np.diff(frame_times)))
+    log.info(
+        "Measured imaging fps=%.4f Hz from %s (%d frames)",
+        fps,
+        timestamps_h5,
+        len(frame_times),
+    )
+    return fps
 
 
 def default_settings(
@@ -414,10 +403,9 @@ def run_suite2p(
 
     # Resolve fps from timestamps.h5 when not explicitly supplied.
     if fps is None:
-        if timestamps_h5 is not None:
-            fps = fps_from_timestamps(timestamps_h5)
-        else:
-            fps = fps_from_timestamps(Path("timestamps.h5"))  # best-effort fallback
+        if timestamps_h5 is None:
+            raise ValueError("run_suite2p needs fps or timestamps_h5 (no default frame rate)")
+        fps = fps_from_timestamps(timestamps_h5)
 
     # Resolve tau from indicator name.
     tau = tau_for_indicator(indicator)

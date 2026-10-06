@@ -660,8 +660,9 @@ Parameters (from `utils/ca.py`):
 **Outputs:** `onsets`, `offsets`, `masks` (bool array), `amps` (peak dF/F0 per event).
 
 **Note for new pipeline:** CASCADE (Rupprecht et al. 2021) replaces this as the primary
-spike inference method, providing calibrated spikes/s in physical units. V&H is retained
-as a fallback for comparison.
+spike inference method. Its output is the expected number of spikes per imaging frame
+(calibrated against ground-truth recordings); summing over frames gives a spike count and
+multiplying by the frame rate gives spikes/s. V&H is retained as a fallback for comparison.
 
 ### SNR Calculation
 

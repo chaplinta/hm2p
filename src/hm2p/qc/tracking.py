@@ -45,6 +45,7 @@ CUT_QUANTILE = 0.25
 # hm2p.pose.quality compares |x - median| / MAD with z; MAD = 0.6745 sigma for a
 # normal distribution, so z = 3 * 1.4826 corresponds to 3 SD (~0.3 % by chance)
 OUTLIER_Z_MAD = 3.0 * 1.4826
+BODY_MOVING_MM = 5.0  # body-centre span within 1 s above which the mouse counts as moving
 
 KeypointData = dict[str, dict[str, npt.NDArray[np.floating]]]
 
@@ -124,7 +125,11 @@ def frozen_mask(
 
 
 def _bp_summary(
-    d: dict[str, np.ndarray], light: np.ndarray | None, jump_px: float, frozen_win: int
+    d: dict[str, np.ndarray],
+    light: np.ndarray | None,
+    jump_px: float,
+    frozen_win: int,
+    body_moving: np.ndarray | None,
 ) -> tuple[dict, np.ndarray, np.ndarray]:
     x = np.asarray(d["x"], dtype=np.float64)
     y = np.asarray(d["y"], dtype=np.float64)
@@ -138,7 +143,12 @@ def _bp_summary(
         "cut_q25": fnum(cut),
         "frac_nan": fnum(np.mean(~np.isfinite(x) | ~np.isfinite(y))),
         "jump_frac": fnum(jumps.mean()) if jumps.size else None,
-        "frozen_frac": fnum(frozen.mean()) if frozen.size else None,
+        # a keypoint that stays put is only suspicious while the body moves
+        "frozen_moving_frac": (
+            fnum(np.mean(frozen & body_moving))
+            if body_moving is not None and frozen.size
+            else None
+        ),
     }
     if light is not None and light.any() and (~light).any():
         s["lik_median_light"] = fnum(np.nanmedian(lik[light]))
@@ -169,7 +179,10 @@ def summarise_tracking(
         Timeline bin width (s).
     """
     kp = normalise_names(kp)
-    parts = [b for b in BODYPARTS if b in kp] + sorted(set(kp) - set(BODYPARTS))
+    # Score only the keypoints the pipeline uses; the DLC model also outputs
+    # others (e.g. the SuperAnimal tail points), listed but not scored.
+    parts = [b for b in BODYPARTS if b in kp] or sorted(kp)
+    extra = sorted(set(kp) - set(parts))
     if not parts:
         raise ValueError("no keypoints")
     n = len(np.asarray(kp[parts[0]]["x"]))
@@ -178,13 +191,21 @@ def summarise_tracking(
     unit = "mm" if (mm_per_px and mm_per_px > 0) else "px"
     jump_px = jump_threshold_px(fps, mm_per_px)
     frozen_win = max(2, round(fps))  # 1 s
+    body_moving = None
+    for c in ("mouse_center", "mid_back", "neck"):
+        if c in kp:
+            cx = np.asarray(kp[c]["x"], dtype=np.float64)
+            cy = np.asarray(kp[c]["y"], dtype=np.float64)
+            # body centre spans more than BODY_MOVING_MM within the 1 s window
+            body_moving = ~frozen_mask(cx, cy, frozen_win, BODY_MOVING_MM / scale)
+            break
     per_bp: dict[str, dict] = {}
     any_jump = np.zeros(n, dtype=bool)
     lik_rank = np.zeros(n, dtype=np.float64)
     n_head_low = np.zeros(n, dtype=np.int64)
     lik_series: dict[str, np.ndarray] = {}
     for b in parts:
-        s, jumps, lik = _bp_summary(kp[b], light, jump_px, frozen_win)
+        s, jumps, lik = _bp_summary(kp[b], light, jump_px, frozen_win, body_moving)
         per_bp[b] = s
         any_jump |= jumps
         lik_series[b] = lik
@@ -222,6 +243,8 @@ def summarise_tracking(
         "mm_per_px": fnum(mm_per_px, 5),
         "jump_threshold": fnum(jump_px * scale, 2),
         "bodyparts": parts,
+        "extra_keypoints": extra,
+        "body_moving_frac": fnum(body_moving.mean()) if body_moving is not None else None,
         "per_bp": per_bp,
         "timeline": timeline,
         "worst_bins": worst,

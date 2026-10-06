@@ -413,7 +413,7 @@ if has_spikes and spikes is not None and roi_idx < spikes.shape[0]:
         row=row,
         col=1,
     )
-    fig.update_yaxes(title_text="Spk/s", row=row, col=1)
+    fig.update_yaxes(title_text="Spk/frame", row=row, col=1)
 
 fig.update_xaxes(title_text="Time (s)", row=n_panels, col=1)
 fig.update_layout(

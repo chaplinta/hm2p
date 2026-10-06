@@ -133,21 +133,40 @@ def test_collect_rois_recomputes_with_model(monkeypatch, fake_s3):
     F = (100 + rng.normal(0, 5, (n, T))).astype(np.float32)
     probs = np.tile([0.2, 0.7, 0.1], (n, 1)).astype(np.float32)
     base = "ca_extraction/sub-r/ses-r/suite2p/plane0/"
+    ca = _h5_bytes(
+        {
+            "roi_types": np.zeros(n, dtype=np.uint8),  # soma
+            "roi_qc/p_artefact": probs[:, 0],
+            "roi_qc/p_soma": probs[:, 1],
+            "roi_qc/p_dend": probs[:, 2],
+        },
+        {"fps_imaging": 9.77},
+    )
     store = {
         base + "stat.npy": _npy(stat, True),
         base + "ops.npy": _npy(
-            np.array({"fs": 9.6, "meanImg": rng.normal(size=(128, 64))}, dtype=object), True
+            np.array({"fs": 29.97, "meanImg": rng.normal(size=(128, 64))}, dtype=object), True
         ),
         base + "F.npy": _npy(F),
         base + "Fneu.npy": _npy((F * 0.5).astype(np.float32)),
-        base + "roi_class.npy": _npy(np.ones(n, dtype=np.int8)),
-        base + "roi_class_prob.npy": _npy(probs),
+        "calcium/sub-r/ses-r/ca.h5": ca,
     }
     monkeypatch.setattr(mqr, "get_bytes", lambda key, retries=4: store.get(key))
+    # labels from ca.h5 when roi_class.npy is absent (the EC2 stage 1 run)
     s = mqr.collect_rois(mqr.Ctx("sub-r", "ses-r", None))
     assert s["n_rois"] == n and len(s["feature_names"]) == 26
-    assert s["recomputed_label_changes"] is not None
+    assert s["counts"]["soma"] == n
+    assert s["repro"]["label_source"].startswith("ca.h5")
+    assert s["repro"]["pipeline_fps"] == 29.97 and s["repro"]["imaging_fps"] == 9.77
+    assert s["repro"]["pipeline_label_changes"] is not None
+    assert s["recomputed_label_changes"] is not None and "ca_label_mismatch" not in s
+    assert sum(s["imaging_fps_counts"].values()) == n
     assert s["image"]["width"] == 64 and s["rois"][0]["outline"]
+    # roi_class.npy takes precedence and enables the ca.h5 consistency check
+    store[base + "roi_class.npy"] = _npy(np.ones(n, dtype=np.int8))
+    store[base + "roi_class_prob.npy"] = _npy(probs)
+    s2 = mqr.collect_rois(mqr.Ctx("sub-r", "ses-r", None))
+    assert s2["repro"]["label_source"] == "roi_class.npy" and s2["ca_label_mismatch"] == 0
 
 
 def test_collect_tracking_reads_dlc_file(monkeypatch, tmp_path):
@@ -175,6 +194,52 @@ def test_collect_tracking_reads_dlc_file(monkeypatch, tmp_path):
     assert s["n_frames"] == 300 and s["pose_file"].endswith("snapshot-best-7.h5")
     assert set(s["bodyparts"]) >= {"nose_tip", "left_ear", "tail_base"}
     assert s["light_from_kinematics"] is False
+
+
+def test_get_bytes_retries_connection_errors(monkeypatch):
+    class ConnErr(Exception):
+        response = None  # botocore connection errors have no response dict
+
+    calls = []
+
+    class FakeS3:
+        def get_object(self, **kw):
+            calls.append(kw)
+            raise ConnErr("could not connect")
+
+    monkeypatch.setattr(mqr, "s3", lambda: FakeS3())
+    monkeypatch.setattr(mqr.time, "sleep", lambda s: None)
+    assert mqr.get_bytes("k", retries=3) is None
+    assert len(calls) == 3
+
+
+def test_failed_sessions_are_retried_not_cached(fake_s3, tmp_path, monkeypatch):
+    table = pd.DataFrame(
+        [
+            {
+                "exp_id": "e1",
+                "sub": fake_s3[0],
+                "ses": fake_s3[1],
+                "animal_id": "1",
+                "celltype": "penk",
+                "exclude": 0,
+                "primary_exp": 0,
+                "Notes": None,
+            }
+        ]
+    )
+    monkeypatch.setattr(mqr, "sessions_table", lambda: table)
+    monkeypatch.setattr(mqr, "OUT_DIR", tmp_path)
+    real = mqr.get_bytes
+    monkeypatch.setattr(mqr, "get_bytes", lambda key, retries=4: None)  # S3 down
+    mqr.run(["movement"], None, refresh=False, with_reference=False)
+    assert json.loads((tmp_path / "data" / "movement.json").read_text())["sessions"][0]["error"]
+    monkeypatch.setattr(mqr, "get_bytes", real)  # S3 back
+    mqr.run(["movement"], None, refresh=False, with_reference=False)
+    assert (
+        json.loads((tmp_path / "data" / "movement.json").read_text())["sessions"][0]["error"]
+        is None
+    )
 
 
 def test_collector_missing_file_raises(fake_s3):

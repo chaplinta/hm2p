@@ -131,7 +131,10 @@ def run_session(
         from cascade2p import cascade
 
         spikes = predict_in_chunks(cascade, model_name, dff, model_folder, chunk=chunk)
-        print(f"  Spike rates: mean={spikes.mean():.4f}, max={spikes.max():.4f} spikes/s")
+        print(
+            f"  Expected spikes per frame: mean={spikes.mean():.4f}, "
+            f"max={spikes.max():.4f} (mean rate {spikes.mean() * fps:.4f} Hz)"
+        )
 
         # Write spikes back to ca.h5
         with h5py.File(ca_local, "a") as f:
@@ -139,7 +142,9 @@ def run_session(
                 del f["spikes"]
             f.create_dataset("spikes", data=spikes, dtype=np.float32)
             f.attrs["spikes_model"] = model_name
-            f.attrs["spikes_units"] = "spikes/s (CASCADE, padding=0)"
+            f.attrs["spikes_units"] = (
+                "expected spikes per frame (CASCADE spike_prob; x fps = Hz; padding=0)"
+            )
 
         # Re-upload
         print("  Uploading updated ca.h5...")

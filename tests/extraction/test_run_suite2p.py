@@ -449,26 +449,16 @@ class TestFpsFromTimestamps:
         fps = fps_from_timestamps(ts_path)
         np.testing.assert_allclose(fps, 9.6, rtol=1e-3)
 
-    def test_missing_file_returns_fallback(self, tmp_path):
-        """Missing timestamps.h5 → fallback 29.97 Hz with warning."""
-        ts_path = tmp_path / "nonexistent.h5"
-        fps = fps_from_timestamps(ts_path)
-        assert fps == pytest.approx(29.97, rel=1e-3)
+    def test_missing_file_raises(self, tmp_path):
+        """Missing timestamps.h5 raises (no silent 29.97 Hz default)."""
+        with pytest.raises(FileNotFoundError):
+            fps_from_timestamps(tmp_path / "nonexistent.h5")
 
-    def test_missing_file_logs_warning(self, tmp_path, caplog):
-        import logging
-
-        ts_path = tmp_path / "nonexistent.h5"
-        with caplog.at_level(logging.WARNING, logger="hm2p.extraction.run_suite2p"):
-            fps_from_timestamps(ts_path)
-        assert "fallback" in caplog.text.lower() or "not found" in caplog.text.lower()
-
-    def test_fewer_than_2_frames_returns_fallback(self, tmp_path):
-        """Single frame in timestamps → fallback 29.97 Hz."""
+    def test_fewer_than_2_frames_raises(self, tmp_path):
         ts_path = tmp_path / "timestamps.h5"
         _write_timestamps_h5(ts_path, np.array([0.0]))
-        fps = fps_from_timestamps(ts_path)
-        assert fps == pytest.approx(29.97, rel=1e-3)
+        with pytest.raises(ValueError):
+            fps_from_timestamps(ts_path)
 
     def test_returns_float(self, tmp_path):
         ts_path = tmp_path / "timestamps.h5"

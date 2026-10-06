@@ -101,7 +101,8 @@ def get_bytes(key: str, retries: int = 4) -> bytes | None:
         try:
             return s3().get_object(Bucket=BUCKET, Key=key)["Body"].read()
         except Exception as exc:  # noqa: BLE001
-            code = getattr(exc, "response", {}).get("Error", {}).get("Code")
+            # non-ClientError exceptions (connection errors) carry response=None
+            code = (getattr(exc, "response", None) or {}).get("Error", {}).get("Code")
             if code in ("NoSuchKey", "404"):
                 return None
             log.debug("get %s failed (attempt %d): %s", key, attempt + 1, exc)
@@ -320,6 +321,18 @@ _MODEL: Any = None
 
 
 def collect_rois(c: Ctx) -> dict:
+    """Classifier QC for one session.
+
+    Stored labels and probabilities come from ``roi_class.npy`` /
+    ``roi_class_prob.npy`` when present, else from ca.h5 (``roi_types`` and
+    ``roi_qc/p_*``; the EC2 stage 1 run classified inline and kept them only
+    there). The classifier is then re-applied to features recomputed from the
+    Suite2p outputs twice: at the frame rate the pipeline used
+    (``ops["fs"]``), to check the stored labels can be reproduced, and at the
+    imaging frame rate from ca.h5 (the rate of the training data), whose
+    label changes measure the effect of the frame rate given to
+    ``classify_session``.
+    """
     from hm2p.extraction.roi_classify import load_model
     from hm2p.extraction.soma_features import FEATURE_COLUMNS, extract_soma_features
 
@@ -331,29 +344,57 @@ def collect_rois(c: Ctx) -> dict:
         return None if b is None else np.load(io.BytesIO(b), allow_pickle=pickle)
 
     stat = npy("stat.npy", True)
-    labels = npy("roi_class.npy")
-    probs = npy("roi_class_prob.npy")
-    if stat is None or labels is None or probs is None:
-        raise FileNotFoundError("stat.npy / roi_class.npy / roi_class_prob.npy")
+    if stat is None:
+        raise FileNotFoundError("stat.npy")
     stat = list(stat)
+    ca = c.ca_labels()
+    ca_d, ca_attrs = ca if ca is not None else ({}, {})
+    roi_qc = {k.split("/", 1)[1]: v for k, v in ca_d.items() if k.startswith("roi_qc/")}
+    labels, probs = npy("roi_class.npy"), npy("roi_class_prob.npy")
+    ca_types = ca_d.get("roi_types")
+    if labels is not None and probs is not None:
+        source = "roi_class.npy"
+    elif ca_types is not None and all(f"p_{k}" in roi_qc for k in qroi.LABELS):
+        source = "ca.h5 (roi_types, roi_qc/p_*)"
+        labels = np.array([qroi.CA_TO_CLASS.get(int(v), -1) for v in ca_types])
+        probs = np.column_stack([roi_qc[f"p_{k}"] for k in qroi.LABELS])
+        ca_types = None  # same source, so the consistency check would be trivial
+    else:
+        raise FileNotFoundError(
+            "no classifier output (roi_class.npy, or ca.h5 roi_types + roi_qc/p_*)"
+        )
     ops = npy("ops.npy", True)
     ops = ops.item() if ops is not None else {}
     F, Fneu = npy("F.npy"), npy("Fneu.npy")
+    pipeline_fps = float(ops.get("fs", np.nan))
+    imaging_fps = float(ca_attrs.get("fps_imaging", 0) or 0)
+    if imaging_fps <= 0 and "frame_times" in ca_d:
+        imaging_fps = span_fps(ca_d["frame_times"])
     feats = recomputed = None
+    repro: dict = {
+        "pipeline_fps": pipeline_fps,
+        "imaging_fps": imaging_fps,
+        "label_source": source,
+    }
     if F is not None and Fneu is not None:
-        fps = float(ops.get("fs", 9.6))
-        feats = extract_soma_features(stat, F.astype(np.float32), Fneu.astype(np.float32), fps=fps)
         if _MODEL is None:
             _MODEL = load_model()
         model, medians, _meta = _MODEL
-        X = feats.fillna(pd.Series(medians, index=list(FEATURE_COLUMNS)))
-        recomputed = model.predict_proba(X.values)
-    ca = c.ca_labels()
-    ca_types = roi_qc = None
-    if ca is not None:
-        ca_types = ca[0].get("roi_types")
-        roi_qc = {k.split("/", 1)[1]: v for k, v in ca[0].items() if k.startswith("roi_qc/")}
-    return qroi.summarise_rois(
+        fill = pd.Series(medians, index=list(FEATURE_COLUMNS))
+
+        def predict(fps: float) -> tuple[pd.DataFrame, np.ndarray]:
+            f = extract_soma_features(stat, F.astype(np.float32), Fneu.astype(np.float32), fps=fps)
+            return f, model.predict_proba(f.fillna(fill).values)
+
+        if np.isfinite(pipeline_fps) and pipeline_fps > 0:
+            _f, p_pipe = predict(pipeline_fps)
+            repro["pipeline_max_abs_diff"] = (
+                float(np.abs(p_pipe - probs).max()) if len(probs) else 0.0
+            )
+            repro["pipeline_label_changes"] = int((p_pipe.argmax(axis=1) != labels).sum())
+        if imaging_fps > 0:
+            feats, recomputed = predict(imaging_fps)
+    s = qroi.summarise_rois(
         labels,
         probs,
         stat=stat,
@@ -363,6 +404,12 @@ def collect_rois(c: Ctx) -> dict:
         recomputed_probs=recomputed,
         roi_qc=roi_qc,
     )
+    s["repro"] = repro
+    if recomputed is not None:
+        s["imaging_fps_counts"] = {
+            k: int((recomputed.argmax(axis=1) == i).sum()) for i, k in enumerate(qroi.LABELS)
+        }
+    return s
 
 
 def collect_spikes(c: Ctx) -> dict:
@@ -406,8 +453,7 @@ def classifier_info(with_reference: bool) -> dict:
     out: dict = {"model": meta}
     ref_path = OUT_DIR / "cache" / "rois" / "_reference.json"
     if with_reference:
-        sys.path.insert(0, str(REPO / "scripts"))
-        from train_roi_classifier import load_all_sessions
+        from hm2p.extraction.roi_training_data import load_all_sessions
 
         X, y, groups = load_all_sessions()
         ref = qroi.cv_reference(X, y, groups, meta.get("best_params", {}), n_jobs=-1)
@@ -436,9 +482,10 @@ def run(reports: list[str], only: set[str] | None, refresh: bool, with_reference
         for rep in reports:
             cache = OUT_DIR / "cache" / rep / f"{meta['exp_id']}.json"
             entry: dict = dict(meta)
-            if cache.exists() and not refresh:
-                entry.update(json.loads(cache.read_text()))
-            else:
+            cached = json.loads(cache.read_text()) if cache.exists() and not refresh else None
+            if cached is not None and cached.get("error") is None:
+                entry.update(cached)
+            else:  # no cache, --refresh, or a cached failure (retried: S3 errors are often transient)
                 fn, ov = COLLECTORS[rep]
                 t0 = time.time()
                 try:

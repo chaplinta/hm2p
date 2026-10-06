@@ -74,7 +74,7 @@ def _get_signal(
         deconv_norm  — Suite2p deconv normalized to [0, 1] per ROI
         events       — V&H binary event mask
         events_sd    — SD-threshold binary event mask
-        spikes       — CASCADE calibrated spike rates (spikes/s)
+        spikes       — CASCADE expected spikes per frame (x fps = Hz)
     """
     if extra_signals is None:
         extra_signals = {}

@@ -55,7 +55,7 @@
           <p class="caption">The camera is infrared, so the room lights should not change tracking confidence. Points below the diagonal mean lower confidence in the dark.</p>
         </div>
       </div>
-      <div class="table-wrap"><table class="compact" id="bp-table"><thead><tr><th>Keypoint</th><th>Median likelihood</th><th>25th pct (cut-off)</th><th>Below 0.1</th><th>NaN</th><th>Jumps</th><th>Frozen ≥ 1 s</th><th>Median light</th><th>Median dark</th></tr></thead><tbody></tbody></table></div>
+      <div class="table-wrap"><table class="compact" id="bp-table"><thead><tr><th>Keypoint</th><th>Median likelihood</th><th>25th pct (cut-off)</th><th>Below 0.1</th><th>NaN</th><th>Jumps</th><th title="Keypoint within 0.5 px for 1 s while the body centre moved more than 5 mm">Frozen while body moves</th><th>Median light</th><th>Median dark</th></tr></thead><tbody></tbody></table></div>
     </section>
 
     <section id="timeline">
@@ -161,6 +161,7 @@ function drawSession(id) {
   const warn = [];
   if (!d.light_from_kinematics) warn.push("Light epochs could not be matched from kinematics.h5 (missing or different frame count), so light vs dark comparisons are not shown.");
   if (d.unit === "px") warn.push("No video scale (mm per pixel) found for this session; distances are in pixels.");
+  if (d.extra_keypoints && d.extra_keypoints.length) warn.push(`The pose file also has ${d.extra_keypoints.length} keypoints that the pipeline does not use (${d.extra_keypoints.join(", ")}); they are not scored here.`);
   document.getElementById("sess-callout").innerHTML = warn.map(w => `<p class="callout">${QC.esc(w)}</p>`).join("");
 
   // likelihood heatmap: rows = keypoints
@@ -193,7 +194,7 @@ function drawSession(id) {
   // per-keypoint table
   document.querySelector("#bp-table tbody").innerHTML = parts.map(b => {
     const p = d.per_bp[b], h = p.lik_hist, below = h.counts.slice(0, Math.round(0.1 / ((h.hi - h.lo) / h.counts.length))).reduce((a, x) => a + x, 0) / Math.max(1, h.n);
-    return `<tr><td>${QC.esc(BPN[b] || b)}</td><td class="num">${QC.fmt(p.lik_q.q50, 3)}</td><td class="num">${QC.fmt(p.cut_q25, 3)}</td><td class="num">${QC.pct(below)}</td><td class="num">${QC.pct(p.frac_nan, 2)}</td><td class="num">${QC.pct(p.jump_frac, 2)}</td><td class="num">${QC.pct(p.frozen_frac, 1)}</td><td class="num">${QC.fmt(p.lik_median_light, 3)}</td><td class="num">${QC.fmt(p.lik_median_dark, 3)}</td></tr>`;
+    return `<tr><td>${QC.esc(BPN[b] || b)}</td><td class="num">${QC.fmt(p.lik_q.q50, 3)}</td><td class="num">${QC.fmt(p.cut_q25, 3)}</td><td class="num">${QC.pct(below)}</td><td class="num">${QC.pct(p.frac_nan, 2)}</td><td class="num">${QC.pct(p.jump_frac, 2)}</td><td class="num">${QC.pct(p.frozen_moving_frac, 2)}</td><td class="num">${QC.fmt(p.lik_median_light, 3)}</td><td class="num">${QC.fmt(p.lik_median_dark, 3)}</td></tr>`;
   }).join("");
 
   // timeline heatmap

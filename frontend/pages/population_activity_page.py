@@ -295,7 +295,7 @@ def _page() -> None:
             "|AHV|, and acceleration. R² quantifies movement-related variance. "
             "Zagha et al. 2022, J Neurosci. doi:10.1523/JNEUROSCI.1919-21.2021\n\n"
             "**CASCADE comparison:** Spearman correlation, cross-correlation lag, and "
-            "event-triggered average between CASCADE spike rates and dF/F. "
+            "event-triggered average between CASCADE inferred spikes and dF/F. "
             "Rupprecht et al. 2021, Nature Neuroscience. doi:10.1038/s41593-021-00895-5"
         )
 

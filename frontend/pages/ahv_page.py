@@ -76,7 +76,14 @@ sel_cell = st.slider("Cell index", 0, max(0, n_rois - 1), 0, key="ahv_cell")
 signal = ses_data["dff"][sel_cell]
 hd = ses_data["hd_deg"]
 mask = ses_data["active"] & ~ses_data["bad_behav"]
-ahv = compute_ahv(hd, fps=30.0, smoothing_frames=3)
+# sync.h5 is at the imaging rate (~9.8 Hz), not the 30 fps tracking rate:
+# take the rate from the session's frame times
+_ft = ses_data.get("frame_times")
+fps = float(1.0 / np.median(np.diff(_ft))) if _ft is not None and len(_ft) > 1 else float("nan")
+if not np.isfinite(fps) or fps <= 0:
+    st.error("No frame_times in this session's sync.h5; cannot compute AHV.")
+    st.stop()
+ahv = compute_ahv(hd, fps=fps, smoothing_frames=3)
 
 tab_tuning, tab_atd, tab_summary = st.tabs(["AHV Tuning", "Time Delay", "Summary"])
 
@@ -148,7 +155,7 @@ with tab_atd:
 
     max_lag = st.slider("Max lag (frames)", 3, 20, 8, 1, key="atd_lag")
 
-    atd = anticipatory_time_delay(signal, hd, mask, max_lag_frames=max_lag, fps=30.0)
+    atd = anticipatory_time_delay(signal, hd, mask, max_lag_frames=max_lag, fps=fps)
 
     col_a1, col_a2 = st.columns(2)
     col_a1.metric("Best lag", f"{atd['best_lag_ms']:.1f} ms")

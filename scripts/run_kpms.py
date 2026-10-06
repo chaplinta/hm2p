@@ -208,6 +208,26 @@ def get_dlc_champion_id(s3, bucket: str) -> str | None:
 # ── keypoint-MoSeq wrapper ─────────────────────────────────────────────────
 
 
+def pca_variance_dict(pca) -> dict:
+    """Explained-variance ratios from the object returned by ``kpms.fit_pca``.
+
+    ``fit_pca`` returns an sklearn ``PCA`` object; older code expected a dict
+    of arrays and therefore never saved ``pca_variance.json``. Both forms are
+    handled. Returns ``{"explained_variance_ratio": [...]}`` (plus any array
+    entry whose key contains "variance" when *pca* is a dict).
+    """
+    out: dict = {}
+    if hasattr(pca, "explained_variance_ratio_"):
+        out["explained_variance_ratio"] = [float(v) for v in pca.explained_variance_ratio_]
+    elif isinstance(pca, dict):
+        for k, v in pca.items():
+            if isinstance(v, np.ndarray) and "variance" in k.lower():
+                out[k] = v.tolist()
+            elif hasattr(v, "explained_variance_ratio_"):
+                out["explained_variance_ratio"] = [float(x) for x in v.explained_variance_ratio_]
+    return out
+
+
 def fit_kpms(
     dlc_files: dict[str, Path],
     project_dir: Path,
@@ -433,14 +453,7 @@ def fit_kpms(
     log.info("PCA precision check complete")
 
     # Save PCA explained variance
-    pca_variance = {}
-    if isinstance(pca, dict):
-        for k, v in pca.items():
-            if isinstance(v, np.ndarray) and "variance" in k.lower():
-                pca_variance[k] = v.tolist()
-            elif hasattr(v, "explained_variance_ratio_"):
-                # sklearn PCA object
-                pca_variance["explained_variance_ratio"] = v.explained_variance_ratio_.tolist()
+    pca_variance = pca_variance_dict(pca)
     log.info("PCA variance keys: %s", list(pca_variance.keys()))
 
     # ── Stage 1: AR-only initialisation ───────────────────────────────────

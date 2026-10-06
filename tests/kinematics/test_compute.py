@@ -249,7 +249,7 @@ class TestWindowedSpeed:
 
 class TestComputeHdDeg:
     def test_pointing_south(self) -> None:
-        """Ear vector pointing south: dx=0, dy=-1 → atan2(0,-1)=π → 180+180=360°."""
+        """Ear vector dx=0, dy=-1 → atan2(0,-1)=π → 180°."""
         # ear-left directly above ear-right in image coords (smaller y)
         hd = _compute_hd_deg(
             ear_left_x=np.array([5.0]),
@@ -257,7 +257,7 @@ class TestComputeHdDeg:
             ear_right_x=np.array([5.0]),
             ear_right_y=np.array([1.0]),
         )
-        np.testing.assert_allclose(hd[0], 360.0, atol=1e-4)
+        np.testing.assert_allclose(hd[0], 180.0, atol=1e-4)
 
     def test_constant_angle_no_unwrap(self) -> None:
         """Constant angle → all output frames equal."""
@@ -503,7 +503,7 @@ class TestComputeHeadDirection:
         pytest.importorskip("xarray")
         n = 5
         # ear-left at (5, 0), ear-right at (5, 1)
-        # atan2(5-5, 0-1) = atan2(0, -1) = π  → 180+180 = 360
+        # atan2(5-5, 0-1) = atan2(0, -1) = π  → 180
         pos_data = np.zeros((n, 2, len(KEYPOINTS), 1), dtype=np.float64)
         kp_idx = {k: i for i, k in enumerate(KEYPOINTS)}
         pos_data[:, 0, kp_idx["left_ear"], 0] = 5.0  # x
@@ -516,8 +516,8 @@ class TestComputeHeadDirection:
             pos_data[:, 1, kp_idx[kp], 0] = 3.0
         ds = _make_pose_dataset(n_frames=n, pos_data=pos_data)
         hd = compute_head_direction(ds)
-        # arctan2(0, -1) = π, 180 + 180 = 360°
-        np.testing.assert_allclose(hd[0], 360.0, atol=1.0)
+        # arctan2(0, -1) = π → 180°
+        np.testing.assert_allclose(hd[0], 180.0, atol=1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -945,33 +945,44 @@ class TestVectorAngleDeg:
 
 
 class TestEarPerpendicularAngle:
-    def test_ears_horizontal_pointing_right(self) -> None:
-        """Left ear above right ear (ly < ry, lx == rx) → head points south (180°).
-
-        ear_left=(5,0), ear_right=(5,2): dx=5-5=0, dy=0-2=-2
-        atan2(0,-2) = 180° → 180+180 = 360° ... wait, this is _ear_perpendicular
-        which uses atan2(lx-rx, ly-ry) = atan2(0,-2) = π → 180+180 = 360.
-        """
+    def test_ears_vertical(self) -> None:
+        """ear_left=(5,0), ear_right=(5,2): atan2(0, -2) = 180°."""
         angle = _ear_perpendicular_angle(
             np.array([5.0]),
             np.array([0.0]),
             np.array([5.0]),
             np.array([2.0]),
         )
-        np.testing.assert_allclose(angle, [360.0], atol=1e-6)
+        np.testing.assert_allclose(angle, [180.0], atol=1e-6)
 
-    def test_ears_same_y_left_is_left(self) -> None:
-        """Left ear left of right ear (lx < rx, same y).
-
-        atan2(lx-rx, 0) = atan2(-1, 0) = -90 → 90.
-        """
+    def test_ears_same_y(self) -> None:
+        """Left ear left of right ear (lx < rx, same y): atan2(-1, 0) = -90 → 270."""
         angle = _ear_perpendicular_angle(
             np.array([0.0]),
             np.array([0.0]),
             np.array([1.0]),
             np.array([0.0]),
         )
-        np.testing.assert_allclose(angle, [90.0], atol=1e-6)
+        np.testing.assert_allclose(angle, [270.0], atol=1e-6)
+
+    @pytest.mark.parametrize("phi", [0.0, 37.0, 90.0, 180.0, 245.0, 300.0])
+    def test_agrees_with_neck_to_nose_vector(self, phi: float) -> None:
+        """Ear HD points forward: equals _vector_angle_deg(neck, nose) for a straight head.
+
+        Top-down camera, image y axis down: the left ear lies at heading - 90°
+        in image coordinates (the geometry of this rig's DLC labels, checked
+        against travel direction on real sessions).
+        """
+        r = np.deg2rad(phi)
+        fwd = np.array([np.cos(r), np.sin(r)])
+        left = np.array([np.cos(r - np.pi / 2), np.sin(r - np.pi / 2)])
+        L, R, nose = 5 * left, -5 * left, 10 * fwd
+        ear = _ear_perpendicular_angle(*(np.array([v]) for v in (L[0], L[1], R[0], R[1])))
+        axial = _vector_angle_deg(
+            np.array([0.0]), np.array([0.0]), np.array([nose[0]]), np.array([nose[1]])
+        )
+        diff = (ear[0] - axial[0] + 180.0) % 360.0 - 180.0
+        assert abs(diff) < 1e-6
 
     def test_nan_left_ear_returns_nan(self) -> None:
         angle = _ear_perpendicular_angle(
@@ -1180,18 +1191,18 @@ class TestFusedHdWrapped:
     def test_estimates_disagree_slightly_fused_is_intermediate(self) -> None:
         """Multiple estimates with small disagreement → fused is intermediate."""
         n = 5
-        # Ear estimate: atan2(1,0)=90° → 180+90 = 270°
+        # Ear estimate: atan2(1,0) = 90°
         lx = np.full(n, 1.0)
         ly = np.zeros(n)
         rx = np.zeros(n)
         ry = np.zeros(n)
         ear_angle = float(_ear_perpendicular_angle(lx[:1], ly[:1], rx[:1], ry[:1])[0] % 360.0)
-        assert abs(ear_angle - 270.0) < 0.1
+        assert abs(ear_angle - 90.0) < 0.1
 
         # Construct nose+implant to give a vector estimate ~10° off from ears.
         # vector_angle = raw - 90 = (180 + atan2(dx,dy)) - 90
-        # We want vector_angle = 280 → raw = 370 → atan2(dx,dy) = 190°
-        target_raw_atan2 = np.deg2rad(280.0 + 90.0 - 180.0)  # = 190° in atan2
+        # We want vector_angle = 100 → raw = 190 → atan2(dx,dy) = 10°
+        target_raw_atan2 = np.deg2rad(100.0 + 90.0 - 180.0)  # = 10° in atan2
         nose_x = np.full(n, np.sin(target_raw_atan2))
         nose_y = np.full(n, np.cos(target_raw_atan2))
         implant_x = np.zeros(n)
@@ -1199,12 +1210,12 @@ class TestFusedHdWrapped:
 
         fused = _fused_hd_wrapped(lx, ly, rx, ry, nose_x, nose_y, implant_x, implant_y)
 
-        # All estimates should be near 270-280°; fused is their circular mean.
+        # All estimates should be near 90-100°; fused is their circular mean.
         # Check fused is in a reasonable range rather than exact value (5 estimates
         # now contribute with varying angles).
         assert np.all(np.isfinite(fused))
         for v in fused:
-            assert 265.0 <= v <= 285.0, f"fused={v} not in expected range"
+            assert 85.0 <= v <= 105.0, f"fused={v} not in expected range"
 
     # --- output properties ---
 
@@ -1713,7 +1724,7 @@ class TestComputeHdMulti:
     def test_individual_estimates_ears_reasonable_angle(self) -> None:
         """For a specific ear geometry, hd_ears should have a predictable angle."""
         # left_ear at (0,0), right_ear at (1,0): ear vector → dx=0-1=-1, dy=0-0=0
-        # atan2(-1, 0) = -pi/2 → 180 + degrees(-pi/2) = 180 - 90 = 90°
+        # atan2(-1, 0) = -pi/2 → -90° → 270° in [0, 360)
         ds = _make_full_dataset(
             left_ear_x=0.0,
             left_ear_y=0.0,
@@ -1721,7 +1732,7 @@ class TestComputeHdMulti:
             right_ear_y=0.0,
         )
         result = compute_hd_multi(ds, scale_mm_per_px=1.0)
-        np.testing.assert_allclose(result["hd_ears"], 90.0, atol=1e-4)
+        np.testing.assert_allclose(result["hd_ears"], 270.0, atol=1e-4)
 
     def test_missing_ears_raises(self) -> None:
         """If ears are missing from the dataset, raise ValueError."""

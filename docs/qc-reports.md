@@ -93,8 +93,9 @@ of the 26 features against the manual-label distributions (domain shift).
 Per ROI: robust noise SD (MAD of frame differences), SNR (99th percentile /
 noise), V&H and SD-threshold event rates and their frame-level Jaccard overlap,
 CASCADE mean rate (Hz: CASCADE outputs expected spikes per frame, multiplied
-here by the frame rate; the `spikes_units` attribute "spikes/s" written by
-`scripts/run_cascade.py` does not match this), Spearman correlation of spikes
+here by the frame rate; existing ca.h5 files carry a `spikes_units`
+attribute "spikes/s", which is incorrect, and `scripts/run_cascade.py` now
+writes "expected spikes per frame"), Spearman correlation of spikes
 with dF/F, fraction of V&H
 events containing CASCADE spikes, fraction of spike mass inside events, F0 drift
 (last / first 5 %), fraction of frames with F below F0, plus the stored
@@ -102,6 +103,53 @@ events containing CASCADE spikes, fraction of spike mass inside events, F0 drift
 correlations, and the fraction of soma ROIs failing each threshold in
 `hm2p.calcium.qc`. A 90 s trace viewer per ROI shows dF/F with both event masks
 and the CASCADE rate, and the whole-session F with its F0 baseline.
+
+## Findings, first full run (2026-10-06, all 26 sessions)
+
+Code fixes for 1–3 are on branch `feat/qc-reports`; the stored data still
+need re-running.
+
+1. **Head direction: the ear estimate pointed backwards.**
+   `_ear_perpendicular_angle` was ~180° from the nose-neck, nose-head and
+   head-neck estimates and from travel direction while running (median
+   |HD − travel| 157° vs ~20° for nose-neck). The fused `hd_deg` averaged
+   opposite vectors: per session (median) 15 % of frames on the backward side
+   and 17 % 45–135° off; while running it was further from travel than
+   nose-neck alone (median 31° vs 20°). Fixed in `kinematics/compute.py`
+   (also the head-body angle, which read +90° for a straight mouse). Stage 3,
+   5 and 6 outputs predate the fix.
+2. **ROI classifier and Suite2p ran at 29.97 Hz.** Stage 1 on EC2 had no
+   timestamps.h5, so `fps_from_timestamps` fell back to 29.97 Hz (imaging is
+   9.64–9.77 Hz) for Suite2p and for `classify_session`. Re-applying the
+   model at 29.97 Hz reproduces every stored label; at the imaging rate 71 of
+   4023 labels change (soma 463 → 467, dendrite 392 → 442). The fallback is
+   removed and `classify_session` now requires `fps`.
+3. **CASCADE units.** The stored `spikes` array is the expected number of
+   spikes per frame, not spikes/s. Labels, rate conversions (× fps) and count
+   conversions (plain sums) are fixed; results that use a fixed spike-count
+   threshold (`sp_fraction_bins_active`, `sp_isi_cv_s`) change on re-run.
+4. **Two dF/F scales.** The 9 sessions with the original FISSA run (all
+   Penk+, up to 2021-12-03) have median F0 45–180; the 17 reprocessed through
+   the EC2 FISSA bridge in 2026-06 have median F0 0.3–9, so their dF/F noise
+   is ~6× higher (0.20–0.67 vs 0.05–0.14). CASCADE rate follows the noise
+   (Spearman ρ = 0.83 across sessions); V&H event rate does not (ρ = 0.19).
+   All Penk⁻CamKII+ sessions are in the reprocessed group, so amplitude- and
+   noise-sensitive measures remain confounded with processing.
+5. **Syllables** (κ = 10⁶, 4 PCs, AR-only 50 + 200 iterations): 3–10
+   syllables cover 80 % of frames in every session (criterion 20–40); median
+   bout 600–1100 ms in 20 of 26 (criterion 300–500 ms); 3 sessions do not
+   match the kinematics length. `pca_variance.json` was never saved (fixed in
+   `run_kpms.py`).
+6. **Classifier reference** (leave-one-session-out, 3762 labelled ROIs,
+   23 sessions): macro F1 0.824; soma F1 0.87; dendrite F1 0.64 (precision
+   0.58: 116 of 3212 artefacts predicted as dendrite). Fails the dendrite
+   criterion (≥ 0.7); artefacts labelled soma 1.5 % (passes).
+7. **Tracking** is good in most sessions: ear side consistent in all
+   sessions, no light/dark likelihood difference. Worst included session
+   20220804_11_21_59 (13 % frames with a jump, 13 % out of nose-to-tail
+   order, 11 % body-length outliers).
+8. **Baseline drift:** soma F0 falls by > 40 % over the session (end/start
+   < 0.6) in 13 of 26 sessions, down to 0.05.
 
 ## References
 

@@ -117,7 +117,9 @@ def run_session(s3, sub: str, ses: str, exp_id: str, work_dir: Path,
         if not (plane_dir / "roi_class.npy").exists():
             print(f"  Running ROI classifier...")
             from hm2p.extraction.roi_classify import classify_session
-            cls_result = classify_session(plane_dir)
+            from hm2p.extraction.run_suite2p import fps_from_timestamps
+            # imaging rate from timestamps.h5, not ops["fs"] (29.97 in the EC2 run)
+            cls_result = classify_session(plane_dir, fps=fps_from_timestamps(ts_local))
             print(f"  Classified: {cls_result['n_soma']} soma, {cls_result['n_dend']} dend, {cls_result['n_artefact']} artefact")
 
         # Run calcium pipeline

@@ -72,8 +72,8 @@ class PipelineConfig(BaseSettings):
         default=None,
         description=(
             "Nominal 2P imaging rate (Hz). Set to null (default) to read fps per-session "
-            "from timestamps.h5 via fps_from_timestamps(). Falls back to 29.97 Hz if "
-            "timestamps.h5 is missing."
+            "from timestamps.h5 via fps_from_timestamps(), which raises if "
+            "timestamps.h5 is missing (there is no default rate)."
         ),
     )
 

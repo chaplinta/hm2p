@@ -1,6 +1,10 @@
-"""CASCADE Spike Inference — explore calibrated spike rates from ca.h5.
+"""CASCADE Spike Inference — explore calibrated inferred spikes from ca.h5.
 
-Displays CASCADE spike rate data alongside dF/F0, deconvolved traces,
+The stored CASCADE output (``spikes``) is the expected number of spikes per
+imaging frame; rates shown on this page are that value multiplied by the
+imaging frame rate (Hz), or by fps x 60 for spikes/min.
+
+Displays CASCADE output alongside dF/F0, deconvolved traces,
 and event masks. Does not require sync.h5 or behavioural data — works
 directly from ca.h5.
 """
@@ -33,8 +37,10 @@ log = logging.getLogger("hm2p.frontend.cascade")
 def _page() -> None:
     st.title("CASCADE Spike Inference")
     st.caption(
-        "Calibrated spike rates (spikes/s) from CASCADE "
-        "(Rupprecht et al. 2021, Nature Neuroscience). "
+        "Calibrated inferred spikes from CASCADE "
+        "(Rupprecht et al. 2021, Nature Neuroscience). The stored output is the "
+        "expected number of spikes per frame; rates below are converted to Hz "
+        "by multiplying by the imaging frame rate. "
         "Compares CASCADE output with dF/F0, Suite2p deconvolution, "
         "and event detection methods."
     )
@@ -106,7 +112,8 @@ def _page() -> None:
         # --- Population spike rate ---
         st.subheader("Population Spike Rate")
 
-        mean_spike_rate = np.nanmean(spikes, axis=0)
+        # expected spikes per frame x fps = spikes/s
+        mean_spike_rate = np.nanmean(spikes, axis=0) * fps
         kernel = np.ones(max(1, int(fps))) / max(1, int(fps))
         smooth_rate = np.convolve(mean_spike_rate, kernel, mode="same")
 
@@ -119,7 +126,7 @@ def _page() -> None:
         ))
         fig_pop.update_layout(
             height=250,
-            xaxis_title="Time (s)", yaxis_title="Spikes/s (population mean)",
+            xaxis_title="Time (s)", yaxis_title="Spikes/s, 1-s smoothed (population mean)",
             margin=dict(l=50, r=20, t=20, b=40),
         )
         st.plotly_chart(fig_pop, use_container_width=True)
@@ -127,8 +134,10 @@ def _page() -> None:
         # --- Per-ROI spike rate stats ---
         st.subheader("Per-ROI Spike Statistics")
 
-        mean_rates = np.nanmean(spikes, axis=1) * 60  # spikes/min
-        max_rates = np.nanmax(spikes, axis=1)
+        # expected spikes per frame x fps x 60 = spikes/min
+        mean_rates = np.nanmean(spikes, axis=1) * fps * 60
+        # single-frame maximum expressed as an instantaneous rate (spikes/s)
+        max_rates = np.nanmax(spikes, axis=1) * fps
         active_frac = np.mean(spikes > 0, axis=1)
 
         import plotly.express as px
@@ -137,7 +146,7 @@ def _page() -> None:
         roi_df = pd.DataFrame({
             "ROI": np.arange(n_rois),
             "Mean rate (spk/min)": mean_rates,
-            "Max rate (spk/s)": max_rates,
+            "Max frame rate (spk/s)": max_rates,
             "Active fraction": active_frac,
         })
 
@@ -174,7 +183,7 @@ def _page() -> None:
     # Build comparison figure
     signals_available = ["dF/F0"]
     if has_spikes:
-        signals_available.append("CASCADE spikes")
+        signals_available.append("CASCADE spikes (expected spikes/frame)")
     if "deconv_norm" in ca:
         signals_available.append("Deconv (normalized)")
 
@@ -280,6 +289,9 @@ def _page() -> None:
             "Rupprecht P et al. 2021. \"A database and deep learning toolbox for "
             "noise-optimized, generalized spike inference from calcium imaging.\" "
             "Nature Neuroscience 24:1324-1337. doi:10.1038/s41593-021-00895-5\n\n"
+            "**Units:** CASCADE outputs the expected number of spikes per imaging "
+            "frame (summing over frames gives a spike count; multiplying by the "
+            "frame rate gives spikes/s). Stored as `spikes` in ca.h5 and sync.h5.\n\n"
             "**Model used:** Global_EXC_7.5Hz_smoothing200ms "
             "(closest match to GCaMP7f at ~9.6 Hz imaging rate).\n\n"
             "**Event detection methods:**\n"

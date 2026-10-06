@@ -126,7 +126,7 @@ Penk+ calcium events are longer and rarer than Penk⁻CamKII+ events.
 | Event decay time (s) | 2.43 | 2.00 | 0.078 | 0.011 | 0.061 | 0.82 |
 | Event amplitude (dF/F units) | 4.6 | 7.8 | 0.026 | 0.044 | 0.106 | 0.11 |
 | Event SNR | 11.5 | 11.0 | 0.57 | 0.81 | 0.81 | 0.39 |
-| CASCADE spike rate (spikes/s) | 0.13 | 0.19 | 0.078 | 0.063 | 0.13 | 0.18 |
+| CASCADE expected spikes per frame (x fps for Hz; pending re-run) | 0.13 | 0.19 | 0.078 | 0.063 | 0.13 | 0.18 |
 
 Every direction survives LOAO. Event SNR does not differ.
 

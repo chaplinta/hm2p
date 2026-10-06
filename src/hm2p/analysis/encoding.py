@@ -1,11 +1,12 @@
 """Poisson GLM encoding models for RSP neurons.
 
 Fits per-ROI Poisson generalised linear models that predict per-frame activity
-(event counts, deconvolved spike rate, or CASCADE spike rate) from behavioural
-variables: head direction, angular head velocity, speed, 2-D position, light
-condition, and optional behavioural syllable identity. Each variable is mapped
-through a basis (raised-cosine bumps for 1-D variables, Gaussian bumps for
-position, one-hot for categorical) so tuning shape is not assumed.
+(event counts, deconvolved spike rate, or CASCADE expected spikes per frame)
+from behavioural variables: head direction, angular head velocity, speed,
+2-D position, light condition, and optional behavioural syllable identity.
+Each variable is mapped through a basis (raised-cosine bumps for 1-D
+variables, Gaussian bumps for position, one-hot for categorical) so tuning
+shape is not assumed.
 
 The model-selection design follows the multiplexed-coding analysis of
 
@@ -796,7 +797,7 @@ def poisson_deviance(y: npt.ArrayLike, mu: npt.ArrayLike) -> float:
 
     Frames where ``y`` or ``mu`` is non-finite are dropped. ``y * log(y)`` is
     taken as 0 at ``y = 0``. Valid for non-integer ``y`` (quasi-likelihood),
-    which is what deconvolved / CASCADE rates are.
+    which is what deconvolved rates and CASCADE expected spike counts are.
 
     Parameters
     ----------

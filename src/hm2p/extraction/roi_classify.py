@@ -104,7 +104,7 @@ def load_model(
 
 def classify_session(
     plane_dir: Path,
-    fps: float | None = None,
+    fps: float,
     model_path: Path | None = None,
     medians_path: Path | None = None,
     neucoeff: float = 0.7,
@@ -119,8 +119,12 @@ def classify_session(
     ----------
     plane_dir : Path
         Suite2p plane directory (e.g. ``derivatives/.../suite2p/plane0/``).
-    fps : float or None
-        Imaging frame rate. If None, reads from ops.npy.
+    fps : float
+        Imaging frame rate (Hz), measured from timestamps.h5. Required: the
+        time-based features (autocorrelation half-width, event rate, power
+        slope) depend on it, and the training data were computed at the true
+        imaging rate (~9.6-9.8 Hz). ``ops["fs"]`` is not used because Stage 1
+        runs without timestamps.h5 stored 29.97 Hz there.
     model_path : Path or None
         Override model location.
     medians_path : Path or None
@@ -137,14 +141,13 @@ def classify_session(
         "n_dend" : int
         "n_artefact" : int
     """
+    if fps is None or not np.isfinite(fps) or fps <= 0:
+        raise ValueError(f"classify_session needs a positive imaging fps, got {fps!r}")
+
     # Load Suite2p outputs
     stat = list(np.load(plane_dir / "stat.npy", allow_pickle=True))
     F = np.load(plane_dir / "F.npy").astype(np.float32)
     Fneu = np.load(plane_dir / "Fneu.npy").astype(np.float32)
-
-    if fps is None:
-        ops = np.load(plane_dir / "ops.npy", allow_pickle=True).item()
-        fps = float(ops.get("fs", 9.6))
 
     n_rois = len(stat)
     if n_rois == 0:

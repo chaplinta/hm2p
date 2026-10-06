@@ -275,12 +275,12 @@ The `movement` library from the SWC/UCL neuroinformatics unit provides the unifi
   1. **Neuropil subtraction** (`calcium/neuropil.py`): `F_corr = F - 0.7 * Fneu` (fixed coefficient, default) or FISSA (spatial ICA, optional)
   2. **Baseline & dF/F0** (`calcium/dff.py`): sliding window minimum of Gaussian-smoothed trace
   3. **Event detection** (`calcium/events.py`): Voigts & Harnett 2020 threshold method (primary fallback), SD-threshold (Zong et al. 2022)
-  4. **CASCADE spike inference** (`calcium/spikes.py`): calibrated spike rates in spikes/s from pre-trained deep-learning models matched to GCaMP indicator + frame rate
+  4. **CASCADE spike inference** (`calcium/spikes.py`): expected number of spikes per imaging frame (multiply by fps for spikes/s) from pre-trained deep-learning models matched to GCaMP indicator + frame rate
   5. **Per-ROI QC** (`calcium/qc.py`): SNR, decay tau, neuropil-dF/F correlation, bleach slope, active fraction
   6. **Neuropil contamination analysis** (`calcium/neuropil_analysis.py`): QC metrics for neuropil subtraction quality
 - **Output:** `derivatives/calcium/{sub}/{ses}/ca.h5`
   - `dff` (R, T) float32 — dF/F0 per ROI per frame
-  - `spikes` (R, T) float32 — CASCADE spike rate (spikes/s)
+  - `spikes` (R, T) float32 — CASCADE expected spikes per frame (x fps = spikes/s)
   - `event_masks` (R, T) float32 — V&H binary events
   - `event_masks_sd` (R, T) float32 — SD-threshold events
   - `deconv` / `deconv_norm` (R, T) float32 — Suite2p deconvolved spikes

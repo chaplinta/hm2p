@@ -333,7 +333,8 @@ Unless otherwise specified:
   tuning curves because it preserves graded rate information and avoids CASCADE's
   calibration uncertainties at low SNR.
 - **Event rate** analyses (H-N9 factorial, transition responses in H-N6) use
-  **CASCADE spike inference** (spikes/s), which is more appropriate for counting
+  **CASCADE spike inference** (expected spikes per frame; x fps for spikes/s),
+  which is more appropriate for counting
   discrete events and comparing activity magnitudes across cells with different
   baseline fluorescence.
 - **Decoding** (H-N7) uses **dF/F**, following the convention of population vector
@@ -677,7 +678,8 @@ lights-on.
 **Analysis plan:**
 1. Align all light-to-dark transitions across sessions. Compute peri-transition
    activity (1-second bins, -10s to +30s relative to transition) using
-   **CASCADE spike rate** (spikes/s per cell, then averaged across cells per
+   **CASCADE spike rate** (expected spikes per frame x fps, in spikes/s, per
+   cell, then averaged across cells per
    animal).
 2. Transition response index = median spike rate [0, 5s] / median spike rate
    [-10, -5s].
@@ -811,7 +813,8 @@ should show a smaller light x movement interaction.
 
 **Analysis plan:**
 1. Four conditions per cell: moving-light, moving-dark, stationary-light,
-   stationary-dark. Compute **CASCADE spike rate** (mean spikes/s) in each.
+   stationary-dark. Compute **CASCADE spike rate** (mean expected spikes per
+   frame x fps, in spikes/s) in each.
 2. Main effects: paired Wilcoxon on movement-pooled-over-light and
    light-pooled-over-movement.
 3. Interaction contrast per cell: (moving_light - stationary_light) -

@@ -285,7 +285,7 @@ def validate_ca_h5(arrays: dict[str, np.ndarray]) -> None:
       dff          float32  2D  shape (n_rois, n_frames)
 
     Optional keys validated when present:
-      spikes              float32  2D  same shape as dff (CASCADE spike rates)
+      spikes              float32  2D  same shape as dff (CASCADE expected spikes/frame)
       roi_types           uint8    1D  length n_rois (0=soma, 1=dend, 2=artefact)
       iscell              bool     1D  length n_rois (Suite2p classifier
                                        acceptance flag; orthogonal to roi_types)

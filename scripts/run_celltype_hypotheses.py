@@ -233,11 +233,11 @@ def build_feature_table(
 ) -> pd.DataFrame:
     """Per-cell feature table across sessions with metadata columns attached.
 
-    With ``--signal spikes`` the table is built from the CASCADE inferred
-    spike rates (``sp_`` rate family plus the ``tun_`` and ``act_``
-    families) instead of dF/F; the dF/F event-kinetics and trace-shape
-    families are then absent, and sessions without a ``spikes`` array are
-    skipped. ``include_catch22`` applies to the dF/F table only.
+    With ``--signal spikes`` the table is built from the CASCADE output
+    (expected spikes per frame; converted to Hz for the ``sp_`` rate family
+    plus the ``tun_`` and ``act_`` families) instead of dF/F; the dF/F
+    event-kinetics and trace-shape families are then absent, and sessions
+    without a ``spikes`` array are skipped. ``include_catch22`` applies to the dF/F table only.
     """
     from hm2p.analysis.cell_features import session_feature_table, session_spike_feature_table
 
@@ -546,16 +546,14 @@ H8_FAMILIES = {
 
 
 def _glm_response(arrays: dict[str, Any], signal: str) -> np.ndarray:
-    """Non-negative per-frame response for the Poisson GLM.
+    """Non-negative per-frame (or per-bin) response for the Poisson GLM.
 
-    CASCADE spike rates (spikes/s) are converted to expected counts per
-    frame (rate / fps) so that binning sums to counts per bin.
+    The CASCADE output is already the expected number of spikes per frame,
+    so it is used directly as a count (and summing over a bin in
+    :func:`bin_session_arrays` gives the expected count per bin).
     """
     if signal == "spikes" and "spikes" in arrays:
-        spk = np.clip(np.asarray(arrays["spikes"], dtype=np.float64), 0, None)
-        if arrays.get("spikes_are_counts", False):
-            return spk
-        return spk / float(arrays.get("fps", 1.0))
+        return np.clip(np.asarray(arrays["spikes"], dtype=np.float64), 0, None)
     if "event_masks" in arrays:
         return np.asarray(arrays["event_masks"], dtype=np.float64)
     return np.clip(np.asarray(arrays["dff"], dtype=np.float64), 0, None)
@@ -572,14 +570,15 @@ def bin_session_arrays(arrays: dict[str, Any], bin_frames: int) -> dict[str, Any
     """Aggregate per-frame session arrays into bins of *bin_frames* frames.
 
     Signals (``dff``, ``spikes``, ``event_masks``) are summed within a bin
-    (so per-frame expected counts become counts per bin), ``hd_deg`` is the
+    (CASCADE ``spikes`` are expected spikes per frame, so the sum is the
+    expected spike count per bin), ``hd_deg`` is the
     circular mean, continuous behavioural channels are the mean, ``light_on``
     is the bin majority, ``mask`` is True only when every frame in the bin
     is valid, ``syllable_id`` is the first frame's label, and ``fps`` is
     divided by *bin_frames*. Trailing frames that do not fill a bin are
     dropped. Coarser bins give the Poisson GLM non-trivial counts per
     observation at 9.6 Hz imaging (Hardcastle et al. 2017 used 20 ms bins
-    on spikes; here 0.5-1 s bins on inferred rates).
+    on spikes; here 0.5-1 s bins on inferred spikes).
     """
     if bin_frames <= 1:
         return arrays
@@ -597,10 +596,9 @@ def bin_session_arrays(arrays: dict[str, Any], bin_frames: int) -> dict[str, Any
         if k in arrays and arrays[k] is not None:
             out[k] = _blocks(np.asarray(arrays[k], dtype=np.float64)).sum(axis=-1)
     if arrays.get("spikes") is not None:
-        # spikes/s per frame -> expected spike count per bin
-        rate = np.clip(np.asarray(arrays["spikes"], dtype=np.float64), 0, None)
-        out["spikes"] = _blocks(rate).sum(axis=-1) / float(arrays["fps"])
-        out["spikes_are_counts"] = True
+        # expected spikes per frame summed over the bin = expected count per bin
+        per_frame = np.clip(np.asarray(arrays["spikes"], dtype=np.float64), 0, None)
+        out["spikes"] = _blocks(per_frame).sum(axis=-1)
     out["hd_deg"] = _circular_mean_deg(_blocks(np.asarray(arrays["hd_deg"], dtype=np.float64)))
     for k in ("ahv_deg_s", "speed_cm_s", "x_mm", "y_mm", "x_maze", "y_maze"):
         if k in arrays and arrays[k] is not None:
@@ -910,8 +908,9 @@ def run_ctl(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> d
                 rec[f"ev_{k}"] = dyn[k]
             rec["ev_event_rate"] = dyn["event_rate"]
             rec["f_baseline"] = baseline_fluorescence(f_raw[i]) if f_raw is not None else np.nan
+            # CASCADE output is expected spikes per frame; x fps gives Hz.
             rec["spike_rate_hz"] = (
-                float(np.nanmean(np.asarray(spikes[i], dtype=np.float64)))
+                float(np.nanmean(np.asarray(spikes[i], dtype=np.float64))) * fps
                 if spikes is not None
                 else np.nan
             )
@@ -1039,7 +1038,7 @@ def _evt_wide(df: pd.DataFrame, value: str, prefix: str, index: list[str]) -> pd
 def run_evt(args: argparse.Namespace, sessions: SessionIter, out_dir: Path) -> dict[str, Any]:
     """Event-aligned transient responses (light, movement, turns, maze entries).
 
-    Intended to run with ``--signal spikes`` (CASCADE inferred rates, now in
+    Intended to run with ``--signal spikes`` (CASCADE expected spikes per frame, in
     sync.h5); ``--signal dff`` also works. Each cell is tested against its own
     circular-shift null of the event train (``hm2p.analysis.event_aligned``);
     sessions are summarised by the fraction of responsive cells; groups are

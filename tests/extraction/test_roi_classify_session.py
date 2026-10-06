@@ -9,19 +9,26 @@ import numpy as np
 from hm2p.extraction.roi_classify import classify_session
 
 
-def test_classify_session_empty_rois(tmp_path: Path) -> None:
-    """Zero ROIs → empty labels written and returned without loading a model.
+def test_classify_session_requires_fps(tmp_path: Path) -> None:
+    import pytest
 
-    Also exercises the fps-from-ops path (fps=None reads ops.npy["fs"]).
-    """
+    with pytest.raises(ValueError):
+        classify_session(tmp_path, fps=None)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        classify_session(tmp_path, fps=0.0)
+
+
+def test_classify_session_empty_rois(tmp_path: Path) -> None:
+    """Zero ROIs → empty labels written and returned without loading a model."""
     plane = tmp_path / "plane0"
     plane.mkdir()
     np.save(plane / "stat.npy", np.array([], dtype=object))
     np.save(plane / "F.npy", np.zeros((0, 100), dtype=np.float32))
     np.save(plane / "Fneu.npy", np.zeros((0, 100), dtype=np.float32))
-    np.save(plane / "ops.npy", np.array({"fs": 9.6}, dtype=object))
+    # ops["fs"] is ignored: the imaging rate must be passed explicitly
+    np.save(plane / "ops.npy", np.array({"fs": 29.97}, dtype=object))
 
-    result = classify_session(plane, fps=None)
+    result = classify_session(plane, fps=9.6)
 
     assert result["n_soma"] == 0
     assert result["n_dend"] == 0

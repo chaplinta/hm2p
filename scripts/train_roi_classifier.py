@@ -50,11 +50,11 @@ from xgboost import XGBClassifier
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from hm2p.extraction.soma_features import FEATURE_COLUMNS, extract_soma_features
+from hm2p.extraction.roi_training_data import S2P_ROOT, load_all_sessions, load_session_data
+from hm2p.extraction.soma_features import FEATURE_COLUMNS
 
 log = logging.getLogger("hm2p.train_roi_classifier")
 
-S2P_ROOT = Path("/data/s2p")
 
 LABEL_NAMES = ["artefact", "soma", "dend"]
 RANDOM_STATE = 42
@@ -67,84 +67,9 @@ N_CV_FOLDS = 5
 # ---------------------------------------------------------------------------
 
 
-def load_session_data(session_dir: Path) -> dict | None:
-    """Load features and 3-way labels for one session from /data/s2p/."""
-    soma_dir = session_dir / "suite2p_soma" / "plane0"
-    dend_dir = session_dir / "suite2p_dend" / "plane0"
-
-    if not soma_dir.exists() or not dend_dir.exists():
-        return None
-
-    ic_soma = np.load(soma_dir / "iscell.npy")
-    ic_dend = np.load(dend_dir / "iscell.npy")
-
-    n_soma = int((ic_soma[:, 0] == 1).sum())
-    n_dend = int((ic_dend[:, 0] == 1).sum())
-
-    if n_soma + n_dend == 0:
-        return None
-
-    n_rois = len(ic_soma)
-    labels = np.zeros(n_rois, dtype=np.int64)
-    labels[ic_soma[:, 0] == 1] = 1
-    labels[ic_dend[:, 0] == 1] = 2
-
-    overlap = ((ic_soma[:, 0] == 1) & (ic_dend[:, 0] == 1)).sum()
-    if overlap > 0:
-        log.warning(
-            "%s: %d ROIs labeled as both soma and dend — skipping",
-            session_dir.name, overlap,
-        )
-        return None
-
-    stat = list(np.load(soma_dir / "stat.npy", allow_pickle=True))
-    F = np.load(soma_dir / "F.npy").astype(np.float32)
-    Fneu = np.load(soma_dir / "Fneu.npy").astype(np.float32)
-    ops = np.load(soma_dir / "ops.npy", allow_pickle=True).item()
-    fps = float(ops.get("fs", 9.6))
-
-    features = extract_soma_features(stat, F, Fneu, fps=fps)
-
-    return {
-        "session_id": session_dir.name,
-        "features": features,
-        "labels": labels,
-        "n_soma": n_soma,
-        "n_dend": n_dend,
-        "n_artefact": n_rois - n_soma - n_dend,
-        "n_rois": n_rois,
-    }
-
-
-def load_all_sessions() -> tuple[pd.DataFrame, np.ndarray, np.ndarray]:
-    """Load features, labels, and session IDs for all usable sessions."""
-    feature_list = []
-    label_list = []
-    group_list = []
-
-    for session_dir in sorted(S2P_ROOT.iterdir()):
-        if not session_dir.is_dir():
-            continue
-        data = load_session_data(session_dir)
-        if data is None:
-            log.info("Skipping %s (no labeled cells)", session_dir.name)
-            continue
-
-        feature_list.append(data["features"])
-        label_list.append(data["labels"])
-        group_list.append(np.full(data["n_rois"], data["session_id"]))
-
-        log.info(
-            "  %s: %d ROIs (%d soma, %d dend, %d artefact)",
-            data["session_id"], data["n_rois"],
-            data["n_soma"], data["n_dend"], data["n_artefact"],
-        )
-
-    X = pd.concat(feature_list, ignore_index=True)
-    y = np.concatenate(label_list)
-    groups = np.concatenate(group_list)
-
-    return X, y, groups
+# load_session_data / load_all_sessions live in hm2p.extraction.roi_training_data
+# (shared with the classification QC report); re-exported here for existing callers.
+__all__ = ["load_all_sessions", "load_session_data"]
 
 
 # ---------------------------------------------------------------------------
@@ -164,10 +89,16 @@ def get_feature_importance(clf, feature_names: list[str]) -> pd.DataFrame:
     else:
         return pd.DataFrame()
 
-    return pd.DataFrame({
-        "feature": feature_names,
-        "importance": imp,
-    }).sort_values("importance", ascending=False).reset_index(drop=True)
+    return (
+        pd.DataFrame(
+            {
+                "feature": feature_names,
+                "importance": imp,
+            }
+        )
+        .sort_values("importance", ascending=False)
+        .reset_index(drop=True)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -183,20 +114,29 @@ def logreg_objective(
 ) -> float:
     C = trial.suggest_float("C", 1e-4, 100.0, log=True)
 
-    pipe = Pipeline([
-        ("scaler", StandardScaler()),
-        ("clf", LogisticRegression(
-            C=C,
-            class_weight="balanced",
-            solver="lbfgs",
-            max_iter=2000,
-            random_state=RANDOM_STATE,
-        )),
-    ])
+    pipe = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "clf",
+                LogisticRegression(
+                    C=C,
+                    class_weight="balanced",
+                    solver="lbfgs",
+                    max_iter=2000,
+                    random_state=RANDOM_STATE,
+                ),
+            ),
+        ]
+    )
 
     scores = cross_val_score(
-        pipe, X_train, y_train, cv=cv,
-        scoring="f1_macro", n_jobs=-1,
+        pipe,
+        X_train,
+        y_train,
+        cv=cv,
+        scoring="f1_macro",
+        n_jobs=-1,
     )
     return scores.mean()
 
@@ -231,13 +171,17 @@ def xgboost_objective(
             n_jobs=1,  # single-threaded per fold; parallelism via Optuna
         )
         clf.fit(
-            X_train[train_idx], y_train[train_idx],
+            X_train[train_idx],
+            y_train[train_idx],
             sample_weight=sample_weights[train_idx],
         )
         y_pred = clf.predict(X_train[val_idx])
         f1 = f1_score(
-            y_train[val_idx], y_pred,
-            labels=[0, 1, 2], average="macro", zero_division=0,
+            y_train[val_idx],
+            y_pred,
+            labels=[0, 1, 2],
+            average="macro",
+            zero_division=0,
         )
         scores.append(f1)
 
@@ -268,7 +212,10 @@ def main() -> int:
     counts = {LABEL_NAMES[i]: int((y == i).sum()) for i in range(3)}
     log.info(
         "Loaded %d ROIs from %d sessions in %.1fs: %s",
-        len(y), n_sessions, t_load, counts,
+        len(y),
+        n_sessions,
+        t_load,
+        counts,
     )
 
     nan_counts = X.isna().sum()
@@ -279,7 +226,11 @@ def main() -> int:
     # Train/test split
     # ------------------------------------------------------------------
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, stratify=y, random_state=RANDOM_STATE,
+        X,
+        y,
+        test_size=0.2,
+        stratify=y,
+        random_state=RANDOM_STATE,
     )
     log.info(
         "Train: %d ROIs (%s)",
@@ -310,6 +261,7 @@ def main() -> int:
     wandb_available = False
     try:
         import wandb
+
         wandb.init(
             project="hm2p-roi-classifier",
             config={
@@ -338,7 +290,8 @@ def main() -> int:
 
     t0 = time.time()
     lr_study = optuna.create_study(
-        direction="maximize", study_name="logreg",
+        direction="maximize",
+        study_name="logreg",
         sampler=optuna.samplers.TPESampler(seed=RANDOM_STATE),
     )
     lr_study.optimize(
@@ -351,26 +304,38 @@ def main() -> int:
     log.info("  Best params: %s", lr_best)
     log.info("  Best CV F1 macro: %.4f (%.1fs)", lr_study.best_value, lr_time)
 
-    lr_final = Pipeline([
-        ("scaler", StandardScaler()),
-        ("clf", LogisticRegression(
-            C=lr_best["C"],
-            class_weight="balanced",
-            solver="lbfgs",
-            max_iter=2000,
-            random_state=RANDOM_STATE,
-        )),
-    ])
+    lr_final = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "clf",
+                LogisticRegression(
+                    C=lr_best["C"],
+                    class_weight="balanced",
+                    solver="lbfgs",
+                    max_iter=2000,
+                    random_state=RANDOM_STATE,
+                ),
+            ),
+        ]
+    )
     lr_final.fit(X_train, y_train)
 
     lr_pred = lr_final.predict(X_test)
     lr_f1 = f1_score(y_test, lr_pred, labels=[0, 1, 2], average="macro", zero_division=0)
     lr_f1_per = f1_score(y_test, lr_pred, labels=[0, 1, 2], average=None, zero_division=0)
     lr_cm = confusion_matrix(y_test, lr_pred, labels=[0, 1, 2])
-    lr_report = classification_report(y_test, lr_pred, labels=[0, 1, 2], target_names=LABEL_NAMES, zero_division=0)
+    lr_report = classification_report(
+        y_test, lr_pred, labels=[0, 1, 2], target_names=LABEL_NAMES, zero_division=0
+    )
 
-    log.info("  Test F1 macro: %.4f  (art=%.3f, soma=%.3f, dend=%.3f)",
-             lr_f1, lr_f1_per[0], lr_f1_per[1], lr_f1_per[2])
+    log.info(
+        "  Test F1 macro: %.4f  (art=%.3f, soma=%.3f, dend=%.3f)",
+        lr_f1,
+        lr_f1_per[0],
+        lr_f1_per[1],
+        lr_f1_per[2],
+    )
     log.info("\n%s", lr_report)
     log.info("  Confusion matrix:\n%s", lr_cm)
 
@@ -391,7 +356,8 @@ def main() -> int:
 
     t0 = time.time()
     xgb_study = optuna.create_study(
-        direction="maximize", study_name="xgboost",
+        direction="maximize",
+        study_name="xgboost",
         sampler=optuna.samplers.TPESampler(seed=RANDOM_STATE),
     )
     xgb_study.optimize(
@@ -419,10 +385,17 @@ def main() -> int:
     xgb_f1 = f1_score(y_test, xgb_pred, labels=[0, 1, 2], average="macro", zero_division=0)
     xgb_f1_per = f1_score(y_test, xgb_pred, labels=[0, 1, 2], average=None, zero_division=0)
     xgb_cm = confusion_matrix(y_test, xgb_pred, labels=[0, 1, 2])
-    xgb_report = classification_report(y_test, xgb_pred, labels=[0, 1, 2], target_names=LABEL_NAMES, zero_division=0)
+    xgb_report = classification_report(
+        y_test, xgb_pred, labels=[0, 1, 2], target_names=LABEL_NAMES, zero_division=0
+    )
 
-    log.info("  Test F1 macro: %.4f  (art=%.3f, soma=%.3f, dend=%.3f)",
-             xgb_f1, xgb_f1_per[0], xgb_f1_per[1], xgb_f1_per[2])
+    log.info(
+        "  Test F1 macro: %.4f  (art=%.3f, soma=%.3f, dend=%.3f)",
+        xgb_f1,
+        xgb_f1_per[0],
+        xgb_f1_per[1],
+        xgb_f1_per[2],
+    )
     log.info("\n%s", xgb_report)
     log.info("  Confusion matrix:\n%s", xgb_cm)
 
@@ -435,19 +408,22 @@ def main() -> int:
     # ------------------------------------------------------------------
     if wandb_available:
         import wandb
+
         for name, study, f1, f1_per, cm, importance, t_elapsed in [
             ("logreg", lr_study, lr_f1, lr_f1_per, lr_cm, lr_importance, lr_time),
             ("xgboost", xgb_study, xgb_f1, xgb_f1_per, xgb_cm, xgb_importance, xgb_time),
         ]:
-            wandb.log({
-                f"{name}/best_cv_f1_macro": study.best_value,
-                f"{name}/test_f1_macro": f1,
-                f"{name}/test_f1_artefact": f1_per[0],
-                f"{name}/test_f1_soma": f1_per[1],
-                f"{name}/test_f1_dend": f1_per[2],
-                f"{name}/best_params": study.best_params,
-                f"{name}/train_time_s": t_elapsed,
-            })
+            wandb.log(
+                {
+                    f"{name}/best_cv_f1_macro": study.best_value,
+                    f"{name}/test_f1_macro": f1,
+                    f"{name}/test_f1_artefact": f1_per[0],
+                    f"{name}/test_f1_soma": f1_per[1],
+                    f"{name}/test_f1_dend": f1_per[2],
+                    f"{name}/best_params": study.best_params,
+                    f"{name}/train_time_s": t_elapsed,
+                }
+            )
             cm_table = wandb.Table(
                 columns=[""] + [f"pred_{n}" for n in LABEL_NAMES],
                 data=[[f"true_{LABEL_NAMES[i]}"] + cm[i].tolist() for i in range(3)],
@@ -455,10 +431,19 @@ def main() -> int:
             wandb.log({f"{name}/confusion_matrix": cm_table})
             if len(importance) > 0:
                 imp_table = wandb.Table(dataframe=importance)
-                wandb.log({f"{name}/feature_importance": wandb.plot.bar(
-                    imp_table, "feature", "importance", title=f"{name} Feature Importance")})
-        wandb.log({"best_model": "xgboost" if xgb_f1 > lr_f1 else "logreg",
-                    "best_test_f1_macro": max(lr_f1, xgb_f1)})
+                wandb.log(
+                    {
+                        f"{name}/feature_importance": wandb.plot.bar(
+                            imp_table, "feature", "importance", title=f"{name} Feature Importance"
+                        )
+                    }
+                )
+        wandb.log(
+            {
+                "best_model": "xgboost" if xgb_f1 > lr_f1 else "logreg",
+                "best_test_f1_macro": max(lr_f1, xgb_f1),
+            }
+        )
         wandb.finish()
 
     # ------------------------------------------------------------------
@@ -467,10 +452,24 @@ def main() -> int:
     log.info("\n" + "=" * 60)
     log.info("COMPARISON SUMMARY (held-out test set)")
     log.info("=" * 60)
-    log.info("  LogReg:  CV=%.4f  Test=%.4f (art=%.3f soma=%.3f dend=%.3f)  params=%s",
-             lr_study.best_value, lr_f1, lr_f1_per[0], lr_f1_per[1], lr_f1_per[2], lr_best)
-    log.info("  XGBoost: CV=%.4f  Test=%.4f (art=%.3f soma=%.3f dend=%.3f)  params=%s",
-             xgb_study.best_value, xgb_f1, xgb_f1_per[0], xgb_f1_per[1], xgb_f1_per[2], xgb_best)
+    log.info(
+        "  LogReg:  CV=%.4f  Test=%.4f (art=%.3f soma=%.3f dend=%.3f)  params=%s",
+        lr_study.best_value,
+        lr_f1,
+        lr_f1_per[0],
+        lr_f1_per[1],
+        lr_f1_per[2],
+        lr_best,
+    )
+    log.info(
+        "  XGBoost: CV=%.4f  Test=%.4f (art=%.3f soma=%.3f dend=%.3f)  params=%s",
+        xgb_study.best_value,
+        xgb_f1,
+        xgb_f1_per[0],
+        xgb_f1_per[1],
+        xgb_f1_per[2],
+        xgb_best,
+    )
     log.info("  Winner: %s", "XGBoost" if xgb_f1 > lr_f1 else "Logistic Regression")
 
     # ------------------------------------------------------------------

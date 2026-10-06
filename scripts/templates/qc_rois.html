@@ -51,7 +51,7 @@
 
     <section id="sessions">
       <h2>All sessions</h2>
-      <p class="caption">Counts from roi_class.npy. "Ambiguous": highest class probability below 0.6. "ca.h5 mismatch": ROIs whose roi_types in ca.h5 (0 soma, 1 dend, 2 artefact) disagree with roi_class.npy (0 artefact, 1 soma, 2 dend) after recoding; should be 0. "Re-run changes": ROIs whose label changes when the current model is re-applied to features recomputed from the Suite2p outputs; non-zero means the stored labels came from a different model or different inputs.</p>
+      <p class="caption">Stored labels come from roi_class.npy when it exists on S3, otherwise from ca.h5 (roi_types and roi_qc/p_*). "Ambiguous": highest class probability below 0.6. "ca.h5 mismatch": only when roi_class.npy exists; ROIs whose ca.h5 roi_types disagree with it after recoding (should be 0). "Pipeline fps": the frame rate Suite2p recorded in ops.npy, which classify_session used when no rate was passed. "Reproduced": labels that differ when the current model is re-applied at that rate to features recomputed from the Suite2p outputs (0 = the stored labels are reproduced). "Changes at imaging fps": labels that differ when the features are computed at the true imaging rate from ca.h5, the rate of the training data.</p>
       <div class="table-wrap scroll" id="tbl"></div>
       <div class="chart-block">
         <div class="chart-head"><span class="chart-title" id="ct-title">ROIs per class and session</span></div>
@@ -147,7 +147,10 @@ const COLS = [
   { key: "n_artefact", label: "Artefact", fmt: v => QC.isNum(v) ? String(v) : "—" },
   { key: "n_ambiguous", label: "Ambiguous", fmt: v => QC.isNum(v) ? String(v) : "—" },
   { key: "ca_label_mismatch", label: "ca.h5 mismatch", fmt: v => QC.isNum(v) ? String(v) : "—", flag: nz },
-  { key: "recomputed_label_changes", label: "Re-run changes", fmt: v => QC.isNum(v) ? String(v) : "—", flag: nz },
+  { label: "Pipeline fps", get: s => (s.summary && s.summary.repro ? s.summary.repro.pipeline_fps : null), fmt: v => QC.fmt(v, 2),
+    flag: v => v > 15 ? "bad" : null, title: "ops.npy fs; imaging is ~9.6-9.8 Hz" },
+  { label: "Reproduced (label changes)", get: s => (s.summary && s.summary.repro ? s.summary.repro.pipeline_label_changes : null), fmt: v => QC.isNum(v) ? String(v) : "—", flag: nz },
+  { key: "recomputed_label_changes", label: "Changes at imaging fps", fmt: v => QC.isNum(v) ? String(v) : "—", flag: v => v > 0 ? "warn" : null },
 ];
 const seq = () => [[0, QC.css("--seq-lo")], [0.5, QC.css("--seq-mid")], [1, QC.css("--seq-hi")]];
 
@@ -308,7 +311,15 @@ function drawSession(id) {
   if (!d.argmax_matches_label) notes.push(["bad", "roi_class.npy does not equal the argmax of roi_class_prob.npy."]);
   if (d.ca_label_mismatch) notes.push(["bad", `${d.ca_label_mismatch} ROI labels in ca.h5 disagree with roi_class.npy; stage 4 may have used a different classification.`]);
   if (d.ca_label_mismatch === null) notes.push(["bad", `ca.h5 has ${d.ca_label_len} ROI labels but roi_class.npy has ${d.n_rois}.`]);
-  if (d.recomputed_label_changes) notes.push(["bad", `Re-applying the current model changes ${d.recomputed_label_changes} labels (largest probability change ${QC.fmt(d.recomputed_max_abs_diff, 3)}).`]);
+  const rp = d.repro || {};
+  if (rp.label_source) notes.push(["", `Stored labels from ${rp.label_source}.`]);
+  if (QC.isNum(rp.pipeline_fps) && QC.isNum(rp.imaging_fps) && Math.abs(rp.pipeline_fps - rp.imaging_fps) > 0.5)
+    notes.push(["bad", `The stored labels were computed with features at ${QC.fmt(rp.pipeline_fps, 2)} Hz (ops.npy), but imaging ran at ${QC.fmt(rp.imaging_fps, 2)} Hz; the classifier was trained on features at the imaging rate.` +
+      (QC.isNum(rp.pipeline_label_changes) ? ` Re-applying the model at ${QC.fmt(rp.pipeline_fps, 2)} Hz ${rp.pipeline_label_changes === 0 ? "reproduces the stored labels" : `changes ${rp.pipeline_label_changes} labels`}.` : "")]);
+  if (QC.isNum(d.recomputed_label_changes)) {
+    const ic = d.imaging_fps_counts || {};
+    notes.push([d.recomputed_label_changes ? "bad" : "ok", `At the imaging rate the model changes ${d.recomputed_label_changes} of ${d.n_rois} labels (largest probability change ${QC.fmt(d.recomputed_max_abs_diff, 3)}): ${ic.soma ?? "?"} soma, ${ic.dend ?? "?"} dendrite, ${ic.artefact ?? "?"} artefact instead of ${d.counts.soma}, ${d.counts.dend}, ${d.counts.artefact}. The ROI map, features and tables below show the stored labels; the features are those at the imaging rate.`]);
+  }
   document.getElementById("sess-callout").innerHTML = notes.map(([c, t]) => `<p class="callout ${c}">${QC.esc(t)}</p>`).join("");
   document.getElementById("sel-roi").innerHTML = d.rois.map(r => `<option value="${r.i}">ROI ${r.i} · ${CNAME[CLS[r.c]]} · P(soma) ${QC.fmt(r.p[1], 2)}</option>`).join("");
   const lc = QC.layout({ showlegend: true }); lc.xaxis.title = QC.axTitle("highest class probability"); lc.yaxis.title = QC.axTitle("ROIs");

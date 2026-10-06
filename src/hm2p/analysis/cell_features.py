@@ -860,12 +860,17 @@ def session_feature_table(
 
 
 # ---------------------------------------------------------------------------
-# Inferred spike rates (CASCADE)
+# Inferred spikes (CASCADE)
 # ---------------------------------------------------------------------------
+#
+# The CASCADE output stored as ``spikes`` in ca.h5 / sync.h5 is the expected
+# number of spikes per imaging frame (cascade2p ``spike_prob``), not a rate.
+# Expected spike counts are plain sums over frames; rates in Hz are the
+# per-frame values multiplied by the imaging frame rate.
 
 
 def _binned_spike_counts(
-    spikes_hz: npt.NDArray[np.floating],
+    spikes_per_frame: npt.NDArray[np.floating],
     fps: float,
     bin_s: float,
 ) -> npt.NDArray[np.float64]:
@@ -876,28 +881,29 @@ def _binned_spike_counts(
 
     Parameters
     ----------
-    spikes_hz : (n_frames,) float
-        Inferred spike rate per frame, in spikes/s. Non-finite samples are
-        treated as zero.
+    spikes_per_frame : (n_frames,) float
+        Expected number of spikes in each imaging frame (CASCADE output).
+        Non-finite samples are treated as zero.
     fps : float
-        Imaging frame rate in Hz.
+        Imaging frame rate in Hz; sets the number of frames per bin.
     bin_s : float
         Bin width in seconds.
 
     Returns
     -------
     (n_bins,) float
-        Spike counts per bin. Empty when the trace is shorter than one bin
-        or when *fps* / *bin_s* are not positive.
+        Expected spike counts per bin (sum of the per-frame values).
+        Empty when the trace is shorter than one bin or when *fps* /
+        *bin_s* are not positive.
 
     Raises
     ------
     ValueError
-        If ``spikes_hz`` is not one-dimensional.
+        If ``spikes_per_frame`` is not one-dimensional.
     """
-    trace = np.asarray(spikes_hz, dtype=np.float64)
+    trace = np.asarray(spikes_per_frame, dtype=np.float64)
     if trace.ndim != 1:
-        raise ValueError(f"spikes_hz must be 1-D; got shape {trace.shape}")
+        raise ValueError(f"spikes_per_frame must be 1-D; got shape {trace.shape}")
     if fps <= 0 or bin_s <= 0:
         return np.empty(0, dtype=np.float64)
 
@@ -907,8 +913,8 @@ def _binned_spike_counts(
         return np.empty(0, dtype=np.float64)
 
     usable = np.nan_to_num(trace[: n_bins * bin_frames], nan=0.0, posinf=0.0, neginf=0.0)
-    # rate (spikes/s) x frame duration (s) summed over the bin = spike count
-    return usable.reshape(n_bins, bin_frames).sum(axis=1) / float(fps)
+    # Expected spikes per frame summed over the bin = expected spike count.
+    return usable.reshape(n_bins, bin_frames).sum(axis=1)
 
 
 def _burst_index(
@@ -980,16 +986,18 @@ def _masked_mean(values: npt.NDArray[np.floating], mask: npt.NDArray[np.bool_]) 
 
 
 def spike_rate_statistics(
-    spikes_hz: npt.NDArray[np.floating],
+    spikes_per_frame: npt.NDArray[np.floating],
     fps: float,
     bin_s: float = 1.0,
     active_threshold_hz: float | None = None,
 ) -> dict[str, float]:
-    """Amplitude-free statistics of an inferred spike-rate trace.
+    """Amplitude-free statistics of an inferred spike trace.
 
-    The inferred rate produced by CASCADE is already calibrated in
-    spikes/s, so — unlike dF/F — its absolute scale is comparable across
-    cells, animals and expression levels. The statistics below therefore
+    CASCADE outputs the expected number of spikes per imaging frame,
+    calibrated against ground-truth recordings, so — unlike dF/F — its
+    absolute scale is comparable across cells, animals and expression
+    levels. Rates are obtained by multiplying by *fps*; binned counts are
+    plain sums over frames. The statistics below therefore
     mix rate measures (mean, median) with dimensionless variability
     measures (coefficient of variation, Fano factor, burst index).
 
@@ -1000,12 +1008,12 @@ def spike_rate_statistics(
 
     Parameters
     ----------
-    spikes_hz : (n_frames,) float
-        Inferred spike rate per frame in spikes/s. Non-finite samples are
-        treated as zero by the binned statistics and excluded from the
-        mean and median.
+    spikes_per_frame : (n_frames,) float
+        Expected number of spikes in each imaging frame (CASCADE output).
+        Non-finite samples are treated as zero by the binned statistics and
+        excluded from the mean and median.
     fps : float
-        Imaging frame rate in Hz.
+        Imaging frame rate in Hz; converts spikes per frame to spikes/s.
     bin_s : float
         Bin width in seconds used for the binned statistics (default 1 s).
     active_threshold_hz : float, optional
@@ -1017,8 +1025,10 @@ def spike_rate_statistics(
     Returns
     -------
     dict
-        ``mean_rate_hz`` — mean inferred rate.
-        ``median_rate_hz`` — median inferred rate.
+        ``mean_rate_hz`` — mean inferred rate in Hz (mean spikes per
+        frame x *fps*).
+        ``median_rate_hz`` — median inferred rate in Hz (median spikes per
+        frame x *fps*).
         ``rate_cv`` — coefficient of variation of the binned rate.
         ``fano_1s`` — variance divided by mean of the binned spike counts.
         ``fraction_bins_active`` — fraction of bins holding more than
@@ -1037,15 +1047,15 @@ def spike_rate_statistics(
     Raises
     ------
     ValueError
-        If ``spikes_hz`` is not one-dimensional.
+        If ``spikes_per_frame`` is not one-dimensional.
     """
-    trace = np.asarray(spikes_hz, dtype=np.float64)
+    trace = np.asarray(spikes_per_frame, dtype=np.float64)
     if trace.ndim != 1:
-        raise ValueError(f"spikes_hz must be 1-D; got shape {trace.shape}")
+        raise ValueError(f"spikes_per_frame must be 1-D; got shape {trace.shape}")
 
     finite = trace[np.isfinite(trace)]
-    mean_rate = float(np.mean(finite)) if finite.size else float("nan")
-    median_rate = float(np.median(finite)) if finite.size else float("nan")
+    mean_rate = float(np.mean(finite)) * float(fps) if finite.size else float("nan")
+    median_rate = float(np.median(finite)) * float(fps) if finite.size else float("nan")
 
     counts = _binned_spike_counts(trace, fps, bin_s)
     rate_cv = float("nan")
@@ -1086,7 +1096,7 @@ def spike_rate_statistics(
 
 def spike_feature_row(
     roi_idx: int,
-    spikes_hz: npt.NDArray[np.floating],
+    spikes_per_frame: npt.NDArray[np.floating],
     hd_deg: npt.NDArray[np.floating],
     ahv_deg_s: npt.NDArray[np.floating],
     speed_cm_s: npt.NDArray[np.floating],
@@ -1098,18 +1108,19 @@ def spike_feature_row(
     """Compute the inferred-spike feature dictionary for one ROI.
 
     This is the spike-rate counterpart of :func:`cell_feature_row`: it
-    repeats the tuning and condition-split families on a CASCADE spike
-    rate and replaces the dF/F event-kinetics and trace-shape families
-    with the ``sp_`` rate family, which does not depend on the dF/F
-    amplitude scale (Rupprecht et al. 2021,
-    doi:10.1038/s41593-021-00895-5).
+    repeats the tuning and condition-split families on the CASCADE spike
+    rate (expected spikes per frame x *fps*, in Hz) and replaces the dF/F
+    event-kinetics and trace-shape families with the ``sp_`` rate family,
+    which does not depend on the dF/F amplitude scale (Rupprecht et al.
+    2021, doi:10.1038/s41593-021-00895-5).
 
     Parameters
     ----------
     roi_idx : int
         ROI index within the session.
-    spikes_hz : (n_frames,) float
-        Inferred spike rate for this ROI in spikes/s.
+    spikes_per_frame : (n_frames,) float
+        Expected number of spikes per imaging frame for this ROI (CASCADE
+        output, as stored in ca.h5 / sync.h5).
     hd_deg : (n_frames,) float
         Head direction in degrees.
     ahv_deg_s : (n_frames,) float
@@ -1124,13 +1135,13 @@ def spike_feature_row(
         True for frames flagged as behavioural artefact; excluded
         everywhere.
     fps : float
-        Imaging frame rate in Hz.
+        Imaging frame rate in Hz; converts spikes per frame to Hz.
 
     Returns
     -------
     dict
-        ``roi_idx`` plus ``sp_`` rate features, the condition means
-        ``sp_mean_rate_hz_light`` / ``_dark`` / ``_moving`` /
+        ``roi_idx`` plus ``sp_`` rate features, the condition mean rates
+        in Hz ``sp_mean_rate_hz_light`` / ``_dark`` / ``_moving`` /
         ``_stationary``, ``tun_`` tuning features (including the
         ``tun_mvl_light`` and ``tun_mvl_dark`` splits) and the ``act_``
         condition-split family.
@@ -1146,7 +1157,7 @@ def spike_feature_row(
     ValueError
         If the input arrays do not all have the same length.
     """
-    trace = np.asarray(spikes_hz, dtype=np.float64)
+    per_frame = np.asarray(spikes_per_frame, dtype=np.float64)
     hd = np.asarray(hd_deg, dtype=np.float64)
     ahv = np.asarray(ahv_deg_s, dtype=np.float64)
     speed = np.asarray(speed_cm_s, dtype=np.float64)
@@ -1154,7 +1165,7 @@ def spike_feature_row(
     active_arr = np.asarray(active, dtype=bool)
     bad = np.asarray(bad_behav, dtype=bool)
 
-    lengths = {arr.shape[0] for arr in (trace, hd, ahv, speed, light, active_arr, bad)}
+    lengths = {arr.shape[0] for arr in (per_frame, hd, ahv, speed, light, active_arr, bad)}
     if len(lengths) != 1:
         raise ValueError(f"all inputs must have the same length; got lengths {sorted(lengths)}")
 
@@ -1162,8 +1173,12 @@ def spike_feature_row(
     valid = active_arr & good
 
     row: dict[str, Any] = {"roi_idx": int(roi_idx)}
-    for key, value in spike_rate_statistics(trace, fps).items():
+    for key, value in spike_rate_statistics(per_frame, fps).items():
         row[f"sp_{key}"] = value
+
+    # Rate in Hz for the condition means and the tuning / activity families,
+    # so every absolute-scale output is in spikes/s.
+    trace = per_frame * float(fps)
 
     row["sp_mean_rate_hz_light"] = _masked_mean(trace, light & good)
     row["sp_mean_rate_hz_dark"] = _masked_mean(trace, ~light & good)
@@ -1200,13 +1215,14 @@ def session_spike_feature_table(
 ) -> pd.DataFrame:
     """Build the per-ROI inferred-spike feature table for one session.
 
-    Mirrors :func:`session_feature_table` but takes CASCADE spike rates
-    and calls :func:`spike_feature_row`.
+    Mirrors :func:`session_feature_table` but takes the CASCADE output
+    (expected spikes per frame) and calls :func:`spike_feature_row`.
 
     Parameters
     ----------
     spikes : (n_rois, n_frames) float
-        Inferred spike rates in spikes/s.
+        Expected number of spikes per imaging frame (CASCADE output, as
+        stored in ca.h5 / sync.h5).
     hd_deg, ahv_deg_s, speed_cm_s : (n_frames,) float
         Behavioural covariates.
     light_on, active, bad_behav : (n_frames,) bool
@@ -1279,7 +1295,7 @@ def feature_families() -> dict[str, list[str]]:
         ``"activity"`` — condition-split activity metrics.
         ``"spike_rate"`` — inferred spike-rate statistics from
         :func:`spike_rate_statistics` (hypothesis H2 repeated on CASCADE
-        spike rates). Absent from the dF/F feature table.
+        inferred spikes). Absent from the dF/F feature table.
     """
     return {
         "kinetics": [

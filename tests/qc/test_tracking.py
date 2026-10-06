@@ -121,6 +121,36 @@ def test_summary_detects_swaps_and_jumps():
     assert "light" not in s["timeline"]
 
 
+def test_extra_keypoints_listed_not_scored():
+    kp = _mouse()
+    rng = np.random.default_rng(3)
+    kp["tail_end"] = {
+        "x": rng.uniform(0, 600, 900),
+        "y": rng.uniform(0, 600, 900),
+        "likelihood": np.full(900, 0.01),
+    }
+    s = summarise_tracking(kp, fps=30.0, mm_per_px=0.5)
+    assert s["extra_keypoints"] == ["tail_end"]
+    assert "tail_end" not in s["per_bp"]
+    assert s["any_jump_frac"] == 0.0  # the jumping tail point is not scored
+
+
+def test_frozen_counted_only_while_body_moves():
+    kp = _mouse()
+    kp["nose_tip"]["x"] = np.full(900, 100.0)  # stuck nose while the mouse walks
+    kp["nose_tip"]["y"] = np.full(900, 100.0)
+    s = summarise_tracking(kp, fps=30.0, mm_per_px=0.5)
+    assert s["per_bp"]["nose_tip"]["frozen_moving_frac"] > 0.9
+    assert s["per_bp"]["neck"]["frozen_moving_frac"] == 0.0
+    still = {
+        b: {"x": np.full(900, 50.0), "y": np.full(900, 50.0), "likelihood": np.ones(900)}
+        for b in kp
+    }
+    s2 = summarise_tracking(still, fps=30.0, mm_per_px=0.5)
+    assert s2["per_bp"]["nose_tip"]["frozen_moving_frac"] == 0.0  # still mouse: not flagged
+    assert s2["body_moving_frac"] == 0.0
+
+
 def test_summary_pixels_without_scale_and_errors():
     s = summarise_tracking(_mouse(), fps=30.0)
     assert s["unit"] == "px" and s["jump_threshold"] == DEFAULT_JUMP_PX

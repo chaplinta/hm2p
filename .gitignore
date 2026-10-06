@@ -91,6 +91,8 @@ NOTEPAD.md
 
 # Pipeline results (uploaded to S3)
 results/
+# Generated QC report pages (data from results/qc/; rebuild with scripts/build_qc_reports_html.py)
+docs/qc/
 
 # DLC retraining — extracted PNGs are large and regenerable from S3 video + frame indices.
 # Only track the labels (CollectedData) and config, not the images.

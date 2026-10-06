@@ -725,9 +725,17 @@ def _spike_session(
 
 
 def test_binned_spike_counts_constant_rate_gives_expected_counts() -> None:
-    counts = cf._binned_spike_counts(np.full(100, 2.0), fps=10.0, bin_s=1.0)
+    # 0.2 expected spikes per frame x 10 frames per 1-s bin = 2 spikes per bin
+    counts = cf._binned_spike_counts(np.full(100, 0.2), fps=10.0, bin_s=1.0)
     assert counts.shape == (10,)
     np.testing.assert_allclose(counts, 2.0)
+
+
+def test_binned_spike_counts_is_plain_sum_of_per_frame_values() -> None:
+    # Counts are the sum of expected spikes per frame, with no 1/fps factor.
+    trace = np.arange(20, dtype=float)
+    counts = cf._binned_spike_counts(trace, fps=5.0, bin_s=2.0)
+    np.testing.assert_allclose(counts, [trace[:10].sum(), trace[10:].sum()])
 
 
 def test_binned_spike_counts_drops_partial_bin() -> None:
@@ -748,7 +756,7 @@ def test_binned_spike_counts_treats_nonfinite_as_zero() -> None:
     trace = np.ones(20)
     trace[:10] = np.nan
     counts = cf._binned_spike_counts(trace, fps=10.0, bin_s=1.0)
-    np.testing.assert_allclose(counts, [0.0, 1.0])
+    np.testing.assert_allclose(counts, [0.0, 10.0])
 
 
 def test_binned_spike_counts_rejects_2d() -> None:
@@ -821,7 +829,8 @@ def test_spike_rate_statistics_keys_are_stable() -> None:
 
 
 def test_spike_rate_statistics_constant_rate_has_no_variability() -> None:
-    out = cf.spike_rate_statistics(np.full(960, 2.0), FPS)
+    # 2 Hz expressed as expected spikes per frame
+    out = cf.spike_rate_statistics(np.full(960, 2.0 / FPS), FPS)
     assert out["mean_rate_hz"] == pytest.approx(2.0)
     assert out["median_rate_hz"] == pytest.approx(2.0)
     assert out["rate_cv"] == pytest.approx(0.0, abs=1e-9)
@@ -846,6 +855,31 @@ def test_spike_rate_statistics_bursty_exceeds_regular() -> None:
     assert burst["fraction_bins_active"] < reg["fraction_bins_active"]
 
 
+def test_spike_rate_statistics_rate_is_per_frame_times_fps() -> None:
+    out = cf.spike_rate_statistics(np.full(500, 0.1), 10.0)
+    assert out["mean_rate_hz"] == pytest.approx(1.0)
+    assert out["median_rate_hz"] == pytest.approx(1.0)
+
+
+def test_spike_rate_statistics_active_bins_use_summed_counts() -> None:
+    # 0.1 spikes/frame at 10 fps = 1 spike per 1-s bin, above the 0.5 threshold.
+    out = cf.spike_rate_statistics(np.full(500, 0.1), 10.0)
+    assert out["fraction_bins_active"] == pytest.approx(1.0)
+    # 0.04 spikes/frame at 10 fps = 0.4 spikes per bin, below the threshold.
+    out = cf.spike_rate_statistics(np.full(500, 0.04), 10.0)
+    assert out["fraction_bins_active"] == pytest.approx(0.0)
+
+
+def test_spike_rate_statistics_fano_matches_poisson_like_counts() -> None:
+    # Bin counts alternating 1 and 3 spikes: mean 2, variance (ddof=1) ~1.
+    bin_frames = 10
+    per_bin = np.tile([1.0, 3.0], 50)
+    trace = np.repeat(per_bin / bin_frames, bin_frames)
+    out = cf.spike_rate_statistics(trace, float(bin_frames))
+    expected = np.var(per_bin, ddof=1) / np.mean(per_bin)
+    assert out["fano_1s"] == pytest.approx(expected)
+
+
 def test_spike_rate_statistics_all_zero_trace() -> None:
     out = cf.spike_rate_statistics(np.zeros(500), FPS)
     assert out["mean_rate_hz"] == 0.0
@@ -868,7 +902,7 @@ def test_spike_rate_statistics_short_trace_has_nan_binned_values() -> None:
 
 
 def test_spike_rate_statistics_nan_samples_are_excluded_from_mean() -> None:
-    trace = np.ones(200)
+    trace = np.full(200, 1.0 / FPS)
     trace[:100] = np.nan
     out = cf.spike_rate_statistics(trace, FPS)
     assert out["mean_rate_hz"] == pytest.approx(1.0)
@@ -953,9 +987,10 @@ def test_spike_feature_row_condition_means_follow_the_masks() -> None:
         FPS,
     )
     assert row["roi_idx"] == 3
-    assert row["sp_mean_rate_hz_light"] == pytest.approx(4.0)
-    assert row["sp_mean_rate_hz_dark"] == pytest.approx(1.0)
-    assert row["sp_mean_rate_hz_moving"] == pytest.approx(2.5)
+    # inputs are expected spikes per frame; condition means are in Hz
+    assert row["sp_mean_rate_hz_light"] == pytest.approx(4.0 * FPS)
+    assert row["sp_mean_rate_hz_dark"] == pytest.approx(1.0 * FPS)
+    assert row["sp_mean_rate_hz_moving"] == pytest.approx(2.5 * FPS)
     assert np.isnan(row["sp_mean_rate_hz_stationary"])
 
 
@@ -975,7 +1010,7 @@ def test_spike_feature_row_excludes_bad_behav_frames() -> None:
         bad,
         FPS,
     )
-    assert row["sp_mean_rate_hz_light"] == pytest.approx(1.0)
+    assert row["sp_mean_rate_hz_light"] == pytest.approx(1.0 * FPS)
 
 
 def test_spike_feature_row_silent_cell_is_handled() -> None:
