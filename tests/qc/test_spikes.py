@@ -127,6 +127,20 @@ def test_light_tolerates_one_frame_offset():
     assert "light" in s["population"]
 
 
+def test_drift_ratio_and_raw_metric():
+    from hm2p.qc.spikes import drift_ratio
+
+    assert drift_ratio(np.linspace(100, 50, 1000)) == pytest.approx(0.5, abs=0.03)
+    assert np.isnan(drift_ratio([1.0]))
+    assert np.isnan(drift_ratio(np.r_[np.zeros(100), np.ones(100)]))
+    ca = _ca(n_rois=1)
+    ca["F_raw"] = np.linspace(200, 100, 3000)[None, :]
+    s = summarise_spikes(ca, {"fps_imaging": 10.0, "dff_denominator": "F0 of F_raw"})
+    assert s["rois"][0]["raw_end_over_start"] == pytest.approx(0.5, abs=0.03)
+    assert s["dff_denominator"] == "F0 of F_raw"
+    assert overview_row(s)["raw_end_over_start"] == pytest.approx(0.5, abs=0.03)
+
+
 def test_summary_errors():
     with pytest.raises(ValueError):
         summarise_spikes({"dff": np.zeros(5)})

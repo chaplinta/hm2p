@@ -85,6 +85,7 @@ def _roi_metrics(
     fcorr: np.ndarray | None,
     dur_min: float,
     fps: float,
+    fraw: np.ndarray | None = None,
 ) -> dict:
     nsd = noise_sd(dff)
     r: dict = {
@@ -140,7 +141,22 @@ def _roi_metrics(
             )
     if fcorr is not None and f0 is not None:
         r["frac_below_f0"] = fnum(np.mean(fcorr < f0), 3)
+    if fraw is not None:
+        # fluorescence drift over the session from the raw ROI trace: the F0 of
+        # FISSA output is ~0, so its end/start ratio says nothing about bleaching
+        r["raw_end_over_start"] = fnum(drift_ratio(fraw), 3)
     return r
+
+
+def drift_ratio(trace: npt.ArrayLike, frac: float = 0.05) -> float:
+    """Median of the last *frac* of a trace over the median of the first *frac*."""
+    a = np.asarray(trace, dtype=np.float64)
+    a = a[np.isfinite(a)]
+    if a.size < 2:
+        return float("nan")
+    k = max(1, int(a.size * frac))
+    start = np.median(a[:k])
+    return float(np.median(a[-k:]) / start) if start > 0 else float("nan")
 
 
 def _get(ca: dict, k: str) -> np.ndarray | None:
@@ -180,6 +196,7 @@ def summarise_spikes(
         f0_method = f0_method.decode()
     f0_all = _get(ca, "F0_percentile" if f0_method == "percentile" else "F0_rolling")
     fcorr_all = _get(ca, "F_corr")
+    fraw_all = _get(ca, "F_raw")
     vh_all = _get(ca, "event_masks")
     sd_all = _get(ca, "event_masks_sd")
     spk_all = _get(ca, "spikes")
@@ -204,7 +221,7 @@ def summarise_spikes(
         spk = row(spk_all, i)
         f0 = row(f0_all, i)
         fc = row(fcorr_all, i)
-        m = _roi_metrics(dff_i, vh, sd, spk, f0, fc, dur_min, fps)
+        m = _roi_metrics(dff_i, vh, sd, spk, f0, fc, dur_min, fps, row(fraw_all, i))
         m["i"] = i
         m["type"] = ROI_TYPE_NAMES.get(int(types[i]), str(types[i]))
         if m["type"] != "artefact":
@@ -244,6 +261,7 @@ def summarise_spikes(
         "neuropil_method": _s(attrs.get("neuropil_method")),
         "spikes_model": _s(attrs.get("spikes_model")),
         "spikes_units": _s(attrs.get("spikes_units")),
+        "dff_denominator": _s(attrs.get("dff_denominator")),
         "spike_rate_units": "Hz (CASCADE expected spikes per frame x frame rate)",
         "has": {
             "spikes": spk_all is not None,
@@ -340,5 +358,6 @@ def overview_row(s: dict) -> dict:
         "spk_dff_rho": med("spk_dff_rho"),
         "vh_with_spikes": med("vh_with_spikes"),
         "f0_end_over_start": med("f0_end_over_start"),
+        "raw_end_over_start": med("raw_end_over_start"),
         "has_spikes": s["has"]["spikes"],
     }

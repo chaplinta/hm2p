@@ -69,6 +69,7 @@ CA_KEYS_SPIKES = (
     "F_corr",
     "F0_rolling",
     "F0_percentile",
+    "F_raw",
     "event_masks",
     "event_masks_sd",
     "spikes",

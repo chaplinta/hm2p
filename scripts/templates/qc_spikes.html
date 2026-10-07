@@ -95,7 +95,7 @@
         <li><strong>V&amp;H vs SD Jaccard</strong>: overlap of the two event masks (frames in both / frames in either). Values near 1 mean the detectors agree; below 0.3 is a warning, below 0.15 a problem.</li>
         <li><strong>V&amp;H events with spikes</strong>: fraction of V&amp;H events with at least 0.5 expected CASCADE spikes (CASCADE output summed over the event frames). Below 70 % is a warning, below 50 % a problem: events that CASCADE ignores are either missed spikes or false events.</li>
         <li><strong>Spike–dF/F ρ</strong>: Spearman correlation of the CASCADE rate with dF/F at zero lag. Low values are expected for very sparse cells; a negative value indicates a sign or alignment error.</li>
-        <li><strong>F0 end / start</strong>: median of the last 5 % of the baseline over the first 5 %. Below 0.6 (more than 40 % loss) is a problem; it matches the bleaching threshold in hm2p.calcium.qc.</li>
+        <li><strong>Raw F end / start</strong>: median of the last 5 % of the raw ROI fluorescence over the first 5 % (bleaching or focus drift over the session). Below 0.6 (more than 40 % loss) is a problem; it matches the bleaching threshold in hm2p.calcium.qc. The raw trace is used because the baseline of FISSA output is ~0, so its F0 ratio carries no information. FISSA dF/F is expressed relative to the raw-trace baseline (attribute <code>dff_denominator</code>).</li>
         <li><strong>CASCADE rate</strong> is shown in Hz: CASCADE outputs the expected number of spikes in each frame, which is multiplied by the frame rate here (Rupprecht et al. 2021; CASCADE README). The <code>spikes_units</code> attribute written to ca.h5 by <code>scripts/run_cascade.py</code> says "spikes/s", which does not match the CASCADE output. Inference was run with <code>padding=0</code>, so trace edges are 0 rather than NaN.</li>
       </ul>
     </section>
@@ -135,12 +135,12 @@ const COLS = [
   { key: "spk_rate", label: "CASCADE rate (Hz)", fmt: v => QC.fmt(v, 2) },
   { key: "spk_dff_rho", label: "Spike–dF/F ρ", fmt: v => QC.fmt(v, 2), flag: v => v < 0 ? "bad" : null },
   { key: "vh_with_spikes", label: "V&amp;H events with spikes", fmt: v => QC.pct(v, 0), flag: lo(0.7, 0.5) },
-  { key: "f0_end_over_start", label: "F0 end / start", fmt: v => QC.fmt(v, 2), flag: lo(0.75, 0.6) },
+  { key: "raw_end_over_start", label: "Raw F end / start", fmt: v => QC.fmt(v, 2), flag: lo(0.75, 0.6) },
 ];
 const METRICS = {
   noise_sd: "noise SD (dF/F)", snr_p99: "SNR (p99 / noise)", rate_vh: "V&H events / min", rate_sd: "SD events / min", amp_vh: "median V&H event peak (dF/F)",
   jaccard_vh_sd: "V&H vs SD Jaccard", spk_rate: "CASCADE mean rate (Hz)", spk_dff_rho: "spike–dF/F Spearman ρ", spk_in_events: "fraction of spikes inside events",
-  vh_with_spikes: "V&H events with spikes", f0_end_over_start: "F0 end / start", f0_min_rel: "F0 minimum / median", frac_below_f0: "fraction of frames F < F0",
+  vh_with_spikes: "V&H events with spikes", raw_end_over_start: "raw F end / start", f0_end_over_start: "F0 end / start", f0_min_rel: "F0 minimum / median", frac_below_f0: "fraction of frames F < F0",
   qc_snr_event: "event SNR (roi_qc)", qc_decay_tau_s: "decay τ (s, roi_qc)", qc_fneu_dff_corr: "ρ with neuropil (roi_qc)", qc_bleach_slope: "bleach slope (roi_qc)", qc_active_fraction: "active fraction (roi_qc)",
 };
 let curRoi = null;
@@ -244,6 +244,7 @@ function drawSession(id) {
   const notes = [];
   if (!d.has.spikes) notes.push(["bad", "No CASCADE spikes dataset in this ca.h5."]);
   else notes.push(["", `CASCADE model ${d.spikes_model || "?"}. Stored units attribute: "${d.spikes_units || "not recorded"}"; this page converts CASCADE output (expected spikes per frame) to Hz.`]);
+  notes.push([d.dff_denominator ? "" : "bad", `dF/F denominator: ${d.dff_denominator || "not recorded (ca.h5 written before 2026-10-07)"}; neuropil method: ${d.neuropil_method || "?"}.`]);
   if (!d.has.vh || !d.has.sd) notes.push(["bad", `Missing event masks: ${!d.has.vh ? "V&H " : ""}${!d.has.sd ? "SD" : ""}.`]);
   document.getElementById("sess-callout").innerHTML = notes.map(([c, t]) => `<p class="callout ${c}">${QC.esc(t)}</p>`).join("");
   drawPopulation(d);
