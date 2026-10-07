@@ -135,6 +135,14 @@ need re-running.
    (Spearman ρ = 0.83 across sessions); V&H event rate does not (ρ = 0.19).
    All Penk⁻CamKII+ sessions are in the reprocessed group, so amplitude- and
    noise-sensitive measures remain confounded with processing.
+   Checked 2026-10-07 on one session per group (sub-1115465/ses-20211029T135008,
+   sub-1117646/ses-20220804T112159): the two groups use different neuropil
+   methods although both are labelled `neuropil_method=fissa`. In the original
+   group `F_corr = F_raw − a·Fneu` exactly (per-cell a ≈ 0.3, intercept 0,
+   R² = 1.000), i.e. coefficient subtraction, most likely the
+   `subtract_estimated_coefficient` fallback taken when FISSA raised. The
+   bridge group is FISSA output (baseline ≈ 0, a ≈ 1.06, R² = 0.86), so its
+   dF/F relative to its own F0 is inflated 10–40×.
 5. **Syllables** (κ = 10⁶, 4 PCs, AR-only 50 + 200 iterations): 3–10
    syllables cover 80 % of frames in every session (criterion 20–40); median
    bout 600–1100 ms in 20 of 26 (criterion 300–500 ms); 3 sessions do not
