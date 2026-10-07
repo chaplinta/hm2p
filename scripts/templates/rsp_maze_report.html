@@ -22,6 +22,9 @@ td.verdict.failed { color: var(--muted); }
       <li><a href="#direction">Direction relative to dead ends</a></li>
       <li><a href="#cells">Single cells: AUROC and MI</a></li>
       <li><a href="#conj">Place by direction</a></li>
+      <li><a href="#followup">Follow-up tests</a></li>
+      <li><a href="#celltypes">Cell types</a></li>
+      <li><a href="#prior">Prior work</a></li>
       <li><a href="#behaviour">What the mice do</a></li>
       <li><a href="#leads">Leads that did not hold</a></li>
       <li><a href="#reading">What it means</a></li>
@@ -33,8 +36,13 @@ td.verdict.failed { color: var(--muted); }
     <header class="top">
       <div class="eyebrow">hm2p · retrosplenial cortex · maze exploration · all cells</div>
       <h1>RSP activity during maze exploration</h1>
-      <p class="meta">Two-photon imaging of layer 2/3 retrosplenial neurons in mice freely exploring the Rosenberg maze (a tree with 9 dead ends and 7 T-junctions), room lights alternating 1 min on / 1 min off. All imaged soma ROIs pooled (<span id="n-cells"></span> cells, <span id="n-sessions"></span> sessions, <span id="n-animals"></span> mice). Exploratory analyses run 2026-10-03 to 2026-10-05. Build __BUILD__.</p>
+      <p class="meta">Two-photon imaging of layer 2/3 retrosplenial neurons in mice freely exploring the Rosenberg maze (a tree with 9 dead ends and 7 T-junctions), room lights alternating 1 min on / 1 min off. All imaged soma ROIs pooled (<span id="n-cells"></span> cells, <span id="n-sessions"></span> sessions, <span id="n-animals"></span> mice). Exploratory analyses run 2026-10-03 to 2026-10-07. Build __BUILD__.</p>
     </header>
+
+    <div class="pending" id="data-status" role="note">
+      <span class="tag lean">Data status</span>
+      <p><strong>These results predate two data fixes now in progress (2026-10-06 QC).</strong> (1) The stored head direction pointed roughly backwards in about 15 % of frames (and 45–135° off in another 17 %) because of an ear-based estimator bug; numbers conditioned on head direction will change after Stages 3 → 5 → 6 are re-run. The core place-by-direction result does not depend on it: travel direction computed from the trajectory gives the same gain in all 15 mice, and the reference-frame and map analyses use travel direction. (2) The original 9 Penk sessions used fixed-coefficient neuropil subtraction while the 17 reprocessed sessions, which include every Penk⁻ session, used FISSA; any Penk vs Penk⁻ comparison is confounded by processing until one method is applied to all 26 sessions.</p>
+    </div>
 
     <section id="summary">
       <h2>Summary</h2>
@@ -130,6 +138,64 @@ td.verdict.failed { color: var(--muted); }
           <thead><tr><th>Frames</th><th>Information about</th><th>Cells</th><th>Median MI (mbit)</th><th>Median MI with the other held fixed</th><th>Cells higher</th><th>Animal-level p</th><th>Same with speed also fixed: p</th></tr></thead>
           <tbody></tbody>
         </table>
+      </div>
+    </section>
+
+    <section id="followup">
+      <h2>Follow-up tests of the place-by-heading code</h2>
+      <p class="finding">The place-by-heading conjunction survives acceleration and travel-direction controls and is carried by head direction. Cells split into two roughly equal groups, one keeping a constant compass preference and one keeping an "away from vs toward the maze centre" preference. Maps are similar in light and dark. Decoding is too weak at single-frame resolution to test drift, anticipation or links to behaviour.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Question</th><th>Result</th><th>Verdict</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Acceleration control.</strong> Mice slow into dead ends and speed out of them (22/23 sessions), which could mimic place × direction.</td><td>Gain with acceleration held fixed +8.3 mbit (14/15 mice, p = 0.007); with speed × acceleration held fixed +9.5 mbit (13/15, p = 0.008).</td><td class="verdict held">Holds</td></tr>
+            <tr><td><strong>Head direction or travel direction?</strong></td><td>Travel direction alone also raises position information (+4.8 mbit, 15/15 mice) but less than head direction (difference p = 0.010 with 8 head-direction sectors; p = 0.12 at matched 4 bins). Adding head direction on top of travel direction helps (p = 0.013); the reverse does not (p = 0.19).</td><td class="verdict held">Head direction carries it</td></tr>
+            <tr><td><strong>Reference frame of the direction preference.</strong> Leave-one-location-out consistency across corridors, validated on simulated cells.</td><td>All frames beat their null at the mouse level: away/toward maze centre 15/15 mice (p = 1e-4), compass 13/15 (p = 0.010). Neither wins at the population level (p = 0.98). Per cell, 22 % are compass-consistent and 25 % centre-consistent, with overlap at chance level (rho 0.02 between scores); about 22 per frame expected by chance. The centre-consistent preference survives speed × acceleration control (p = 1e-4); an "upcoming turn" frame does not (p = 0.50). No population bias toward outward or inward: individual cells prefer either.</td><td class="verdict held">Two groups: compass and maze-centre</td></tr>
+            <tr><td><strong>Same maps in light and dark?</strong> Activity per maze cell × travel direction.</td><td>Light–dark map correlation 0.19 (0.15 above a shift null, 15/15 mice, p = 1e-4), close to the within-condition split-half reliability (0.145 within vs 0.132 across). Centre-consistent cells keep their sign across conditions 73–79 % of the time (cell-level p &lt; 1e-5). All map correlations are low.</td><td class="verdict held">Similar, weakly measured</td></tr>
+            <tr><td><strong>Graph or straight-line geometry?</strong> Cross-validated population dissimilarity vs maze-path distance and straight-line distance.</td><td>Neither: graph minus straight-line z −0.12 (7/15 mice, p = 0.17). The two distances correlate 0.85–0.94 in this maze, which limits the test. Heading difference is the one robust term (13/15 mice, p = 0.003).</td><td class="verdict failed">Not resolvable</td></tr>
+            <tr><td><strong>Do places with the same maze role look alike?</strong> (e.g. heading into any dead end)</td><td>Weak trend: role z 0.40, 10/15 mice, p = 0.083 (session level p = 0.014); about 3 repeats per role per session.</td><td class="verdict failed">Underpowered</td></tr>
+            <tr><td><strong>Does the code drift in the dark and snap back at lights-on?</strong></td><td>No drift in decoded position with time in dark (p = 1.0) and no lights-on correction (p = 0.93). The population pattern changes as a step when lights switch off (similarity to light templates drops, 12/15 mice, p = 0.003), mostly a global light/dark activity change rather than a position-specific one.</td><td class="verdict failed">Not detected</td></tr>
+            <tr><td><strong>Does decoded direction flip before a turnaround?</strong> 526 mid-maze reversals vs matched decelerations.</td><td>Frame-by-frame neural direction decoding is near chance (0.53–0.55), so anticipation cannot be assessed (+0.02, p = 0.85). Head direction alone turns before the body stops (p = 0.003).</td><td class="verdict failed">Not testable</td></tr>
+            <tr><td><strong>Is the population state less clear before repeat choices?</strong></td><td>No difference in decoding confidence before repeat vs new choices (dark p = 0.25, light p = 0.68).</td><td class="verdict failed">Not detected</td></tr>
+            <tr><td><strong>Does representation quality track exploration quality across epochs?</strong></td><td>No relation between position/direction decoding and coverage beyond a random walk across 60 s epochs (all p ≥ 0.15).</td><td class="verdict failed">Not detected</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul class="plain">
+        <li><strong>Why the dynamics tests are weak.</strong> Frame-by-frame decoding from about 20 cells is barely above chance (probability of the true maze cell 0.073 vs 0.062), whereas the earlier above-chance position and direction decoding averaged over whole visits or runs. Drift, anticipation and confidence need frame-level precision, so these are failures to detect, not evidence of absence.</li>
+        <li><strong>Head direction vs maze coordinates.</strong> In 17 of 23 sessions the head-direction angle appears mirrored relative to the maze coordinates, and some sessions are offset by about ±90°. Analyses here use head direction only as a within-session category, so they are unaffected, but any analysis that maps head-direction angles onto maze geometry needs this alignment checked first.</li>
+      </ul>
+      <p class="caption">Code: <span class="path">hm2p.analysis.conjunctive_frame</span>, <span class="path">hm2p.analysis.maze_geometry</span>, <span class="path">hm2p.analysis.maze_dynamics</span> with runners in <span class="path">scripts/run_conjunctive_frame.py</span>, <span class="path">scripts/run_maze_geometry.py</span>, <span class="path">scripts/run_maze_dynamics.py</span>; outputs in <span class="path">results/conjunctive_frame/</span>, <span class="path">results/maze_geometry/</span>, <span class="path">results/maze_dynamics/</span>. Mouse-level Wilcoxon tests on per-animal medians, 23 sessions, 15 mice, CASCADE spikes with dF/F replication.</p>
+    </section>
+
+    <section id="celltypes">
+      <h2>Penk+ and Penk⁻CamKII+ cells share the place-by-heading code</h2>
+      <p class="finding">Unlike running, where Penk+ cells reach beyond the top of the Penk⁻ range, the place-by-heading code is the same in both populations.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Measure</th><th>Penk+ (11 mice)</th><th>Penk⁻CamKII+ (4 mice)</th><th>Penk+ cells within the Penk⁻ distribution</th><th>Between types (mice)</th></tr></thead>
+          <tbody>
+            <tr><td>Position information gain when heading is fixed</td><td class="num">12 mbit; 84 % of cells; 10/11 mice</td><td class="num">10 mbit; 85 %; 4/4 mice</td><td class="num">55th percentile; no pile-up at either end</td><td class="num">p = 0.41</td></tr>
+            <tr><td>Same, speed and acceleration also fixed</td><td class="num">11 mbit; 83 %</td><td class="num">10 mbit; 80 %</td><td class="num">—</td><td class="num">p = 0.34</td></tr>
+            <tr><td>Heading information gain when place is fixed</td><td class="num">12 mbit; 86 %</td><td class="num">9 mbit; 83 %</td><td class="num">—</td><td class="num">p = 0.28</td></tr>
+            <tr><td>Maze-centre frame consistency (score above null)</td><td class="num">0.24; 11/11 mice</td><td class="num">0.18; 4/4 mice</td><td class="num">59th percentile</td><td class="num">p = 0.23</td></tr>
+            <tr><td>Compass frame consistency (score above null)</td><td class="num">0.19; 10/11 mice</td><td class="num">0.03; 3/4 mice</td><td class="num">62nd percentile; 6 % in the top tenth</td><td class="num">p = 0.08</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="caption">Four Penk⁻CamKII+ mice cannot give an animal-level p below 0.125 on their own; between-type p values are Mann-Whitney U on per-mouse medians. The compass-frame difference is a lean, not a result. Processing differs between the two groups (see Data status).</p>
+    </section>
+
+    <section id="prior">
+      <h2>Prior work</h2>
+      <div class="prose">
+        <p>Conjunctive responses to place and heading in retrosplenial cortex have been described before in rats recorded with tetrodes: cells combining head direction, place and movement (Cho and Sharp 2001), and cells coding position along a route together with position in the room (Alexander and Nitz 2015). Head-direction responses anchored to the local environment rather than to a global compass were reported in dysgranular retrosplenial cortex (Jacob et al. 2017), which is the closest relative of the maze-centre group here.</p>
+        <p>What these data add, if confirmed after the data fixes: identified layer 2/3 cells imaged in freely moving mice exploring a tree maze; a conjunction of equal strength in light and in total darkness, so it does not depend on vision; and, within one population, a compass-anchored group and a maze-structure-anchored group of similar size, the latter surviving speed and acceleration controls. These references were cited from memory and the recent literature has not been searched systematically.</p>
+        <ul class="plain refs">
+          <li>Cho J, Sharp PE. 2001. "Head direction, place, and movement correlates for cells in the rat retrosplenial cortex." Behavioral Neuroscience 115:3–25. doi:10.1037/0735-7044.115.1.3</li>
+          <li>Alexander AS, Nitz DA. 2015. "Retrosplenial cortex maps the conjunction of internal and external spaces." Nature Neuroscience 18:1143–1151. doi:10.1038/nn.4058</li>
+          <li>Jacob PY, Casali G, Spieser L, Page H, Overington D, Jeffery K. 2017. "An independent, landmark-dominated head-direction signal in dysgranular retrosplenial cortex." Nature Neuroscience 20:173–175. doi:10.1038/nn.4465</li>
+        </ul>
       </div>
     </section>
 
