@@ -226,6 +226,11 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
       </div>
     </header>
 
+    <div class="pending" role="note">
+      <span class="tag lean">Data status</span>
+      <p><strong>Penk+ vs Penk⁻CamKII+ comparisons on this page are confounded by processing.</strong> QC on 2026-10-06 found that the original 9 Penk sessions used fixed-coefficient neuropil subtraction while the 17 reprocessed sessions, which include every Penk⁻ session, used FISSA (dF/F inflated; CASCADE rates track noise). Stored head direction also had an estimator bug. Fixes are in progress; amplitude, rate and running comparisons here should be re-run on the corrected data before being relied on.</p>
+    </div>
+
     <section id="summary">
       <h2>Summary</h2>
       <p class="finding">Penk+ cells fire long, rare events while the mouse is running, and report whether it is running rather than how fast. Penk⁻CamKII+ cells follow the room lights more closely.</p>
