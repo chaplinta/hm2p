@@ -777,11 +777,11 @@ Notebooks
 
 ### Remaining
 
-21. ⬜ **CASCADE spike inference** — requires separate conda env (tensorflow==2.3,
-    Python 3.8 only). See `docs/manual-installs.md`. Can run on CPU after Stage 4
-    dF/F0 is computed.
-22. ⬜ **FISSA neuropil subtraction** — optional, more accurate than fixed coefficient.
-    Requires separate env (scikit-learn<1.2). See `docs/manual-installs.md`.
+21. ✅ **CASCADE spike inference** — `scripts/launch_cascade_ec2.py` (all 26 sessions;
+    stored output is expected spikes per frame).
+22. ✅ **FISSA neuropil subtraction** — all 26 sessions (2026-10-07), via
+    `scripts/launch_stage4_fissa_ec2.py` / `scripts/rerun_stage4_precomputed.py`;
+    dF/F relative to the raw-trace baseline. See `docs/qc-reports.md`.
 23. ⬜ **neuroconv NWB export** — write NWB files from ca.h5 + kinematics.h5 for DANDI
     archiving. Stub only.
 24. ⬜ **Rotate hm2p-agent S3 credentials** — current access key was exposed in EC2
@@ -790,6 +790,11 @@ Notebooks
     patching-port-plan).
 26. ⬜ **Patching frontend pages** — patching_page, patching_ephys_page,
     patching_morph_page, patching_pca_page (Phase 5 of patching-port-plan).
+27. ⬜ **Fluorescence drift / bleaching** — the raw ROI fluorescence falls by more
+    than 40 % over the session in 7 of 26 sessions (QC 2026-10-07, "Raw F end /
+    start" on `docs/qc/qc-spikes.html`). Decide whether to correct (e.g. detrend
+    F_raw before the F0 estimate), exclude affected epochs, or add session time as a
+    covariate in analyses that compare early vs late epochs.
 
 ---
 

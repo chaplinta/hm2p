@@ -38,6 +38,12 @@ INSTANCE_PROFILE_NAME = "hm2p-ec2-role"
 TAG_PROJECT = {"Key": "Project", "Value": "hm2p-kpms"}
 STATE_FILE = Path.home() / ".hm2p-kpms-ec2.json"
 
+
+def _state_file(tag: str) -> Path:
+    """Local state file for a run tag (parallel runs, e.g. a kappa sweep)."""
+    return STATE_FILE if not tag else Path.home() / f".hm2p-kpms-ec2_{tag}.json"
+
+
 # DLC .h5 files are ~300 MB each × 26 sessions ≈ 8 GB download
 # Plus Docker image + kpms fitting workspace + model artifacts
 ROOT_VOLUME_GB = 100
@@ -58,9 +64,19 @@ def get_instance_profile_arn() -> str:
     return resp["InstanceProfile"]["Arn"]
 
 
-def build_user_data() -> str:
-    """Build the cloud-init user-data script."""
-    return textwrap.dedent("""\
+def build_user_data(
+    kappa: float = 1_000_000,
+    num_iters: int = 200,
+    ar_only_iters: int = 50,
+    s3_prefix: str = "kinematics",
+    branch: str = "main",
+) -> str:
+    """Cloud-init script. ``s3_prefix`` other than "kinematics" writes a separate
+    output set (syllables, model, summary, logs) so a sweep does not overwrite the
+    pipeline's syllables; ``--skip-existing`` is only used for the pipeline prefix."""
+    skip = "--skip-existing \\" if s3_prefix == "kinematics" else "\\"
+    return (
+        textwrap.dedent("""\
         #!/bin/bash
         # Do NOT use set -e — we want to capture errors and upload logs.
         set -uxo pipefail
@@ -69,7 +85,7 @@ def build_user_data() -> str:
         # ── Trap: always upload logs before shutdown ──────────────────────
         # Ensures logs reach S3 even if the script crashes unexpectedly
         # (e.g. git clone fails, Docker daemon doesn't start, OOM, etc.).
-        S3_PREFIX=s3://hm2p-derivatives/kinematics
+        S3_PREFIX=s3://hm2p-derivatives/{s3_prefix}
         upload_logs_and_shutdown() {
             echo "=== Uploading logs before shutdown $(date) ==="
             # If no status file was written, write a generic failure
@@ -95,7 +111,7 @@ def build_user_data() -> str:
 
         # ── Clone repo for Dockerfile + scripts ──────────────────────────
         cd /home/ubuntu
-        git clone https://github.com/chaplinta/hm2p.git
+        git clone --branch {branch} --depth 1 https://github.com/chaplinta/hm2p.git
         cd hm2p
 
         # ── Build kpms Docker image ──────────────────────────────────────
@@ -128,13 +144,14 @@ def build_user_data() -> str:
             --s3-bucket hm2p-derivatives \\
             --project-dir /data/project \\
             --output-dir /data/output \\
-            --skip-existing \\
+            {skip}
+            --s3-prefix {s3_prefix} \\
             --bodyparts nose left_ear right_ear head_midpoint \\
                 neck mid_back mouse_center tail_base \\
-            --kappa 1000000 \\
+            --kappa {kappa:g} \\
             --num-pcs 4 \\
-            --num-iters 200 \\
-            --ar-only-iters 50 \\
+            --num-iters {num_iters} \\
+            --ar-only-iters {ar_only_iters} \\
             --conf-threshold 0.9
         RUN_EXIT=$?
 
@@ -149,11 +166,19 @@ def build_user_data() -> str:
 
         # The EXIT trap handles log upload and shutdown.
     """)
+        .replace("{s3_prefix}", s3_prefix)
+        .replace("{branch}", branch)
+        .replace("{skip}", skip)
+        .replace("{kappa:g}", f"{kappa:g}")
+        .replace("{num_iters}", str(num_iters))
+        .replace("{ar_only_iters}", str(ar_only_iters))
+    )
 
 
-def launch_instance(dry_run: bool = False) -> dict | None:
+def launch_instance(dry_run: bool = False, tag: str = "", **ud_kwargs) -> dict | None:
+    STATE_FILE = _state_file(tag)  # noqa: N806
     if dry_run:
-        print(build_user_data())
+        print(build_user_data(**ud_kwargs))
         return None
 
     ec2 = boto3.client("ec2", region_name=REGION)
@@ -179,7 +204,7 @@ def launch_instance(dry_run: bool = False) -> dict | None:
     # by name to run_instances and EC2 validates it at launch time.
     # The IAM API call fails from devcontainers with restricted networking.
 
-    user_data = build_user_data()
+    user_data = build_user_data(**ud_kwargs)
 
     print(f"Launching {INSTANCE_TYPE} instance for keypoint-MoSeq...")
     resp = ec2.run_instances(
@@ -207,7 +232,7 @@ def launch_instance(dry_run: bool = False) -> dict | None:
                 "ResourceType": "instance",
                 "Tags": [
                     TAG_PROJECT,
-                    {"Key": "Name", "Value": "hm2p-kpms"},
+                    {"Key": "Name", "Value": "hm2p-kpms" + (f"-{tag}" if tag else "")},
                 ],
             }
         ],
@@ -236,7 +261,8 @@ def launch_instance(dry_run: bool = False) -> dict | None:
     return state
 
 
-def check_status() -> None:
+def check_status(tag: str = "", s3_prefix: str = "kinematics") -> None:
+    STATE_FILE = _state_file(tag)  # noqa: N806
     if not STATE_FILE.exists():
         print("No kpms instance state file found.")
         return
@@ -265,7 +291,7 @@ def check_status() -> None:
     # Check S3 for completion
     try:
         s3 = boto3.client("s3", region_name=REGION)
-        s3.head_object(Bucket=DERIVATIVES_BUCKET, Key="kinematics/kpms_status.json")
+        s3.head_object(Bucket=DERIVATIVES_BUCKET, Key=f"{s3_prefix}/kpms_status.json")
         print("\nkpms_status.json found on S3 — job appears complete!")
     except Exception:
         print("\nkpms_status.json not on S3 — job still running or not started.")
@@ -275,7 +301,7 @@ def check_status() -> None:
         s3 = boto3.client("s3", region_name=REGION)
         resp = s3.list_objects_v2(
             Bucket=DERIVATIVES_BUCKET,
-            Prefix="kinematics/",
+            Prefix=f"{s3_prefix}/",
         )
         npz_files = [
             obj["Key"] for obj in resp.get("Contents", []) if obj["Key"].endswith("syllables.npz")
@@ -285,7 +311,8 @@ def check_status() -> None:
         pass
 
 
-def terminate_instance() -> None:
+def terminate_instance(tag: str = "") -> None:
+    STATE_FILE = _state_file(tag)  # noqa: N806
     if not STATE_FILE.exists():
         print("No kpms instance state file found.")
         return
@@ -308,14 +335,34 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Print user-data only")
     parser.add_argument("--status", action="store_true", help="Check instance status")
     parser.add_argument("--terminate", action="store_true", help="Terminate instance")
+    parser.add_argument("--kappa", type=float, default=1_000_000)
+    parser.add_argument("--num-iters", type=int, default=200)
+    parser.add_argument("--ar-only-iters", type=int, default=50)
+    parser.add_argument(
+        "--s3-prefix",
+        default="kinematics",
+        help="Output prefix; use e.g. kpms_sweep/kappa_1e5 for sweeps",
+    )
+    parser.add_argument("--branch", default="main", help="git branch to build from")
+    parser.add_argument(
+        "--tag", default="", help="run tag (separate state file for parallel runs)"
+    )
     args = parser.parse_args()
 
     if args.status:
-        check_status()
+        check_status(args.tag, args.s3_prefix)
     elif args.terminate:
-        terminate_instance()
+        terminate_instance(args.tag)
     else:
-        launch_instance(dry_run=args.dry_run)
+        launch_instance(
+            dry_run=args.dry_run,
+            tag=args.tag,
+            kappa=args.kappa,
+            num_iters=args.num_iters,
+            ar_only_iters=args.ar_only_iters,
+            s3_prefix=args.s3_prefix,
+            branch=args.branch,
+        )
 
 
 if __name__ == "__main__":

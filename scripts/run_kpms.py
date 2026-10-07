@@ -731,6 +731,14 @@ def main():
         help="S3 bucket for derivatives.",
     )
     parser.add_argument(
+        "--s3-prefix",
+        type=str,
+        default="kinematics",
+        help="S3 key prefix for outputs ({prefix}/{sub}/{ses}/syllables.npz, "
+        "{prefix}/kpms_model/, {prefix}/kpms_summary.json). Use a separate prefix "
+        "for parameter sweeps so the pipeline's syllables are not overwritten.",
+    )
+    parser.add_argument(
         "--all-sessions",
         action="store_true",
         help="Process all sessions from metadata/experiments.csv via S3.",
@@ -893,7 +901,7 @@ def main():
             s3 = get_s3_client()
         for session_id, data in results.items():
             sub, ses = parse_session_id(session_id)
-            prov_key = f"kinematics/{sub}/{ses}/syllables.provenance.json"
+            prov_key = f"{args.s3_prefix}/{sub}/{ses}/syllables.provenance.json"
             try:
                 with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
                     s3.download_file(args.s3_bucket, prov_key, tmp.name)
@@ -947,13 +955,13 @@ def main():
             sub, ses = parse_session_id(session_id)
 
             # Upload syllables.npz
-            s3_key = f"kinematics/{sub}/{ses}/syllables.npz"
+            s3_key = f"{args.s3_prefix}/{sub}/{ses}/syllables.npz"
             with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as tmp:
                 np.savez_compressed(tmp.name, **npz_data)
                 upload_s3_file(s3, Path(tmp.name), args.s3_bucket, s3_key)
 
             # Upload provenance
-            prov_key = f"kinematics/{sub}/{ses}/syllables.provenance.json"
+            prov_key = f"{args.s3_prefix}/{sub}/{ses}/syllables.provenance.json"
             with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
                 json.dump(provenance, tmp, indent=2)
                 tmp.flush()
@@ -964,7 +972,7 @@ def main():
     if using_s3:
         if s3 is None:
             s3 = get_s3_client()
-        model_s3_prefix = "kinematics/kpms_model"
+        model_s3_prefix = f"{args.s3_prefix}/kpms_model"
         log.info("Uploading model artifacts to s3://%s/%s/...", args.s3_bucket, model_s3_prefix)
 
         # Upload results.h5 if it exists
@@ -1067,7 +1075,7 @@ def main():
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
             json.dump(summary, tmp, indent=2)
             tmp.flush()
-            upload_s3_file(s3, Path(tmp.name), args.s3_bucket, "kinematics/kpms_summary.json")
+            upload_s3_file(s3, Path(tmp.name), args.s3_bucket, f"{args.s3_prefix}/kpms_summary.json")
 
 
 if __name__ == "__main__":
