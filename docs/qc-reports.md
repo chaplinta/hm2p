@@ -159,6 +159,57 @@ need re-running.
 8. **Baseline drift:** soma F0 falls by > 40 % over the session (end/start
    < 0.6) in 13 of 26 sessions, down to 0.05.
 
+## Re-run and second QC pass (2026-10-07)
+
+Previous S3 outputs are kept under `s3://hm2p-derivatives/_backup_2026-10-07/`
+(`calcium/`, `kinematics/`, `sync/`, `analysis/`).
+
+What was re-run:
+
+- **Stage 4, all 26 sessions, FISSA for all.** The 9 original sessions went
+  through the EC2 FISSA bridge (`launch_stage4_fissa_ec2.py --sessions`,
+  FISSA 1.0.0); two (sub-1115465 ses-20211028T112550, ses-20211102T151134)
+  passed the registration alignment gate only at 0.85 (median Spearman 0.898
+  and 0.888), the same threshold used for sub-1118317 ses-20221117T132031 in
+  2026-06. The 17 bridge sessions were re-derived from their stored FISSA
+  traces (`scripts/rerun_stage4_precomputed.py`). All 26: ROIs classified at
+  the imaging frame rate; dF/F = (F_corr − F0(F_corr)) / F0(F_raw);
+  `dff_denominator` attribute set.
+- **CASCADE** on the new dF/F (stored array: expected spikes per frame).
+- **Stage 3** (head-direction fix), **Stage 5** and **Stage 6**.
+
+Second QC pass:
+
+| Measure | Before | After |
+| --- | --- | --- |
+| Soma dF/F noise SD, Penk+ / Penk⁻CamKII+ (median over sessions) | 0.17 / 0.45 | 0.023 / 0.022 |
+| Spearman, session noise vs CASCADE rate | 0.83 (p = 2×10⁻⁷) | 0.36 (p = 0.07) |
+| Fused HD within 45° of the ear estimate | 4–13 % of frames | 99.8–99.9 % |
+| Running: median \|HD − travel direction\| (2 sessions) | 30–32° | 21–22° |
+| \|AHV\| > 1500 °/s (median over sessions) | 2.0 % | 0.07 % |
+| ROI labels changed by re-classifying at the imaging rate | 71 / 4023 | 0 / 4023 |
+
+Open points:
+
+- **HD missing in 4–21 % of frames (median 12 %).** The per-keypoint
+  confidence cut-off `quantile:0.25` discards each keypoint's lowest 25 % of
+  frames by construction; for the current DLC model that cut-off is at
+  likelihood 0.87–0.95 (median likelihood 0.96–1.00). A fixed threshold would
+  keep more frames; not changed (affects all downstream results).
+- **CASCADE rates are lower (0.01–0.24 Hz per soma).** FISSA dF/F is relative
+  to the raw-trace baseline, which includes neuropil, so transient amplitudes
+  are smaller than with coefficient subtraction; CASCADE is calibrated on dF/F
+  amplitude, so absolute rates are likely underestimated, uniformly across
+  sessions. In 3 sessions fewer than 60 % of V&H events contain ≥ 0.5 expected
+  spikes (20210924, 20211216, 20220608_16_22).
+- **Raw fluorescence falls by > 40 % over the session in 7 sessions**
+  (bleaching or focus drift).
+- **Syllables unchanged** (κ = 10⁶ fit still fails the bout-length and usage
+  criteria); a κ sweep needs `launch_kpms_ec2.py` changes so trial fits do
+  not overwrite `syllables.npz`.
+- **Suite2p detection ran with fs = 29.97 Hz** (no timestamps.h5 on EC2);
+  ROI sets were not re-detected.
+
 ## References
 
 - Mathis A, Mamidanna P, Cury KM, et al. 2018. "DeepLabCut: markerless pose estimation of user-defined body parts with deep learning." Nature Neuroscience 21:1281–1289. doi:10.1038/s41593-018-0209-y. https://github.com/DeepLabCut/DeepLabCut
