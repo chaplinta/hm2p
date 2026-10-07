@@ -19,12 +19,9 @@ The script:
 from __future__ import annotations
 
 import argparse
-import base64
 import configparser
 import json
-import sys
 import textwrap
-import time
 from pathlib import Path
 
 import boto3
@@ -41,7 +38,15 @@ CW_LOG_GROUP = "/hm2p/suite2p"
 TAG = {"Key": "Project", "Value": "hm2p-suite2p"}
 STATE_FILE = Path.home() / ".hm2p-suite2p-instance.json"
 GIT_REPO = "https://github.com/chaplinta/hm2p.git"
-GIT_BRANCH = "main"
+GIT_BRANCH = "main"  # override with --branch
+SUITE2P_VERSION = "1.1.0"  # version that produced the stored ROIs; pinned so re-runs differ only in settings
+
+
+def _keys(tag: str) -> tuple[str, str, Path]:
+    """Progress key, log key and local state file for a run tag (parallel runs)."""
+    sfx = f"_{tag}" if tag else ""
+    return (f"ca_extraction/_progress{sfx}.json", f"ca_extraction/_suite2p{sfx}.log",
+            Path.home() / f".hm2p-suite2p-instance{sfx}.json")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -90,9 +95,15 @@ def get_sessions() -> list[dict]:
     return sessions
 
 
-def build_user_data(sessions: list[dict], use_instance_profile: bool = False) -> str:
+def build_user_data(
+    sessions: list[dict],
+    use_instance_profile: bool = False,
+    branch: str = GIT_BRANCH,
+    tag: str = "",
+) -> str:
     """Build the cloud-init user-data script."""
     session_json = json.dumps(sessions)
+    progress_key, log_key, _state = _keys(tag)
 
     # AWS credentials block
     if use_instance_profile:
@@ -132,7 +143,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         echo "Started: $(date -u)"
 
         upload_log() {{
-            aws s3 cp /var/log/hm2p-suite2p.log s3://{DERIVATIVES_BUCKET}/ca_extraction/_suite2p.log 2>/dev/null || true
+            aws s3 cp /var/log/hm2p-suite2p.log s3://{DERIVATIVES_BUCKET}/{log_key} 2>/dev/null || true
         }}
         trap upload_log EXIT
 
@@ -149,13 +160,14 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
         apt-get update -qq
         apt-get install -y -qq python3-pip python3-venv awscli git libhdf5-dev pkg-config
 
-        # Ubuntu 22.04 has Python 3.10. Use a venv to avoid pip restrictions.
-        python3 --version
-        python3 -m venv /opt/hm2p
+        # Python 3.12 via uv (hm2p requires >= 3.12; Ubuntu 22.04 ships 3.10)
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="/root/.local/bin:$PATH"
+        uv venv -q -p 3.12 /opt/hm2p
 
         echo "Installing Stage 1 dependencies..."
-        /opt/hm2p/bin/pip install --quiet \
-            suite2p \
+        uv pip install -q --python /opt/hm2p/bin/python \
+            "suite2p=={SUITE2P_VERSION}" \
             xgboost \
             scikit-image \
             scikit-learn \
@@ -173,7 +185,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             boto3
 
         echo "Installing hm2p (no-deps)..."
-        /opt/hm2p/bin/pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
+        uv pip install -q --python /opt/hm2p/bin/python --no-deps "git+{GIT_REPO}@{branch}"
 
         /opt/hm2p/bin/python -c "import suite2p; print(f'suite2p {{suite2p.__version__}}')"
         /opt/hm2p/bin/python -c "import xgboost; print(f'xgboost {{xgboost.__version__}}')"
@@ -210,7 +222,7 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             progress_file.write_text(json.dumps(progress, indent=2))
             subprocess.run([
                 'aws', 's3', 'cp', str(progress_file),
-                's3://{DERIVATIVES_BUCKET}/ca_extraction/_progress.json',
+                's3://{DERIVATIVES_BUCKET}/{progress_key}',
             ], capture_output=True)
 
         for i, ses in enumerate(sessions, 1):
@@ -250,22 +262,25 @@ def build_user_data(sessions: list[dict], use_instance_profile: bool = False) ->
             print(f'  Downloaded {{len(tifs)}} TIFF(s)', flush=True)
 
             # Download timestamps.h5
-            ts_s3 = f's3://{DERIVATIVES_BUCKET}/timestamps/{{sub}}/{{ses_id}}/timestamps.h5'
+            ts_s3 = f's3://{DERIVATIVES_BUCKET}/movement/{{sub}}/{{ses_id}}/timestamps.h5'
             ts_local = ts_dir / 'timestamps.h5'
-            subprocess.run([
+            ret = subprocess.run([
                 'aws', 's3', 'cp', ts_s3, str(ts_local),
             ], capture_output=True, text=True)
+            if ret.returncode != 0 or not ts_local.exists():
+                print(f'  ERROR: timestamps.h5 missing at {{ts_s3}}', flush=True)
+                failed.append(exp_id)
+                continue
 
             # Run Suite2p + ROI classifier via run_suite2p()
             print(f'  Running Suite2p + ROI classifier...', flush=True)
             try:
                 from hm2p.extraction.run_suite2p import run_suite2p
 
-                ts_path = ts_local if ts_local.exists() else None
                 suite2p_dir = run_suite2p(
                     tiff_dir=tiff_dir,
                     output_dir=out_dir,
-                    timestamps_h5=ts_path,
+                    timestamps_h5=ts_local,
                     indicator='GCaMP6s',
                 )
                 print(f'  Suite2p + classification DONE', flush=True)
@@ -374,11 +389,23 @@ def ensure_security_group(ec2) -> str:
     return sg_id
 
 
+def select_sessions(wanted: list[str] | None) -> list[dict]:
+    """All sessions, or only those whose exp_id is in *wanted*."""
+    sessions = get_sessions()
+    if not wanted:
+        return sessions
+    sel = [s for s in sessions if s["exp_id"] in set(wanted)]
+    missing = set(wanted) - {s["exp_id"] for s in sel}
+    if missing:
+        raise SystemExit(f"unknown exp_id(s): {sorted(missing)}")
+    return sel
+
+
 def launch(args):
     """Launch the Spot instance."""
     ec2 = boto3.client("ec2", region_name=REGION)
 
-    sessions = get_sessions()
+    sessions = select_sessions(args.sessions)
     print(f"Will process {len(sessions)} sessions")
 
     key_name = ensure_key_pair(ec2)
@@ -390,7 +417,10 @@ def launch(args):
     else:
         print("No IAM instance profile — embedding S3 credentials in user-data")
 
-    user_data = build_user_data(sessions, use_instance_profile=use_profile)
+    user_data = build_user_data(
+        sessions, use_instance_profile=use_profile, branch=args.branch, tag=args.tag
+    )
+    state_file = _keys(args.tag)[2]
 
     launch_kwargs = {
         "ImageId": AMI_ID,
@@ -413,7 +443,7 @@ def launch(args):
             "ResourceType": "instance",
             "Tags": [
                 TAG,
-                {"Key": "Name", "Value": "hm2p-suite2p-run"},
+                {"Key": "Name", "Value": "hm2p-suite2p-run" + (f"-{args.tag}" if args.tag else "")},
             ],
         }],
     }
@@ -427,7 +457,7 @@ def launch(args):
     print(f"\nInstance launched: {instance_id}")
     print(f"Type: {INSTANCE_TYPE} (~$0.14 USD/hr on-demand)")
 
-    STATE_FILE.write_text(json.dumps({"instance_id": instance_id, "region": REGION}))
+    state_file.write_text(json.dumps({"instance_id": instance_id, "region": REGION}))
 
     print("Waiting for instance to start...", end="", flush=True)
     waiter = ec2.get_waiter("instance_running")
@@ -440,10 +470,11 @@ def launch(args):
     print(f"Public IP: {public_ip}")
     print(f"\nSSH:  ssh -i ~/.ssh/{KEY_NAME}.pem ubuntu@{public_ip}")
     print(f"Logs: ssh -i ~/.ssh/{KEY_NAME}.pem ubuntu@{public_ip} 'tail -f /var/log/hm2p-suite2p.log'")
-    print(f"\nOr run: python scripts/launch_suite2p_ec2.py --status")
+    print("\nOr run: python scripts/launch_suite2p_ec2.py --status")
 
 
 def status(args):
+    STATE_FILE = _keys(args.tag)[2]  # noqa: N806
     """Check instance status."""
     if not STATE_FILE.exists():
         print("No active instance. Run without --status to launch.")
@@ -474,7 +505,7 @@ def progress(args):
     s3 = boto3.client("s3", region_name=REGION)
     with tempfile.NamedTemporaryFile(suffix=".json") as f:
         try:
-            s3.download_file(DERIVATIVES_BUCKET, "ca_extraction/_progress.json", f.name)
+            s3.download_file(DERIVATIVES_BUCKET, _keys(args.tag)[0], f.name)
             data = json.loads(Path(f.name).read_text())
             print(json.dumps(data, indent=2))
         except Exception as e:
@@ -482,6 +513,7 @@ def progress(args):
 
 
 def terminate(args):
+    STATE_FILE = _keys(args.tag)[2]  # noqa: N806
     """Terminate the instance."""
     if not STATE_FILE.exists():
         print("No active instance.")
@@ -504,6 +536,9 @@ def main():
     group.add_argument("--terminate", action="store_true", help="Terminate instance")
     group.add_argument("--dry-run", action="store_true", help="Print user-data without launching")
     parser.add_argument("--use-profile", action="store_true", help="Force IAM instance profile")
+    parser.add_argument("--sessions", nargs="+", metavar="EXP_ID", help="Only these sessions")
+    parser.add_argument("--branch", default=GIT_BRANCH, help="git branch to install")
+    parser.add_argument("--tag", default="", help="run tag for parallel runs (progress/log/state)")
     args = parser.parse_args()
 
     if args.status:
@@ -513,8 +548,7 @@ def main():
     elif args.terminate:
         terminate(args)
     elif args.dry_run:
-        sessions = get_sessions()
-        print(build_user_data(sessions))
+        print(build_user_data(select_sessions(args.sessions), branch=args.branch, tag=args.tag))
     else:
         launch(args)
 
