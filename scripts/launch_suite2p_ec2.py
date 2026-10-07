@@ -185,9 +185,12 @@ def build_user_data(
             boto3
 
         echo "Installing hm2p (no-deps)..."
-        uv pip install -q --python /opt/hm2p/bin/python --no-deps "git+{GIT_REPO}@{branch}"
+        # install from a plain clone: installing from git+ initialises submodules, and the
+        # repo has a gitlink (old-penk-patching/morphology_tracing) without a .gitmodules entry
+        git clone -q --branch {branch} --depth 1 {GIT_REPO} /opt/hm2p-repo
+        uv pip install -q --python /opt/hm2p/bin/python --no-deps /opt/hm2p-repo
 
-        /opt/hm2p/bin/python -c "import suite2p; print(f'suite2p {{suite2p.__version__}}')"
+        /opt/hm2p/bin/python -c "import importlib.metadata as m; print('suite2p', m.version('suite2p'))"
         /opt/hm2p/bin/python -c "import xgboost; print(f'xgboost {{xgboost.__version__}}')"
         /opt/hm2p/bin/python -c "from hm2p.extraction.roi_classify import classify_session; print('ROI classifier OK')"
 

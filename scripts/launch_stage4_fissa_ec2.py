@@ -213,7 +213,7 @@ def build_user_data(
             suite2p xgboost scikit-image "scikit-learn>=1.4" joblib \\
             numpy scipy pandas h5py tqdm structlog rich typer \\
             roiextractors pandera boto3
-        uv pip install -q --python /opt/hm2p/bin/python --no-deps "git+{GIT_REPO}@{branch}"
+        uv pip install -q --python /opt/hm2p/bin/python --no-deps /opt/hm2p-repo  # plain clone above (no submodules)
 
         # --- Isolated FISSA env: scikit-learn<1.2 with an ABI-matched numpy.
         # Pin an explicit, mutually-compatible numpy/scipy/scikit-learn trio
@@ -222,7 +222,7 @@ def build_user_data(
         python3 -m venv /opt/fissa
         /opt/fissa/bin/pip install --quiet \\
             "numpy==1.23.5" "scipy==1.9.3" "scikit-learn==1.1.3" fissa h5py tifffile
-        /opt/fissa/bin/pip install --quiet --no-deps --ignore-requires-python "git+{GIT_REPO}@{branch}"
+        /opt/fissa/bin/pip install --quiet --no-deps --ignore-requires-python /opt/hm2p-repo
 
         /opt/hm2p/bin/python -c "import suite2p, sklearn; print('main env OK; sklearn', sklearn.__version__)"
         /opt/fissa/bin/python -c "import fissa, sklearn; print('fissa env OK; sklearn', sklearn.__version__)" || echo "WARN: fissa env import failed (not needed for --validate-only)"

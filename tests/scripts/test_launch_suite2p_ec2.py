@@ -33,5 +33,6 @@ def test_user_data_uses_movement_timestamps_and_pinned_suite2p(monkeypatch):
     assert "/timestamps/{sub}/" not in ud
     assert "timestamps.h5 missing" in ud  # a missing file fails the session (no fps fallback)
     assert f"suite2p=={ls.SUITE2P_VERSION}" in ud
-    assert "uv venv -q -p 3.12" in ud and "@feat/x" in ud
+    assert "uv venv -q -p 3.12" in ud and "git clone -q --branch feat/x" in ud
+    assert "git+" not in ud  # git+ installs initialise submodules (broken gitlink in repo)
     assert "_progress_t.json" in ud and "_suite2p_t.log" in ud
