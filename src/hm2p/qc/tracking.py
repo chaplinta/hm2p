@@ -8,7 +8,7 @@ DLC 3.x (PyTorch) likelihoods are not calibrated probabilities and typically
 sit around 0.1-0.5, so no fixed likelihood cut-off is used to score a
 session; the report shows distributions and the per-keypoint 25th
 percentile, which is the cut the kinematics stage applies by default
-(``confidence_threshold = "quantile:0.25"``).
+(``confidence_threshold = "quantile:0.25"`` until 2026-10; now a fixed 0.5).
 """
 
 from __future__ import annotations

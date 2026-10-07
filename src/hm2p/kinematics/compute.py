@@ -1805,6 +1805,10 @@ def compute_ahv(
     return ahv.astype(np.float32)
 
 
+# Fixed likelihood cut-off for pose keypoints (see run() docstring).
+DEFAULT_CONFIDENCE_THRESHOLD: float = 0.5
+
+
 def run(
     pose_path: Path,
     timestamps_h5: Path,
@@ -1815,7 +1819,7 @@ def run(
     maze_corners_px: np.ndarray,
     bad_behav_intervals: list[tuple[float, float]],
     output_path: Path,
-    confidence_threshold: float | str = "quantile:0.25",
+    confidence_threshold: float | str = DEFAULT_CONFIDENCE_THRESHOLD,
     gap_fill_frames: int = 5,
     speed_active_threshold: float = SPEED_ACTIVE_THRESHOLD,
     camera_center_px: tuple[float, float] | None = None,
@@ -1842,9 +1846,16 @@ def run(
               keypoint (movement's ``filter_by_confidence`` path).
             - ``"quantile:Q"`` — a string of the form ``"quantile:0.25"``,
               which uses the per-keypoint quantile filter
-              (:func:`filter_by_keypoint_quantile`). This is the
-              recommended setting for DLC 3.x PyTorch outputs whose
-              absolute confidence values are uncalibrated.
+              (:func:`filter_by_keypoint_quantile`). It removes the
+              same fraction of frames from every keypoint whatever their
+              likelihood; meant for models whose likelihoods are not on a
+              usable absolute scale.
+
+            Default 0.5 (fixed). For the current DLC champion the 25 %
+            quantile sat at likelihood 0.87-0.95 and left head direction
+            missing in a median 12 % of frames; on three test sessions a
+            fixed 0.5 cut missing HD to 0-4 % with equal or smaller error
+            against travel direction while running (docs/qc-reports.md).
         gap_fill_frames: Max frames to interpolate over.
         speed_active_threshold: cm/s threshold for active/inactive state.
         camera_center_px: Camera optical centre in cropped-frame pixels for
