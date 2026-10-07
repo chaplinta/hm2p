@@ -62,8 +62,15 @@ INSTANCE_PROFILE_NAME = "hm2p-ec2-role"
 TAG = {"Key": "Project", "Value": "hm2p-fissa"}
 STATE_FILE = Path.home() / ".hm2p-fissa-instance.json"
 GIT_REPO = "https://github.com/chaplinta/hm2p.git"
-GIT_BRANCH = "feat/fissa-reprocessing"
-PROGRESS_KEY = "calcium/_fissa_progress.json"
+GIT_BRANCH = "main"  # override with --branch
+PROGRESS_KEY = "calcium/_fissa_progress.json"  # per-run: _keys(tag)
+
+
+def _keys(tag: str) -> tuple[str, str, Path]:
+    """Progress key, log key and local state file for a run tag (parallel runs)."""
+    sfx = f"_{tag}" if tag else ""
+    return (f"calcium/_fissa_progress{sfx}.json", f"calcium/_fissa{sfx}.log",
+            Path.home() / f".hm2p-fissa-instance{sfx}.json")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -150,6 +157,8 @@ def build_user_data(
     validate_only: bool = False,
     all_fixed: bool = False,
     alignment_threshold: float = 0.9,
+    branch: str = GIT_BRANCH,
+    tag: str = "",
 ) -> str:
     """Build the cloud-init user-data script.
 
@@ -169,6 +178,7 @@ def build_user_data(
         Minimum median Spearman accepted by the driver's alignment gate.
     """
     creds_block = build_creds_block(use_instance_profile)
+    progress_key, log_key, _state = _keys(tag)
     session_json = json.dumps(sessions)
     skip_existing = "1" if all_fixed else "0"
 
@@ -180,7 +190,7 @@ def build_user_data(
         echo "Started: $(date -u)"
 
         upload_log() {{
-            aws s3 cp /var/log/hm2p-fissa.log s3://{DERIVATIVES_BUCKET}/calcium/_fissa.log 2>/dev/null || true
+            aws s3 cp /var/log/hm2p-fissa.log s3://{DERIVATIVES_BUCKET}/{log_key} 2>/dev/null || true
         }}
         trap upload_log EXIT
 
@@ -193,15 +203,17 @@ def build_user_data(
         apt-get install -y -qq python3-pip python3-venv awscli git libhdf5-dev pkg-config
 
         # --- Clone repo (need scripts/, not just the installed package) ---
-        git clone --branch {GIT_BRANCH} --depth 1 {GIT_REPO} /opt/hm2p-repo
+        git clone --branch {branch} --depth 1 {GIT_REPO} /opt/hm2p-repo
 
         # --- Main env: suite2p re-registration + ROI classifier + dF/F0 + ca.h5 ---
-        python3 -m venv /opt/hm2p
-        /opt/hm2p/bin/pip install --quiet \\
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        export PATH="/root/.local/bin:$PATH"
+        uv venv -q -p 3.12 /opt/hm2p
+        uv pip install -q --python /opt/hm2p/bin/python \\
             suite2p xgboost scikit-image "scikit-learn>=1.4" joblib \\
             numpy scipy pandas h5py tqdm structlog rich typer \\
             roiextractors pandera boto3
-        /opt/hm2p/bin/pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
+        uv pip install -q --python /opt/hm2p/bin/python --no-deps "git+{GIT_REPO}@{branch}"
 
         # --- Isolated FISSA env: scikit-learn<1.2 with an ABI-matched numpy.
         # Pin an explicit, mutually-compatible numpy/scipy/scikit-learn trio
@@ -210,7 +222,7 @@ def build_user_data(
         python3 -m venv /opt/fissa
         /opt/fissa/bin/pip install --quiet \\
             "numpy==1.23.5" "scipy==1.9.3" "scikit-learn==1.1.3" fissa h5py tifffile
-        /opt/fissa/bin/pip install --quiet --no-deps "git+{GIT_REPO}@{GIT_BRANCH}"
+        /opt/fissa/bin/pip install --quiet --no-deps --ignore-requires-python "git+{GIT_REPO}@{branch}"
 
         /opt/hm2p/bin/python -c "import suite2p, sklearn; print('main env OK; sklearn', sklearn.__version__)"
         /opt/fissa/bin/python -c "import fissa, sklearn; print('fissa env OK; sklearn', sklearn.__version__)" || echo "WARN: fissa env import failed (not needed for --validate-only)"
@@ -256,7 +268,7 @@ def build_user_data(
             pf = work / 'progress.json'
             pf.write_text(json.dumps(prog, indent=2))
             subprocess.run(['aws','s3','cp',str(pf),
-                            's3://{DERIVATIVES_BUCKET}/{PROGRESS_KEY}'], capture_output=True)
+                            's3://{DERIVATIVES_BUCKET}/{progress_key}'], capture_output=True)
 
         sys.path.insert(0, '/opt/hm2p-repo/src')
         sys.path.insert(0, '/opt/hm2p-repo/scripts')
@@ -357,11 +369,18 @@ def resolve_sessions(args) -> list[dict]:
     """Select the sessions to send to the instance from CLI args."""
     if args.all_fixed:
         return get_sessions()
+    if getattr(args, "sessions", None):
+        wanted = set(args.sessions)
+        sel = [s for s in get_sessions() if s["exp_id"] in wanted]
+        missing = wanted - {s["exp_id"] for s in sel}
+        if missing:
+            raise SystemExit(f"unknown exp_id(s): {sorted(missing)}")
+        return sel
     if args.session:
         sub, ses = args.session
         exp = f"{sub}/{ses}"
         return [{"sub": sub, "ses": ses, "exp_id": exp}]
-    raise SystemExit("Provide --session SUB SES or --all-fixed")
+    raise SystemExit("Provide --session SUB SES, --sessions EXP_ID ... or --all-fixed")
 
 
 def launch(args):
@@ -384,7 +403,10 @@ def launch(args):
         validate_only=args.validate_only,
         all_fixed=args.all_fixed,
         alignment_threshold=args.alignment_threshold,
+        branch=args.branch,
+        tag=args.tag,
     )
+    _pk, _lk, state_file = _keys(args.tag)
 
     launch_kwargs = {
         "ImageId": AMI_ID,
@@ -401,7 +423,7 @@ def launch(args):
         "InstanceInitiatedShutdownBehavior": "stop",  # stop so failures can be debugged
         "TagSpecifications": [{
             "ResourceType": "instance",
-            "Tags": [TAG, {"Key": "Name", "Value": "hm2p-fissa-run"}],
+            "Tags": [TAG, {"Key": "Name", "Value": f"hm2p-fissa-run{('-' + args.tag) if args.tag else ''}"}],
         }],
     }
     if use_profile:
@@ -412,7 +434,7 @@ def launch(args):
     print(f"\nInstance launched: {instance_id}")
     print(f"Type: {INSTANCE_TYPE} (~$0.34 USD/hr on-demand [~$0.52 AUD])")
 
-    STATE_FILE.write_text(json.dumps({"instance_id": instance_id, "region": REGION}))
+    state_file.write_text(json.dumps({"instance_id": instance_id, "region": REGION}))
 
     print("Waiting for instance to start...", end="", flush=True)
     ec2.get_waiter("instance_running").wait(InstanceIds=[instance_id])
@@ -428,6 +450,7 @@ def launch(args):
 
 
 def status(args):
+    STATE_FILE = _keys(args.tag)[2]  # noqa: N806
     """Check instance status."""
     if not STATE_FILE.exists():
         print("No active instance.")
@@ -452,13 +475,14 @@ def progress(args):
     s3 = boto3.client("s3", region_name=REGION)
     with tempfile.NamedTemporaryFile(suffix=".json") as f:
         try:
-            s3.download_file(DERIVATIVES_BUCKET, PROGRESS_KEY, f.name)
+            s3.download_file(DERIVATIVES_BUCKET, _keys(args.tag)[0], f.name)
             print(json.dumps(json.loads(Path(f.name).read_text()), indent=2))
         except Exception as e:
             print(f"No progress file found: {e}")
 
 
 def terminate(args):
+    STATE_FILE = _keys(args.tag)[2]  # noqa: N806
     """Terminate the instance."""
     if not STATE_FILE.exists():
         print("No active instance.")
@@ -483,6 +507,10 @@ def main():
                         help="Process one session: sub-XXXX ses-YYYYMMDDTHHMMSS")
     parser.add_argument("--all-fixed", action="store_true",
                         help="Process all sessions not already on FISSA")
+    parser.add_argument("--sessions", nargs="+", metavar="EXP_ID",
+                        help="Process these sessions (exp_id) regardless of current method")
+    parser.add_argument("--branch", default=GIT_BRANCH, help="git branch to install on the instance")
+    parser.add_argument("--tag", default="", help="run tag for parallel runs (progress/log/state)")
     parser.add_argument("--validate-only", action="store_true",
                         help="Alignment check only; write no ca.h5")
     parser.add_argument("--alignment-threshold", type=float, default=0.9)
@@ -499,6 +527,8 @@ def main():
     elif args.dry_run:
         print(build_user_data(
             resolve_sessions(args),
+            branch=args.branch,
+            tag=args.tag,
             validate_only=args.validate_only,
             all_fixed=args.all_fixed,
             alignment_threshold=args.alignment_threshold,

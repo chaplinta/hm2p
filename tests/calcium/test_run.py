@@ -135,6 +135,67 @@ class TestLoadSuite2p:
 # ---------------------------------------------------------------------------
 
 
+class TestFissaProvenance:
+    """FISSA is never silently replaced, and its dF/F uses the raw-trace baseline."""
+
+    def _setup(self, tmp_path: Path) -> tuple[Path, Path]:
+        suite2p_dir = tmp_path / "suite2p"
+        _write_suite2p_plane0(suite2p_dir, n_rois=10, n_cells=6, n_frames=300)
+        ts_h5 = tmp_path / "timestamps.h5"
+        _write_timestamps(ts_h5, n_frames=300)
+        return suite2p_dir, ts_h5
+
+    def test_fissa_without_inputs_raises(self, tmp_path: Path) -> None:
+        import pytest
+
+        suite2p_dir, ts_h5 = self._setup(tmp_path)
+        with pytest.raises(ValueError, match="fissa"):
+            run(
+                suite2p_dir,
+                ts_h5,
+                session_id="t",
+                output_path=tmp_path / "ca.h5",
+                neuropil_method="fissa",
+            )
+
+    def test_default_is_estimated_and_labelled(self, tmp_path: Path) -> None:
+        import h5py
+
+        suite2p_dir, ts_h5 = self._setup(tmp_path)
+        out = tmp_path / "ca.h5"
+        run(suite2p_dir, ts_h5, session_id="t", output_path=out)
+        with h5py.File(out, "r") as f:
+            assert f.attrs["neuropil_method"] == "estimated"
+            assert f.attrs["dff_denominator"] == "F0 of F_corr"
+
+    def test_fissa_dff_divides_by_raw_baseline(self, tmp_path: Path) -> None:
+        import h5py
+
+        suite2p_dir, ts_h5 = self._setup(tmp_path)
+        F = np.load(suite2p_dir / "plane0" / "F.npy").astype(np.float32)
+        # FISSA-like output: raw minus most of its baseline (separated signal near 0)
+        F_corr = (F - F.mean(axis=1, keepdims=True) + 2.0).astype(np.float32)
+        out = tmp_path / "ca.h5"
+        run(
+            suite2p_dir,
+            ts_h5,
+            session_id="t",
+            output_path=out,
+            neuropil_method="fissa",
+            precomputed_F_corr=F_corr,
+        )
+        from hm2p.calcium.dff import DFF_CLIP_HIGH, DFF_CLIP_LOW, compute_baseline
+
+        with h5py.File(out, "r") as f:
+            assert f.attrs["dff_denominator"] == "F0 of F_raw"
+            dff = f["dff"][:]
+            F0c = f["F0_rolling"][:]
+            fps = float(f.attrs["fps_imaging"])
+        F0_raw = compute_baseline(F, fps=fps, window_s=60.0, gaussian_sigma_s=10.0)
+        expected = np.clip((F_corr - F0c) / np.maximum(F0_raw, 1.0), DFF_CLIP_LOW, DFF_CLIP_HIGH)
+        np.testing.assert_allclose(dff, expected, rtol=1e-4, atol=1e-5)
+
+
 class TestCalciumRun:
     def test_creates_output_file(self, tmp_path: Path) -> None:
         """run() creates ca.h5 at output_path."""
