@@ -188,7 +188,8 @@ def build_user_data(
         # install from a plain clone: installing from git+ initialises submodules, and the
         # repo has a gitlink (old-penk-patching/morphology_tracing) without a .gitmodules entry
         git clone -q --branch {branch} --depth 1 {GIT_REPO} /opt/hm2p-repo
-        uv pip install -q --python /opt/hm2p/bin/python --no-deps /opt/hm2p-repo
+        # editable: roi_classify finds the model under <repo>/sourcedata/
+        uv pip install -q --python /opt/hm2p/bin/python --no-deps -e /opt/hm2p-repo
 
         /opt/hm2p/bin/python -c "import importlib.metadata as m; print('suite2p', m.version('suite2p'))"
         /opt/hm2p/bin/python -c "import xgboost; print(f'xgboost {{xgboost.__version__}}')"

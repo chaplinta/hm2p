@@ -22,6 +22,24 @@ from hm2p.extraction.run_suite2p import (
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _stub_roi_classifier(request, monkeypatch):
+    """Stub classify_session: these tests use placeholder Suite2p outputs.
+
+    run_suite2p now raises if classification fails (no silent skip), so the
+    wiring tests replace the classifier unless marked ``real_classifier``.
+    """
+    if request.node.get_closest_marker("real_classifier"):
+        return
+    import hm2p.extraction.roi_classify as rc
+
+    monkeypatch.setattr(
+        rc,
+        "classify_session",
+        lambda plane_dir, fps, **kw: {"n_soma": 0, "n_dend": 0, "n_artefact": 0},
+    )
+
+
 _suite2p_available = False
 try:
     import suite2p  # noqa: F401
@@ -121,6 +139,32 @@ class TestRunSuite2p:
     def test_missing_tiff_dir_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="TIFF directory"):
             run_suite2p(tmp_path / "nonexistent", tmp_path / "output")
+
+    def test_classifier_failure_propagates(self, tmp_path, monkeypatch):
+        """A missing model must raise, not leave the session without roi_class.npy."""
+        import hm2p.extraction.roi_classify as rc
+
+        def missing(plane_dir, fps, **kw):
+            raise FileNotFoundError("roi_classifier_xgb.joblib")
+
+        monkeypatch.setattr(rc, "classify_session", missing)
+        tiff_dir = tmp_path / "tiffs"
+        tiff_dir.mkdir()
+        (tiff_dir / "a.tif").write_bytes(b"")
+        mock_suite2p = MagicMock()
+
+        def fake_run_s2p(db, settings):
+            d = Path(db["save_path0"]) / "suite2p" / "plane0"
+            d.mkdir(parents=True)
+            for f in ("F.npy", "Fneu.npy", "iscell.npy", "stat.npy", "ops.npy"):
+                np.save(d / f, np.zeros(1))
+
+        mock_suite2p.run_s2p = fake_run_s2p
+        with (
+            patch.dict("sys.modules", {"suite2p": mock_suite2p}),
+            pytest.raises(FileNotFoundError, match="joblib"),
+        ):
+            run_suite2p(tiff_dir, tmp_path / "out", fps=9.6, anatomical_only=0)
 
     def test_empty_tiff_dir_raises(self, tmp_path):
         tiff_dir = tmp_path / "tiffs"

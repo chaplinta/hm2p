@@ -213,7 +213,7 @@ def build_user_data(
             suite2p xgboost scikit-image "scikit-learn>=1.4" joblib \\
             numpy scipy pandas h5py tqdm structlog rich typer \\
             roiextractors pandera boto3
-        uv pip install -q --python /opt/hm2p/bin/python --no-deps /opt/hm2p-repo  # plain clone above (no submodules)
+        uv pip install -q --python /opt/hm2p/bin/python --no-deps -e /opt/hm2p-repo  # plain clone (no submodules); editable so sourcedata/ models resolve
 
         # --- Isolated FISSA env: scikit-learn<1.2 with an ABI-matched numpy.
         # Pin an explicit, mutually-compatible numpy/scipy/scikit-learn trio
