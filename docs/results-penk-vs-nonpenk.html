@@ -219,12 +219,17 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
     <header class="top">
       <div class="eyebrow">hm2p · retrosplenial cortex · cell-type comparison</div>
       <h1>Penk+ and Penk⁻CamKII+ neurons in the Rosenberg maze</h1>
-      <p class="meta">Two-photon GCaMP7f imaging in freely moving mice, 1 min light / 1 min dark, plus ex vivo whole-cell recordings. Analyses run 2026-09-25 to 2026-10-02. Exploratory results, not peer reviewed. Build 2026-10-04 · d5071f9.</p>
+      <p class="meta">Two-photon GCaMP7f imaging in freely moving mice, 1 min light / 1 min dark, plus ex vivo whole-cell recordings. Analyses run 2026-09-25 to 2026-10-02. Exploratory results, not peer reviewed. Build 2026-10-07 · 892d096.</p>
       <div class="legend" aria-label="Colour key">
         <span><i class="dot penk"></i>Penk+ (Cre-ON, 11 animals)</span>
         <span><i class="dot nonpenk"></i>Penk⁻CamKII+ (Cre-OFF, 4 animals)</span>
       </div>
     </header>
+
+    <div class="pending" role="note">
+      <span class="tag lean">Data status</span>
+      <p><strong>Penk+ vs Penk⁻CamKII+ comparisons on this page are confounded by processing.</strong> QC on 2026-10-06 found that the original 9 Penk sessions used fixed-coefficient neuropil subtraction while the 17 reprocessed sessions, which include every Penk⁻ session, used FISSA (dF/F inflated; CASCADE rates track noise). Stored head direction also had an estimator bug. Fixes are in progress; amplitude, rate and running comparisons here should be re-run on the corrected data before being relied on.</p>
+    </div>
 
     <section id="summary">
       <h2>Summary</h2>
