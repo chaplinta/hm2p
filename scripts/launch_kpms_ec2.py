@@ -68,6 +68,7 @@ def build_user_data(
     kappa: float = 1_000_000,
     num_iters: int = 200,
     ar_only_iters: int = 50,
+    num_pcs: int = 4,
     s3_prefix: str = "kinematics",
     branch: str = "main",
 ) -> str:
@@ -149,7 +150,7 @@ def build_user_data(
             --bodyparts nose left_ear right_ear head_midpoint \\
                 neck mid_back mouse_center tail_base \\
             --kappa {kappa:g} \\
-            --num-pcs 4 \\
+            --num-pcs {num_pcs} \\
             --num-iters {num_iters} \\
             --ar-only-iters {ar_only_iters} \\
             --conf-threshold 0.9
@@ -172,6 +173,7 @@ def build_user_data(
         .replace("{kappa:g}", f"{kappa:g}")
         .replace("{num_iters}", str(num_iters))
         .replace("{ar_only_iters}", str(ar_only_iters))
+        .replace("{num_pcs}", str(num_pcs))
     )
 
 
@@ -338,6 +340,7 @@ def main() -> None:
     parser.add_argument("--kappa", type=float, default=1_000_000)
     parser.add_argument("--num-iters", type=int, default=200)
     parser.add_argument("--ar-only-iters", type=int, default=50)
+    parser.add_argument("--num-pcs", type=int, default=4)
     parser.add_argument(
         "--s3-prefix",
         default="kinematics",
@@ -360,6 +363,7 @@ def main() -> None:
             kappa=args.kappa,
             num_iters=args.num_iters,
             ar_only_iters=args.ar_only_iters,
+            num_pcs=args.num_pcs,
             s3_prefix=args.s3_prefix,
             branch=args.branch,
         )
