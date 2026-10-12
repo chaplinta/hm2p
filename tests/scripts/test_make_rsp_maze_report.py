@@ -165,14 +165,32 @@ def test_conj_summary(tmp_path: Path) -> None:
         for r in range(10):
             for beh in ("position", "position@light", "position@dark", "hd"):
                 base = rng.uniform(0, 0.01)
-                variants = {"plain": base, "given_hd": base + 0.01, "given_speed": base, "given_hd_speed": base + 0.008,
-                            "given_position": base + 0.005, "given_position_speed": base + 0.004}
+                variants = {
+                    "plain": base,
+                    "given_hd": base + 0.01,
+                    "given_speed": base,
+                    "given_hd_speed": base + 0.008,
+                    "given_position": base + 0.005,
+                    "given_position_speed": base + 0.004,
+                }
                 for v, mi in variants.items():
-                    rows.append({"behaviour": beh, "variant": v, "exp_id": f"s{a}", "roi": r, "animal_id": a, "mi_debiased": mi, "p": 0.5})
+                    rows.append(
+                        {
+                            "behaviour": beh,
+                            "variant": v,
+                            "exp_id": f"s{a}",
+                            "roi": r,
+                            "animal_id": a,
+                            "mi_debiased": mi,
+                            "p": 0.5,
+                        }
+                    )
     (tmp_path / "behaviour_mi").mkdir()
     pd.DataFrame(rows).to_csv(tmp_path / "behaviour_mi" / "cells_spikes.csv", index=False)
     c = mr.conj_summary(tmp_path)
     pos = next(r for r in c["rows"] if r["condition"] == "all" and r["target"] == "position")
-    assert pos["frac_higher"] == 1.0 and pos["speed"]["frac_higher"] == 1.0 and pos["n_animals"] == 5
+    assert (
+        pos["frac_higher"] == 1.0 and pos["speed"]["frac_higher"] == 1.0 and pos["n_animals"] == 5
+    )
     assert len(c["cells"]["plain"]) == 50 and c["light_vs_dark"]["n_animals"] == 5
     assert mr.conj_summary(tmp_path / "none") == {}
