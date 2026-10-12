@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from itertools import combinations
-from typing import Any, cast
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -212,14 +212,14 @@ def knn_label_mixing(
     keeping the number of animals per label fixed. Returns per-label observed
     fractions, null means, and one-sided p values (observed >= null).
     """
-    X = cast(np.ndarray, np.asarray(X, float))
+    Xf: np.ndarray = np.asarray(X, float)
     labels = np.asarray(labels)
     animals = np.asarray(animals)
-    ok = np.all(np.isfinite(X), axis=1)
-    X, labels, animals = X[ok], labels[ok], animals[ok]
-    sd = X.std(axis=0)
-    X = (X - X.mean(axis=0)) / np.where(sd > 0, sd, 1)
-    d = np.sqrt(((X[:, None, :] - X[None, :, :]) ** 2).sum(-1))
+    ok = np.all(np.isfinite(Xf), axis=1)
+    Xf, labels, animals = Xf[ok], labels[ok], animals[ok]
+    sd = Xf.std(axis=0)
+    Xf = (Xf - Xf.mean(axis=0)) / np.where(sd > 0, sd, 1)
+    d = np.sqrt(((Xf[:, None, :] - Xf[None, :, :]) ** 2).sum(-1))
     np.fill_diagonal(d, np.inf)
     if exclude_same_animal:
         d[animals[:, None] == animals[None, :]] = np.inf
