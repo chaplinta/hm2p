@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from itertools import combinations
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -212,7 +212,7 @@ def knn_label_mixing(
     keeping the number of animals per label fixed. Returns per-label observed
     fractions, null means, and one-sided p values (observed >= null).
     """
-    X = np.asarray(X, float)
+    X = cast(np.ndarray, np.asarray(X, float))
     labels = np.asarray(labels)
     animals = np.asarray(animals)
     ok = np.all(np.isfinite(X), axis=1)
@@ -245,7 +245,7 @@ def knn_label_mixing(
         ]
     idx_of = {a: i for i, a in enumerate(animal_ids)}
     cell_animal_idx = np.array([idx_of[a] for a in animals])
-    null = {lab: [] for lab in uniq_labels}
+    null: dict[Any, list[float]] = {lab: [] for lab in uniq_labels}
     for combo in combos:
         is_first = np.isin(cell_animal_idx, combo)
         perm = np.where(is_first, first, uniq_labels[1])
