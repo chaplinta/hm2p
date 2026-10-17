@@ -657,7 +657,9 @@ def build_design(
     else:
         resid_base = resid_time = np.eye(nb)
 
-    def _grp(sel_a: np.ndarray, sel_b: np.ndarray, which: str) -> tuple[np.ndarray, ...]:
+    def _grp(
+        sel_a: np.ndarray, sel_b: np.ndarray, which: str
+    ) -> tuple[np.ndarray, np.ndarray, str]:
         ia, ib = np.flatnonzero(sel_a), np.flatnonzero(sel_b)
         if ia.size < min_group or ib.size < min_group:
             return empty, empty, which
