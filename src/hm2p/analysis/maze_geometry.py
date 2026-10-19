@@ -881,7 +881,7 @@ def analyse_states(
     out["rho_graph_euclid"] = float(stats.spearmanr(pairs["graph"], pairs["euclid"])[0])
     out.update(obs)
     keys = GEOM_KEYS + (("prho_dir",) if directed else ())
-    null = {k: [] for k in keys + ("role_contrast",)}
+    null: dict[str, list[float]] = {k: [] for k in keys + ("role_contrast",)}
     shift_roles: dict[str, list[float]] = {"cellpair": [], "geometry": []}
     for s in shifts:
         ds, _ = cv_dissimilarity(x, states, n_states, fps, params, shift=int(s), keep=kept)
