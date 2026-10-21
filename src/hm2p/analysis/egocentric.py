@@ -104,9 +104,12 @@ def hd_to_frame_heading(hd_deg: npt.ArrayLike) -> FloatArray:
     The pipeline computes heading from a facing vector ``(dx, dy)`` in pixel
     (and hence mm and maze) coordinates as ``180 + atan2(dx, dy) - 90``,
     which equals ``180 - atan2(dy, dx)``. Inverting gives
-    ``phi = 180 - hd_deg``. ``x_maze``/``y_maze`` are an affine map of the same
-    frame (TL->TR is +x, TL->BL is +y), so ``phi`` is also the heading in maze
-    coordinates.
+    ``phi = 180 - hd_deg``, the heading in pixel and mm coordinates.
+    ``x_maze``/``y_maze`` come from the annotated maze corners (TL->TR is +x,
+    TL->BL is +y); in some sessions that basis is rotated or reflected
+    relative to the pixel frame, so ``phi`` is not in general the heading in
+    maze coordinates. Use :func:`fit_frame_map` and :func:`heading_in_frame`
+    for that.
 
     Parameters
     ----------
@@ -120,6 +123,77 @@ def hd_to_frame_heading(hd_deg: npt.ArrayLike) -> FloatArray:
     """
     hd = np.asarray(hd_deg, dtype=np.float64)
     return np.asarray(np.mod(180.0 - hd, 360.0), dtype=np.float64)
+
+
+def fit_frame_map(
+    x_src: npt.ArrayLike,
+    y_src: npt.ArrayLike,
+    x_dst: npt.ArrayLike,
+    y_dst: npt.ArrayLike,
+) -> FloatArray:
+    """Least-squares linear part of the affine map from one 2-D frame to another.
+
+    Fits ``dst = A @ src + b`` over frames where all four coordinates are
+    finite and returns ``A`` (2, 2). Used to carry headings from mm
+    coordinates into maze coordinates, whose basis may be rotated, reflected
+    or anisotropically scaled relative to the mm frame. A few clipped
+    positions (maze coordinates moved onto the boundary polygon) have little
+    influence on the fit.
+
+    Parameters
+    ----------
+    x_src, y_src, x_dst, y_dst : array_like
+        (N,) coordinates of the same frames in the source and destination
+        frames.
+
+    Returns
+    -------
+    ndarray of float64, shape (2, 2)
+        Linear part ``A``; rows map to destination x and y.
+
+    Raises
+    ------
+    ValueError
+        If fewer than 3 frames are finite in both frames or the source
+        positions are collinear.
+    """
+    xs, ys = np.asarray(x_src, np.float64).ravel(), np.asarray(y_src, np.float64).ravel()
+    xd, yd = np.asarray(x_dst, np.float64).ravel(), np.asarray(y_dst, np.float64).ravel()
+    ok = np.isfinite(xs) & np.isfinite(ys) & np.isfinite(xd) & np.isfinite(yd)
+    if ok.sum() < 3:
+        raise ValueError("fit_frame_map needs at least 3 finite frames")
+    design = np.column_stack([xs[ok], ys[ok], np.ones(int(ok.sum()))])
+    if np.linalg.matrix_rank(design) < 3:
+        raise ValueError("fit_frame_map: source positions are collinear")
+    coef, *_ = np.linalg.lstsq(design, np.column_stack([xd[ok], yd[ok]]), rcond=None)
+    return np.asarray(coef[:2].T, dtype=np.float64)
+
+
+def heading_in_frame(heading_deg: npt.ArrayLike, frame_map: npt.ArrayLike) -> FloatArray:
+    """Carry headings through a linear frame map.
+
+    The facing unit vector ``(cos h, sin h)`` is multiplied by
+    ``frame_map`` (from :func:`fit_frame_map`) and the heading of the result is
+    returned in the destination frame's mathematical convention.
+
+    Parameters
+    ----------
+    heading_deg : array_like
+        Headings in the source frame (degrees, mathematical convention).
+    frame_map : array_like, shape (2, 2)
+        Linear map from source to destination coordinates.
+
+    Returns
+    -------
+    ndarray of float64
+        Headings in degrees, wrapped to [0, 360); NaN preserved.
+    """
+    a = np.asarray(frame_map, dtype=np.float64)
+    h = np.deg2rad(np.asarray(heading_deg, dtype=np.float64))
+    u, v = np.cos(h), np.sin(h)
+    du = a[0, 0] * u + a[0, 1] * v
+    dv = a[1, 0] * u + a[1, 1] * v
+    return np.asarray(np.mod(np.degrees(np.arctan2(dv, du)), 360.0), dtype=np.float64)
 
 
 def maze_wall_segments(maze: RoseMaze | None = None) -> FloatArray:

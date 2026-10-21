@@ -91,6 +91,52 @@ class TestHdToFrameHeading:
         assert np.isnan(ego.hd_to_frame_heading([np.nan])[0])
 
 
+class TestFrameMap:
+    def _src(self, n: int = 200) -> tuple[np.ndarray, np.ndarray]:
+        rng = np.random.default_rng(0)
+        return rng.uniform(0, 500, n), rng.uniform(0, 300, n)
+
+    def test_recovers_affine(self) -> None:
+        xs, ys = self._src()
+        a = np.array([[0.0, -0.02], [0.014, 0.0]])  # 90 deg rotation + anisotropic scale
+        xd = a[0, 0] * xs + a[0, 1] * ys + 3.0
+        yd = a[1, 0] * xs + a[1, 1] * ys - 1.0
+        np.testing.assert_allclose(ego.fit_frame_map(xs, ys, xd, yd), a, atol=1e-12)
+
+    def test_ignores_nan(self) -> None:
+        xs, ys = self._src()
+        xd, yd = -xs / 70.0, ys / 60.0
+        xd[:10] = np.nan
+        np.testing.assert_allclose(
+            ego.fit_frame_map(xs, ys, xd, yd), [[-1 / 70.0, 0], [0, 1 / 60.0]], atol=1e-12
+        )
+
+    def test_too_few_frames(self) -> None:
+        with pytest.raises(ValueError, match="at least 3"):
+            ego.fit_frame_map([0.0, 1.0], [0.0, 1.0], [0.0, 1.0], [0.0, 1.0])
+
+    def test_collinear(self) -> None:
+        x = np.arange(10.0)
+        with pytest.raises(ValueError, match="collinear"):
+            ego.fit_frame_map(x, 2 * x, x, x)
+
+    def test_heading_identity_and_reflection(self) -> None:
+        h = np.array([0.0, 30.0, 90.0, 200.0, np.nan])
+        np.testing.assert_allclose(ego.heading_in_frame(h, np.eye(2)), h)
+        refl = ego.heading_in_frame(h, [[-1.0, 0.0], [0.0, 1.0]])
+        np.testing.assert_allclose(refl[:4], np.mod(180.0 - h[:4], 360.0))
+        assert np.isnan(refl[4])
+
+    def test_heading_matches_mapped_displacement(self) -> None:
+        a = np.array([[0.0, -0.02], [0.014, 0.0]])
+        h = np.linspace(0, 350, 36)
+        step = np.stack([np.cos(np.deg2rad(h)), np.sin(np.deg2rad(h))])
+        d = a @ step
+        expected = np.mod(np.degrees(np.arctan2(d[1], d[0])), 360.0)
+        got = ego.heading_in_frame(h, a)
+        np.testing.assert_allclose(ego.wrap_deg(got - expected), 0.0, atol=1e-9)
+
+
 # ---------------------------------------------------------------------------
 # Geometry
 # ---------------------------------------------------------------------------

@@ -801,7 +801,7 @@ def generate_report(
 
 def main():
     parser = argparse.ArgumentParser(description="Test hypotheses from docs/hypotheses.md")
-    parser.add_argument("--signal", default="dff", choices=["dff", "events", "deconv"],
+    parser.add_argument("--signal", default="dff", choices=["dff", "events", "deconv", "spikes"],
                         help="Signal type to analyse (default: dff)")
     parser.add_argument("--n-perms", type=int, default=10000,
                         help="Number of permutations for cluster test (default: 10000)")

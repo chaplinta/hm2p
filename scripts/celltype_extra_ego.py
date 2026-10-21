@@ -20,10 +20,14 @@ synthetic sessions.
 Units: ``x_maze``/``y_maze`` are maze grid units (one unit = one corridor
 cell) and are used for the EBC ratemaps and wall distance; ``x_head_mm`` etc.
 are mm and are used only for the head-body angle. Each measure uses a single
-coordinate frame internally, so the two unit systems are never mixed. Both
-frames share the handedness of the camera image, so pipeline ``hd_deg`` is
-converted to a frame heading with
-:func:`hm2p.analysis.egocentric.hd_to_frame_heading` for both.
+coordinate frame internally, so the two unit systems are never mixed. Pipeline
+``hd_deg`` is converted to the mm-frame heading with
+:func:`hm2p.analysis.egocentric.hd_to_frame_heading`. The maze basis comes
+from the annotated corners and is rotated or reflected relative to the mm
+frame in some sessions (6 of 26 on the 2026-10-21 data), so the EBC rays use
+the heading carried through the per-session mm-to-maze map
+(:func:`~hm2p.analysis.egocentric.fit_frame_map`,
+:func:`~hm2p.analysis.egocentric.heading_in_frame`).
 
 References
 ----------
@@ -151,7 +155,11 @@ def session_geometry(arrays: dict[str, Any], walls: np.ndarray) -> dict[str, Any
         "hba_mask": None,
     }
     xm, ym = _get(arrays, "x_maze", n), _get(arrays, "y_maze", n)
-    if xm is not None and ym is not None:
+    xmm, ymm = _get(arrays, "x_mm", n), _get(arrays, "y_mm", n)
+    if xm is not None and ym is not None and xmm is not None and ymm is not None:
+        # The maze basis can be rotated or reflected relative to the mm frame
+        # (corner annotation order), so carry the heading through the fitted map.
+        heading_maze = ego.heading_in_frame(heading, ego.fit_frame_map(xmm, ymm, xm, ym))
         ebc_mask = mask & np.isfinite(xm) & np.isfinite(ym)
         out.update(
             {
@@ -161,7 +169,7 @@ def session_geometry(arrays: dict[str, Any], walls: np.ndarray) -> dict[str, Any
                 "light_mask": ebc_mask & light,
                 "dark_mask": ebc_mask & ~light,
                 "ray_dist": ego.ray_wall_distances(
-                    xm, ym, heading, walls, ego.ebc_angle_centres(N_ANGLE_BINS)
+                    xm, ym, heading_maze, walls, ego.ebc_angle_centres(N_ANGLE_BINS)
                 ),
                 "wall_d": ego.wall_distance(xm, ym, walls),
             }
