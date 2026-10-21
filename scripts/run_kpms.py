@@ -233,7 +233,7 @@ def fit_kpms(
     project_dir: Path,
     bodyparts: list[str],
     kappa: float = 1_000_000,
-    num_pcs: int = 4,
+    num_pcs: int = 10,
     num_iters: int = 200,
     ar_only_iters: int = 50,
     conf_threshold: float = 0.9,
@@ -424,9 +424,16 @@ def fit_kpms(
     kpms.update_config(str(project_dir), sigmasq_loc=sigmasq_loc)
 
     # ── PCA ────────────────────────────────────────────────────────────────
-    log.info("Fitting PCA (num_pcs=%d)...", num_pcs)
-    kpms.update_config(str(project_dir), num_pcs=num_pcs)
+    log.info("Fitting PCA (latent_dim=%d)...", num_pcs)
+    # keypoint-MoSeq's config key is ``latent_dim``; an earlier version set
+    # ``num_pcs``, which kpms ignores, so every fit until 2026-10 used the
+    # default latent_dim of 10 while provenance recorded the requested value.
+    kpms.update_config(str(project_dir), latent_dim=num_pcs)
     cfg = config()
+    if int(cfg.get("latent_dim", -1)) != num_pcs:
+        raise RuntimeError(
+            f"latent_dim not applied: config has {cfg.get('latent_dim')}, wanted {num_pcs}"
+        )
     log.info(
         "anterior_idxs: %s, posterior_idxs: %s",
         cfg.get("anterior_idxs"),
@@ -593,6 +600,7 @@ def fit_kpms(
     fit_info = {
         "kappa": kappa,
         "num_pcs": num_pcs,
+        "latent_dim": num_pcs,  # applied to the kpms config (checked above)
         "num_iters": num_iters,
         "ar_only_iters": ar_only_iters,
         "conf_threshold": conf_threshold,
@@ -658,6 +666,7 @@ def build_provenance(
         "kpms_version": kpms_version,
         "kappa": fit_info["kappa"],
         "num_pcs": fit_info["num_pcs"],
+        "latent_dim": fit_info.get("latent_dim"),
         "num_iters": fit_info["num_iters"],
         "ar_only_iters": fit_info.get("ar_only_iters", 0),
         "conf_threshold": fit_info.get("conf_threshold", 0.9),
@@ -761,7 +770,12 @@ def main():
         default=1_000_000,
         help="AR-HMM kappa (stickiness). Default: 1e6.",
     )
-    parser.add_argument("--num-pcs", type=int, default=4)
+    parser.add_argument(
+        "--num-pcs",
+        type=int,
+        default=10,
+        help="kpms latent_dim (PCs); 10 explains ~96 %% of pose variance",
+    )
     parser.add_argument(
         "--num-iters",
         type=int,
@@ -1075,7 +1089,9 @@ def main():
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
             json.dump(summary, tmp, indent=2)
             tmp.flush()
-            upload_s3_file(s3, Path(tmp.name), args.s3_bucket, f"{args.s3_prefix}/kpms_summary.json")
+            upload_s3_file(
+                s3, Path(tmp.name), args.s3_bucket, f"{args.s3_prefix}/kpms_summary.json"
+            )
 
 
 if __name__ == "__main__":

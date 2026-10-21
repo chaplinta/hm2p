@@ -68,7 +68,7 @@ def build_user_data(
     kappa: float = 1_000_000,
     num_iters: int = 200,
     ar_only_iters: int = 50,
-    num_pcs: int = 4,
+    num_pcs: int = 10,
     s3_prefix: str = "kinematics",
     branch: str = "main",
 ) -> str:
@@ -340,7 +340,12 @@ def main() -> None:
     parser.add_argument("--kappa", type=float, default=1_000_000)
     parser.add_argument("--num-iters", type=int, default=200)
     parser.add_argument("--ar-only-iters", type=int, default=50)
-    parser.add_argument("--num-pcs", type=int, default=4)
+    parser.add_argument(
+        "--num-pcs",
+        type=int,
+        default=10,
+        help="kpms latent_dim (10 explains ~96 %% of pose variance)",
+    )
     parser.add_argument(
         "--s3-prefix",
         default="kinematics",
