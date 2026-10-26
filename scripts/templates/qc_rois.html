@@ -66,9 +66,15 @@
       <div class="two">
         <div class="chart-block">
           <div class="chart-head"><span class="chart-title" id="mp-title">ROIs on the mean image</span>
-            <div class="seg" role="group" aria-label="Colour ROIs by" id="mp-seg"><button type="button" data-k="class" aria-pressed="true">Class</button><button type="button" data-k="psoma" aria-pressed="false">P(soma)</button></div></div>
+            <div class="seg" role="group" aria-label="Colour ROIs by" id="mp-seg"><button type="button" data-k="class" aria-pressed="true">Class</button><button type="button" data-k="psoma" aria-pressed="false">P(soma)</button><button type="button" data-k="unique" aria-pressed="false">Unique</button></div></div>
+          <div class="chart-head" id="mp-opts">
+            <label class="controls"><input type="checkbox" id="mp-outline" checked> Outline</label>
+            <label class="controls"><input type="checkbox" id="mp-fill"> Fill</label>
+            <label class="controls">Fill opacity <input type="range" id="mp-alpha" min="0.05" max="1" step="0.05" value="0.35" aria-label="Fill opacity"> <span id="mp-alpha-v">0.35</span></label>
+            <label class="controls"><input type="checkbox" id="mp-centres" checked> Centres</label>
+          </div>
           <div id="plot-mp" class="plot xtall" role="img" aria-labelledby="mp-title"></div>
-          <p class="caption">Suite2p mean image (contrast 1–99.5 percentile) with every ROI outline. Click an ROI's centre to inspect it. Soma outlines should be round and ~10–15 µm across; dendrites elongated; artefacts on vessels, edges or neuropil.</p>
+          <p class="caption">Suite2p mean image (contrast 1–99.5 percentile) with every ROI as an outline and/or a filled region. Colour by class, by P(soma), or a unique colour per ROI (neighbouring ROI numbers get well-separated hues). Click an ROI's centre to inspect it (centres stay clickable when hidden). Soma outlines should be round and ~10–15 µm across; dendrites elongated; artefacts on vessels, edges or neuropil.</p>
         </div>
         <div class="chart-block">
           <div class="chart-head"><span class="chart-title" id="roi-title">Selected ROI</span><label class="controls"><select id="sel-roi" aria-label="ROI"></select></label></div>
@@ -206,24 +212,43 @@ function rampColor(p) {
   const A = hexRgb(a), B = hexRgb(b);
   return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(",")})`;
 }
-function roiColor(r) { return QC.css(CCOL[CLS[r.c]]); }
+function uniqueColor(i) { return `hsl(${(i * 137.508) % 360}, 75%, 55%)`; }  // golden-angle hue steps
+function roiColor(r) {
+  if (colourBy === "unique") return uniqueColor(r.i);
+  if (colourBy === "psoma") return rampColor(r.p[1]);
+  return QC.css(CCOL[CLS[r.c]]);
+}
+function withAlpha(col, a) {
+  // CSS colour (hex, rgb() or hsl()) -> same colour at opacity a
+  if (col.startsWith("#")) return `rgba(${hexRgb(col).join(",")},${a})`;
+  if (col.startsWith("rgb(")) return col.replace("rgb(", "rgba(").replace(")", `,${a})`);
+  if (col.startsWith("hsl(")) return col.replace("hsl(", "hsla(").replace(")", `,${a})`);
+  return col;
+}
+const mapOpt = () => ({
+  outline: document.getElementById("mp-outline").checked,
+  fill: document.getElementById("mp-fill").checked,
+  alpha: Number(document.getElementById("mp-alpha").value),
+  centres: document.getElementById("mp-centres").checked,
+});
 function drawMap(d) {
-  const tr = [];
-  if (colourBy === "class") {
-    CLS.forEach((c, ci) => {
-      const xs = [], ys = [];
-      d.rois.filter(r => r.c === ci && r.outline && r.outline.length).forEach(r => { r.outline.forEach(([x, y]) => { xs.push(x); ys.push(y); }); xs.push(r.outline[0][0], null); ys.push(r.outline[0][1], null); });
-      tr.push({ type: "scatter", mode: "lines", x: xs, y: ys, name: CNAME[c], line: { width: 1.5, color: QC.css(CCOL[c]) }, hoverinfo: "skip" });
-    });
-  } else {
+  const tr = [], o = mapOpt();
+  if (o.outline || o.fill) {
     d.rois.filter(r => r.outline && r.outline.length).forEach(r => {
-      const col = rampColor(r.p[1]);
-      tr.push({ type: "scatter", mode: "lines", x: [...r.outline.map(q => q[0]), r.outline[0][0]], y: [...r.outline.map(q => q[1]), r.outline[0][1]], line: { width: 1.5, color: col }, hoverinfo: "skip", showlegend: false });
+      const col = roiColor(r);
+      tr.push({ type: "scatter", mode: "lines", x: [...r.outline.map(q => q[0]), r.outline[0][0]], y: [...r.outline.map(q => q[1]), r.outline[0][1]],
+        line: { width: o.outline ? 1.5 : 0, color: col }, fill: o.fill ? "toself" : "none", fillcolor: withAlpha(col, o.alpha),
+        hoverinfo: "skip", showlegend: false });
     });
+  }
+  if (colourBy === "class") {
+    // legend entries only (no data)
+    CLS.forEach(c => tr.push({ type: "scatter", mode: "lines", x: [null], y: [null], name: CNAME[c], line: { width: 3, color: QC.css(CCOL[c]) }, hoverinfo: "skip" }));
   }
   const pts = d.rois.filter(r => r.med);
   tr.push({ type: "scatter", mode: "markers", x: pts.map(r => r.med[0]), y: pts.map(r => r.med[1]), customdata: pts.map(r => [r.i, CNAME[CLS[r.c]], r.p[0], r.p[1], r.p[2]]),
-    marker: { size: pts.map(r => (r.i === roiSel ? 12 : 7)), color: pts.map(r => roiColor(r)), opacity: 0.9, line: { width: pts.map(r => (r.i === roiSel ? 3 : 1)), color: QC.css("--surface") } }, showlegend: false,
+    marker: { size: pts.map(r => (r.i === roiSel ? 12 : 7)), color: pts.map(r => roiColor(r)), opacity: o.centres ? 0.9 : pts.map(r => (r.i === roiSel ? 0.9 : 0)),
+      line: { width: pts.map(r => (r.i === roiSel ? 3 : 1)), color: QC.css("--surface") } }, showlegend: false,
     hovertemplate: "ROI %{customdata[0]} · %{customdata[1]}<br>P(artefact) %{customdata[2]:.2f}, P(soma) %{customdata[3]:.2f}, P(dend) %{customdata[4]:.2f}<extra></extra>" });
   const img = d.image;
   const W = img ? img.width : Math.max(...pts.map(r => r.med[0])) + 10, H = img ? img.height : Math.max(...pts.map(r => r.med[1])) + 10;
@@ -299,6 +324,10 @@ document.getElementById("sel-roi").addEventListener("change", e => selectRoi(Num
 document.querySelectorAll("#mp-seg button").forEach(b => b.addEventListener("click", () => {
   colourBy = b.dataset.k;
   document.querySelectorAll("#mp-seg button").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+  const s = get(QC.state.session); if (s && s.summary) drawMap(s.summary);
+}));
+["mp-outline", "mp-fill", "mp-centres", "mp-alpha"].forEach(id => document.getElementById(id).addEventListener("input", () => {
+  document.getElementById("mp-alpha-v").textContent = Number(document.getElementById("mp-alpha").value).toFixed(2);
   const s = get(QC.state.session); if (s && s.summary) drawMap(s.summary);
 }));
 
