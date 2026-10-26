@@ -14,6 +14,9 @@ from build_qc_reports_html import (  # noqa: E402
     QCCSS_MARK,
     QCJS_MARK,
     REPORTS,
+    asset_js,
+    asset_key,
+    build_assets,
     build_page,
     json_safe,
     page_template,
@@ -66,3 +69,38 @@ def test_missing_placeholder_raises(tmp_path):
     (tmp_path / "qc_common.js").write_text("")
     with pytest.raises(ValueError):
         page_template("x", tmp_path)
+
+
+def test_asset_key_matches_js_rule():
+    assert asset_key("20210823_16_59_50_1114353") == "20210823_16_59_50_1114353"
+    assert asset_key("syll 3/a") == "syll_3_a"
+
+
+def test_asset_js_registers_payload():
+    import json
+
+    js = asset_js("rois", "s 1", {"a": [1.0, float("nan")], "t": "</script>"})
+    assert js.startswith("window.QC_ASSETS=window.QC_ASSETS||{};")
+    name, payload = js.split("window.QC_ASSETS[", 1)[1].split("]=", 1)
+    assert json.loads(name) == "rois/s_1"
+    assert "</script" not in payload
+    body = json.loads(payload.rstrip(";\n").replace("<\\/", "</"))
+    assert body == {"a": [1.0, None], "t": "</script>"}
+
+
+def test_build_assets_writes_and_prunes(tmp_path):
+    import json
+
+    data_dir = tmp_path / "qc" / "data"
+    src = tmp_path / "qc" / "assets" / "rois"
+    src.mkdir(parents=True)
+    data_dir.mkdir(parents=True)
+    (src / "a.json").write_text(json.dumps({"x": 1}))
+    out = tmp_path / "docs"
+    stale = out / "assets" / "rois" / "old.js"
+    stale.parent.mkdir(parents=True)
+    stale.write_text("x")
+    assert build_assets("rois", data_dir, out) == 1
+    assert (out / "assets" / "rois" / "a.js").exists()
+    assert not stale.exists()
+    assert build_assets("tracking", data_dir, out) == 0

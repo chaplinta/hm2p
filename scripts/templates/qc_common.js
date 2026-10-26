@@ -239,8 +239,29 @@ const QC = (() => {
     new MutationObserver(fn).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   }
 
+  /* Lazily loaded per-session / per-item data (video frames, clips, traces).
+     The builder writes docs/qc/assets/<report>/<key>.js, each of which sets
+     window.QC_ASSETS["<report>/<key>"]; a <script> tag works from file://,
+     unlike fetch(). Resolves to the payload, rejects if the file is missing. */
+  const assetPending = {};
+  function assetKey(key) { return String(key).replace(/[^A-Za-z0-9_.-]/g, "_"); }
+  function loadAsset(report, key) {
+    const k = `${report}/${assetKey(key)}`;
+    window.QC_ASSETS = window.QC_ASSETS || {};
+    if (k in window.QC_ASSETS) return Promise.resolve(window.QC_ASSETS[k]);
+    if (assetPending[k]) return assetPending[k];
+    assetPending[k] = new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = `assets/${k}.js`;
+      s.onload = () => (k in window.QC_ASSETS ? resolve(window.QC_ASSETS[k]) : reject(new Error(`asset ${k} did not register`)));
+      s.onerror = () => { delete assetPending[k]; reject(new Error(`asset ${k} not found (rebuild with scripts/build_qc_reports_html.py)`)); };
+      document.head.appendChild(s);
+    });
+    return assetPending[k];
+  }
+
   return { CONFIG, css, isNum, fmt, pct, esc, median, decode, decodeTyped, layout, axTitle, histXY, histLine, histBar,
     darkShapes, nav, sessionLabel, chips, state, onSession, setSession, initialSession, sessionSelect, sessionTable,
-    stripPlot, metricStrip, kv, empty, ensurePlot, plot, header, onTheme };
+    stripPlot, metricStrip, kv, empty, ensurePlot, plot, header, onTheme, assetKey, loadAsset };
 })();
 </script>

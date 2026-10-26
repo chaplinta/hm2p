@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -83,6 +84,41 @@ def build_page(name: str, data: dict, build: str, plotly: str, templates: Path =
     return tpl.replace(DATA_MARK, text).replace(BUILD_MARK, build).replace(PLOTLY_MARK, lib)
 
 
+def asset_key(key: str) -> str:
+    """File-safe asset key; must match ``QC.assetKey`` in qc_common.js."""
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", key)
+
+
+def asset_js(report: str, key: str, payload: Any) -> str:
+    """Script that registers one lazily loaded asset (see ``QC.loadAsset``)."""
+    text = json.dumps(json_safe(payload), separators=(",", ":"), allow_nan=False)
+    text = text.replace("</", "<\\/")
+    name = json.dumps(f"{report}/{asset_key(key)}")
+    return f"window.QC_ASSETS=window.QC_ASSETS||{{}};window.QC_ASSETS[{name}]={text};\n"
+
+
+def build_assets(report: str, data_dir: Path, out_dir: Path) -> int:
+    """Wrap ``<data_dir>/assets/<report>/*.json`` into ``<out_dir>/assets/<report>/*.js``.
+
+    Stale ``.js`` files without a matching ``.json`` are removed. Returns the
+    number of assets written.
+    """
+    src = data_dir.parent / "assets" / report
+    dst = out_dir / "assets" / report
+    if not src.is_dir():
+        return 0
+    dst.mkdir(parents=True, exist_ok=True)
+    keys = set()
+    for f in sorted(src.glob("*.json")):
+        key = asset_key(f.stem)
+        keys.add(key)
+        (dst / f"{key}.js").write_text(asset_js(report, f.stem, json.loads(f.read_text())))
+    for old in dst.glob("*.js"):
+        if old.stem not in keys:
+            old.unlink()
+    return len(keys)
+
+
 def main(argv: list[str] | None = None) -> int:  # pragma: no cover - file I/O entry point
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--reports", nargs="+", choices=REPORTS, default=list(REPORTS))
@@ -101,6 +137,9 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - file I/O e
         out = args.out_dir / f"qc-{name}.html"
         out.write_text(html)
         print(f"wrote {out} ({len(html) / 1e6:.1f} MB)")
+        n_assets = build_assets(name, args.data_dir, args.out_dir)
+        if n_assets:
+            print(f"  {n_assets} assets -> {args.out_dir / 'assets' / name}")
     return 0
 
 
