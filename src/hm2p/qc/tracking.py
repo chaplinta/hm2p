@@ -24,7 +24,16 @@ from hm2p.pose.quality import (
     detect_ear_swaps,
     detect_jumps,
 )
-from hm2p.qc.common import bin_reduce, fnum, hist, quantiles, resample_bool, rounded
+from hm2p.qc.common import (
+    bin_reduce,
+    encode_i16,
+    fnum,
+    hist,
+    quantiles,
+    resample_bool,
+    rounded,
+)
+from hm2p.qc.frames import likelihood_rank, max_displacement
 
 BODYPARTS = (
     "nose_tip",
@@ -41,6 +50,8 @@ ALIASES = {"implant_base_rear": "head_midpoint", "nose": "nose_tip"}
 MAX_SPEED_MM_S = 1500.0  # 150 cm/s; faster frame-to-frame motion is treated as a jump
 DEFAULT_JUMP_PX = 50.0
 TIMELINE_BIN_S = 10.0
+DISP_BIN_S = 2.0
+LIGHT_STEP_WIN_S = 20.0  # brightness compared over this long either side of a light switch
 CUT_QUANTILE = 0.25
 # hm2p.pose.quality compares |x - median| / MAD with z; MAD = 0.6745 sigma for a
 # normal distribution, so z = 3 * 1.4826 corresponds to 3 SD (~0.3 % by chance)
@@ -201,7 +212,6 @@ def summarise_tracking(
             break
     per_bp: dict[str, dict] = {}
     any_jump = np.zeros(n, dtype=bool)
-    lik_rank = np.zeros(n, dtype=np.float64)
     n_head_low = np.zeros(n, dtype=np.int64)
     lik_series: dict[str, np.ndarray] = {}
     for b in parts:
@@ -209,13 +219,11 @@ def summarise_tracking(
         per_bp[b] = s
         any_jump |= jumps
         lik_series[b] = lik
-        # per-keypoint percentile rank, so keypoints with different likelihood
-        # scales contribute equally to the "worst stretches" ranking
-        order = np.argsort(np.argsort(np.nan_to_num(lik, nan=-1.0)))
-        lik_rank += order / max(n - 1, 1)
         if b in HEAD_KEYPOINTS and s["cut_q25"] is not None:
             n_head_low += (np.nan_to_num(lik, nan=-1.0) < s["cut_q25"]).astype(np.int64)
-    lik_rank /= len(parts)
+    # per-keypoint percentile rank, so keypoints with different likelihood
+    # scales contribute equally to the "worst stretches" ranking
+    lik_rank = likelihood_rank(kp, parts)
 
     per_bin = max(1, round(bin_s * fps))
     timeline = {
@@ -250,8 +258,112 @@ def summarise_tracking(
         "worst_bins": worst,
         "any_jump_frac": fnum(any_jump.mean()),
         "head_low2_frac": fnum((n_head_low >= 2).mean()),
+        "disp": displacement_trace(kp, parts, max(1, round(DISP_BIN_S * fps)), scale),
     }
+    out["disp"]["bin_s"] = DISP_BIN_S
     out.update(_anatomy(kp, scale, light))
+    return out
+
+
+def displacement_trace(kp: KeypointData, parts: list[str], per_bin: int, scale: float) -> dict:
+    """Largest frame-to-frame displacement per keypoint in bins of *per_bin* frames.
+
+    Values are in ``px * scale`` (mm when *scale* is the video scale), int16
+    encoded (:func:`hm2p.qc.common.encode_i16`); all-NaN bins are NaN. Also
+    returns, per bin, the largest displacement over all keypoints.
+    """
+    if per_bin < 1:
+        raise ValueError("per_bin must be >= 1")
+    out: dict = {"max": {}}
+    overall = None
+    for b in parts:
+        d, _ = max_displacement(kp, [b])
+        m = _bin_max(d * scale, per_bin)
+        out["max"][b] = encode_i16(m)
+        overall = m if overall is None else np.fmax(overall, m)
+    out["any"] = encode_i16(overall if overall is not None else np.array([]))
+    return out
+
+
+def _bin_max(x: np.ndarray, per_bin: int) -> np.ndarray:
+    """Max of consecutive bins of *per_bin* samples (last partial bin kept; all-NaN -> NaN)."""
+    a = np.asarray(x, dtype=np.float64).ravel()
+    n_bins = int(np.ceil(a.size / per_bin))
+    a = np.concatenate([a, np.full(n_bins * per_bin - a.size, np.nan)])
+    m = a.reshape(n_bins, per_bin)
+    ok = np.isfinite(m).any(axis=1)
+    res = np.full(n_bins, np.nan)
+    res[ok] = np.nanmax(m[ok], axis=1)
+    return res
+
+
+def light_steps(
+    t: npt.ArrayLike,
+    values: npt.ArrayLike,
+    switch_times: npt.ArrayLike,
+    win_s: float = LIGHT_STEP_WIN_S,
+) -> np.ndarray:
+    """Median of *values* in the *win_s* after each switch minus the *win_s* before.
+
+    Comparing just either side of each switch removes the slow drift
+    (photobleaching-like decay, auto-exposure) that a whole-session
+    light-vs-dark mean picks up. Switches without samples on both sides give NaN.
+    """
+    t = np.asarray(t, dtype=np.float64)
+    v = np.asarray(values, dtype=np.float64)
+    out = []
+    for s in np.asarray(switch_times, dtype=np.float64).ravel():
+        before = v[(t >= s - win_s) & (t < s) & np.isfinite(v)]
+        after = v[(t > s) & (t <= s + win_s) & np.isfinite(v)]
+        out.append(np.median(after) - np.median(before) if before.size and after.size else np.nan)
+    return np.asarray(out, dtype=np.float64)
+
+
+def summarise_illumination(d: dict, attrs: dict | None = None) -> dict:
+    """Video brightness vs room-light state from ``analysis/.../illumination.h5``.
+
+    Parameters
+    ----------
+    d
+        Datasets: ``frame_times`` (s), ``intensities`` (mean frame
+        brightness), optional ``contrasts``, ``is_light_on``,
+        ``light_on_times`` and ``light_off_times`` (s, from the DAQ).
+    attrs
+        Root attributes (``sample_every``, ``video_fps``, ``decay_pct``,
+        ``tau_min``, ...), passed through when scalar.
+    """
+    attrs = attrs or {}
+    t = np.asarray(d["frame_times"], dtype=np.float64)
+    inten = np.asarray(d["intensities"], dtype=np.float64)
+    on_t = np.asarray(d.get("light_on_times", []), dtype=np.float64)
+    off_t = np.asarray(d.get("light_off_times", []), dtype=np.float64)
+    on_steps = light_steps(t, inten, on_t)
+    off_steps = light_steps(t, inten, off_t)
+    out: dict = {
+        "t_s": encode_i16(t),
+        "intensity": encode_i16(inten),
+        "n_on_switches": int(on_t.size),
+        "n_off_switches": int(off_t.size),
+        "on_step_median": fnum(np.nanmedian(on_steps), 3) if np.isfinite(on_steps).any() else None,
+        "off_step_median": fnum(np.nanmedian(off_steps), 3)
+        if np.isfinite(off_steps).any()
+        else None,
+        "intensity_median": fnum(np.nanmedian(inten), 3) if np.isfinite(inten).any() else None,
+        "attrs": {
+            k: (fnum(v, 4) if isinstance(v, (float, np.floating)) else int(v))
+            for k, v in attrs.items()
+            if isinstance(v, (int, float, np.integer, np.floating)) and not isinstance(v, bool)
+        },
+    }
+    med = out["intensity_median"]
+    steps = np.concatenate([on_steps, -off_steps])
+    out["step_rel"] = (
+        fnum(np.nanmedian(steps) / med, 4) if med and np.isfinite(steps).any() else None
+    )
+    if "contrasts" in d:
+        out["contrast"] = encode_i16(np.asarray(d["contrasts"], dtype=np.float64))
+    if "is_light_on" in d:
+        out["light"] = encode_i16(np.asarray(d["is_light_on"], dtype=np.float64))
     return out
 
 
@@ -333,4 +445,5 @@ def overview_row(s: dict) -> dict:
         "body_outlier_frac": s.get("body_len", {}).get("outlier_frac"),
         "ap_frac": s.get("ap_order", {}).get("frac"),
         "dark_minus_light_lik": fnum(np.median([d - li for li, d in lt])) if lt else None,
+        "illum_step_rel": (s.get("illumination") or {}).get("step_rel"),
     }

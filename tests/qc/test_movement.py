@@ -8,7 +8,13 @@ import numpy as np
 import pytest
 
 from hm2p.qc.common import decode_i16
-from hm2p.qc.movement import clean_attrs, overview_row, summarise_movement
+from hm2p.qc.movement import (
+    bout_lengths,
+    clean_attrs,
+    overview_row,
+    summarise_movement,
+    trajectory_asset,
+)
 
 
 def _kin(n: int = 6000, fps: float = 30.0, seed: int = 1) -> dict:
@@ -109,3 +115,72 @@ def test_missing_optional_keys_and_errors():
     assert "hd_agreement" not in s and s["raw_vs_filtered"] == {}
     with pytest.raises(ValueError):
         summarise_movement({"frame_times": np.zeros(2)})
+
+
+# --- bout lengths and trajectory asset ---------------------------------------
+
+
+def test_bout_lengths_censoring_and_durations():
+    # light on for 40 frames then off for 40; bouts of 5 active / 5 inactive frames
+    a = np.tile(np.r_[np.ones(5), np.zeros(5)], 8).astype(bool)
+    light = np.r_[np.ones(40), np.zeros(40)].astype(bool)
+    out = bout_lengths(a, light, np.zeros(80, bool), fps=10.0)
+    al = out["active"]["light"]
+    # the first active bout touches the session start
+    assert al["n"] == 3 and al["n_censored"] == 1 and al["median_s"] == pytest.approx(0.5)
+    il = out["inactive"]["light"]
+    assert il["n"] == 3 and il["n_censored"] == 1  # the light switch at frame 40 cuts one
+    ad = out["active"]["dark"]
+    assert ad["n"] == 3 and ad["n_censored"] == 1  # ... and the bout after it
+    idk = out["inactive"]["dark"]
+    assert idk["n"] == 3 and idk["n_censored"] == 1  # the last bout touches the session end
+    assert sum(idk["hist"]["counts"]) == 3
+    assert ad["frac_single_frame"] == 0.0
+
+
+def test_bout_lengths_bad_behav_censors_neighbours():
+    a = np.r_[np.zeros(3), np.ones(4), np.zeros(3), np.ones(4), np.zeros(3)].astype(bool)
+    bad = np.zeros(17, bool)
+    bad[10:14] = True  # the second active bout is bad_behav
+    out = bout_lengths(a, np.ones(17, bool), bad, fps=1.0)
+    assert out["active"]["light"]["n"] == 1  # only the first active bout is uncensored
+    assert out["inactive"]["light"]["n"] == 0  # all three inactive bouts are censored
+    assert out["inactive"]["light"]["median_s"] is None
+
+
+def test_bout_lengths_errors():
+    with pytest.raises(ValueError):
+        bout_lengths(np.ones(3, bool), np.ones(2, bool), np.zeros(3, bool), 30.0)
+    with pytest.raises(ValueError):
+        bout_lengths(np.ones(3, bool), np.ones(3, bool), np.zeros(3, bool), 0.0)
+
+
+def test_summary_includes_bouts():
+    s = summarise_movement(_kin(n=3000))
+    assert set(s["bouts"]) >= {"active", "inactive", "log10_range"}
+    json.dumps(s)
+
+
+def test_trajectory_asset_subsamples_and_encodes():
+    d = _kin(n=300)
+    d["bad_behav"][30:60] = True
+    a = trajectory_asset(d, step=3)
+    assert a["step"] == 3 and a["t_s"]["n"] == 100
+    np.testing.assert_allclose(decode_i16(a["t_s"]), d["frame_times"][::3], atol=1e-3)
+    np.testing.assert_allclose(decode_i16(a["x_maze"]), d["x_maze"][::3], atol=1e-3)
+    hd = decode_i16(a["hd_deg"])
+    assert hd.min() >= 0 and hd.max() < 360.01
+    bad = decode_i16(a["bad"]) > 0.5
+    assert bad[10:20].all() and not bad[:10].any() and not bad[20:].any()
+    assert "x_maze_raw" in a and "speed_cm_s" in a
+    json.dumps(a)
+
+
+def test_trajectory_asset_nan_and_errors():
+    d = _kin(n=30)
+    d["x_maze"][3] = np.nan
+    assert np.isnan(decode_i16(trajectory_asset(d)["x_maze"])[1])
+    with pytest.raises(ValueError):
+        trajectory_asset({"x_maze": np.zeros(3)})
+    with pytest.raises(ValueError):
+        trajectory_asset(d, step=0)

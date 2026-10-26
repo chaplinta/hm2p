@@ -24,6 +24,7 @@ from hm2p.qc.common import (
     mask_intervals,
     quantiles,
     rounded,
+    run_lengths,
     span_fps,
 )
 
@@ -36,6 +37,9 @@ EXCERPT_HZ = 15.0
 TIMELINE_BIN_S = 10.0
 OCC_BINS = 40
 HD_CONFIDENCE_MAX = 4.0  # sum of up to four per-estimator mean keypoint likelihoods
+TRAJ_STEP = 3  # trajectory asset keeps every 3rd frame (10 Hz at 30 fps)
+BOUT_LOG_RANGE = (-2.0, 2.5)  # log10 seconds: 10 ms to ~5 min
+BOUT_BINS = 45
 
 
 def clean_attrs(attrs: dict) -> dict:
@@ -170,6 +174,8 @@ def summarise_movement(d: dict[str, npt.ArrayLike], attrs: dict | None = None) -
                 else None,
             }
 
+    if "active" in d:
+        out["bouts"] = bout_lengths(_b(d, "active", n), light, bad, fps)
     out["raw_vs_filtered"] = _raw_vs_filtered(d, good)
     out["occupancy"] = _occupancy(d, good)
     out["timeline"] = _timeline(d, t, fps, light)
@@ -320,3 +326,84 @@ def overview_row(s: dict) -> dict:
         "active_light": (s.get("active") or {}).get("light"),
         "active_dark": (s.get("active") or {}).get("dark"),
     }
+
+
+def bout_lengths(
+    active: npt.ArrayLike,
+    light: npt.ArrayLike,
+    bad: npt.ArrayLike,
+    fps: float,
+) -> dict:
+    """Durations of active and inactive bouts, lights on vs off.
+
+    A bout is a maximal run of frames with the same ``active`` state and the
+    same light state, outside ``bad_behav``. Bouts that touch a light switch,
+    a ``bad_behav`` interval or the start or end of the session are censored
+    (their true length is unknown) and are counted but left out of the
+    distributions.
+
+    Returns ``{"active"|"inactive": {"light"|"dark": {"hist", "median_s",
+    "n", "n_censored"}}}`` with histograms over log10(duration in s).
+    """
+    a = np.asarray(active, dtype=bool).ravel()
+    lt = np.asarray(light, dtype=bool).ravel()
+    bd = np.asarray(bad, dtype=bool).ravel()
+    n = a.size
+    if lt.size != n or bd.size != n:
+        raise ValueError("active, light and bad must have the same length")
+    if fps <= 0:
+        raise ValueError("fps must be > 0")
+    # state code per frame: -1 bad, else 2 * light + active
+    code = np.where(bd, -1, 2 * lt.astype(np.int64) + a.astype(np.int64))
+    vals, starts, lengths = run_lengths(code)
+    prev = np.concatenate([[-2], vals[:-1]])  # -2 = session edge
+    nxt = np.concatenate([vals[1:], [-2]])
+
+    # censored unless both neighbours are the other activity state in the same light state
+    def clean(v: np.ndarray, nb: np.ndarray) -> np.ndarray:
+        return (nb >= 0) & (nb // 2 == v // 2)
+
+    ok = clean(vals, prev) & clean(vals, nxt)
+    lo, hi = BOUT_LOG_RANGE
+    out: dict = {"log10_range": [lo, hi], "fps": fnum(fps, 3)}
+    for act_name, act in (("active", 1), ("inactive", 0)):
+        out[act_name] = {}
+        for light_name, lv in (("light", 1), ("dark", 0)):
+            sel = vals == 2 * lv + act
+            dur = lengths[sel & ok] / fps
+            out[act_name][light_name] = {
+                "hist": hist(np.log10(dur), lo, hi, BOUT_BINS),
+                "median_s": fnum(np.median(dur), 3) if dur.size else None,
+                "n": int(dur.size),
+                "n_censored": int((sel & ~ok).sum()),
+                "frac_single_frame": fnum(np.mean(lengths[sel & ok] == 1)) if dur.size else None,
+            }
+    return out
+
+
+def trajectory_asset(d: dict[str, npt.ArrayLike], step: int = TRAJ_STEP) -> dict:
+    """Every *step*-th frame of the position, speed, HD, light and bad_behav traces.
+
+    Positions are maze coordinates (cells; x 0-7, y 0-5): the stage 3
+    filtered body position (``x_maze``) and the raw unweighted centroid of the
+    unfiltered keypoints (``x_maze_raw``) when present. Traces are int16
+    encoded; NaN stays NaN.
+    """
+    if step < 1:
+        raise ValueError("step must be >= 1")
+    t = _f(d, "frame_times")
+    if t is None:
+        raise ValueError("frame_times missing")
+    sl = slice(0, t.size, step)
+    out: dict = {"step": step, "t_s": encode_i16(t[sl] - t[0])}
+    for k in ("x_maze", "y_maze", "x_maze_raw", "y_maze_raw", "speed_cm_s"):
+        v = _f(d, k)
+        if v is not None:
+            out[k] = encode_i16(v[sl])
+    hd = _f(d, "hd_deg")
+    if hd is not None:
+        out["hd_deg"] = encode_i16(np.mod(hd[sl], 360.0))
+    n = t.size
+    out["light"] = encode_i16(_b(d, "light_on", n)[sl].astype(float))
+    out["bad"] = encode_i16(_b(d, "bad_behav", n)[sl].astype(float))
+    return out

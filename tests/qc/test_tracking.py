@@ -7,8 +7,13 @@ import json
 import numpy as np
 import pytest
 
+from hm2p.qc.common import decode_i16
 from hm2p.qc.tracking import (
     DEFAULT_JUMP_PX,
+    _bin_max,
+    displacement_trace,
+    light_steps,
+    summarise_illumination,
     frozen_mask,
     jump_threshold_px,
     keypoints_from_dataset,
@@ -156,3 +161,71 @@ def test_summary_pixels_without_scale_and_errors():
     assert s["unit"] == "px" and s["jump_threshold"] == DEFAULT_JUMP_PX
     with pytest.raises(ValueError):
         summarise_tracking({}, fps=30.0)
+
+
+# --- displacement trace and illumination ---------------------------------------
+
+
+def test_displacement_trace_bins_maxima():
+    kp = {
+        "a": {"x": np.array([0.0, 1.0, 2.0, 12.0, 13.0, np.nan]), "y": np.zeros(6)},
+        "b": {"x": np.zeros(6), "y": np.array([0.0, 0.0, 5.0, 5.0, 5.0, 5.0])},
+    }
+    out = displacement_trace(kp, ["a", "b"], per_bin=3, scale=2.0)
+    np.testing.assert_allclose(decode_i16(out["max"]["a"]), [2.0, 20.0], atol=1e-3)
+    np.testing.assert_allclose(decode_i16(out["max"]["b"]), [10.0, 0.0], atol=1e-3)
+    np.testing.assert_allclose(decode_i16(out["any"]), [10.0, 20.0], atol=1e-3)
+    with pytest.raises(ValueError):
+        displacement_trace(kp, ["a"], per_bin=0, scale=1.0)
+
+
+def test_bin_max_all_nan_bin_and_partial_bin():
+    r = _bin_max(np.array([np.nan, np.nan, 1.0, 3.0, 2.0]), 2)
+    assert np.isnan(r[0]) and r[1] == 3.0 and r[2] == 2.0
+
+
+def test_summary_has_displacement_trace():
+    s = summarise_tracking(_mouse(n=900), fps=30.0, mm_per_px=0.5)
+    assert s["disp"]["bin_s"] == 2.0 and s["disp"]["max"]["nose_tip"]["n"] == 15
+    json.dumps(s)
+
+
+def test_light_steps_ignore_drift():
+    t = np.arange(0.0, 200.0, 1.0)
+    v = 100.0 - 0.2 * t  # slow decay
+    v[(t >= 60) & (t < 120)] += 5.0  # light on 60-120 s
+    on = light_steps(t, v, [60.0], win_s=10.0)
+    off = light_steps(t, v, [120.0], win_s=10.0)
+    # the step, less the decay between the two window medians (~10.5 s apart)
+    assert on[0] == pytest.approx(5.0 - 0.2 * 10.5, abs=0.3)
+    assert off[0] == pytest.approx(-5.0 - 0.2 * 10.5, abs=0.3)
+    assert np.isnan(light_steps(t, v, [500.0])[0])
+
+
+def test_summarise_illumination_and_overview():
+    t = np.arange(0.0, 300.0, 1.0)
+    light = (t // 60) % 2 == 1
+    d = {
+        "frame_times": t,
+        "intensities": 100.0 + 2.0 * light,
+        "contrasts": np.full(t.size, 50.0),
+        "is_light_on": light,
+        "light_on_times": np.array([60.0, 180.0]),
+        "light_off_times": np.array([120.0, 240.0]),
+    }
+    attrs = {"decay_pct": np.float64(3.5), "sample_every": np.int64(100), "exp_id": "x"}
+    s = summarise_illumination(d, attrs)
+    assert s["on_step_median"] == pytest.approx(2.0)
+    assert s["off_step_median"] == pytest.approx(-2.0)
+    assert s["step_rel"] == pytest.approx(0.02, abs=1e-3)
+    assert s["attrs"] == {"decay_pct": 3.5, "sample_every": 100}
+    assert decode_i16(s["light"]).sum() == light.sum() and "contrast" in s
+    json.dumps(s)
+    tr = summarise_tracking(_mouse(n=300), fps=30.0)
+    tr["illumination"] = s
+    assert overview_row(tr)["illum_step_rel"] == s["step_rel"]
+
+
+def test_summarise_illumination_without_switches():
+    s = summarise_illumination({"frame_times": np.arange(5.0), "intensities": np.ones(5)})
+    assert s["on_step_median"] is None and s["step_rel"] is None and "light" not in s
