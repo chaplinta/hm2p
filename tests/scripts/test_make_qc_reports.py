@@ -53,6 +53,7 @@ def fake_s3(monkeypatch):
         "dlc-champion.json": json.dumps({"champion_id": "dlc-x-snap1"}).encode(),
     }
     monkeypatch.setattr(mqr, "get_bytes", lambda key, retries=4: store.get(key))
+    monkeypatch.setattr(mqr, "get_large_bytes", lambda key, **kw: store.get(key))
     return sub, ses
 
 
@@ -152,6 +153,7 @@ def test_collect_rois_recomputes_with_model(monkeypatch, fake_s3):
         "calcium/sub-r/ses-r/ca.h5": ca,
     }
     monkeypatch.setattr(mqr, "get_bytes", lambda key, retries=4: store.get(key))
+    monkeypatch.setattr(mqr, "get_large_bytes", lambda key, **kw: store.get(key))
     # labels from ca.h5 when roi_class.npy is absent (the EC2 stage 1 run)
     s = mqr.collect_rois(mqr.Ctx("sub-r", "ses-r", None))
     assert s["n_rois"] == n and len(s["feature_names"]) == 26
@@ -167,6 +169,74 @@ def test_collect_rois_recomputes_with_model(monkeypatch, fake_s3):
     store[base + "roi_class_prob.npy"] = _npy(probs)
     s2 = mqr.collect_rois(mqr.Ctx("sub-r", "ses-r", None))
     assert s2["repro"]["label_source"] == "roi_class.npy" and s2["ca_label_mismatch"] == 0
+    assert s["asset"] is None  # ops.npy without Ly / Lx: no asset, inline mean image kept
+    assert s["stat_fields"]["radius"] == [4.0] * n and s["qc_thresholds"]["snr_event"][0] == 3.0
+
+
+def test_collect_rois_writes_session_asset(monkeypatch, tmp_path):
+    from hm2p.qc.common import decode_i16
+    from tests.qc.test_rois import _disk
+
+    rng = np.random.default_rng(1)
+    n, T = 3, 400
+    stat = np.array(
+        [dict(_disk(10 + 12 * i, 20, 3), lam=np.ones(29)) for i in range(n)], dtype=object
+    )
+    F = (100 + rng.normal(0, 5, (n, T))).astype(np.float32)
+    base = "ca_extraction/sub-a/ses-a/suite2p/plane0/"
+    ops = {
+        "Ly": 48,
+        "Lx": 40,
+        "yrange": [2, 46],
+        "xrange": [1, 39],
+        "fs": 9.6,
+        "meanImg": rng.normal(size=(48, 40)),
+        "max_proj": rng.normal(size=(44, 38)),
+        "xoff": rng.integers(-2, 3, T),
+        "yoff": rng.integers(-2, 3, T),
+    }
+    ca = _h5_bytes(
+        {
+            "dff": rng.normal(size=(n, T)).astype(np.float32),
+            "F_corr": F * 0.9,
+            "spikes": rng.uniform(0, 1, (n, T)).astype(np.float32),
+            "frame_times": np.arange(T) / 9.6,
+        },
+        {"fps_imaging": 9.6},
+    )
+    kin = _h5_bytes(
+        {"frame_times": np.arange(T * 3) / 28.8, "light_on": np.repeat([1, 0], T * 3 // 2)}, {}
+    )
+    store = {
+        base + "stat.npy": _npy(stat, True),
+        base + "ops.npy": _npy(np.array(ops, dtype=object), True),
+        base + "F.npy": _npy(F),
+        base + "Fneu.npy": _npy(F * 0.5),
+        base + "iscell.npy": _npy(np.array([[1, 0.9], [0, 0.2], [1, 0.7]])),
+        base + "roi_class.npy": _npy(np.array([1, 0, 2], dtype=np.int8)),
+        base + "roi_class_prob.npy": _npy(
+            np.array([[0.1, 0.8, 0.1], [0.9, 0.05, 0.05], [0.1, 0.2, 0.7]])
+        ),
+        "calcium/sub-a/ses-a/ca.h5": ca,
+        "kinematics/sub-a/ses-a/kinematics.h5": kin,
+    }
+    monkeypatch.setattr(mqr, "get_bytes", lambda key, retries=4: store.get(key))
+    monkeypatch.setattr(mqr, "get_large_bytes", lambda key, **kw: store.get(key))
+    monkeypatch.setattr(mqr, "OUT_DIR", tmp_path)
+    ctx = mqr.Ctx("sub-a", "ses-a", None)
+    key = mqr.write_roi_asset(ctx, ops, list(stat), np.array([1, 0, 2]), F, F * 0.5, 9.6)
+    assert key == "sub-a_ses-a"
+    a = json.loads((tmp_path / "assets" / "rois" / f"{key}.json").read_text())
+    assert a["trace_rois"] == [0, 2]
+    assert set(a["traces"]) == {"F", "Fneu", "F_corr", "dff", "spikes"}
+    assert set(a["images"]) == {"meanImg", "max_proj"} and a["image_shape"] == [48, 40]
+    np.testing.assert_allclose(decode_i16(a["traces"]["F"][1]), F[2], atol=1e-2)
+    assert a["dark"] == [[T // 2, T]] and "xoff" in a["registration"]
+    assert mqr.write_roi_asset(ctx, {}, list(stat), np.array([1, 0, 2]), F, F, 9.6) is None
+    # a failed ca.h5 download is an error (retried next run), not a cached partial summary
+    del store["calcium/sub-a/ses-a/ca.h5"]
+    with pytest.raises(FileNotFoundError, match="ca.h5"):
+        mqr.collect_rois(mqr.Ctx("sub-a", "ses-a", None))
 
 
 def test_collect_tracking_reads_dlc_file(monkeypatch, tmp_path):
@@ -286,3 +356,38 @@ def test_run_writes_report_with_errors_recorded(fake_s3, tmp_path, monkeypatch):
     mqr.run(["movement"], None, refresh=False, with_reference=False)
     doc2 = json.loads((tmp_path / "data" / "movement.json").read_text())
     assert doc2["sessions"][0]["error"] is None
+
+
+def test_get_large_bytes_retries_each_chunk(monkeypatch):
+    body = bytes(range(256)) * 10
+    calls = {"n": 0}
+
+    class Body:
+        def __init__(self, b: bytes) -> None:
+            self.b = b
+
+        def read(self) -> bytes:
+            return self.b
+
+    class Fake:
+        fail = False
+
+        def head_object(self, Bucket, Key):  # noqa: N803
+            if Key == "missing":
+                raise RuntimeError("404")
+            return {"ContentLength": len(body)}
+
+        def get_object(self, Bucket, Key, Range):  # noqa: N803
+            calls["n"] += 1
+            if self.fail or calls["n"] % 3 == 1:
+                raise ConnectionError("reset")  # first attempt of some chunks fails
+            a, b = (int(v) for v in Range.removeprefix("bytes=").split("-"))
+            return {"Body": Body(body[a : b + 1])}
+
+    fake = Fake()
+    monkeypatch.setattr(mqr, "s3", lambda: fake)
+    monkeypatch.setattr(mqr.time, "sleep", lambda s: None)
+    assert mqr.get_large_bytes("k", chunk=300) == body
+    assert mqr.get_large_bytes("missing") is None
+    fake.fail = True
+    assert mqr.get_large_bytes("k", chunk=300, retries=2) is None

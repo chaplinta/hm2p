@@ -88,6 +88,31 @@ integer codes, recoded), whether re-applying the current model to recomputed
 features reproduces the stored labels, ROI outlines on the mean image, and each
 of the 26 features against the manual-label distributions (domain shift).
 
+Suite2p inspection (`hm2p.qc.roi_assets`), loaded per session from
+`docs/qc/assets/rois/<sub>_<ses>.js` when a session is selected:
+
+- ROI map background: mean, enhanced mean (`meanImgE`), maximum projection or
+  correlation image (`Vcorr`) at full resolution. `max_proj` and `Vcorr` are
+  stored by Suite2p cropped to `ops["yrange"]` / `ops["xrange"]` and are placed
+  back at that offset, so they line up with the ROI pixel coordinates.
+- Selected ROI: a 41 × 41 px close-up with the Suite2p pixel weights (`lam`),
+  the `stat.npy` fields (npix, radius, aspect_ratio, compact, skew, std,
+  footprint), the `iscell.npy` probability (stage 1 overwrites `iscell.npy`
+  with the classifier output, so this equals P(soma)) and the `ca.h5` `roi_qc` metrics
+  with pass / fail against the thresholds in `hm2p.calcium.qc` (the ones the
+  Streamlit ROI viewer uses).
+- Traces of the soma and dendrite ROIs only (artefacts are not stored): Suite2p
+  F and Fneu, FISSA `F_corr`, dF/F and CASCADE expected spikes per frame, with
+  dark epochs shaded. Stored as int16; when the session would exceed
+  `TRACE_BUDGET_BYTES` (2.5 MB) the traces are averaged over the smallest
+  number of frames that fits, which the page states.
+- `roi_qc` distributions by predicted class with the thresholds, and the
+  registration offsets (`xoff`, `yoff`) and `corrXY` per frame.
+
+Cached summaries from before the asset existed have no `asset` key; re-collect
+with `python scripts/make_qc_reports.py --reports rois --refresh` (the page
+then shows the downscaled inline mean image only).
+
 ### Spike extraction
 
 Per ROI: robust noise SD (MAD of frame differences), SNR (99th percentile /

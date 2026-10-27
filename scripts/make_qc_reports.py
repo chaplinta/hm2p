@@ -53,6 +53,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "src"))
 
 from hm2p.qc import movement as qmov  # noqa: E402
+from hm2p.qc import roi_assets as qra  # noqa: E402
 from hm2p.qc import rois as qroi  # noqa: E402
 from hm2p.qc import spikes as qspk  # noqa: E402
 from hm2p.qc import syllables as qsyl  # noqa: E402
@@ -348,8 +349,14 @@ def collect_rois(c: Ctx) -> dict:
     if stat is None:
         raise FileNotFoundError("stat.npy")
     stat = list(stat)
+    if c._ca_bytes is False:  # first use this session: chunked download (see get_large_bytes)
+        c._ca_bytes = get_large_bytes(f"calcium/{c.sub}/{c.ses}/ca.h5")
     ca = c.ca_labels()
-    ca_d, ca_attrs = ca if ca is not None else ({}, {})
+    if ca is None:
+        # every session has a ca.h5; None means the download failed, and a summary
+        # without it (no roi_qc, no traces) must not be cached as a success
+        raise FileNotFoundError(f"calcium/{c.sub}/{c.ses}/ca.h5 (missing or download failed)")
+    ca_d, ca_attrs = ca
     roi_qc = {k.split("/", 1)[1]: v for k, v in ca_d.items() if k.startswith("roi_qc/")}
     labels, probs = npy("roi_class.npy"), npy("roi_class_prob.npy")
     ca_types = ca_d.get("roi_types")
@@ -395,22 +402,104 @@ def collect_rois(c: Ctx) -> dict:
             repro["pipeline_label_changes"] = int((p_pipe.argmax(axis=1) != labels).sum())
         if imaging_fps > 0:
             feats, recomputed = predict(imaging_fps)
+    asset_key = write_roi_asset(c, ops, stat, labels, F, Fneu, imaging_fps or pipeline_fps)
     s = qroi.summarise_rois(
         labels,
         probs,
         stat=stat,
         features=feats,
-        mean_img=ops.get("meanImg"),
+        # the full-resolution images are in the session asset; inline only as a fallback
+        mean_img=None if asset_key else ops.get("meanImg"),
         ca_roi_types=ca_types,
         recomputed_probs=recomputed,
         roi_qc=roi_qc,
     )
     s["repro"] = repro
+    s["asset"] = asset_key
+    fields = qra.stat_fields(stat, npy("iscell.npy"))
+    s["stat_fields"] = {
+        k: [f.get(k) for f in fields] for k in (*qra.STAT_FIELDS, "iscell_prob") if fields
+    }
+    s["qc_thresholds"] = qra.roi_qc_thresholds()
     if recomputed is not None:
         s["imaging_fps_counts"] = {
             k: int((recomputed.argmax(axis=1) == i).sum()) for i, k in enumerate(qroi.LABELS)
         }
     return s
+
+
+ROI_ASSET_CA_KEYS = ("F_corr", "dff", "spikes", "frame_times")
+RANGE_CHUNK = 32 * 1024 * 1024
+
+
+def get_large_bytes(key: str, chunk: int = RANGE_CHUNK, retries: int = 6) -> bytes | None:
+    """Object body fetched in byte-range chunks, each retried on its own.
+
+    ca.h5 is ~0.4 GB; a single ``get_object`` stream over the flaky container
+    connection often fails part-way, and :func:`get_bytes` then restarts from
+    zero. Returns None if the object does not exist or a chunk keeps failing.
+    """
+    try:
+        size = int(s3().head_object(Bucket=BUCKET, Key=key)["ContentLength"])
+    except Exception as exc:  # noqa: BLE001
+        log.warning("head %s failed: %s", key, exc)
+        return None
+    buf = bytearray()
+    for start in range(0, size, chunk):
+        rng = f"bytes={start}-{min(start + chunk, size) - 1}"
+        for attempt in range(retries):
+            try:
+                buf += s3().get_object(Bucket=BUCKET, Key=key, Range=rng)["Body"].read()
+                break
+            except Exception as exc:  # noqa: BLE001
+                log.debug("get %s %s failed (attempt %d): %s", key, rng, attempt + 1, exc)
+                time.sleep(2.0 * (attempt + 1))
+        else:
+            log.warning("ranged download failed: %s %s", key, rng)
+            return None
+    return bytes(buf) if len(buf) == size else None
+
+
+def write_roi_asset(
+    c: Ctx,
+    ops: dict,
+    stat: list,
+    labels: np.ndarray,
+    F: np.ndarray | None,
+    Fneu: np.ndarray | None,
+    fps: float,
+) -> str | None:
+    """Write the lazily loaded Suite2p inspection asset of one session.
+
+    ``results/qc/assets/rois/<sub>_<ses>.json``: summary images, ROI pixel
+    weights, registration offsets and the F / Fneu / F_corr / dF/F / CASCADE
+    traces of the soma and dendrite ROIs (binned if needed to stay within
+    ``qra.TRACE_BUDGET_BYTES``). Returns the asset key, or None when
+    ``ops.npy`` lacks the frame size.
+    """
+    if "Ly" not in ops or "Lx" not in ops:
+        return None
+    n = len(stat)
+    got = c.ca(lambda k: k in ROI_ASSET_CA_KEYS)
+    ca_d = got[0] if got is not None else {}
+    traces: dict[str, np.ndarray | None] = {"F": F, "Fneu": Fneu}
+    for k in ("F_corr", "dff", "spikes"):
+        traces[k] = ca_d.get(k)
+    traces = {k: v for k, v in traces.items() if v is not None and np.ndim(v) == 2 and len(v) == n}
+    light = None
+    kin = c.kinematics()
+    if kin is not None and "frame_times" in ca_d and "light_on" in kin[0]:
+        kt, kl = kin[0]["frame_times"], kin[0]["light_on"].astype(float)
+        light = kl[np.clip(np.searchsorted(kt, ca_d["frame_times"]), 0, kt.size - 1)]
+    sel = np.flatnonzero(np.isin(np.asarray(labels), (1, 2)))  # soma, dendrite
+    asset = qra.session_asset(ops, stat, traces, sel, fps=fps, light_on=light)
+    key = f"{c.sub}_{c.ses}"
+    path = OUT_DIR / "assets" / "rois" / f"{key}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_clean(asset), separators=(",", ":")))
+    log.info("rois asset %s: %.2f MB (bin %d)", path.name, path.stat().st_size / 1e6, asset["bin"])
+    del traces, ca_d
+    return key
 
 
 def collect_spikes(c: Ctx) -> dict:
