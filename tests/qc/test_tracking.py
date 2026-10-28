@@ -12,13 +12,13 @@ from hm2p.qc.tracking import (
     DEFAULT_JUMP_PX,
     _bin_max,
     displacement_trace,
-    light_steps,
-    summarise_illumination,
     frozen_mask,
     jump_threshold_px,
     keypoints_from_dataset,
+    light_steps,
     normalise_names,
     overview_row,
+    summarise_illumination,
     summarise_tracking,
 )
 

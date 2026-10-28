@@ -74,7 +74,10 @@ def test_ear_swap_mask_finds_swapped_frames():
     kp = _mouse(n=300)
     for f in range(100, 110):  # swap the ears for 10 frames
         for c in ("x", "y"):
-            kp["left_ear"][c][f], kp["right_ear"][c][f] = kp["right_ear"][c][f], kp["left_ear"][c][f]
+            kp["left_ear"][c][f], kp["right_ear"][c][f] = (
+                kp["right_ear"][c][f],
+                kp["left_ear"][c][f],
+            )
     m = ear_swap_mask(kp)
     assert m is not None and m[100:110].all() and m.sum() == 10
 
@@ -89,7 +92,10 @@ def test_select_review_frames_categories_and_spacing():
     kp = _mouse(n=3000)
     for f in range(1000, 1012):
         for c in ("x", "y"):
-            kp["left_ear"][c][f], kp["right_ear"][c][f] = kp["right_ear"][c][f], kp["left_ear"][c][f]
+            kp["left_ear"][c][f], kp["right_ear"][c][f] = (
+                kp["right_ear"][c][f],
+                kp["left_ear"][c][f],
+            )
     kp["tail_base"]["x"][2000] += 200.0  # a single-frame jump (off the ear-swap axis)
     kp["tail_base"]["likelihood"][500:800] = 0.0
     picks = select_review_frames(kp, PARTS, fps=30.0, jump_px=50.0, worst_bin_starts_min=[

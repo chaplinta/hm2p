@@ -7,6 +7,22 @@
 <meta name="description" content="Pose-tracking quality per session: keypoint likelihoods, jumps, anatomical consistency and light vs dark confidence.">
 <!--__CSS__-->
 <!--__QCCSS__-->
+<style>
+.fv { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 980px) { .fv { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
+.fv-stage { position: relative; background: #111; border-radius: 8px; overflow: hidden; min-height: 120px; }
+.fv-stage svg { display: block; width: 100%; height: auto; }
+.fv-stage .empty { color: #bbb; border-color: #444; }
+.fv-thumbs { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 12px; }
+.fv-thumbs button { font: inherit; font-size: 12px; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); color: var(--muted); padding: 3px 8px; cursor: pointer; }
+.fv-thumbs button[aria-pressed="true"] { color: var(--ink); background: var(--soft); font-weight: 600; }
+.fv-thumbs .r { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+.fv-opts { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--muted); align-items: center; margin-top: 8px; }
+.fv-opts label { display: inline-flex; gap: 6px; align-items: center; }
+.kp-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 2px solid; box-sizing: border-box; }
+tr.has-frame { cursor: pointer; }
+tr.has-frame td:last-child { text-decoration: underline dotted; }
+</style>
 </head>
 <body>
 <div class="page">
@@ -16,7 +32,10 @@
       <li><a href="#sessions">All sessions</a></li>
       <li><a href="#session">One session</a></li>
       <li><a href="#timeline">Over time</a></li>
+      <li><a href="#frames">Frames</a></li>
       <li><a href="#anatomy">Anatomical checks</a></li>
+      <li><a href="#illum">Video brightness</a></li>
+      <li><a href="#model">DLC model</a></li>
       <li><a href="#reading">How to read this</a></li>
       <li><a href="#methods">Methods</a></li>
     </ol>
@@ -71,8 +90,35 @@
       </div>
       <div class="chart-block">
         <div class="chart-head"><span class="chart-title">Lowest-confidence stretches: check these in the video</span></div>
-        <div class="table-wrap"><table class="compact" id="worst-table"><thead><tr><th>Start (min:s)</th><th>Mean likelihood rank (0 = worst)</th></tr></thead><tbody></tbody></table></div>
-        <p class="caption">The eight 10 s bins with the lowest mean per-keypoint likelihood rank (each keypoint's likelihood converted to its within-session percentile, so keypoints on different scales count equally).</p>
+        <div class="table-wrap"><table class="compact" id="worst-table"><thead><tr><th>Start (min:s)</th><th>Mean likelihood rank (0 = worst)</th><th>Frame</th></tr></thead><tbody></tbody></table></div>
+        <p class="caption">The eight 10 s bins with the lowest mean per-keypoint likelihood rank (each keypoint's likelihood converted to its within-session percentile, so keypoints on different scales count equally). Click a row to open the bin's lowest-ranked frame in the frame viewer below.</p>
+      </div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="dp-title">Largest frame-to-frame displacement in 2 s bins</span>
+          <label class="controls">Keypoint <select id="dp-kp" aria-label="Keypoint"></select></label></div>
+        <div id="plot-dp" class="plot" role="img" aria-labelledby="dp-title"></div>
+        <p class="caption" id="dp-cap">Raw tracker output, log scale. Each point is the largest single-frame move of the keypoint within a 2 s bin; the dashed line is the jump threshold (150 cm/s at the tracking frame rate) and points above it contain at least one counted jump. Walking moves a keypoint a few mm per frame; isolated spikes far above the line are keypoints that moved to a wrong location for one or more frames. Shaded: lights off.</p>
+      </div>
+    </section>
+
+    <section id="frames">
+      <h2>Frames</h2>
+      <p class="caption">Still frames from this session: the lowest-ranked frame in each low-confidence bin, the middle of the longest ear-swap runs, the largest jumps and three random reference frames. Keypoints are the raw DLC output: filled = likelihood at or above the pipeline cut-off, open = below it (the kinematics stage discards those and interpolates gaps up to 5 frames). The white rings and arrow are the stage 3 outputs for the same frame (head position, body position, head direction), mapped from kinematics coordinates back into the video by undoing the stage 3 rotation and scale; they include the confidence filtering, interpolation and smoothing.</p>
+      <div class="fv-thumbs" id="fv-thumbs" role="group" aria-label="Frames"></div>
+      <div class="fv">
+        <div>
+          <div class="fv-stage" id="fv-stage"><div class="empty">Choose a session.</div></div>
+          <div class="fv-opts">
+            <label><input type="checkbox" id="fv-overlay" checked> keypoints</label>
+            <label><input type="checkbox" id="fv-pipeline" checked> stage 3 position and head direction</label>
+            <label><input type="checkbox" id="fv-zoom" checked> zoom to the mouse</label>
+          </div>
+          <p class="caption" id="fv-src"></p>
+        </div>
+        <div>
+          <dl class="kv" id="fv-info"></dl>
+          <div class="table-wrap"><table class="compact" id="fv-kp"><thead><tr><th>Keypoint</th><th>Likelihood</th><th>x, y (px)</th></tr></thead><tbody></tbody></table></div>
+        </div>
       </div>
     </section>
 
@@ -97,6 +143,36 @@
       </div>
     </section>
 
+    <section id="illum">
+      <h2>Video brightness and room lights</h2>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="il-title">Mean frame brightness over the session</span></div>
+        <div id="plot-il" class="plot short" role="img" aria-labelledby="il-title"></div>
+        <p class="caption" id="il-cap"></p>
+      </div>
+      <p class="caption">Mean grey level of one video frame per second, from the stage 6 illumination check (<span class="path">analysis/…/illumination.h5</span>); shaded: lights off according to the DAQ. The overhead camera records in infrared, so the room lights should leave the image unchanged. A step at each light switch would mean visible light reaches the sensor, so that tracking quality could differ between conditions. A slow decline over the session is not a light effect.</p>
+    </section>
+
+    <section id="model">
+      <h2>DLC model</h2>
+      <div id="model-callout"></div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title">Current champion (dlc-champion.json)</span></div>
+          <dl class="kv" id="kv-champ"></dl>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title">Evaluation and promotion gate</span></div>
+          <dl class="kv" id="kv-eval"></dl>
+          <p class="caption" id="eval-cap"></p>
+        </div>
+      </div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title">Promotion history (dlc-champion-history/promotions.log)</span></div>
+        <div class="table-wrap"><table class="compact" id="hist-table"><thead><tr><th>Promoted</th><th>Champion id</th><th>EC2 instance</th><th>Commit</th></tr></thead><tbody></tbody></table></div>
+      </div>
+    </section>
+
     <section id="reading">
       <h2>How to read this</h2>
       <ul class="plain">
@@ -107,6 +183,8 @@
         <li><strong>Nose-to-tail order</strong>: projected onto the nose→tail-base axis, keypoints should fall in anatomical order. Warning above 5 %, problem above 15 %.</li>
         <li><strong>Head keypoints low</strong>: frames with at least two of nose, ears and head-midpoint below their 25th-percentile cut-off; those frames carry the least head-direction information.</li>
         <li><strong>Dark − light</strong>: median over keypoints of (median likelihood in dark − in light). Warning below −0.03, problem below −0.08.</li>
+        <li><strong>Brightness step</strong>: median, over light switches, of the change in mean frame brightness between the 20 s after and the 20 s before the switch, signed so that positive = brighter with the lights on, relative to the session's median brightness. Comparing just either side of each switch removes the slow decline over the session. Warning above 2 %, problem above 5 % in either direction.</li>
+        <li><strong>Frame viewer</strong>: the question for each frame is whether the filled points sit on the right body parts. Open points are expected where a part is hidden (for example under the headstage cable); a filled point off the mouse is a confident error, which the likelihood cut-off does not remove.</li>
       </ul>
     </section>
 
@@ -147,6 +225,8 @@ const COLS = [
   { key: "body_outlier_frac", label: "Body-length outliers", fmt: v => QC.pct(v, 1), flag: lvl(0.02, 0.10) },
   { key: "ap_frac", label: "Out of order", fmt: v => QC.pct(v, 1), flag: lvl(0.05, 0.15) },
   { key: "dark_minus_light_lik", label: "Dark − light likelihood", fmt: v => QC.fmt(v, 3), flag: v => v < -0.08 ? "bad" : v < -0.03 ? "warn" : null },
+  { key: "illum_step_rel", label: "Brightness step at light switch", fmt: v => QC.pct(v, 2), flag: v => Math.abs(v) > 0.05 ? "bad" : Math.abs(v) > 0.02 ? "warn" : null,
+    title: "Median change in mean frame brightness across light switches (lights on minus off), relative to the session median brightness" },
   { label: "Frames", get: s => s.summary ? s.summary.n_frames : null, fmt: v => QC.isNum(v) ? v.toLocaleString() : "—", noStrip: true },
   { label: "fps", get: s => s.summary ? s.summary.fps : null, fmt: v => QC.fmt(v, 0), noStrip: true },
 ];
@@ -209,7 +289,21 @@ function drawSession(id) {
     { type: "scatter", mode: "lines", name: "any keypoint jump", x: t, y: tl.jump_frac, line: { width: 2, color: QC.css("--s1") }, hovertemplate: "%{x:.2f} min: %{y:.2%}<extra>jumps</extra>" },
     { type: "scatter", mode: "lines", name: "≥ 2 head keypoints below cut-off", x: t, y: tl.head_low2_frac, line: { width: 2, color: QC.css("--s2") }, hovertemplate: "%{x:.2f} min: %{y:.1%}<extra>head low</extra>" },
   ], lay4);
-  document.querySelector("#worst-table tbody").innerHTML = d.worst_bins.map(b => `<tr><td class="num">${mmss(b.t_min)}</td><td class="num">${QC.fmt(b.rank, 3)}</td></tr>`).join("");
+  const fa = d.frames_asset;
+  const binFrame = b => fa ? fa.frames.find(f => QC.isNum(f.bin_t_min) && Math.abs(f.bin_t_min - b.t_min) < 1e-6) : null;
+  const wt = document.querySelector("#worst-table tbody");
+  wt.innerHTML = d.worst_bins.map((b, i) => {
+    const f = binFrame(b);
+    return `<tr data-i="${i}"${f ? ` class="has-frame" tabindex="0" data-frame="${f.frame}"` : ""}><td class="num">${mmss(b.t_min)}</td><td class="num">${QC.fmt(b.rank, 3)}</td><td class="num">${f ? `view frame ${f.frame.toLocaleString()}` : '<span class="na">—</span>'}</td></tr>`;
+  }).join("");
+  wt.querySelectorAll("tr.has-frame").forEach(tr => {
+    const go = () => { FV.show(Number(tr.dataset.frame)); document.getElementById("frames").scrollIntoView({ behavior: "smooth", block: "start" }); };
+    tr.addEventListener("click", go);
+    tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+  });
+  drawDisp(d);
+  drawIllum(d);
+  FV.load(s);
 
   // anatomy
   const anat = (div, cap, obj, label, extraCap) => {
@@ -235,6 +329,136 @@ function drawSession(id) {
   } else QC.empty(document.getElementById("plot-ap"), "Not enough midline keypoints.");
 }
 
+// keypoint colours on the (grey) video frame; fixed so they read the same in both themes
+const KPC = { nose_tip: "#ff5a5a", left_ear: "#3ddc84", right_ear: "#d36cf0", head_midpoint: "#ffd23f", neck: "#ff9f1c", mid_back: "#3ec1d3", mouse_center: "#6aa8ff", tail_base: "#f2f2f2" };
+const REASON_C = { "low likelihood": "--s2", "ear swap": "--s3", "jump": "--bad", "reference": "--muted" };
+const FV = {
+  asset: null, idx: 0, session: null,
+  load(s) {
+    this.session = s.exp_id; this.asset = null;
+    const fa = s.summary.frames_asset, stage = document.getElementById("fv-stage");
+    document.getElementById("fv-thumbs").innerHTML = "";
+    document.getElementById("fv-info").innerHTML = "";
+    document.querySelector("#fv-kp tbody").innerHTML = "";
+    document.getElementById("fv-src").textContent = "";
+    if (!fa) { stage.innerHTML = '<div class="empty">No frames were extracted for this session (collector run with --no-tracking-frames, or the video was unavailable).</div>'; return; }
+    stage.innerHTML = '<div class="empty">Loading frames…</div>';
+    QC.loadAsset("tracking", fa.key).then(a => {
+      if (this.session !== s.exp_id) return;
+      this.asset = a; this.idx = 0; this.thumbs(); this.draw();
+    }).catch(e => { stage.innerHTML = `<div class="empty">${QC.esc(e.message)}</div>`; });
+  },
+  show(frame) {
+    if (!this.asset) return;
+    const i = this.asset.frames.findIndex(f => f.frame === frame);
+    if (i >= 0) { this.idx = i; this.thumbs(); this.draw(); }
+  },
+  thumbs() {
+    const el = document.getElementById("fv-thumbs");
+    el.innerHTML = this.asset.frames.map((f, i) => `<button type="button" data-i="${i}" aria-pressed="${i === this.idx}"><span class="r" style="background:${QC.css(REASON_C[f.reason] || "--muted")}"></span>${mmss(f.t_s / 60)} · ${QC.esc(f.reason)}</button>`).join("");
+    el.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { this.idx = Number(b.dataset.i); this.thumbs(); this.draw(); }));
+  },
+  viewBox(f, W, H) {
+    if (!document.getElementById("fv-zoom").checked) return [0, 0, W, H];
+    const pts = Object.values(f.kp).filter(p => QC.isNum(p[0]) && QC.isNum(p[1])).map(p => [p[0], p[1]]);
+    ["head", "body"].forEach(k => { if (f[k] && QC.isNum(f[k][0])) pts.push(f[k]); });
+    if (!pts.length) return [0, 0, W, H];
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    let x0 = Math.min(...xs) - 70, x1 = Math.max(...xs) + 70, y0 = Math.min(...ys) - 70, y1 = Math.max(...ys) + 70;
+    let w = Math.max(x1 - x0, 240), h = Math.max(y1 - y0, 240 * H / W);
+    if (w / h < W / H) w = h * W / H; else h = w * H / W;  // keep the image aspect ratio
+    w = Math.min(w, W); h = Math.min(h, H);
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    return [Math.min(Math.max(cx - w / 2, 0), W - w), Math.min(Math.max(cy - h / 2, 0), H - h), w, h];
+  },
+  draw() {
+    const a = this.asset, f = a && a.frames[this.idx];
+    if (!f) return;
+    const W = a.width, H = a.height, vb = this.viewBox(f, W, H), r = vb[2] / 110;
+    const showKp = document.getElementById("fv-overlay").checked, showPipe = document.getElementById("fv-pipeline").checked;
+    let g = "";
+    if (showKp) {
+      for (const [p, q] of a.skeleton) {
+        const A = f.kp[p], B = f.kp[q];
+        if (A && B && QC.isNum(A[0]) && QC.isNum(B[0])) g += `<line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" stroke="#fff" stroke-opacity="0.55" stroke-width="${r * 0.35}"/>`;
+      }
+      for (const [b, p] of Object.entries(f.kp)) {
+        if (!QC.isNum(p[0]) || !QC.isNum(p[1])) continue;
+        const c = KPC[b] || "#fff", hi = QC.isNum(p[2]) && p[2] >= a.cutoff;
+        const t = `<title>${QC.esc(BPN[b] || b)}: likelihood ${QC.fmt(p[2], 3)}</title>`;
+        g += hi ? `<circle cx="${p[0]}" cy="${p[1]}" r="${r}" fill="${c}" stroke="#000" stroke-width="${r * 0.3}">${t}</circle>`
+          : `<circle cx="${p[0]}" cy="${p[1]}" r="${r}" fill="none" stroke="#000" stroke-width="${r * 0.8}"/><circle cx="${p[0]}" cy="${p[1]}" r="${r}" fill="none" stroke="${c}" stroke-width="${r * 0.45}">${t}</circle>`;
+      }
+    }
+    if (showPipe) {
+      const ring = (p, dash, label) => p && QC.isNum(p[0]) ? `<circle cx="${p[0]}" cy="${p[1]}" r="${r * 2.2}" fill="none" stroke="#000" stroke-width="${r * 0.7}"/><circle cx="${p[0]}" cy="${p[1]}" r="${r * 2.2}" fill="none" stroke="#fff" stroke-width="${r * 0.35}"${dash ? ` stroke-dasharray="${r} ${r * 0.7}"` : ""}><title>${label}</title></circle>` : "";
+      g += ring(f.body, true, "stage 3 body position") + ring(f.head, false, "stage 3 head position");
+      if (f.hd && f.head && QC.isNum(f.head[0])) {
+        const L = r * 9, x2 = f.head[0] + L * f.hd[0], y2 = f.head[1] + L * f.hd[1];
+        const ln = (c, w) => `<line x1="${f.head[0]}" y1="${f.head[1]}" x2="${x2}" y2="${y2}" stroke="${c}" stroke-width="${w}" marker-end="url(#fv-arr)"/>`;
+        g += ln("#000", r * 0.8) + ln("#fff", r * 0.4);
+      }
+    }
+    const img = `data:image/jpeg;base64,${f.jpeg}`;
+    document.getElementById("fv-stage").innerHTML = `<svg viewBox="${vb.join(" ")}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Video frame ${f.frame} with keypoints">
+      <defs><marker id="fv-arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="3" markerHeight="3" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="#fff"/></marker></defs>
+      <image href="${img}" x="0" y="0" width="${W}" height="${H}" preserveAspectRatio="none"/>${g}</svg>`;
+    this.info(f);
+  },
+  info(f) {
+    const a = this.asset;
+    QC.kv(document.getElementById("fv-info"), [
+      ["frame", `${f.frame.toLocaleString()} (${mmss(f.t_s / 60)})`], ["why shown", f.reason], ["detail", f.detail],
+      ["room lights", f.light === undefined || f.light === null ? null : f.light ? "on" : "off"],
+      ["bad_behav", f.bad === undefined || f.bad === null ? null : f.bad ? "yes (excluded from analysis)" : "no"],
+      ["stage 3 head direction", QC.isNum(f.hd_deg) ? `${QC.fmt(f.hd_deg, 0)}°` : null],
+      ["likelihood cut-off", QC.fmt(a.cutoff, 2)],
+    ]);
+    document.querySelector("#fv-kp tbody").innerHTML = Object.entries(f.kp).map(([b, p]) => {
+      const c = KPC[b] || "#888", hi = QC.isNum(p[2]) && p[2] >= a.cutoff;
+      return `<tr><td><span class="kp-dot" style="border-color:${c};background:${hi ? c : "transparent"}"></span> ${QC.esc(BPN[b] || b)}</td><td class="num${hi ? "" : " na"}">${QC.fmt(p[2], 3)}</td><td class="num">${QC.fmt(p[0], 0)}, ${QC.fmt(p[1], 0)}</td></tr>`;
+    }).join("");
+    document.getElementById("fv-src").textContent = (a.note || "") + (a.kinematics_aligned ? "" : " kinematics.h5 does not match this pose file frame for frame, so stage 3 positions are not shown.");
+  },
+};
+["fv-overlay", "fv-pipeline", "fv-zoom"].forEach(id => document.getElementById(id).addEventListener("change", () => FV.draw()));
+
+function drawDisp(d) {
+  const el = document.getElementById("plot-dp"), sel = document.getElementById("dp-kp");
+  const dp = d.disp;
+  if (!dp) { QC.empty(el, "No displacement trace (collected before this check was added)."); return; }
+  const keys = ["any", ...d.bodyparts.filter(b => dp.max[b])];
+  const prev = sel.value;
+  sel.innerHTML = keys.map(k => `<option value="${k}">${k === "any" ? "any keypoint" : QC.esc(BPN[k] || k)}</option>`).join("");
+  sel.value = keys.includes(prev) ? prev : "any";
+  sel.onchange = () => drawDisp(d);
+  const enc = sel.value === "any" ? dp.any : dp.max[sel.value];
+  const y = QC.decode(enc).map(v => (v !== null && v > 0 ? v : null));
+  const x = y.map((_, i) => (i * dp.bin_s) / 60);
+  const tl = d.timeline;
+  const shapes = QC.darkShapes(tl.t_min, tl.light);
+  if (QC.isNum(d.jump_threshold)) shapes.push({ type: "line", xref: "paper", x0: 0, x1: 1, y0: d.jump_threshold, y1: d.jump_threshold, line: { dash: "dash", width: 1.5, color: QC.css("--bad") } });
+  const l = QC.layout({ shapes });
+  l.xaxis.title = QC.axTitle("time (min)");
+  l.yaxis.type = "log"; l.yaxis.title = QC.axTitle(`largest move per frame (${d.unit})`);
+  QC.plot(el, [{ type: "scattergl", mode: "markers", x, y, marker: { size: 3, color: QC.css("--s1") },
+    hovertemplate: `%{x:.2f} min: %{y:.3g} ${d.unit}<extra></extra>` }], l);
+}
+
+function drawIllum(d) {
+  const el = document.getElementById("plot-il"), cap = document.getElementById("il-cap");
+  const il = d.illumination;
+  if (!il) { QC.empty(el, "No illumination.h5 for this session."); cap.textContent = ""; return; }
+  const t = QC.decode(il.t_s).map(v => v / 60), y = QC.decode(il.intensity);
+  const light = il.light ? QC.decode(il.light) : null;
+  const l = QC.layout({ shapes: light ? QC.darkShapes(t, light) : [] });
+  l.xaxis.title = QC.axTitle("time (min)"); l.yaxis.title = QC.axTitle("mean grey level");
+  QC.plot(el, [{ type: "scatter", mode: "lines", x: t, y, line: { width: 1.5, color: QC.css("--s1") }, hovertemplate: "%{x:.2f} min: %{y:.1f}<extra></extra>" }], l);
+  const a = il.attrs || {};
+  cap.textContent = `Median brightness ${QC.fmt(il.intensity_median, 1)}. Median step at lights on ${QC.fmt(il.on_step_median, 2)} (${il.n_on_switches} switches), at lights off ${QC.fmt(il.off_step_median, 2)} (${il.n_off_switches}); combined step ${QC.pct(il.step_rel, 2)} of the median.` +
+    (QC.isNum(a.decay_pct) ? ` Brightness declines by ${QC.fmt(a.decay_pct, 1)} % over the session` + (QC.isNum(a.tau_min) ? ` (exponential time constant ${QC.fmt(a.tau_min, 1)} min).` : ".") : "");
+}
+
 QC.nav("qc-tracking.html");
 QC.header(DATA);
 QC.state.session = QC.initialSession(S);
@@ -244,6 +468,29 @@ QC.sessionSelect(document.getElementById("sel-session"), S);
 QC.onSession(drawSession);
 if (QC.state.session) QC.setSession(QC.state.session);
 QC.onTheme(() => { redrawStrip(); if (QC.state.session) drawSession(QC.state.session); });
+
+(function drawModel() {
+  const c = DATA.champion || {}, m = DATA.model || {}, ev = m.eval, vd = m.verdict;
+  QC.kv(document.getElementById("kv-champ"), [
+    ["champion id", c.champion_id], ["model", c.model_name], ["architecture", c.architecture], ["snapshot", c.snapshot],
+    ["training date", c.training_date], ["promoted", c.promoted_at], ["commit", c.promoted_by_git_sha], ["notes", c.notes || c.note],
+  ]);
+  const notes = [];
+  if (!DATA.champion) notes.push(["bad", "No dlc-champion.json on S3: the pose files were chosen by name, not by a declared champion."]);
+  const ev2 = ev ? [["evaluated model", ev.champion_id], ["labelled frames", ev.n_labeled_frames], ["train fraction", ev.training_fraction],
+    ["best epoch", ev.best_epoch && `${ev.best_epoch} of ${ev.total_epochs}`],
+    ["train RMSE (px)", ev.train && QC.fmt(ev.train.rmse, 2)], ["test RMSE (px)", ev.test && QC.fmt(ev.test.rmse, 2)],
+    ["test mAP", ev.test && QC.fmt(ev.test.mAP, 1)]] : [["evaluation", "no dlc-retrain/_eval_results.json on S3"]];
+  ev2.push(["promotion gate", vd ? (vd.overall_pass ? `PASS (${vd.candidate_id} vs ${vd.baseline_id})` : `FAIL (${(vd.fail_reasons || []).join("; ")})`) : "no verdict file (dlc-retrain/models/_compare_verdict.json)"]);
+  QC.kv(document.getElementById("kv-eval"), ev2);
+  if (ev && c.champion_id && ev.champion_id !== c.champion_id)
+    notes.push(["", `The stored evaluation (dlc-retrain/_eval_results.json) is for ${ev.champion_id}, not the current champion ${c.champion_id}; no held-out evaluation of the current champion is stored on S3.`]);
+  document.getElementById("eval-cap").textContent = "RMSE: distance between predicted and manually labelled keypoints on the training and held-out labelled frames. These come from the labelled frames only; the session checks above measure the model on every frame of every session.";
+  document.getElementById("model-callout").innerHTML = notes.map(([k, t]) => `<p class="callout ${k}">${QC.esc(t)}</p>`).join("");
+  document.querySelector("#hist-table tbody").innerHTML = (m.history || []).slice().reverse().map(h =>
+    `<tr${h.champion_id === c.champion_id ? ' aria-selected="true"' : ""}><td>${QC.esc(h.promoted_at)}</td><td>${QC.esc(h.champion_id)}${h.champion_id === c.champion_id ? ' <span class="chip prim">current</span>' : ""}</td><td>${QC.esc(h.instance || "")}</td><td>${QC.esc(h.git_sha || "")}</td></tr>`).join("") ||
+    '<tr><td colspan="4" class="na">No promotion log on S3.</td></tr>';
+})();
 </script>
 </body>
 </html>
