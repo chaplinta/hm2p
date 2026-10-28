@@ -32,9 +32,11 @@ def _h5_bytes(datasets: dict, attrs: dict) -> bytes:
 
 
 @pytest.fixture
-def fake_s3(monkeypatch):
-    monkeypatch.setitem(mqr.SYLLABLE_MEDIA, "enabled", False)  # tested in *_syllable_media.py
+def fake_s3(monkeypatch, tmp_path):
     sub, ses = "sub-0000001", "ses-20990101T100000"
+    monkeypatch.setattr(mqr, "OUT_DIR", tmp_path)  # collectors write assets under OUT_DIR
+    monkeypatch.setitem(mqr.TRACKING_MEDIA, "frames", False)  # no raw-video download
+    monkeypatch.setitem(mqr.SYLLABLE_MEDIA, "enabled", False)  # tested in *_syllable_media.py
     kin = _kin(n=3000)
     kin["bp_nose_tip_x_maze"] = np.zeros(3000)  # skipped by the reader
     ca = _ca()
@@ -242,6 +244,9 @@ def test_collect_rois_writes_session_asset(monkeypatch, tmp_path):
 
 def test_collect_tracking_reads_dlc_file(monkeypatch, tmp_path):
     from tests.qc.test_tracking import _mouse
+
+    monkeypatch.setitem(mqr.TRACKING_MEDIA, "frames", False)
+    monkeypatch.setattr(mqr, "OUT_DIR", tmp_path)
 
     kp = _mouse(n=300)
     cols = pd.MultiIndex.from_tuples(

@@ -231,6 +231,261 @@ class Ctx:
         )
 
 
+# ---------------------------------------------------------------------------
+# Tracking media: still frames with the keypoints, for the frame viewer
+# ---------------------------------------------------------------------------
+
+# options set from the command line (see main); tests switch frames off or on
+TRACKING_MEDIA: dict[str, Any] = {"frames": True, "tmp_dir": None}
+RAW_BUCKET = "hm2p-rawdata"
+DEFAULT_POSE_CUTOFF = 0.5  # config/pipeline.yaml pose_confidence_threshold
+DLC_SUBSAMPLE_FPS = 30  # DLC ran on `ffmpeg -i <overhead.mp4> -r 30` (scripts/run_dlc_retrain.py)
+LABELLED_SIZE = (416, 304)  # labelled_30fps.mp4 is the 30 fps video resized to this
+
+
+def _asset_path(report: str, key: str) -> Path:
+    return OUT_DIR / "assets" / report / f"{key}.json"
+
+
+def _write_asset(report: str, key: str, payload: dict) -> int:
+    """Write ``results/qc/assets/<report>/<key>.json``; returns its size in bytes."""
+    path = _asset_path(report, key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(_clean(payload), separators=(",", ":")))
+    return path.stat().st_size
+
+
+def _ffmpeg_exe() -> str:
+    import shutil
+
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    import imageio_ffmpeg
+
+    return imageio_ffmpeg.get_ffmpeg_exe()
+
+
+def _download(bucket: str, key: str, dest: Path, retries: int = 4) -> bool:
+    for attempt in range(retries):
+        try:
+            s3().download_file(bucket, key, str(dest))
+            return True
+        except Exception as exc:  # noqa: BLE001
+            code = (getattr(exc, "response", None) or {}).get("Error", {}).get("Code")
+            if code in ("NoSuchKey", "404"):
+                return False
+            log.debug("download %s failed (attempt %d): %s", key, attempt + 1, exc)
+            time.sleep(2.0 * (attempt + 1))
+    return False
+
+
+def read_frames_subsampled(
+    video: Path, wanted: set[int], fps: int = DLC_SUBSAMPLE_FPS
+) -> tuple[dict[int, np.ndarray], int]:
+    """Grey frames *wanted* of *video* resampled the way DLC's input was made.
+
+    Runs ``ffmpeg -i video -r fps`` (constant frame rate, as for the mp4 the
+    DLC retrain script wrote) and keeps only the requested output frames, so
+    frame ``i`` here is frame ``i`` of the pose file. Returns the frames and
+    the total number of output frames (to compare with the pose length).
+    """
+    import subprocess
+
+    import cv2
+
+    cap = cv2.VideoCapture(str(video))
+    w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+    if w <= 0 or h <= 0:
+        raise ValueError(f"cannot read frame size of {video}")
+    cmd = [_ffmpeg_exe(), "-nostdin", "-loglevel", "error", "-i", str(video), "-r", str(fps),
+           "-fps_mode", "cfr", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"]  # fmt: skip
+    size = w * h
+    got: dict[int, np.ndarray] = {}
+    n = 0
+    with subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as p:
+        assert p.stdout is not None
+        while True:
+            buf = p.stdout.read(size)
+            if len(buf) < size:
+                break
+            if n in wanted:
+                got[n] = np.frombuffer(buf, dtype=np.uint8).reshape(h, w).copy()
+            n += 1
+    return got, n
+
+
+def read_frames_seek(video: Path, wanted: set[int]) -> dict[int, np.ndarray]:
+    """Grey frames by index from a video whose frames map 1:1 to the pose (labelled_30fps.mp4)."""
+    import cv2
+
+    cap = cv2.VideoCapture(str(video))
+    got: dict[int, np.ndarray] = {}
+    for i in sorted(wanted):
+        cap.set(cv2.CAP_PROP_POS_FRAMES, i)
+        ok, fr = cap.read()
+        if ok:
+            got[i] = cv2.cvtColor(fr, cv2.COLOR_BGR2GRAY)
+    cap.release()
+    return got
+
+
+def _video_crop_size(sub: str, ses: str) -> tuple[float, float] | None:
+    """Width and height of the cropped overhead video (the pose pixel space)."""
+    import configparser
+
+    path = REPO / "metadata" / "video_meta" / f"{sub}_{ses}_meta.txt"
+    if not path.exists():
+        return None
+    cfg = configparser.ConfigParser()
+    cfg.read(path)
+    try:
+        return float(cfg["crop"]["width"]), float(cfg["crop"]["height"])
+    except (KeyError, ValueError):
+        return None
+
+
+def tracking_frames_asset(
+    c: Ctx,
+    kp: dict,
+    s: dict,
+    kin: tuple[dict, dict] | None,
+    centre_px: tuple[float, float],
+) -> dict | None:
+    """Pick review frames, read them from the video and write the frame-viewer asset.
+
+    Frames come from the raw overhead video resampled to 30 fps exactly as for
+    DLC (unannotated), when its frame count equals the pose length; otherwise
+    from ``labelled_30fps.mp4`` (which has the raw DLC points drawn in).
+    Returns ``{"key", "source", "frames", "bytes"}`` for the summary, or None.
+    """
+    from hm2p.qc import frames as qfr
+    from hm2p.qc.common import fnum
+
+    exp_id = f"{c.sub}_{c.ses}"
+    fps, parts, n = s["fps"], s["bodyparts"], s["n_frames"]
+    jump_px = s["jump_threshold"] / (s["mm_per_px"] or 1.0)
+    worst = [b["t_min"] for b in s["worst_bins"]]
+    picks = qfr.select_review_frames(kp, parts, fps, jump_px, worst, qtrk.TIMELINE_BIN_S)
+    if not picks:
+        return None
+    imgs, source, note, size_px = _review_video_frames(c, {p["frame"] for p in picks}, n)
+    if not imgs or source is None:
+        return None
+    k, attrs = kin if kin is not None else ({}, {})
+    kin_ok = "frame_times" in k and len(k["frame_times"]) == n
+    orient = float(attrs.get("orientation_deg", 0.0) or 0.0)
+    kscale = float(attrs.get("scale_mm_per_px", 0.0) or 0.0)
+    try:
+        cutoff = float(attrs.get("confidence_threshold", DEFAULT_POSE_CUTOFF))
+    except (TypeError, ValueError):
+        cutoff = DEFAULT_POSE_CUTOFF
+    out_frames = []
+    for p in picks:
+        f = p["frame"]
+        if f not in imgs:
+            continue
+        rec = dict(p, t_s=f / fps, jpeg=qfr.encode_jpeg(imgs[f]))
+        rec["kp"] = qfr.frame_keypoints(kp, parts, f)
+        if kin_ok:
+            rec["light"] = bool(k["light_on"][f]) if "light_on" in k else None
+            rec["bad"] = bool(k["bad_behav"][f]) if "bad_behav" in k else None
+            for name in ("head", "body"):
+                if kscale > 0 and f"x_{name}_mm" in k:
+                    x, y = qfr.mm_to_video_px(
+                        k[f"x_{name}_mm"][f], k[f"y_{name}_mm"][f], kscale, orient, centre_px
+                    )
+                    rec[name] = [fnum(x, 2), fnum(y, 2)]
+            if "hd_deg" in k and np.isfinite(k["hd_deg"][f]):
+                vx, vy = qfr.hd_to_video_vector(k["hd_deg"][f], orient)
+                rec["hd"] = [fnum(vx, 4), fnum(vy, 4)]
+                rec["hd_deg"] = fnum(np.mod(k["hd_deg"][f], 360.0), 1)
+        out_frames.append(rec)
+    key = f"frames-{exp_id}"
+    payload = {
+        "exp_id": exp_id,
+        "source": source,
+        "note": note,
+        "width": size_px[0],
+        "height": size_px[1],
+        "cutoff": cutoff,
+        "kinematics_aligned": kin_ok,
+        "orientation_deg": orient,
+        "skeleton": [list(e) for e in qfr.SKELETON],
+        "frames": out_frames,
+    }
+    size = _write_asset("tracking", key, payload)
+    log.info("%s: %d frames (%s), %.0f kB", exp_id, len(out_frames), source, size / 1e3)
+    keep = ("frame", "reason", "bin_t_min")
+    return {
+        "key": key,
+        "source": source,
+        "bytes": size,
+        "frames": [{k2: v for k2, v in r.items() if k2 in keep} for r in out_frames],
+    }
+
+
+def _review_video_frames(
+    c: Ctx, wanted: set[int], n: int
+) -> tuple[dict[int, np.ndarray], str | None, str, tuple[float, float]]:
+    """Frames *wanted* as ``(images, source, note, (width, height) in pose pixels)``."""
+    with tempfile.TemporaryDirectory(dir=TRACKING_MEDIA["tmp_dir"]) as td:
+        resp = s3().list_objects_v2(Bucket=RAW_BUCKET, Prefix=f"rawdata/{c.sub}/{c.ses}/behav/")
+        vids = sorted(
+            o["Key"]
+            for o in resp.get("Contents", [])
+            if o["Key"].endswith(".mp4") and "overhead" in o["Key"] and "side" not in o["Key"]
+        )
+        note = ""
+        path = Path(td) / "overhead.mp4"
+        if vids and _download(RAW_BUCKET, vids[0], path):
+            got, n_out = read_frames_subsampled(path, wanted)
+            path.unlink()
+            if n_out == n and got:
+                h, w = next(iter(got.values())).shape
+                note = (
+                    f"Unannotated frames of {vids[0].split('/')[-1]}, resampled to "
+                    f"{DLC_SUBSAMPLE_FPS} fps as for DLC ({n_out} frames, as in the pose file)."
+                )
+                return got, "raw", note, (float(w), float(h))
+            log.warning("%s %s: resampled video has %d frames, pose %d", c.sub, c.ses, n_out, n)
+            note = f"The raw video resampled to 30 fps has {n_out} frames, not {n}. "
+        crop = _video_crop_size(c.sub, c.ses)
+        path = Path(td) / "labelled.mp4"
+        if crop and _download(BUCKET, f"pose/{c.sub}/{c.ses}/labelled_30fps.mp4", path):
+            note += (
+                "Frames from labelled_30fps.mp4, which already has the raw DLC keypoints "
+                "drawn in; the page's overlay is drawn on top of them."
+            )
+            return read_frames_seek(path, wanted), "labelled", note, crop
+    return {}, None, note, (0.0, 0.0)
+
+
+def illumination_summary(c: Ctx) -> dict | None:
+    got = read_h5(f"analysis/{c.sub}/{c.ses}/illumination.h5")
+    if got is None:
+        return None
+    return qtrk.summarise_illumination(*got)
+
+
+def tracking_model_info() -> dict:
+    """DLC champion history and the evaluation / promotion-gate files, when present."""
+    log_b = get_bytes("dlc-champion-history/promotions.log")
+    history = []
+    for line in (log_b or b"").decode(errors="replace").splitlines():
+        f = line.split("\t")
+        if len(f) >= 2:
+            history.append({"promoted_at": f[0], "champion_id": f[1],
+                            "instance": f[2] if len(f) > 2 else None,
+                            "git_sha": f[3] if len(f) > 3 else None})  # fmt: skip
+    return {
+        "history": history,
+        "eval": get_json("dlc-retrain/_eval_results.json"),
+        "verdict": get_json("dlc-retrain/models/_compare_verdict.json"),
+    }
+
+
 def collect_tracking(c: Ctx) -> dict:
     from hm2p.kinematics.compute import load_pose_dataset
     from hm2p.pose.select import select_champion_h5
@@ -263,6 +518,12 @@ def collect_tracking(c: Ctx) -> dict:
         tmp.flush()
         ds = load_pose_dataset(Path(tmp.name), "dlc")
     kp = qtrk.keypoints_from_dataset(ds)
+    # stage 3 rotates about the mean of all keypoint positions (apply_orientation_rotation)
+    centre_px = (
+        float(np.nanmean(ds["position"].sel(space="x").values)),
+        float(np.nanmean(ds["position"].sel(space="y").values)),
+    )
+    del ds
     n_pose = len(next(iter(kp.values()))["x"])
     light = None
     if kin is not None:
@@ -279,6 +540,16 @@ def collect_tracking(c: Ctx) -> dict:
     s["pose_file"] = key.split("/")[-1]
     s["champion_id"] = champ_id
     s["light_from_kinematics"] = light is not None and len(light) == s["n_frames"]
+    s["illumination"] = illumination_summary(c)
+    s["frames_asset"] = None
+    if TRACKING_MEDIA["frames"]:
+        try:
+            s["frames_asset"] = tracking_frames_asset(
+                c, qtrk.normalise_names(kp), s, kin, centre_px
+            )
+        except Exception as exc:  # noqa: BLE001 - the rest of the summary is still useful
+            log.warning("tracking frames %s %s failed: %s", c.sub, c.ses, exc)
+            log.debug(traceback.format_exc())
     return s
 
 
@@ -290,7 +561,17 @@ def collect_movement(c: Ctx) -> dict:
     cid = s["attrs"].get("dlc_champion_id")
     want = (c.champion or {}).get("champion_id")
     s["champion_current"] = None if want is None else bool(cid == want)
+    key = f"traj-{c.sub}_{c.ses}"
+    size = _write_asset("movement", key, qmov.trajectory_asset(kin[0]))
+    s["traj_asset"] = {"key": key, "bytes": size, "step": qmov.TRAJ_STEP}
     return s
+
+
+def maze_cells() -> list[list[int]]:
+    """(col, row) of the accessible maze cells (maze coordinates, 1 unit per cell)."""
+    from hm2p.maze.topology import build_rose_maze
+
+    return [[int(a), int(b)] for a, b in build_rose_maze().cell_list]
 
 
 def collect_syllables(c: Ctx) -> dict:
@@ -1067,6 +1348,10 @@ def run(reports: list[str], only: set[str] | None, refresh: bool, with_reference
                 doc["media"] = collect_syllable_media(syl_media, syl_metas, refresh)
         if rep == "rois":
             doc["classifier"] = classifier_info(with_reference)
+        if rep == "tracking":
+            doc["model"] = tracking_model_info()
+        if rep == "movement":
+            doc["maze_cells"] = maze_cells()
         path = OUT_DIR / "data" / f"{rep}.json"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(_clean(doc), separators=(",", ":")))
@@ -1112,8 +1397,14 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - S3 entry p
         "--no-syllable-clips", action="store_true", help="skip rendering the grid movies"
     )
     ap.add_argument("--tmp-dir", help="directory for downloaded videos and tile clips")
+    ap.add_argument(
+        "--no-tracking-frames",
+        action="store_true",
+        help="skip the tracking frame viewer (downloads each raw overhead video)",
+    )
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
+    TRACKING_MEDIA.update(frames=not a.no_tracking_frames, tmp_dir=a.tmp_dir)
     SYLLABLE_MEDIA.update(
         enabled=not a.no_syllable_media, clips=not a.no_syllable_clips, tmp_dir=a.tmp_dir
     )
