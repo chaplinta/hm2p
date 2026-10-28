@@ -31,12 +31,10 @@ Muller et al. 1987. J Neurosci 7(7):1951-1968 (circular-shift null).
 
 from __future__ import annotations
 
-import io
 import re
 from pathlib import Path
 
 import boto3
-import h5py
 import numpy as np
 import pandas as pd
 from scipy.stats import mannwhitneyu, wilcoxon
@@ -100,8 +98,12 @@ def mvl_for_mask(signal: np.ndarray, hd: np.ndarray, mask: np.ndarray) -> float:
 
 
 def process_session(s3, sub: str, ses: str, rng) -> dict:
-    o = s3.get_object(Bucket=BUCKET, Key=f"sync/{sub}/{ses}/sync.h5")
-    with h5py.File(io.BytesIO(o["Body"].read()), "r") as f:
+    from hm2p.io.s3 import open_h5
+
+    f = open_h5(BUCKET, f"sync/{sub}/{ses}/sync.h5", client=s3)
+    if f is None:
+        raise RuntimeError(f"sync.h5 download failed for {sub}/{ses}")
+    with f:
         fps = float(f.attrs.get("fps_imaging", 9.643))
         hd = f["hd_deg"][:].astype(np.float64)
         speed = f["speed_cm_s"][:].astype(np.float64)

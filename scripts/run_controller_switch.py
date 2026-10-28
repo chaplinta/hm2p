@@ -65,10 +65,19 @@ def _download_h5(key, retries=4):
     """Download an HDF5 from S3 into memory, retrying on transient errors.
 
     The container's S3 connection is intermittently flaky; without retries whole
-    sessions silently drop. Returns None only after all attempts fail.
+    sessions silently drop. Returns None only after all attempts fail. With
+    ``HM2P_S3_CACHE`` set, uses the disk cache in :func:`hm2p.io.s3.open_h5`.
     """
+    import os
     import time
 
+    if os.environ.get("HM2P_S3_CACHE"):
+        from hm2p.io.s3 import open_h5
+
+        f = open_h5(BUCKET, key, client=_s3(), retries=retries)
+        if f is None:
+            log.warning("download FAILED after %d attempts: %s", retries, key)
+        return f
     for attempt in range(retries):
         try:
             obj = _s3().get_object(Bucket=BUCKET, Key=key)

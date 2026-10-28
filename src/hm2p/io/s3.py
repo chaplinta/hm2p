@@ -102,6 +102,91 @@ def download_file(
     client.download_file(bucket, key, str(local_path))
 
 
+def cached_object(
+    bucket: str,
+    key: str,
+    cache_dir: Path,
+    client: Any | None = None,
+    retries: int = 5,
+) -> Path | None:
+    """Local copy of an S3 object, downloaded once and reused while unchanged.
+
+    The object is fetched with boto3's managed transfer (8 MB ranged parts,
+    each retried on its own), so a dropped connection costs one part rather
+    than the whole file. The ETag is stored next to the copy; a changed
+    object on S3 is downloaded again. Partial downloads go to ``*.part`` and
+    are renamed only when complete.
+
+    Args:
+        bucket: S3 bucket name.
+        key: S3 object key.
+        cache_dir: Root of the local cache; the copy is ``cache_dir/bucket/key``.
+        client: boto3 S3 client (default: ``hm2p-agent`` profile).
+        retries: Whole-transfer attempts before giving up.
+
+    Returns:
+        Path to the local copy, or None if the object is missing or every
+        attempt failed.
+    """
+    import time
+
+    from boto3.s3.transfer import TransferConfig
+    from botocore.exceptions import ClientError
+
+    client = client or _client()
+    path = Path(cache_dir) / bucket / key
+    tag_path = path.with_name(path.name + ".etag")
+    try:
+        etag = client.head_object(Bucket=bucket, Key=key)["ETag"]
+    except ClientError:
+        return None
+    if path.exists() and tag_path.exists() and tag_path.read_text() == etag:
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    part = path.with_name(path.name + ".part")
+    cfg = TransferConfig(multipart_chunksize=8 * 1024 * 1024, max_concurrency=4)
+    for attempt in range(retries):
+        try:
+            client.download_file(bucket, key, str(part), Config=cfg)
+            part.replace(path)
+            tag_path.write_text(etag)
+            return path
+        except Exception:  # noqa: BLE001 - network errors of several kinds
+            part.unlink(missing_ok=True)
+            if attempt < retries - 1:
+                time.sleep(2.0 * (attempt + 1))
+    return None
+
+
+def open_h5(bucket: str, key: str, client: Any | None = None, retries: int = 4) -> Any | None:
+    """Open an HDF5 object from S3 read-only, or return None if it cannot be fetched.
+
+    With the environment variable ``HM2P_S3_CACHE`` set to a directory, the
+    object goes through :func:`cached_object` (ranged parts, reused across
+    runs); otherwise it is read into memory with whole-object retries.
+    """
+    import io
+    import time
+
+    import h5py
+
+    client = client or _client()
+    cache = os.environ.get("HM2P_S3_CACHE")
+    if cache:
+        path = cached_object(bucket, key, Path(cache), client=client, retries=retries)
+        return h5py.File(path, "r") if path is not None else None
+    for attempt in range(retries):
+        try:
+            body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
+            return h5py.File(io.BytesIO(body), "r")
+        except Exception as exc:  # noqa: BLE001 - missing key or network error
+            if "NoSuchKey" in str(exc) or "Not Found" in str(exc):
+                return None
+            if attempt < retries - 1:
+                time.sleep(1.5 * (attempt + 1))
+    return None
+
+
 def upload_session(
     local_dir: Path,
     bucket: str,

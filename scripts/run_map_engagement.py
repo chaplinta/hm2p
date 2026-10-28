@@ -29,7 +29,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import io
 import logging
 import sys
 from pathlib import Path
@@ -66,12 +65,10 @@ def _s3():
 
 
 def _download_h5(key: str) -> h5py.File | None:
-    try:
-        obj = _s3().get_object(Bucket=BUCKET, Key=key)
-        return h5py.File(io.BytesIO(obj["Body"].read()), "r")
-    except Exception as exc:  # noqa: BLE001
-        log.debug("download failed %s: %s", key, exc)
-        return None
+    """Open an HDF5 object from S3 (disk cache if HM2P_S3_CACHE is set; see hm2p.io.s3.open_h5)."""
+    from hm2p.io.s3 import open_h5
+
+    return open_h5(BUCKET, key, client=_s3())
 
 
 def load_metadata():

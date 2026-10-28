@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from hm2p.io.s3 import (
+    cached_object,
     download_file,
     download_session,
     list_sessions,
@@ -286,3 +287,60 @@ class TestListSessions:
             result = list_sessions("bucket")
 
         assert result == []
+
+
+class _FakeS3:
+    """Minimal client: head_object + download_file writing fixed bytes."""
+
+    def __init__(self, data: bytes, etag: str = '"a"', fail_first: int = 0) -> None:
+        self.data, self.etag, self.fail_left, self.downloads = data, etag, fail_first, 0
+
+    def head_object(self, Bucket: str, Key: str) -> dict:  # noqa: N803
+        if Key == "missing":
+            from botocore.exceptions import ClientError
+
+            raise ClientError({"Error": {"Code": "404"}}, "HeadObject")
+        return {"ETag": self.etag}
+
+    def download_file(self, bucket: str, key: str, filename: str, Config=None) -> None:  # noqa: N803
+        self.downloads += 1
+        with open(filename, "wb") as fh:
+            fh.write(self.data[:3])
+        if self.fail_left:
+            self.fail_left -= 1
+            raise ConnectionError("dropped")
+        with open(filename, "wb") as fh:
+            fh.write(self.data)
+
+
+class TestCachedObject:
+    def test_downloads_then_reuses(self, tmp_path) -> None:
+        c = _FakeS3(b"hello")
+        p = cached_object("b", "x/y.h5", tmp_path, client=c)
+        assert p == tmp_path / "b" / "x" / "y.h5" and p.read_bytes() == b"hello"
+        assert cached_object("b", "x/y.h5", tmp_path, client=c) == p
+        assert c.downloads == 1
+
+    def test_changed_etag_downloads_again(self, tmp_path) -> None:
+        c = _FakeS3(b"v1")
+        cached_object("b", "k", tmp_path, client=c)
+        c.data, c.etag = b"v2", '"b"'
+        assert cached_object("b", "k", tmp_path, client=c).read_bytes() == b"v2"
+        assert c.downloads == 2
+
+    def test_retries_and_leaves_no_partial(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        c = _FakeS3(b"hello", fail_first=2)
+        p = cached_object("b", "k", tmp_path, client=c, retries=3)
+        assert p.read_bytes() == b"hello" and c.downloads == 3
+        assert not list(tmp_path.rglob("*.part"))
+
+    def test_gives_up(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        c = _FakeS3(b"hello", fail_first=5)
+        assert cached_object("b", "k", tmp_path, client=c, retries=2) is None
+        assert not (tmp_path / "b" / "k").exists()
+        assert not list(tmp_path.rglob("*.part"))
+
+    def test_missing_object(self, tmp_path) -> None:
+        assert cached_object("b", "missing", tmp_path, client=_FakeS3(b"")) is None

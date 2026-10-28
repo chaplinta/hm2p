@@ -17,7 +17,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import io
 import logging
 import sys
 from pathlib import Path
@@ -30,8 +29,6 @@ from scipy import stats
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from hm2p.analysis.mixed_stats import (
-    animal_summary_test,
-    cluster_permutation_test,
     confound_check,
     fdr_correct,
     interaction_contrast,
@@ -61,13 +58,10 @@ def _s3():
 
 
 def _download_h5(key: str) -> h5py.File | None:
-    """Download an HDF5 file from S3 into memory."""
-    try:
-        obj = _s3().get_object(Bucket=BUCKET, Key=key)
-        data = obj["Body"].read()
-        return h5py.File(io.BytesIO(data), "r")
-    except Exception:
-        return None
+    """Open an HDF5 object from S3 (disk cache if HM2P_S3_CACHE is set; see hm2p.io.s3.open_h5)."""
+    from hm2p.io.s3 import open_h5
+
+    return open_h5(BUCKET, key, client=_s3())
 
 
 # ---------------------------------------------------------------------------
