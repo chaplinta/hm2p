@@ -53,6 +53,39 @@ stretches to check in the video, and checks from `hm2p.pose.quality`:
 | Ear-distance, body-length outliers | > 3 robust SD (3 × 1.4826 MAD) from session median, or NaN | > 2 % / > 10 % |
 | Nose-to-tail order | keypoints out of anatomical order along the body axis | > 5 % / > 15 % |
 | Dark − light likelihood | median over keypoints | < −0.03 / < −0.08 |
+| Brightness step at light switch | median over switches of (brightness 20 s after − 20 s before), lights-on minus lights-off sign, relative to the median brightness (from `analysis/…/illumination.h5`) | > 2 % / > 5 % either way |
+
+Also on the page:
+
+- **Frame viewer.** Per session about 15 still frames: the lowest-ranked frame
+  in each of the eight low-confidence 10 s bins, the middle of the two longest
+  ear-swap runs, the two largest jumps (for an out-and-back error, the frame
+  where the keypoint is displaced) and three random reference frames, at least
+  1 s apart (`hm2p.qc.frames.select_review_frames`). The frames are taken from
+  the raw overhead video resampled with `ffmpeg -i … -r 30` (constant frame
+  rate), which is how `scripts/run_dlc_retrain.py` made the DLC input; they are
+  used only when the resampled frame count equals the pose file's (it did for
+  both sessions checked), otherwise `labelled_30fps.mp4` is used and the page
+  says so (that video already has the DLC points drawn in). The page draws the
+  raw keypoints over the frame (filled at likelihood ≥ the pipeline cut-off,
+  0.5 from `kinematics.h5` attrs, open below), the skeleton, and the stage 3
+  head and body position and head direction mapped back into video pixels by
+  undoing the stage 3 scale and orientation rotation (rotation centre = mean of
+  all raw keypoint positions, as in `apply_orientation_rotation`). Clicking a
+  row of the low-confidence table opens its frame. Frames are a lazily loaded
+  asset, `results/qc/assets/tracking/frames-<sub>_<ses>.json` (grey JPEG,
+  quality 70, full 832 × 608 resolution; ~1 MB per session). Collecting them
+  downloads each raw video (~140 MB) and decodes it once (~3 min per session);
+  `--no-tracking-frames` skips this.
+- **Displacement trace.** Largest frame-to-frame displacement per keypoint (or
+  over all keypoints) in 2 s bins, log scale, with the jump threshold.
+- **Video brightness.** Mean frame brightness at 1 Hz with the DAQ light
+  epochs.
+- **DLC model.** `dlc-champion.json`, the promotion log
+  (`dlc-champion-history/promotions.log`), the stored evaluation
+  (`dlc-retrain/_eval_results.json`; flagged when it describes a different model
+  than the current champion) and the promotion-gate verdict if present
+  (`dlc-retrain/models/_compare_verdict.json`).
 
 ### Movement metrics
 
@@ -63,6 +96,21 @@ head-direction estimators stored in `kinematics.h5` with the ear-based estimate
 (> 100 cm/s) and AHV (> 1500 °/s), head vs body speed, filtered vs raw maze
 position, occupancy, and whether the session was computed with the current DLC
 champion. A two-minute excerpt around a light switch shows the traces.
+`bad_behav` intervals are drawn as red bars on the session timeline and the
+excerpt.
+
+Also on the page:
+
+- **Trajectory map.** Every third frame (10 Hz) of the filtered body position
+  (`x_maze`, `y_maze`) over the 23 maze cells, coloured by speed (capped at the
+  95th percentile), head direction (cyclic scale) or light state, with the raw
+  position (`x_maze_raw`) as an optional overlay and `bad_behav` frames marked.
+  Lazily loaded asset `results/qc/assets/movement/traj-<sub>_<ses>.json`
+  (~0.45 MB per session).
+- **Bout durations.** Active and inactive bouts (runs of the frame-wise
+  `active` state, outside `bad_behav`), lights on vs off, on a log time axis.
+  Bouts that touch a light switch, a `bad_behav` interval or the session edge
+  are censored and counted separately (`hm2p.qc.movement.bout_lengths`).
 
 ### Syllables
 
