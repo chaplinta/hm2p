@@ -301,9 +301,9 @@ function drawSession(id) {
     tr.addEventListener("click", go);
     tr.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
   });
+  FV.load(s);
   drawDisp(d);
   drawIllum(d);
-  FV.load(s);
 
   // anatomy
   const anat = (div, cap, obj, label, extraCap) => {
@@ -441,7 +441,7 @@ function drawDisp(d) {
   const l = QC.layout({ shapes });
   l.xaxis.title = QC.axTitle("time (min)");
   l.yaxis.type = "log"; l.yaxis.title = QC.axTitle(`largest move per frame (${d.unit})`);
-  QC.plot(el, [{ type: "scattergl", mode: "markers", x, y, marker: { size: 3, color: QC.css("--s1") },
+  QC.plot(el, [{ type: "scatter", mode: "markers", x, y, marker: { size: 3, color: QC.css("--s1") },
     hovertemplate: `%{x:.2f} min: %{y:.3g} ${d.unit}<extra></extra>` }], l);
 }
 
