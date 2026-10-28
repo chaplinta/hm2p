@@ -56,6 +56,7 @@ from hm2p.qc import movement as qmov  # noqa: E402
 from hm2p.qc import roi_assets as qra  # noqa: E402
 from hm2p.qc import rois as qroi  # noqa: E402
 from hm2p.qc import spikes as qspk  # noqa: E402
+from hm2p.qc import syllable_media as qsm  # noqa: E402
 from hm2p.qc import syllables as qsyl  # noqa: E402
 from hm2p.qc import tracking as qtrk  # noqa: E402
 from hm2p.qc.common import hist, span_fps  # noqa: E402
@@ -319,6 +320,459 @@ def collect_syllables(c: Ctx) -> dict:
     return s
 
 
+# ---------------------------------------------------------------------------
+# Syllable media: grid movies, average trajectories, occupancy (pooled)
+# ---------------------------------------------------------------------------
+
+# options set from the command line (see main); tests switch media off or on
+SYLLABLE_MEDIA: dict[str, Any] = {"enabled": True, "clips": True, "tmp_dir": None}
+SYL_MEDIA_VERSION = 2
+SYL_CONF = 0.5  # DLC likelihood for a keypoint to count as tracked
+SYL_WINDOW_MM = 180.0  # side of the square cropped around the animal for a tile
+SYL_OCC_EDGES = (np.arange(0.0, 7.001, 0.25), np.arange(0.0, 5.001, 0.25))  # maze units
+SYL_SPEED_RANGE = (0.0, 60.0)
+SYL_SPEED_BINS = 120
+SYL_VIDEO = "labelled_30fps.mp4"
+SYL_VIDEO_SIZE = (416, 304)  # labelled videos are the cropped video resized to this
+
+
+def _syllable_dirs() -> tuple[Path, Path]:
+    return OUT_DIR / "cache" / "syllables_media", OUT_DIR / "assets" / "syllables"
+
+
+def _video_scale(sub: str, ses: str) -> tuple[float, float] | None:
+    """(x, y) factors from pose pixels to labelled-video pixels.
+
+    The labelled video is the cropped video resized to :data:`SYL_VIDEO_SIZE`,
+    not always with the same factor on both axes.
+    """
+    import configparser
+
+    path = REPO / "metadata" / "video_meta" / f"{sub}_{ses}_meta.txt"
+    if not path.exists():
+        return None
+    cfg = configparser.ConfigParser()
+    cfg.read(path)
+    try:
+        w, h = float(cfg["crop"]["width"]), float(cfg["crop"]["height"])
+    except (KeyError, ValueError):
+        return None
+    return SYL_VIDEO_SIZE[0] / w, SYL_VIDEO_SIZE[1] / h
+
+
+def _syllable_pose(c: Ctx) -> tuple[np.ndarray, np.ndarray, list[str]]:
+    """Champion DLC pose as (n, K, 2) positions (filtered, interpolated, median-smoothed)
+    and (n, K) raw likelihoods for :data:`qsm.TRAJ_KEYPOINTS` (NaN where absent)."""
+    from hm2p.kinematics.compute import (
+        filter_low_confidence,
+        interpolate_gaps,
+        load_pose_dataset,
+        median_filter_dataset,
+    )
+    from hm2p.pose.select import select_champion_h5
+
+    prefix = f"pose/{c.sub}/{c.ses}/"
+    keys = list_keys(prefix)
+    champ_id = (c.champion or {}).get("champion_id")
+    key = select_champion_h5(keys, champ_id) if champ_id else None
+    if not key:
+        raise FileNotFoundError(f"no champion pose .h5 under {prefix}")
+    with tempfile.TemporaryDirectory(dir=SYLLABLE_MEDIA["tmp_dir"]) as td:
+        h5 = Path(td) / "pose.h5"
+        _download_file(key, h5)
+        ds = load_pose_dataset(h5, "dlc").load()
+    if ds.sizes.get("individuals", 1) > 1:
+        ds = ds.isel(individuals=[0])
+    names = [str(k) for k in ds["keypoints"].values]
+    pick = []
+    for kp in qsm.TRAJ_KEYPOINTS:
+        cands = (kp, *qsm.KEYPOINT_ALIASES.get(kp, ()))
+        pick.append(next((n for n in cands if n in names), None))
+    ds = ds.sel(keypoints=[p for p in pick if p is not None])
+    conf_raw = ds["confidence"].transpose("time", "keypoints", "individuals").values[..., 0]
+    ds = median_filter_dataset(interpolate_gaps(filter_low_confidence(ds, SYL_CONF), 5), 5)
+    p = ds["position"].transpose("time", "keypoints", "space", "individuals").values[..., 0]
+    n = p.shape[0]
+    pos = np.full((n, len(pick), 2), np.nan)
+    conf = np.full((n, len(pick)), np.nan)
+    j = 0
+    for i, name in enumerate(pick):
+        if name is not None:
+            pos[:, i], conf[:, i] = p[:, j], conf_raw[:, j]
+            j += 1
+    return pos, conf, list(qsm.TRAJ_KEYPOINTS)
+
+
+def syllable_session_media(c: Ctx) -> tuple[dict, dict[str, np.ndarray]]:
+    """Per-session inputs for the pooled syllable visualisations.
+
+    Returns a JSON-ready dict (per-syllable bout lengths, usable example
+    bouts, egocentric trajectory sums, occupancy and speed histograms, turn
+    rate sums) and arrays needed later to render clips (body centre in
+    labelled-video pixels and heading per frame).
+    """
+    b = get_bytes(f"kinematics/{c.sub}/{c.ses}/syllables.npz")
+    if b is None:
+        raise FileNotFoundError("syllables.npz")
+    z = np.load(io.BytesIO(b))
+    sid = np.asarray(z["syllable_id"] if "syllable_id" in z else z["syllable_ids"], np.int64)
+    kin = c.kinematics()
+    if kin is None:
+        raise FileNotFoundError("kinematics.h5")
+    k, attrs = kin
+    if len(k.get("frame_times", [])) != sid.size:
+        raise ValueError("syllables.npz and kinematics.h5 differ in length")
+    fps = span_fps(k["frame_times"])
+    scale = attrs.get("scale_mm_per_px") or mm_per_px(c.sub, c.ses)
+    if not scale:
+        raise ValueError("no mm-per-pixel scale")
+    scale = float(scale)
+    pos, conf, kps = _syllable_pose(c)
+    n = min(sid.size, pos.shape[0])
+    sid, pos, conf = sid[:n], pos[:n], conf[:n]
+    ki = {name: i for i, name in enumerate(kps)}
+    centre = pos[:, ki["mouse_center"]]
+    heading = qsm.heading_angle(pos[:, ki["tail_base"]], pos[:, ki["neck"]])
+    axis = [ki["neck"], ki["tail_base"], ki["mouse_center"]]
+    tracked = (np.nan_to_num(conf[:, axis], nan=0.0) >= SYL_CONF).all(axis=1)
+    tracked &= np.isfinite(centre).all(axis=1) & np.isfinite(heading)
+    bad = np.asarray(k.get("bad_behav", np.zeros(n)), dtype=bool)[:n]
+    # handedness check: left ear should be on the animal's left in the image
+    ego = qsm.egocentric_points(
+        pos[:, [ki["left_ear"], ki["right_ear"]]], centre[:, None, :], heading[:, None]
+    )
+    lr = qsm.left_on_left_frac(ego[tracked, 0, 0], ego[tracked, 1, 0])
+    mirror = lr is not None and lr < 0.2
+    turn = qsm.signed_turn_rate(qsm.heading_angle(pos[:, ki["neck"]], pos[:, ki["nose_tip"]]), fps)
+    if mirror:
+        turn = -turn
+    speed = np.asarray(k.get("speed_cm_s", np.full(n, np.nan)), dtype=np.float64)[:n]
+    xm = np.asarray(k.get("x_maze", np.full(n, np.nan)), dtype=np.float64)[:n]
+    ym = np.asarray(k.get("y_maze", np.full(n, np.nan)), dtype=np.float64)[:n]
+    good = ~bad
+    offsets = np.arange(-qsm.TRAJ_PRE, qsm.TRAJ_POST + 1)
+    shown_max = qsm.CLIP_MAX_FRAMES - qsm.CLIP_PRE - qsm.CLIP_POST
+    per: dict[str, dict] = {}
+    for syl, (starts, lens) in qsm.syllable_bouts(sid).items():
+        m = (sid == syl) & good
+        clip_ok = qsm.window_ok(
+            starts - qsm.CLIP_PRE,
+            starts + np.minimum(lens, shown_max) + qsm.CLIP_POST,
+            bad,
+            tracked,
+            0.9,
+            n_max=n - 1,  # the labelled video is one frame shorter than the pose
+        )
+        traj_ok = (
+            qsm.window_ok(starts - qsm.TRAJ_PRE, starts + qsm.TRAJ_POST + 1, bad, tracked, 0.8)
+            & tracked[np.clip(starts, 0, n - 1)]
+        )
+        win = qsm.ego_windows(pos, centre, heading, starts[traj_ok], offsets, mirror) * scale
+        tsum, tcnt = qsm.trajectory_sums(win)
+        tv = turn[m]
+        tv = tv[np.isfinite(tv)]
+        per[str(syl)] = {
+            "n_frames": int((sid == syl).sum()),
+            "lengths": lens.tolist(),
+            "clips": [
+                [int(s), int(ln)] for s, ln in zip(starts[clip_ok], lens[clip_ok], strict=True)
+            ],
+            "traj_sum": np.round(tsum, 2).tolist(),
+            "traj_count": tcnt.tolist(),
+            "occ": qsm.occupancy_counts(xm, ym, m, *SYL_OCC_EDGES).tolist(),
+            "speed_hist": np.histogram(
+                speed[m & np.isfinite(speed)], bins=SYL_SPEED_BINS, range=SYL_SPEED_RANGE
+            )[0].tolist(),
+            "turn_sum": float(tv.sum()),
+            "turn_n": int(tv.size),
+        }
+    vs = _video_scale(c.sub, c.ses)
+    out = {
+        "version": SYL_MEDIA_VERSION,
+        "n_frames": int(n),
+        "fps": fps,
+        "scale_mm_per_px": scale,
+        "video_scale": vs,
+        "left_on_left_frac": lr,
+        "mirrored": bool(mirror),
+        "frac_tracked": float(tracked.mean()),
+        "keypoints": kps,
+        "traj_offsets": offsets.tolist(),
+        "occ_edges": [e.tolist() for e in SYL_OCC_EDGES],
+        "occ_total": qsm.occupancy_counts(xm, ym, good, *SYL_OCC_EDGES).tolist(),
+        "speed_range": list(SYL_SPEED_RANGE),
+        "syllables": per,
+    }
+    sxy = np.asarray(vs if vs else (np.nan, np.nan))
+    arrays = {
+        "centre_vid": (centre * sxy).astype(np.float32),
+        "heading_vid": qsm.heading_angle(
+            pos[:, ki["tail_base"]] * sxy, pos[:, ki["neck"]] * sxy
+        ).astype(np.float32),
+        "light_on": np.asarray(k.get("light_on", np.zeros(n)), dtype=bool)[:n],
+    }
+    return out, arrays
+
+
+def syllable_media_cached(c: Ctx, exp_id: str, refresh: bool) -> dict | None:
+    """:func:`syllable_session_media` with a per-session cache; None if it failed."""
+    cache_dir, _ = _syllable_dirs()
+    js, npz = cache_dir / f"{exp_id}.json", cache_dir / f"{exp_id}.npz"
+    if not refresh and js.exists() and npz.exists():
+        d = json.loads(js.read_text())
+        if d.get("version") == SYL_MEDIA_VERSION:
+            return d
+    t0 = time.time()
+    try:
+        d, arrays = syllable_session_media(c)
+    except Exception as exc:  # noqa: BLE001 - the session is left out of the pooled media
+        log.warning("syllable media %s failed: %s", exp_id, exc)
+        log.debug(traceback.format_exc())
+        return None
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    np.savez_compressed(npz, **arrays)
+    js.write_text(json.dumps(_clean(d), separators=(",", ":")))
+    log.info("syllable media %s ok (%.0f s)", exp_id, time.time() - t0)
+    return d
+
+
+def _bout_selection(pooled: dict, media: dict[str, dict]) -> dict[int, list[tuple[str, int, int]]]:
+    """Example bouts per pooled syllable (seeded by syllable id, so reruns pick the same)."""
+    out: dict[int, list[tuple[str, int, int]]] = {}
+    for row in pooled["syllables"]:
+        k = row["id"]
+        cands = [
+            (e, s, ln)
+            for e, d in media.items()
+            if d.get("video_scale")
+            for s, ln in d["syllables"].get(str(k), {}).get("clips", [])
+        ]
+        rng = np.random.default_rng(1000 + int(k))
+        out[k] = qsm.select_bouts(cands, row["median_len"], rng=rng)
+    return out
+
+
+def _download_file(key: str, path: Path) -> None:
+    """Write one large S3 object to *path* (chunked download, see :func:`get_large_bytes`)."""
+    body = get_large_bytes(key)
+    if body is None:
+        raise FileNotFoundError(key)
+    path.write_bytes(body)
+
+
+def _render_tiles(
+    sub: str, ses: str, bouts: list[tuple[int, int, int]], arrays: dict, d: dict, tile_dir: Path
+) -> None:
+    """Cut, align and save tile clips (``.npy``) for *bouts* = [(syllable, start, len)]."""
+    import cv2
+
+    tmp_root = SYLLABLE_MEDIA["tmp_dir"]
+    with tempfile.TemporaryDirectory(dir=tmp_root) as td:
+        vid = Path(td) / "video.mp4"
+        t0 = time.time()
+        _download_file(f"pose/{sub}/{ses}/{SYL_VIDEO}", vid)
+        log.info(
+            "  %s downloaded (%.1f MB, %.0f s)",
+            SYL_VIDEO,
+            vid.stat().st_size / 1e6,
+            time.time() - t0,
+        )
+        cap = cv2.VideoCapture(str(vid))
+        n_vid = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        src_px = SYL_WINDOW_MM / d["scale_mm_per_px"] * float(np.mean(d["video_scale"]))
+        # Read the video sequentially (grab is cheap; seeking decodes from the
+        # previous keyframe and is very slow in some of these files) and keep
+        # frames only for the clips in progress.
+        jobs = []
+        for syl, start, ln in sorted(bouts, key=lambda b: b[1]):
+            first, last, b0, b1 = qsm.clip_window(start, ln)
+            if first < 0 or last > n_vid:
+                continue
+            m = qsm.tile_affine(
+                arrays["centre_vid"][start],
+                float(arrays["heading_vid"][start]),
+                src_px,
+                qsm.TILE_PX,
+                d["mirrored"],
+            )
+            jobs.append(
+                {
+                    "syl": syl,
+                    "start": start,
+                    "first": first,
+                    "last": last,
+                    "b0": b0,
+                    "b1": b1,
+                    "m": m,
+                    "frames": [],
+                }
+            )
+        try:
+            if not jobs:
+                return
+            end = max(j["last"] for j in jobs)
+            nxt = 0  # index of the first job not yet started
+            active: list[dict] = []
+            for f in range(end):
+                if not cap.grab():
+                    break
+                while nxt < len(jobs) and jobs[nxt]["first"] == f:
+                    active.append(jobs[nxt])
+                    nxt += 1
+                if not active:
+                    continue
+                ok, im = cap.retrieve()
+                if not ok:
+                    break
+                for j in active:
+                    j["frames"].append(
+                        cv2.warpAffine(
+                            im, j["m"], (qsm.TILE_PX, qsm.TILE_PX), flags=cv2.INTER_LINEAR
+                        )
+                    )
+                done = [j for j in active if f + 1 >= j["last"]]
+                for j in done:
+                    active.remove(j)
+                    on = np.zeros(len(j["frames"]), dtype=bool)
+                    on[j["b0"] : j["b1"]] = True
+                    np.save(
+                        tile_dir / f"{j['syl']}_{sub}_{ses}_{j['start']}.npy",
+                        qsm.draw_border(np.stack(j["frames"]), on),
+                    )
+                    j["frames"] = []
+        finally:
+            cap.release()
+
+
+def render_syllable_grids(
+    selection: dict[int, list[tuple[str, int, int]]],
+    media: dict[str, dict],
+    metas: dict[str, dict],
+    refresh: bool,
+) -> dict[str, dict]:
+    """Grid movie assets (``results/qc/assets/syllables/syl_<id>.json``) per syllable.
+
+    Sessions are processed one at a time (one video on disk, a few hundred
+    frames in memory); a syllable whose asset already exists for the same
+    selection is not rendered again. Returns per-syllable asset info.
+    """
+    import base64
+
+    cache_dir, asset_dir = _syllable_dirs()
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    info: dict[str, dict] = {}
+    todo: dict[int, list[tuple[str, int, int]]] = {}
+    for k, sel in selection.items():
+        path = asset_dir / f"syl_{k}.json"
+        sig = [list(b) for b in sel]
+        if not sel:
+            continue
+        if not refresh and path.exists():
+            old = json.loads(path.read_text())
+            if old.get("selection") == sig and old.get("version") == SYL_MEDIA_VERSION:
+                info[str(k)] = {
+                    "key": f"syl_{k}",
+                    "n_tiles": len(old["tiles"]),
+                    "bytes": path.stat().st_size,
+                }
+                continue
+        todo[k] = sel
+    if not todo:
+        return info
+    tile_dir = Path(tempfile.mkdtemp(prefix="syl_tiles_", dir=SYLLABLE_MEDIA["tmp_dir"]))
+    try:
+        by_ses: dict[str, list[tuple[int, int, int]]] = {}
+        for k, sel in todo.items():
+            for e, s, ln in sel:
+                by_ses.setdefault(e, []).append((k, s, ln))
+        for i, (e, bouts) in enumerate(by_ses.items()):
+            arrays = dict(np.load(cache_dir / f"{e}.npz"))
+            t0 = time.time()
+            try:
+                _render_tiles(metas[e]["sub"], metas[e]["ses"], bouts, arrays, media[e], tile_dir)
+            except Exception as exc:  # noqa: BLE001 - the tiles of that session stay empty
+                log.warning("syllable clips %s failed: %s", e, exc)
+            log.info(
+                "syllable clips %s: %d bouts (%d/%d, %.0f s)",
+                e,
+                len(bouts),
+                i + 1,
+                len(by_ses),
+                time.time() - t0,
+            )
+        fps = float(np.median([media[e]["fps"] for e in by_ses]))
+        for k, sel in todo.items():
+            tiles, meta_tiles = [], []
+            for e, s, ln in sel:
+                p = tile_dir / f"{k}_{metas[e]['sub']}_{metas[e]['ses']}_{s}.npy"
+                if not p.exists():
+                    continue
+                tiles.append(np.load(p))
+                light = np.load(cache_dir / f"{e}.npz")["light_on"]
+                meta_tiles.append(
+                    {
+                        "exp_id": e,
+                        "start": int(s),
+                        "len": int(ln),
+                        "t_s": round(s / media[e]["fps"], 2),
+                        "light_on": bool(light[s]) if s < light.size else None,
+                    }
+                )
+            if not tiles:
+                continue
+            grid = qsm.tile_grid(tiles)
+            mp4 = tile_dir / f"grid_{k}.mp4"
+            qsm.encode_h264(grid, mp4, fps=fps)
+            del grid, tiles
+            payload = {
+                "version": SYL_MEDIA_VERSION,
+                "syllable": k,
+                "selection": [list(b) for b in sel],
+                "tiles": meta_tiles,
+                "fps": fps,
+                "pre": qsm.CLIP_PRE,
+                "mp4": base64.b64encode(mp4.read_bytes()).decode("ascii"),
+            }
+            path = asset_dir / f"syl_{k}.json"
+            path.write_text(json.dumps(payload, separators=(",", ":")))
+            info[str(k)] = {
+                "key": f"syl_{k}",
+                "n_tiles": len(meta_tiles),
+                "bytes": path.stat().st_size,
+            }
+    finally:
+        import shutil
+
+        shutil.rmtree(tile_dir, ignore_errors=True)
+    return info
+
+
+def collect_syllable_media(media: dict[str, dict], metas: dict[str, dict], refresh: bool) -> dict:
+    """Pooled per-syllable page data, rendering grid movies if enabled."""
+    pooled = qsm.pool_media(media)
+    pooled["sessions"] = {
+        e: {
+            "mirrored": d["mirrored"],
+            "left_on_left_frac": d["left_on_left_frac"],
+            "frac_tracked": d["frac_tracked"],
+            "has_video_scale": bool(d.get("video_scale")),
+        }
+        for e, d in media.items()
+    }
+    pooled["clip_params"] = {
+        "pre": qsm.CLIP_PRE,
+        "post": qsm.CLIP_POST,
+        "max_frames": qsm.CLIP_MAX_FRAMES,
+        "window_mm": SYL_WINDOW_MM,
+        "tile_px": qsm.TILE_PX,
+    }
+    pooled["assets"] = {}
+    if SYLLABLE_MEDIA["clips"] and pooled["syllables"]:
+        sel = _bout_selection(pooled, media)
+        pooled["assets"] = render_syllable_grids(sel, media, metas, refresh)
+    return pooled
+
+
 _MODEL: Any = None
 
 
@@ -566,9 +1020,15 @@ def run(reports: list[str], only: set[str] | None, refresh: bool, with_reference
     champion = get_json("dlc-champion.json")
     log.info("champion: %s", (champion or {}).get("champion_id"))
     results: dict[str, list[dict]] = {r: [] for r in reports}
+    syl_media: dict[str, dict] = {}
+    syl_metas: dict[str, dict] = {}
     for _, row in table.iterrows():
         meta = session_meta(row)
         ctx = Ctx(meta["sub"], meta["ses"], champion)
+        if "syllables" in reports and SYLLABLE_MEDIA["enabled"]:
+            d = syllable_media_cached(ctx, meta["exp_id"], refresh)
+            if d is not None:
+                syl_media[meta["exp_id"]], syl_metas[meta["exp_id"]] = d, meta
         for rep in reports:
             cache = OUT_DIR / "cache" / rep / f"{meta['exp_id']}.json"
             entry: dict = dict(meta)
@@ -603,6 +1063,8 @@ def run(reports: list[str], only: set[str] | None, refresh: bool, with_reference
         }
         if rep == "syllables":
             doc["model"] = syllable_model_info()
+            if SYLLABLE_MEDIA["enabled"]:
+                doc["media"] = collect_syllable_media(syl_media, syl_metas, refresh)
         if rep == "rois":
             doc["classifier"] = classifier_info(with_reference)
         path = OUT_DIR / "data" / f"{rep}.json"
@@ -641,8 +1103,20 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - S3 entry p
     ap.add_argument(
         "--classifier-reference", action="store_true", help="LOSO CV on /data/s2p manual labels"
     )
+    ap.add_argument(
+        "--no-syllable-media",
+        action="store_true",
+        help="skip the per-syllable trajectories, occupancy and grid movies",
+    )
+    ap.add_argument(
+        "--no-syllable-clips", action="store_true", help="skip rendering the grid movies"
+    )
+    ap.add_argument("--tmp-dir", help="directory for downloaded videos and tile clips")
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
+    SYLLABLE_MEDIA.update(
+        enabled=not a.no_syllable_media, clips=not a.no_syllable_clips, tmp_dir=a.tmp_dir
+    )
     logging.basicConfig(
         level=logging.DEBUG if a.verbose else logging.INFO, format="%(levelname)s %(message)s"
     )

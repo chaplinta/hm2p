@@ -75,6 +75,46 @@ a reason to reject a fit. Also: usage across sessions, ethogram, per-syllable
 median speed and |AHV|, light vs dark usage, and bout-to-bout (not frame-level)
 transitions.
 
+**What each syllable is** (`hm2p.qc.syllable_media`; pooled over the sessions
+collected in the run). For the most-used syllables covering 95 % of frames (at
+most 30), following the grid movies and typical-trajectory plots of
+keypoint-MoSeq (Weinreb et al. 2024):
+
+- *Grid movie*: up to 9 bouts, from different sessions where possible, picked
+  with a fixed seed (1000 + syllable id) among bouts within 25 % of the
+  syllable's median duration. A bout is skipped if its clip overlaps
+  `bad_behav` frames or if neck, tail base or body centre have DLC likelihood
+  < 0.5 in more than 10 % of its frames. Clips run from 10 frames before onset
+  to 10 after offset (at most 75 frames), are cut from
+  `pose/{sub}/{ses}/labelled_30fps.mp4`, cropped to a 180 mm square around
+  `mouse_center` and rotated so tail base → neck at onset points up (fixed for
+  the clip), and tiled 3 × 3 at 120 px. An orange border marks the bout.
+  The labelled video is the cropped camera video resized to 416 × 304, not
+  always by the same factor on both axes, so pose pixels are scaled with the
+  crop size in `metadata/video_meta/` (sessions without it get no clips).
+  Each grid is an H.264 mp4, base64 in
+  `results/qc/assets/syllables/syl_<id>.json` (loaded lazily by the page;
+  about 60–120 kB each).
+- *Average trajectory*: champion DLC keypoints (likelihood < 0.5 removed, gaps
+  ≤ 5 frames interpolated, 5-frame rolling median, via `movement`) in the
+  egocentric frame of each bout onset, in mm, averaged over all usable bouts,
+  frames −5 to +30. The egocentric frame uses camera-pixel keypoints, not the
+  maze-frame keypoints in kinematics.h5 (reflected in some sessions).
+- *Turn rate*: mean angular velocity of the neck → nose direction in the camera
+  image, + = counter-clockwise seen from above (left turn). The left/right ear
+  order in the camera image is checked per session; a session where it is
+  reversed in > 80 % of frames would be flagged and its x axis and turn sign
+  flipped.
+- *Occupancy*: syllable frames per 0.25-cell bin of `x_maze`, `y_maze`, and the
+  same divided by the occupancy of all good frames.
+
+Per-session inputs are cached in `results/qc/cache/syllables_media/`
+(`<exp_id>.json` + `.npz`); grid movies are re-rendered only when the bout
+selection changes (or with `--refresh`). The video is read sequentially rather
+than by seeking: seeking was very slow in some of the labelled videos.
+Options: `--no-syllable-media`, `--no-syllable-clips`, `--tmp-dir` (where the
+video and tile clips are written while rendering).
+
 ### Cell classification
 
 Reference accuracy: leave-one-session-out predictions on the manually labelled

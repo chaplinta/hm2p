@@ -7,6 +7,11 @@
 <meta name="description" content="Quality of the keypoint-MoSeq behavioural syllables per session: usage, bout durations, documented acceptance criteria, kinematic signatures and transitions.">
 <!--__CSS__-->
 <!--__QCCSS__-->
+<style>
+.grid-video { width: 100%; max-width: 432px; aspect-ratio: 1 / 1; background: #000; border-radius: 4px; display: block; }
+.tile-list { font-size: 12px; color: var(--muted); margin: 6px 0 0; padding-left: 18px; columns: 2; }
+.syl-stat { font-size: 14px; color: var(--muted); }
+</style>
 </head>
 <body>
 <div class="page">
@@ -16,6 +21,7 @@
       <li><a href="#model">Which model</a></li>
       <li><a href="#sessions">All sessions</a></li>
       <li><a href="#usage">Usage across sessions</a></li>
+      <li><a href="#syllable">What each syllable is</a></li>
       <li><a href="#session">One session</a></li>
       <li><a href="#signature">Do syllables differ?</a></li>
       <li><a href="#reading">How to read this</a></li>
@@ -62,6 +68,33 @@
         <div class="chart-head"><span class="chart-title" id="uh-title">Fraction of frames per syllable (40 most-used overall)</span></div>
         <div id="plot-uh" class="plot xtall" role="img" aria-labelledby="uh-title"></div>
         <p class="caption">Columns ordered by pooled usage. Syllables that are shared across sessions appear as continuous vertical bands; a model fitted on all sessions together should give similar columns in every row. A row dominated by one or two columns means that session's behaviour collapsed into few states.</p>
+      </div>
+    </section>
+
+    <section id="syllable">
+      <h2>What each syllable is</h2>
+      <div class="picker"><label>Syllable <select id="sel-syl" aria-label="Syllable"></select></label><span class="syl-stat" id="syl-stat"></span></div>
+      <div id="syl-callout"></div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title">Example bouts (grid movie)</span>
+            <div class="seg" role="group" aria-label="Playback speed" id="rate-seg"><button type="button" data-r="1" aria-pressed="false">1×</button><button type="button" data-r="0.5" aria-pressed="true">0.5×</button><button type="button" data-r="0.25" aria-pressed="false">0.25×</button></div></div>
+          <div id="syl-video"></div>
+          <p class="caption" id="syl-video-cap"></p>
+          <ol class="tile-list" id="syl-tiles"></ol>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="traj-title">Average pose trajectory</span>
+            <label class="controls">frames after onset <input type="range" id="traj-t" min="1" max="30" value="10" aria-label="Frames after onset"> <span id="traj-t-val"></span></label></div>
+          <div id="plot-traj" class="plot tall" role="img" aria-labelledby="traj-title"></div>
+          <p class="caption" id="traj-cap"></p>
+        </div>
+      </div>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="occ-title">Where in the maze</span>
+          <div class="seg" role="group" aria-label="Occupancy scale" id="occ-seg"><button type="button" data-k="frac" aria-pressed="true">Fraction of syllable frames</button><button type="button" data-k="ratio" aria-pressed="false">Relative to all frames</button></div></div>
+        <div id="plot-occ" class="plot tall" role="img" aria-labelledby="occ-title"></div>
+        <p class="caption">Frames of this syllable (excluding frames flagged as bad behaviour) in 0.25-cell bins of the maze coordinate frame, pooled over sessions. "Relative to all frames" divides by the occupancy of all good frames, so values above 1 mark places where the syllable is used more than the time spent there predicts (bins with fewer than 30 frames overall are blank).</p>
       </div>
     </section>
 
@@ -129,6 +162,7 @@
         <summary>Code and references</summary>
         <div class="prose">
           <p>Per-session summaries: <span class="path">hm2p.qc.syllables.summarise_syllables</span> (usage entropy ratio = Shannon entropy of syllable usage / log of the number of syllables used; bouts are maximal runs of one syllable). Fitting: <span class="path">scripts/run_kpms.py</span>. Data collection: <span class="path">scripts/make_qc_reports.py</span>; page: <span class="path">scripts/build_qc_reports_html.py</span>.</p>
+          <p>Per-syllable views (<span class="path">hm2p.qc.syllable_media</span>, collected by <span class="path">scripts/make_qc_reports.py</span>), following the grid movies and typical-trajectory plots of keypoint-MoSeq (Weinreb et al. 2024). Shown are the most-used syllables that together cover 95 % of frames (at most 30). <b>Grid movie:</b> up to nine bouts, from different sessions where possible, chosen with a fixed random seed among bouts within 25 % of the syllable's median duration; bouts are excluded if the clip overlaps frames flagged as bad behaviour or if neck, tail base and body centre are below DLC likelihood 0.5 in more than 10 % of its frames. Each clip runs from 10 frames before onset to 10 frames after offset (bouts longer than 55 frames are truncated), is cut from the labelled 30 fps video (raw DLC keypoints drawn), cropped to a 180 mm square around the body centre (mouse_center) and rotated so the body axis (tail base → neck) at onset points up; the transform is fixed for the clip, so movement during the bout is visible. The orange border is on while the bout lasts; clips that end early hold their last frame, dimmed. <b>Trajectory:</b> champion DLC keypoints (likelihood &lt; 0.5 removed, gaps ≤ 5 frames interpolated, 5-frame rolling median, all with the movement library) are expressed in the egocentric frame of each bout onset (body centre at the origin, body axis along +y, mm) and averaged over all usable bouts of all sessions. <b>Turn rate:</b> mean angular velocity of the neck → nose direction in the camera image, so the sign does not depend on the maze-frame reflection applied to some sessions; + = counter-clockwise seen from above (a left turn). <b>Occupancy:</b> maze coordinates from kinematics.h5.</p>
           <p>Weinreb C, Pearl JE, Lin S, et al. 2024. "Keypoint-MoSeq: parsing behavior by linking point tracking to pose dynamics." Nature Methods 21:1329–1339. doi:10.1038/s41592-024-02318-2. https://github.com/dattalab/keypoint-moseq</p>
           <p>Wiltschko AB, Johnson MJ, Iurilli G, et al. 2015. "Mapping sub-second structure in mouse behavior." Neuron 88:1121–1135. doi:10.1016/j.neuron.2015.11.031.</p>
         </div>
@@ -304,6 +338,116 @@ function drawSession(id) {
   drawTransitions(d);
 }
 
+// ---- per-syllable views (grid movie, average trajectory, occupancy) ----
+const MEDIA = DATA.media || null;
+const MS = MEDIA ? MEDIA.syllables : [];
+let sylSel = MS.length ? MS[0].id : null, playRate = 0.5, occMode = "frac";
+const sylRow = id => MS.find(r => r.id === id);
+const signed = v => (QC.isNum(v) ? (v > 0 ? "+" : "") + QC.fmt(v, 0) : "—");
+
+function initSylPicker() {
+  const sel = document.getElementById("sel-syl");
+  if (!MS.length) {
+    sel.disabled = true;
+    document.getElementById("syl-callout").innerHTML = `<p class="callout bad">No per-syllable data in this build. Run scripts/make_qc_reports.py --reports syllables (without --no-syllable-media).</p>`;
+    ["plot-traj", "plot-occ"].forEach(id => QC.empty(document.getElementById(id), "No per-syllable data."));
+    return;
+  }
+  sel.innerHTML = MS.map(r => `<option value="${r.id}">${r.id} · ${QC.pct(r.usage, 1)} · ${QC.fmt(r.median_ms, 0)} ms · ${QC.fmt(r.median_speed, 1)} cm/s · turn ${signed(r.mean_turn)} °/s</option>`).join("");
+  sel.addEventListener("change", () => { sylSel = Number(sel.value); drawSyllable(); });
+  const notes = [];
+  notes.push(`${MS.length} syllables shown, covering ${QC.pct(MEDIA.covered, 0)} of ${MEDIA.n_frames.toLocaleString()} frames in ${MEDIA.n_sessions} sessions.`);
+  const mir = Object.entries(MEDIA.sessions || {}).filter(([, v]) => v.mirrored).map(([k]) => k);
+  if (mir.length) notes.push(`Left and right ears appear swapped in the camera image for ${mir.join(", ")}; their egocentric x axis and turn sign were flipped.`);
+  const noScale = Object.entries(MEDIA.sessions || {}).filter(([, v]) => !v.has_video_scale).map(([k]) => k);
+  if (noScale.length) notes.push(`No video crop size in metadata/video_meta for ${noScale.join(", ")}: no grid-movie clips from these sessions.`);
+  document.getElementById("syl-callout").innerHTML = notes.map(t => `<p class="callout">${QC.esc(t)}</p>`).join("");
+}
+
+function drawSylVideo(r) {
+  const box = document.getElementById("syl-video"), cap = document.getElementById("syl-video-cap"), list = document.getElementById("syl-tiles");
+  box.innerHTML = ""; list.innerHTML = ""; cap.textContent = "";
+  const a = (MEDIA.assets || {})[String(r.id)];
+  if (!a) { box.innerHTML = `<p class="callout">No grid movie for syllable ${r.id} (clips were not rendered, or no bout passed the selection criteria).</p>`; return; }
+  cap.textContent = "Loading clip…";
+  QC.loadAsset("syllables", a.key).then(d => {
+    if (sylSel !== r.id) return;
+    box.innerHTML = `<video class="grid-video" autoplay loop muted playsinline controls src="data:video/mp4;base64,${d.mp4}" aria-label="Grid movie of syllable ${r.id}"></video>`;
+    const v = box.querySelector("video"); v.playbackRate = playRate; v.defaultPlaybackRate = playRate;
+    cap.textContent = `${d.tiles.length} bouts, tiles left to right, top to bottom. Each starts ${d.pre} frames (${QC.fmt(d.pre / d.fps * 1000, 0)} ms) before onset; orange border = syllable in progress. Body axis at onset points up.`;
+    list.innerHTML = d.tiles.map(t => `<li>${QC.esc(t.exp_id)} · ${QC.fmt(t.t_s / 60, 2)} min · ${t.len} frames · ${t.light_on === null ? "" : t.light_on ? "light" : "dark"}</li>`).join("");
+  }).catch(err => { if (sylSel === r.id) { cap.textContent = ""; box.innerHTML = `<p class="callout bad">${QC.esc(err.message)}</p>`; } });
+}
+document.querySelectorAll("#rate-seg button").forEach(b => b.addEventListener("click", () => {
+  playRate = Number(b.dataset.r);
+  document.querySelectorAll("#rate-seg button").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+  const v = document.querySelector("#syl-video video"); if (v) { v.playbackRate = playRate; v.defaultPlaybackRate = playRate; }
+}));
+
+function drawTraj(r) {
+  const div = document.getElementById("plot-traj");
+  const off = MEDIA.traj_offsets, kps = MEDIA.keypoints, i0 = off.indexOf(0);
+  const slider = document.getElementById("traj-t");
+  const T = Math.min(Number(slider.value), off.length - 1 - i0);
+  document.getElementById("traj-t-val").textContent = `${T} (${QC.fmt(T / MEDIA.fps * 1000, 0)} ms)`;
+  if (!r.traj_n) return QC.empty(div, "No bout of this syllable had usable tracking for the trajectory.");
+  const pt = (t, k) => r.traj[i0 + t][k];
+  const traces = [];
+  kps.forEach((name, k) => {
+    const ts = Array.from({ length: T + 1 }, (_, t) => t), xs = ts.map(t => pt(t, k)[0]), ys = ts.map(t => pt(t, k)[1]);
+    traces.push({ type: "scatter", mode: "lines+markers", x: xs, y: ys, line: { width: 1, color: QC.css("--rule") },
+      marker: { size: 5, color: ts, cmin: 0, cmax: T, colorscale: [[0, QC.css("--seq-lo")], [0.5, QC.css("--seq-mid")], [1, QC.css("--seq-hi")]], showscale: k === 0,
+        colorbar: { thickness: 10, title: { text: "frame", font: { size: 11 } } } },
+      customdata: ts.map(t => [name, t, Math.round(t / MEDIA.fps * 1000)]), hovertemplate: "%{customdata[0]}, frame %{customdata[1]} (%{customdata[2]} ms)<br>x %{x:.1f} mm, y %{y:.1f} mm<extra></extra>" });
+  });
+  const ki = Object.fromEntries(kps.map((n, k) => [n, k]));
+  const skel = (t, color, dash) => {
+    const xs = [], ys = [];
+    MEDIA.skeleton.forEach(([a, b]) => { if (a in ki && b in ki) { xs.push(pt(t, ki[a])[0], pt(t, ki[b])[0], null); ys.push(pt(t, ki[a])[1], pt(t, ki[b])[1], null); } });
+    return { type: "scatter", mode: "lines", x: xs, y: ys, line: { width: 2.5, color, dash }, hoverinfo: "skip" };
+  };
+  traces.push(skel(0, QC.css("--ink"), "solid"), skel(T, QC.css("--s2"), "dash"));
+  traces.push({ type: "scatter", mode: "text", x: [pt(0, ki.nose_tip)[0]], y: [pt(0, ki.nose_tip)[1] + 6], text: ["nose"], textfont: { size: 11, color: QC.css("--muted") }, hoverinfo: "skip" });
+  const l = QC.layout();
+  l.xaxis.title = QC.axTitle("lateral (mm, + = animal's right)"); l.yaxis.title = QC.axTitle("forward (mm)"); l.yaxis.scaleanchor = "x";
+  QC.plot(div, traces, l);
+  document.getElementById("traj-cap").textContent = `Mean of ${r.traj_n.toLocaleString()} bouts, in the body frame at onset (frame 0). Solid skeleton: onset; dashed: frame ${T}. Points are coloured by frames after onset. The median bout lasts ${QC.fmt(r.median_len, 0)} frames, so later frames partly show the following syllable.`;
+}
+
+function drawOcc(r) {
+  const div = document.getElementById("plot-occ"), [xe, ye] = MEDIA.occ_edges;
+  const tot = r.occ.flat().reduce((a, b) => a + b, 0);
+  if (!tot) return QC.empty(div, "No good frames of this syllable with a maze position.");
+  const all = MEDIA.occ_total, allTot = all.flat().reduce((a, b) => a + b, 0);
+  const z = r.occ.map((row, i) => row.map((v, j) => occMode === "frac" ? (v ? v / tot : null) : (all[i][j] >= 30 ? (v / tot) / (all[i][j] / allTot) : null)));
+  const mid = e => e.slice(0, -1).map((v, i) => (v + e[i + 1]) / 2);
+  const scale = occMode === "frac" ? [[0, QC.css("--seq-lo")], [0.5, QC.css("--seq-mid")], [1, QC.css("--seq-hi")]] : [[0, QC.css("--s1")], [0.5, QC.css("--surface")], [1, QC.css("--bad")]];
+  const tr = { type: "heatmap", x: mid(xe), y: mid(ye), z, colorscale: scale, colorbar: { thickness: 10, tickformat: occMode === "frac" ? ".1%" : ".1f" },
+    hovertemplate: occMode === "frac" ? "x %{x:.2f}, y %{y:.2f}: %{z:.2%} of syllable frames<extra></extra>" : "x %{x:.2f}, y %{y:.2f}: %{z:.2f}× expected<extra></extra>" };
+  if (occMode === "ratio") { tr.zmin = 0; tr.zmax = 2; }
+  const l = QC.layout(); l.xaxis.title = QC.axTitle("maze x (cells)"); l.yaxis.title = QC.axTitle("maze y (cells)"); l.yaxis.scaleanchor = "x";
+  QC.plot(div, [tr], l);
+}
+document.querySelectorAll("#occ-seg button").forEach(b => b.addEventListener("click", () => {
+  occMode = b.dataset.k;
+  document.querySelectorAll("#occ-seg button").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false"));
+  const r = sylRow(sylSel); if (r) drawOcc(r);
+}));
+document.getElementById("traj-t").addEventListener("input", () => { const r = sylRow(sylSel); if (r) drawTraj(r); });
+
+function drawSyllable(withVideo = true) {
+  const r = sylRow(sylSel);
+  if (!r) return;
+  document.getElementById("syl-stat").textContent = `${QC.pct(r.usage, 1)} of frames · ${r.n_bouts.toLocaleString()} bouts in ${r.n_sessions} sessions · median ${QC.fmt(r.median_ms, 0)} ms · median speed ${QC.fmt(r.median_speed, 1)} cm/s · mean turn ${signed(r.mean_turn)} °/s (+ = left)`;
+  if (withVideo) {
+    const slider = document.getElementById("traj-t");
+    slider.max = MEDIA.traj_offsets.length - 1 - MEDIA.traj_offsets.indexOf(0);
+    slider.value = Math.max(1, Math.min(Number(slider.max), Math.round(r.median_len)));
+    drawSylVideo(r);
+  }
+  drawTraj(r); drawOcc(r);
+}
+
 QC.nav("qc-syllables.html");
 QC.header(DATA);
 drawModel();
@@ -314,7 +458,9 @@ drawUsageHeatmap();
 QC.sessionSelect(document.getElementById("sel-session"), S);
 QC.onSession(drawSession);
 if (QC.state.session) QC.setSession(QC.state.session);
-QC.onTheme(() => { drawModel(); redrawStrip(); drawUsageHeatmap(); if (QC.state.session) drawSession(QC.state.session); });
+initSylPicker();
+if (MS.length) drawSyllable();
+QC.onTheme(() => { drawModel(); redrawStrip(); drawUsageHeatmap(); if (QC.state.session) drawSession(QC.state.session); if (MS.length) drawSyllable(false); });
 </script>
 </body>
 </html>

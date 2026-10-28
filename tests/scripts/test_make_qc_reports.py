@@ -33,6 +33,7 @@ def _h5_bytes(datasets: dict, attrs: dict) -> bytes:
 
 @pytest.fixture
 def fake_s3(monkeypatch):
+    monkeypatch.setitem(mqr.SYLLABLE_MEDIA, "enabled", False)  # tested in *_syllable_media.py
     sub, ses = "sub-0000001", "ses-20990101T100000"
     kin = _kin(n=3000)
     kin["bp_nose_tip_x_maze"] = np.zeros(3000)  # skipped by the reader
