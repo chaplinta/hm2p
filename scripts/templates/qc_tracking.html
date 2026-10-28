@@ -360,7 +360,10 @@ const FV = {
   },
   viewBox(f, W, H) {
     if (!document.getElementById("fv-zoom").checked) return [0, 0, W, H];
-    const pts = Object.values(f.kp).filter(p => QC.isNum(p[0]) && QC.isNum(p[1])).map(p => [p[0], p[1]]);
+    // zoom on keypoints above the cut-off (low-likelihood points are often parked at the image corner)
+    const all = Object.values(f.kp).filter(p => QC.isNum(p[0]) && QC.isNum(p[1]));
+    const conf = all.filter(p => QC.isNum(p[2]) && p[2] >= this.asset.cutoff);
+    const pts = (conf.length >= 2 ? conf : all).map(p => [p[0], p[1]]);
     ["head", "body"].forEach(k => { if (f[k] && QC.isNum(f[k][0])) pts.push(f[k]); });
     if (!pts.length) return [0, 0, W, H];
     const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);

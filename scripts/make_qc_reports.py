@@ -277,6 +277,7 @@ def _download(bucket: str, key: str, dest: Path, retries: int = 4) -> bool:
                 return False
             log.debug("download %s failed (attempt %d): %s", key, attempt + 1, exc)
             time.sleep(2.0 * (attempt + 1))
+    log.warning("download failed after %d attempts: s3://%s/%s", retries, bucket, key)
     return False
 
 
@@ -459,6 +460,7 @@ def _review_video_frames(
                 "drawn in; the page's overlay is drawn on top of them."
             )
             return read_frames_seek(path, wanted), "labelled", note, crop
+    log.warning("%s %s: no video frames for the frame viewer", c.sub, c.ses)
     return {}, None, note, (0.0, 0.0)
 
 
