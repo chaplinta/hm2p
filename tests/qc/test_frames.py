@@ -119,6 +119,14 @@ def test_select_review_frames_categories_and_spacing():
             assert not 1000 <= p["frame"] < 1012 and p["frame"] not in (2000, 2001)
 
 
+def test_select_review_frames_shows_the_misplaced_frame_of_an_out_and_back_jump():
+    kp = _mouse(n=900)
+    kp["tail_base"]["x"][400] += 300.0  # wrong on frame 400 only: jumps 399->400 and 400->401
+    picks = select_review_frames(kp, PARTS, 30.0, 50.0, [], 10.0, n_random=0)
+    jumps = [p for p in picks if p["reason"] == "jump"]
+    assert [p["frame"] for p in jumps] == [400]
+
+
 def test_select_review_frames_is_reproducible_and_skips_out_of_range_bins():
     kp = _mouse(n=600)
     a = select_review_frames(kp, PARTS, 30.0, 50.0, [99.0], 10.0, seed=3)

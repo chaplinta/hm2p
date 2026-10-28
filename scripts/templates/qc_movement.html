@@ -7,6 +7,10 @@
 <meta name="description" content="Quality of the stage 3 kinematics per session: frame timing, gaps, head-direction estimator agreement, speed, angular head velocity and occupancy.">
 <!--__CSS__-->
 <!--__QCCSS__-->
+<style>
+.fv-opts { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--muted); align-items: center; margin: 6px 0; }
+.fv-opts label { display: inline-flex; gap: 6px; align-items: center; }
+</style>
 </head>
 <body>
 <div class="page">
@@ -19,6 +23,7 @@
       <li><a href="#hd">Head direction</a></li>
       <li><a href="#speed">Speed and AHV</a></li>
       <li><a href="#space">Position</a></li>
+      <li><a href="#traj">Trajectory</a></li>
       <li><a href="#reading">How to read this</a></li>
       <li><a href="#methods">Methods</a></li>
     </ol>
@@ -59,7 +64,7 @@
         <div class="chart-head"><span class="chart-title" id="tl-title">Session timeline (10 s bins)</span>
           <div class="seg" role="group" aria-label="Timeline measure" id="tl-seg"></div></div>
         <div id="plot-tl" class="plot short" role="img" aria-labelledby="tl-title"></div>
-        <p class="caption">Shaded: lights off. "NaN" is the fraction of frames where head direction is missing after confidence filtering and gap interpolation (gaps longer than the interpolation limit stay NaN).</p>
+        <p class="caption">Shaded: lights off; red bars along the top: <em>bad_behav</em> intervals from experiments.csv (mouse caught on the fibre or wires; excluded from analysis). "NaN" is the fraction of frames where head direction is missing after confidence filtering and gap interpolation (gaps longer than the interpolation limit stay NaN).</p>
       </div>
     </section>
 
@@ -110,6 +115,17 @@
           <p class="caption" id="ah-cap"></p>
         </div>
       </div>
+      <div class="two">
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="ba-title">Active bout durations</span></div>
+          <div id="plot-ba" class="plot short" role="img" aria-labelledby="ba-title"></div>
+        </div>
+        <div class="chart-block">
+          <div class="chart-head"><span class="chart-title" id="bi-title">Inactive bout durations</span></div>
+          <div id="plot-bi" class="plot short" role="img" aria-labelledby="bi-title"></div>
+        </div>
+      </div>
+      <p class="caption" id="bout-cap">A bout is a run of consecutive frames with the same movement state (body speed above or below the active threshold), outside <em>bad_behav</em>. Bouts that touch a light switch, a <em>bad_behav</em> interval or the session start or end are censored (their full length is unknown) and left out; their number is given below. The state is set frame by frame with no minimum duration, so many one- or two-frame bouts indicate speed hovering around the threshold rather than real starts and stops.</p>
     </section>
 
     <section id="space">
@@ -125,6 +141,20 @@
           <dl class="kv" id="kv-pos"></dl>
           <p class="caption">"Filtered vs raw" is the distance between the stage 3 body position (confidence-weighted centroid, filtered, interpolated, median-smoothed) and the raw position (unweighted centroid of the unfiltered keypoints), in maze cells. It combines the effect of filtering with the change of centroid estimator, so it is an upper bound on what filtering alone moves; large values still mark sessions where much of the position was replaced.</p>
         </div>
+      </div>
+    </section>
+
+    <section id="traj">
+      <h2>Trajectory</h2>
+      <div class="chart-block">
+        <div class="chart-head"><span class="chart-title" id="tr-title">Body position in maze coordinates</span>
+          <div class="seg" role="group" aria-label="Colour by" id="tr-seg"></div></div>
+        <div class="fv-opts">
+          <label><input type="checkbox" id="tr-raw"> raw position (unfiltered keypoints)</label>
+          <label><input type="checkbox" id="tr-bad" checked> mark <em>bad_behav</em> frames</label>
+        </div>
+        <div id="plot-tr" class="plot xtall" role="img" aria-labelledby="tr-title"></div>
+        <p class="caption" id="tr-cap">Every third frame (10 Hz) of the stage 3 body position (confidence-weighted centroid of mid back, mouse centre and tail base after filtering, interpolation and smoothing), in maze units (one unit per maze cell; grey squares are the 23 accessible cells). The raw position is the unweighted centroid of the unfiltered keypoints. Points outside the corridors, or straight-line jumps across walls, point to position errors. Both positions are clipped to the maze outline by stage 3, so errors beyond the outline pile up on its edge.</p>
       </div>
     </section>
 
@@ -186,13 +216,22 @@ function lightDark(h, label, unit, div, extra) {
   QC.plot(div, [QC.histLine(h.light, "lights on", QC.css("--light-c")), QC.histLine(h.dark, "lights off", QC.css("--dark-c"))], l);
 }
 
+/* bad_behav intervals (s from the session start) as red bars along the top of a plot;
+   xScale converts seconds to the plot's x unit, yref picks the subplot */
+function badShapes(d, xScale = 1, yref = "paper") {
+  return (d.bad_intervals_s || []).filter(iv => QC.isNum(iv[0]) && QC.isNum(iv[1])).map(([a, b]) => ({
+    type: "rect", xref: "x", yref, x0: a * xScale, x1: Math.max(b, a + 1) * xScale, y0: 0.94, y1: 1,
+    fillcolor: QC.css("--bad"), opacity: 0.7, line: { width: 0 } }));
+}
+
 function drawTimeline(d) {
   const tl = d.timeline, seg = document.getElementById("tl-seg");
   const avail = Object.keys(TLK).filter(k => tl[k]);
   if (!avail.includes(tlKey)) tlKey = avail[0];
   seg.innerHTML = avail.map(k => `<button type="button" data-k="${k}" aria-pressed="${k === tlKey}">${TLK[k][0]}</button>`).join("");
   seg.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { tlKey = b.dataset.k; drawTimeline(d); }));
-  const l = QC.layout({ shapes: QC.darkShapes(tl.t_min, tl.light) });
+  const l = QC.layout({ shapes: QC.darkShapes(tl.t_min, tl.light).concat(badShapes(d, 1 / 60)) });
+  if (tl.t_min.length) l.xaxis.range = [tl.t_min[0], tl.t_min[tl.t_min.length - 1] + tl.bin_s / 60];
   l.xaxis.title = QC.axTitle("time (min)"); l.yaxis.title = QC.axTitle(TLK[tlKey][1]);
   if (tlKey === "nan_frac") l.yaxis.tickformat = ".0%";
   QC.plot("plot-tl", [{ type: "scatter", mode: "lines", x: tl.t_min, y: tl[tlKey], line: { width: 2, color: QC.css("--s1") }, hovertemplate: "%{x:.2f} min: %{y:.3g}<extra></extra>" }], l);
@@ -205,6 +244,8 @@ function drawExcerpt(d) {
   const light = QC.decode(ex.light);
   const shapes = [];
   for (const yr of ["y", "y2", "y3"]) QC.darkShapes(t, light).forEach(s => shapes.push(Object.assign({}, s, { yref: yr + " domain" })));
+  if (t.length) badShapes(d, 1, "y domain").filter(s => s.x1 > t[0] && s.x0 < t[t.length - 1])
+    .forEach(s => shapes.push(Object.assign(s, { x0: Math.max(s.x0, t[0]), x1: Math.min(s.x1, t[t.length - 1]) })));
   const tr = [];
   const line = (k, name, color, axis, mode = "lines", extra) => { if (ex[k]) tr.push(Object.assign({ type: "scatter", mode, x: t, y: QC.decode(ex[k]), name, xaxis: "x", yaxis: axis,
     line: { width: mode === "lines" ? 1.5 : 0, color }, marker: { size: 3, color }, hovertemplate: `${name}: %{y:.1f}<extra></extra>` }, extra || {})); };
@@ -247,6 +288,8 @@ function drawSession(id) {
   ]);
   drawTimeline(d);
   drawExcerpt(d);
+  drawBouts(d);
+  TRJ.load(s);
 
   const ag = d.hd_agreement || {};
   const keys = Object.keys(EST).filter(k => ag[k]);
@@ -291,6 +334,91 @@ function drawSession(id) {
     ["filtered vs raw, median", rv.q ? `${QC.fmt(rv.q.q50, 3)} cells` : null], ["filtered vs raw, 95th pct", rv.q ? `${QC.fmt(rv.q.q95, 3)} cells` : null],
     ["raw position missing", QC.pct(rv.frac_raw_nan, 2)], ["filtered position missing", QC.pct(rv.frac_filtered_nan, 2)],
   ]);
+}
+
+const TRJ = {
+  asset: null, session: null, mode: "speed",
+  load(s) {
+    this.session = s.exp_id; this.asset = null;
+    const el = document.getElementById("plot-tr"), ta = s.summary.traj_asset;
+    if (!ta) { QC.empty(el, "No trajectory asset for this session (re-run scripts/make_qc_reports.py)."); return; }
+    QC.empty(el, "Loading trajectory…");
+    QC.loadAsset("movement", ta.key).then(a => {
+      if (this.session !== s.exp_id) return;
+      this.asset = {
+        x: QC.decode(a.x_maze), y: QC.decode(a.y_maze), xr: a.x_maze_raw ? QC.decode(a.x_maze_raw) : null,
+        yr: a.y_maze_raw ? QC.decode(a.y_maze_raw) : null, sp: a.speed_cm_s ? QC.decode(a.speed_cm_s) : null,
+        hd: a.hd_deg ? QC.decode(a.hd_deg) : null, light: QC.decode(a.light), bad: QC.decode(a.bad), t: QC.decode(a.t_s),
+      };
+      this.draw();
+    }).catch(e => QC.empty(el, e.message));
+  },
+  seg() {
+    const el = document.getElementById("tr-seg");
+    const opts = [["speed", "speed"], ["hd", "head direction"], ["light", "lights on/off"]];
+    el.innerHTML = opts.map(([k, t]) => `<button type="button" data-k="${k}" aria-pressed="${k === this.mode}">${t}</button>`).join("");
+    el.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { this.mode = b.dataset.k; this.seg(); this.draw(); }));
+  },
+  draw() {
+    const a = this.asset;
+    if (!a) return;
+    const ok = i => a.x[i] !== null && a.y[i] !== null;
+    const idx = a.x.map((_, i) => i).filter(ok);
+    const pick = (arr, I) => I.map(i => arr[i]);
+    const hov = I => I.map(i => `${(a.t[i] / 60).toFixed(2)} min`);
+    const tr = [];
+    if (document.getElementById("tr-raw").checked && a.xr)
+      tr.push({ type: "scattergl", mode: "markers", name: "raw", x: a.xr, y: a.yr, marker: { size: 2.5, color: QC.css("--muted"), opacity: 0.45 }, hoverinfo: "skip" });
+    const base = { type: "scattergl", mode: "markers", hovertemplate: "%{text}<br>x %{x:.2f}, y %{y:.2f}<extra>%{fullData.name}</extra>" };
+    if (this.mode === "light") {
+      for (const [lv, name, c] of [[1, "lights on", "--light-c"], [0, "lights off", "--dark-c"]]) {
+        const I = idx.filter(i => (a.light[i] > 0.5 ? 1 : 0) === lv);
+        tr.push(Object.assign({}, base, { name, x: pick(a.x, I), y: pick(a.y, I), text: hov(I), marker: { size: 3, color: QC.css(c), opacity: 0.6 } }));
+      }
+    } else {
+      const v = this.mode === "speed" ? a.sp : a.hd;
+      const vals = v ? pick(v, idx) : [];
+      const fin = vals.filter(QC.isNum).sort((p, q) => p - q);
+      const cmax = this.mode === "speed" ? (fin.length ? fin[Math.floor(0.95 * (fin.length - 1))] : 1) : 360;
+      const cs = this.mode === "speed" ? [[0, QC.css("--seq-lo")], [0.5, QC.css("--seq-mid")], [1, QC.css("--seq-hi")]] : "Phase";
+      tr.push(Object.assign({}, base, { name: this.mode === "speed" ? "speed" : "head direction", x: pick(a.x, idx), y: pick(a.y, idx),
+        text: idx.map((i, j) => `${(a.t[i] / 60).toFixed(2)} min · ${QC.fmt(vals[j], this.mode === "speed" ? 1 : 0)} ${this.mode === "speed" ? "cm/s" : "°"}`),
+        marker: { size: 3, color: vals, cmin: 0, cmax, colorscale: cs, opacity: 0.75,
+          colorbar: { thickness: 10, title: { text: this.mode === "speed" ? "cm/s" : "HD (°)", side: "right", font: { size: 11 } } } } }));
+    }
+    if (document.getElementById("tr-bad").checked) {
+      const I = idx.filter(i => a.bad[i] > 0.5);
+      if (I.length) tr.push(Object.assign({}, base, { name: "bad_behav", x: pick(a.x, I), y: pick(a.y, I), text: hov(I), marker: { size: 6, symbol: "x", color: QC.css("--bad") } }));
+    }
+    const cells = (DATA.maze_cells || []).map(([c, r]) => ({ type: "rect", x0: c, x1: c + 1, y0: r, y1: r + 1, line: { width: 1, color: QC.css("--rule") }, fillcolor: QC.css("--soft"), layer: "below" }));
+    const l = QC.layout({ showlegend: this.mode === "light" || document.getElementById("tr-bad").checked, shapes: cells, margin: { l: 44, r: 14, t: 30, b: 40 } });
+    l.xaxis = Object.assign(l.xaxis, { range: [-0.2, 7.2], title: QC.axTitle("x (maze cells)"), dtick: 1 });
+    l.yaxis = Object.assign(l.yaxis, { range: [5.2, -0.2], title: QC.axTitle("y (maze cells)"), dtick: 1, scaleanchor: "x" });
+    QC.plot("plot-tr", tr, l);
+  },
+};
+["tr-raw", "tr-bad"].forEach(id => document.getElementById(id).addEventListener("change", () => TRJ.draw()));
+TRJ.seg();
+
+function drawBouts(d) {
+  const b = d.bouts, cap = document.getElementById("bout-cap");
+  if (cap.dataset.base === undefined) cap.dataset.base = cap.textContent;
+  for (const [st, div] of [["active", "plot-ba"], ["inactive", "plot-bi"]]) {
+    const el = document.getElementById(div);
+    if (!b || !b[st]) { QC.empty(el, "No movement-state dataset."); continue; }
+    const tr = [["light", "lights on", "--light-c"], ["dark", "lights off", "--dark-c"]].map(([k, name, c]) => {
+      const h = QC.histXY(b[st][k].hist);
+      return { type: "scatter", mode: "lines", line: { shape: "hvh", width: 2, color: QC.css(c) }, name,
+        x: h.x.map(v => Math.pow(10, v)), y: h.y, hovertemplate: `${name}: %{x:.3g} s → %{y:.1%}<extra></extra>` };
+    });
+    const l = QC.layout({ showlegend: true });
+    l.xaxis.type = "log"; l.xaxis.title = QC.axTitle("bout duration (s)");
+    l.yaxis.tickformat = ".0%"; l.yaxis.title = QC.axTitle("fraction of bouts");
+    QC.plot(el, tr, l);
+  }
+  if (!b) { cap.textContent = cap.dataset.base; return; }
+  const one = (st, k) => { const v = b[st][k]; return `${k === "light" ? "on" : "off"}: median ${QC.fmt(v.median_s, 2)} s, ${v.n.toLocaleString()} bouts (${v.n_censored.toLocaleString()} censored), single-frame ${QC.pct(v.frac_single_frame, 0)}`; };
+  cap.textContent = cap.dataset.base + ` Active, lights ${one("active", "light")}; ${one("active", "dark")}. Inactive, lights ${one("inactive", "light")}; ${one("inactive", "dark")}.`;
 }
 
 QC.nav("qc-movement.html");

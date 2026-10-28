@@ -160,12 +160,19 @@ def select_review_frames(
 
     disp, which = max_displacement(kp, parts)
     order = np.argsort(np.nan_to_num(-disp, nan=np.inf), kind="stable")
+    per_kp: dict[str, np.ndarray] = {}
     k = 0
     for f in order:
         if k >= N_JUMP or not np.isfinite(disp[f]) or disp[f] <= jump_px:
             break
-        if _far_from(int(f), taken, sep):
-            add(int(f), "jump", f"{parts[which[f]]} moved {disp[f]:.0f} px in one frame")
+        b = parts[which[f]]
+        # disp[f] is the move from f-1 to f. If the keypoint also jumped into f-1,
+        # f is the return of an out-and-back error and f-1 is the misplaced frame.
+        if b not in per_kp:
+            per_kp[b] = max_displacement(kp, [b])[0]
+        show = int(f) - 1 if f >= 1 and np.nan_to_num(per_kp[b][f - 1]) > jump_px else int(f)
+        if _far_from(show, taken, sep):
+            add(show, "jump", f"{b} moves {disp[f]:.0f} px between frames {f - 1} and {f}")
             k += 1
 
     rng = np.random.default_rng(seed)
