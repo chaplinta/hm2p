@@ -342,5 +342,17 @@ class TestCachedObject:
         assert not (tmp_path / "b" / "k").exists()
         assert not list(tmp_path.rglob("*.part"))
 
+    def test_head_network_error_uses_existing_copy(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr("time.sleep", lambda s: None)
+        c = _FakeS3(b"hello")
+        p = cached_object("b", "k", tmp_path, client=c)
+
+        def boom(**kw):
+            raise ConnectionError("no route")
+
+        c.head_object = boom
+        assert cached_object("b", "k", tmp_path, client=c, retries=2) == p
+        assert cached_object("b", "other", tmp_path, client=c, retries=2) is None
+
     def test_missing_object(self, tmp_path) -> None:
         assert cached_object("b", "missing", tmp_path, client=_FakeS3(b"")) is None

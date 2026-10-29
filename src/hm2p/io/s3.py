@@ -136,10 +136,19 @@ def cached_object(
     client = client or _client()
     path = Path(cache_dir) / bucket / key
     tag_path = path.with_name(path.name + ".etag")
-    try:
-        etag = client.head_object(Bucket=bucket, Key=key)["ETag"]
-    except ClientError:
-        return None
+    etag = None
+    for attempt in range(retries):
+        try:
+            etag = client.head_object(Bucket=bucket, Key=key)["ETag"]
+            break
+        except ClientError:
+            return None
+        except Exception:  # noqa: BLE001 - network error on the metadata request
+            if attempt < retries - 1:
+                time.sleep(2.0 * (attempt + 1))
+    if etag is None:
+        # S3 unreachable: use a complete earlier copy rather than failing.
+        return path if path.exists() and tag_path.exists() else None
     if path.exists() and tag_path.exists() and tag_path.read_text() == etag:
         return path
     path.parent.mkdir(parents=True, exist_ok=True)
