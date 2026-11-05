@@ -36,12 +36,25 @@ import pandas as pd
 def quantile_bins(x: npt.ArrayLike, n_bins: int = 4) -> np.ndarray:
     """Integer bins 0..n_bins-1 by quantiles of ``x`` (ties share a bin; NaN -> -1).
 
-    Zero-heavy signals (sparse spikes) collapse lower quantiles into one bin.
+    Zero-heavy signals (sparse spikes): when the minimum value occupies more
+    than one bin's share of frames, those frames form bin 0 and the remaining
+    values are split into bins 1..n_bins-1 by their own quantiles. Without
+    this, the collapsed edges put zeros and non-zeros in the same bin and the
+    signal carries no information.
     """
     v = np.asarray(x, dtype=float)
     out = np.full(v.shape, -1, dtype=np.int64)
     ok = np.isfinite(v)
     if not ok.any():
+        return out
+    vmin = v[ok].min()
+    at_min = ok & (v == vmin)
+    if n_bins > 1 and at_min.sum() > ok.sum() / n_bins:
+        out[at_min] = 0
+        rest = ok & ~at_min
+        if rest.any():
+            edges = np.unique(np.quantile(v[rest], np.linspace(0, 1, n_bins)[1:-1]))
+            out[rest] = 1 + np.searchsorted(edges, v[rest], side="right")
         return out
     edges = np.unique(np.quantile(v[ok], np.linspace(0, 1, n_bins + 1)[1:-1]))
     out[ok] = np.searchsorted(edges, v[ok], side="right")

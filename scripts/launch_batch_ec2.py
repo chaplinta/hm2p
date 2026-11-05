@@ -50,7 +50,7 @@ RUNTIME_DEPS = (
     "boto3 numpy scipy pandas h5py scikit-learn joblib xgboost scikit-image shapely "
     "'movement>=0.17,<0.18' xarray bottleneck matplotlib opencv-python-headless "
     "imageio-ffmpeg statsmodels pyyaml pydantic pydantic-settings structlog typer "
-    "pandera pingouin plotly tqdm rich"
+    "pandera pingouin plotly tqdm rich ripser pycatch22"
 )
 
 
