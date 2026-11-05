@@ -50,7 +50,7 @@ N_BINS = 36
 SMOOTH_DEG = 6.0
 N_SHUFFLES = 1000
 SEED = 12345
-OUTDIR = Path("/workspace/results/neuropil_control")
+OUTDIR = Path(__file__).resolve().parent.parent / "results" / "neuropil_control"
 
 
 # ---------------------------------------------------------------------------
@@ -63,8 +63,8 @@ def expid_to_subses(eid: str) -> tuple[str, str]:
 
 
 def load_metadata() -> pd.DataFrame:
-    exp = pd.read_csv("/workspace/metadata/experiments.csv")
-    ani = pd.read_csv("/workspace/metadata/animals.csv")
+    exp = pd.read_csv(Path(__file__).resolve().parent.parent / "metadata" / "experiments.csv")
+    ani = pd.read_csv(Path(__file__).resolve().parent.parent / "metadata" / "animals.csv")
     ani["animal_id"] = ani["animal_id"].astype(str)
     exp["sub"], exp["ses"] = zip(*exp["exp_id"].map(expid_to_subses))
     exp["animal_id"] = exp["exp_id"].str.extract(r"_(\d+)$")[0]
