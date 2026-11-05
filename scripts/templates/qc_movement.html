@@ -154,7 +154,7 @@
           <label><input type="checkbox" id="tr-bad" checked> mark <em>bad_behav</em> frames</label>
         </div>
         <div id="plot-tr" class="plot xtall" role="img" aria-labelledby="tr-title"></div>
-        <p class="caption" id="tr-cap">Every third frame (10 Hz) of the stage 3 body position (confidence-weighted centroid of mid back, mouse centre and tail base after filtering, interpolation and smoothing), in maze units (one unit per maze cell; grey squares are the 23 accessible cells). The raw position is the unweighted centroid of the unfiltered keypoints. Points outside the corridors, or straight-line jumps across walls, point to position errors. Both positions are clipped to the maze outline by stage 3, so errors beyond the outline pile up on its edge.</p>
+        <p class="caption" id="tr-cap"><span id="tr-stride">A subsample of frames</span> of the stage 3 body position (confidence-weighted centroid of mid back, mouse centre and tail base after filtering, interpolation and smoothing), in maze units (one unit per maze cell; grey squares are the 23 accessible cells). The raw position is the unweighted centroid of the unfiltered keypoints. Points outside the corridors, or straight-line jumps across walls, point to position errors. Both positions are clipped to the maze outline by stage 3, so errors beyond the outline pile up on its edge.</p>
       </div>
     </section>
 
@@ -363,13 +363,20 @@ const TRJ = {
     const a = this.asset;
     if (!a) return;
     const ok = i => a.x[i] !== null && a.y[i] !== null;
-    const idx = a.x.map((_, i) => i).filter(ok);
+    // SVG markers (not WebGL): at most MAX_PTS points per trace, every k-th sample
+    const MAX_PTS = 6000;
+    const all = a.x.map((_, i) => i).filter(ok);
+    const k = Math.max(1, Math.ceil(all.length / MAX_PTS));
+    const idx = all.filter((_, j) => j % k === 0);
+    this.stride = k * (a.step || 1);
+    const st = document.getElementById("tr-stride");
+    if (st) st.textContent = `Every ${this.stride}th 30 fps frame (${(30 / this.stride).toFixed(1)} Hz, ${idx.length.toLocaleString()} points)`;
     const pick = (arr, I) => I.map(i => arr[i]);
     const hov = I => I.map(i => `${(a.t[i] / 60).toFixed(2)} min`);
     const tr = [];
     if (document.getElementById("tr-raw").checked && a.xr)
-      tr.push({ type: "scattergl", mode: "markers", name: "raw", x: a.xr, y: a.yr, marker: { size: 2.5, color: QC.css("--muted"), opacity: 0.45 }, hoverinfo: "skip" });
-    const base = { type: "scattergl", mode: "markers", hovertemplate: "%{text}<br>x %{x:.2f}, y %{y:.2f}<extra>%{fullData.name}</extra>" };
+      tr.push({ type: "scatter", mode: "markers", name: "raw", x: pick(a.xr, idx), y: pick(a.yr, idx), marker: { size: 2.5, color: QC.css("--muted"), opacity: 0.45 }, hoverinfo: "skip" });
+    const base = { type: "scatter", mode: "markers", hovertemplate: "%{text}<br>x %{x:.2f}, y %{y:.2f}<extra>%{fullData.name}</extra>" };
     if (this.mode === "light") {
       for (const [lv, name, c] of [[1, "lights on", "--light-c"], [0, "lights off", "--dark-c"]]) {
         const I = idx.filter(i => (a.light[i] > 0.5 ? 1 : 0) === lv);
