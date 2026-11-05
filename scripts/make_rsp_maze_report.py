@@ -467,23 +467,46 @@ def narrative(d: dict[str, Any]) -> dict[str, Any]:
     spl = dec.get("splitter", [])
     n_spl = max([r["n_sessions"] for r in spl], default=0)
     g = lambda r, k: r.get(k, float("nan"))  # noqa: E731
+    cj = {(r["condition"], r["target"]): r for r in d.get("conj", {}).get("rows", [])}
+    pa, ha = cj.get(("all", "position"), {}), cj.get(("all", "hd"), {})
+    ldc = d.get("conj", {}).get("light_vs_dark", {})
+    ld_differs = g(ldc, "animal_p") < 0.05
+    ld_dir = "lower" if g(ldc, "median_dark_minus_light") < 0 else "higher"
+    ld_text = (
+        f"present in light and dark but {ld_dir} in the dark ({ldc.get('n_animals', 0) - ldc.get('animals_dark_higher', 0)}"
+        f"/{ldc.get('n_animals', 0)} mice lower in the dark, p {_fmtp(g(ldc, 'animal_p'))}; light and dark frames are "
+        "not matched for occupancy)"
+        if ld_differs
+        else f"equally present in light and dark (p {_fmtp(g(ldc, 'animal_p'))})"
+    )
+    inout_hd_holds = g(ah, "animal_p") < 0.05
+    leads_absent = all(g(r, "animal_p") >= 0.05 for r in (main_dl, pl_n, di_p))
     headline = (
         "RSP layer 2/3 neurons respond to where the mouse is and which way it is heading together: position "
-        "information roughly triples once heading is held fixed, and heading information rises once place is held "
-        "fixed, in the light and in total darkness alike. At the population level this shows up as a code for running "
-        "into vs out of dead ends. Memory and planning signals did not survive their controls."
+        f"information rises from {1000 * g(pa, 'median_base'):.1f} to {1000 * g(pa, 'median_cond'):.1f} mbit once "
+        "heading is held fixed, and heading information rises once place is held fixed; the effect is "
+        f"{ld_text}. "
+        + (
+            "At the population level this shows up as a code for running into vs out of dead ends. "
+            if inout_hd_holds
+            else "At the population level, runs into vs out of dead ends are decoded above chance, but not once head "
+            "direction is removed (animal level). "
+        )
+        + "Memory and planning signals were not detected."
     )
     summary = [
         [
             "Main finding",
             "within",
-            "Place-by-heading coding: single-cell mutual information with maze position rises from about 7 to 21 mbit when "
-            "head direction is held fixed (84 % of cells, 14/15 mice), and with heading from about 2 to 13 mbit when place "
-            "is held fixed; it survives holding running speed fixed and is equally present in light and dark.",
+            "Place-by-heading coding: single-cell mutual information with maze position rises from "
+            f"{1000 * g(pa, 'median_base'):.1f} to {1000 * g(pa, 'median_cond'):.1f} mbit when head direction is held "
+            f"fixed ({100 * g(pa, 'frac_higher'):.0f} % of cells, {pa.get('animals_higher', 0)}/{pa.get('n_animals', 0)} "
+            f"mice), and with heading from {1000 * g(ha, 'median_base'):.1f} to {1000 * g(ha, 'median_cond'):.1f} mbit "
+            f"when place is held fixed; it survives holding running speed fixed and is {ld_text}.",
         ],
         [
-            "Holds",
-            "within",
+            "Holds" if inout_hd_holds else "Partly holds",
+            "within" if inout_hd_holds else "lean",
             f"Inbound vs outbound runs decoded at {g(a, 'median_observed'):.2f} (null {g(a, 'median_null_mean'):.2f}; "
             f"animal-level p {_fmtp(g(a, 'animal_p'))}); {g(ah, 'median_observed'):.2f} with head direction removed "
             f"(p {_fmtp(g(ah, 'animal_p'))}); behaviour alone {g(ab, 'median_observed'):.2f} (p {_fmtp(g(ab, 'animal_p'))}).",
@@ -506,16 +529,30 @@ def narrative(d: dict[str, Any]) -> dict[str, Any]:
             "Did not hold",
             "null",
             "Dead-end recency (time since last visit), planning of the next trip, distance to go, and trip origin or "
-            "destination: each explained by immediate re-entries, posture, travel direction or too few samples.",
+            + (
+                "destination: not detected in the current data, or too few samples."
+                if leads_absent
+                else "destination: each explained by immediate re-entries, posture, travel direction or too few samples."
+            ),
         ],
     ]
+    au = d.get("auroc", {}).get("all", {})
+    au_r, au_h = au.get("auc", {}), au.get("auc_hd", {})
+    au_frac = 100 * (g(au_r, "frac_toward") + g(au_r, "frac_away"))
     direction_notes = [
         "Runs were matched on duration and mean speed between the two classes, and decoding was cross-validated over "
-        "contiguous time blocks, so neither locomotion nor slow drift explains the result. Removing head direction "
-        "from each cell does not reduce it, so it is not compass heading: two runs with the same lab-frame heading can "
-        "be inbound in one corridor and outbound in another.",
-        "Single cells show the same structure weakly and with mixed signs: about 15 % of cells are individually "
-        "selective for runs into vs out of dead ends, some preferring each direction, which averages to zero.",
+        "contiguous time blocks, so neither locomotion nor slow drift explains the result. "
+        + (
+            "Removing head direction from each cell does not reduce it, so it is not compass heading: two runs with the "
+            "same lab-frame heading can be inbound in one corridor and outbound in another."
+            if inout_hd_holds
+            else f"With head direction removed from each cell the decoder gives {g(ah, 'median_observed'):.2f} against a "
+            f"null of {g(ah, 'median_null_mean'):.2f} (animal-level p {_fmtp(g(ah, 'animal_p'))}), and behaviour alone "
+            f"gives {g(ab, 'median_observed'):.2f} (p {_fmtp(g(ab, 'animal_p'))}), so the population signal cannot be "
+            "separated from compass heading in these data."
+        ),
+        f"Single cells show the same structure weakly and with mixed signs: about {au_frac:.0f} % of cells are "
+        "individually selective for runs into vs out of dead ends, some preferring each direction, which averages to zero.",
     ]
     behaviour_points = [
         f"<strong>Trips are not memory-guided.</strong> The fraction of trips ending at a dead end not visited among the "
@@ -535,21 +572,31 @@ def narrative(d: dict[str, Any]) -> dict[str, Any]:
         {
             "name": "Dead-end recency",
             "question": "Does the arrival response depend on how long since this dead end was last visited?",
-            "first": f"Dark-specific: dark minus light z {g(main_dl, 'median_z'):+.2f}, animal-level p {_fmtp(g(main_dl, 'animal_p'))}; "
-            "robust to window, dead-end identity, behaviour and light-switch covariates, and to onset-weighted dF/F.",
-            "control": f"Dropping re-entries within 5 s of leaving (about 30 % of entries) removed it "
-            f"(dark minus light z {g(min5_dl, 'median_z'):+.2f}, p {_fmtp(g(min5_dl, 'animal_p'))}). It reflected "
-            "immediate step-out-and-back re-entries, not memory over tens of seconds.",
+            "first": (
+                f"Dark-specific: dark minus light z {g(main_dl, 'median_z'):+.2f}, animal-level p {_fmtp(g(main_dl, 'animal_p'))}; "
+                "robust to window, dead-end identity, behaviour and light-switch covariates, and to onset-weighted dF/F."
+                if g(main_dl, "animal_p") < 0.05
+                else f"Dark minus light z {g(main_dl, 'median_z'):+.2f}, animal-level p {_fmtp(g(main_dl, 'animal_p'))}: "
+                "not detected in the current data (a dark-specific effect was seen before the 2026-11 re-run)."
+            ),
+            "control": f"Dropping re-entries within 5 s of leaving: dark minus light z {g(min5_dl, 'median_z'):+.2f}, "
+            f"p {_fmtp(g(min5_dl, 'animal_p'))}. Before the re-run this control removed the effect, which reflected "
+            "immediate step-out-and-back re-entries rather than memory over tens of seconds.",
             "verdict": "Did not hold",
             "held": False,
         },
         {
             "name": "Planning the next trip",
             "question": "Does activity before leaving a dead end predict whether the next trip goes somewhere new?",
-            "first": f"Light: {g(pl_n, 'median_observed'):.2f} vs null {g(pl_n, 'median_null_mean'):.2f} (p {_fmtp(g(pl_n, 'animal_p'))}).",
+            "first": f"Light: {g(pl_n, 'median_observed'):.2f} vs null {g(pl_n, 'median_null_mean'):.2f} (p {_fmtp(g(pl_n, 'animal_p'))})"
+            + (
+                "."
+                if g(pl_n, "animal_p") < 0.05
+                else ": not detected in the current data (above chance before the 2026-11 re-run)."
+            ),
             "control": f"Posture (syllables) and behaviour in the same second predict it as well ({g(pl_s, 'median_observed'):.2f}, "
             f"p {_fmtp(g(pl_s, 'animal_p'))}); excluding bounce-back trips leaves no neural signal "
-            f"(p {_fmtp(g(pl_nr, 'animal_p'))}); a fresh light/dark subsample showed it in the dark too.",
+            f"(p {_fmtp(g(pl_nr, 'animal_p'))}).",
             "verdict": "Did not hold",
             "held": False,
         },
@@ -557,9 +604,11 @@ def narrative(d: dict[str, Any]) -> dict[str, Any]:
             "name": "Distance to go",
             "question": "At the same place, does activity track how many steps remain to the end of the trip?",
             "first": f"Dark, place-controlled, head direction removed: partial ρ {g(di_p, 'median_observed'):.2f} "
-            f"(p {_fmtp(g(di_p, 'animal_p'))}).",
-            "control": f"Controlling place and direction of travel together removes it (ρ {g(di_pd, 'median_observed'):.2f}, "
-            f"p {_fmtp(g(di_pd, 'animal_p'))}): it was the inbound/outbound signal.",
+            f"(p {_fmtp(g(di_p, 'animal_p'))})"
+            + ("." if g(di_p, "animal_p") < 0.05 else ": not detected in the current data."),
+            "control": f"Controlling place and direction of travel together: ρ {g(di_pd, 'median_observed'):.2f}, "
+            f"p {_fmtp(g(di_pd, 'animal_p'))}. Before the 2026-11 re-run the place-controlled effect was present and this "
+            "control removed it (it was the inbound/outbound signal).",
             "verdict": "Did not hold",
             "held": False,
         },
@@ -615,7 +664,14 @@ def narrative(d: dict[str, Any]) -> dict[str, Any]:
             )
         conj_finding += (
             f"It is present in the light (p {_fmtp(g(pl, 'animal_p'))}) and in the dark (p {_fmtp(g(pd_, 'animal_p'))}), "
-            f"with no difference between them (p {_fmtp(g(ldc, 'animal_p'))})."
+            + (
+                f"smaller in the dark ({ldc.get('n_animals', 0) - ldc.get('animals_dark_higher', 0)}/{ldc.get('n_animals', 0)} "
+                f"mice, p {_fmtp(g(ldc, 'animal_p'))}; light and dark frames are not matched for occupancy)."
+                if ld_differs and ld_dir == "lower"
+                else f"larger in the dark (p {_fmtp(g(ldc, 'animal_p'))})."
+                if ld_differs
+                else f"with no difference between them (p {_fmtp(g(ldc, 'animal_p'))})."
+            )
         )
     return {
         "headline": headline,
