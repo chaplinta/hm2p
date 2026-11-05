@@ -332,21 +332,6 @@ def read_frames_seek(video: Path, wanted: set[int]) -> dict[int, np.ndarray]:
     return got
 
 
-def _video_crop_size(sub: str, ses: str) -> tuple[float, float] | None:
-    """Width and height of the cropped overhead video (the pose pixel space)."""
-    import configparser
-
-    path = REPO / "metadata" / "video_meta" / f"{sub}_{ses}_meta.txt"
-    if not path.exists():
-        return None
-    cfg = configparser.ConfigParser()
-    cfg.read(path)
-    try:
-        return float(cfg["crop"]["width"]), float(cfg["crop"]["height"])
-    except (KeyError, ValueError):
-        return None
-
-
 def tracking_frames_asset(
     c: Ctx,
     kp: dict,
@@ -452,7 +437,7 @@ def _review_video_frames(
                 return got, "raw", note, (float(w), float(h))
             log.warning("%s %s: resampled video has %d frames, pose %d", c.sub, c.ses, n_out, n)
             note = f"The raw video resampled to 30 fps has {n_out} frames, not {n}. "
-        crop = _video_crop_size(c.sub, c.ses)
+        crop = _cropped_video_size(c.sub, c.ses)
         path = Path(td) / "labelled.mp4"
         if crop and _download(BUCKET, f"pose/{c.sub}/{c.ses}/labelled_30fps.mp4", path):
             note += (

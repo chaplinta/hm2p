@@ -133,7 +133,7 @@ def test_tracking_frames_asset_raw_and_fallback(monkeypatch, tmp_path, match):
         ("hm2p-derivatives", f"pose/{sub}/{ses}/labelled_30fps.mp4"): lab,
     })  # fmt: skip
     monkeypatch.setattr(mqr, "s3", lambda: s3)
-    monkeypatch.setattr(mqr, "_video_crop_size", lambda a, b: (64.0, 48.0))
+    monkeypatch.setattr(mqr, "_cropped_video_size", lambda a, b, retries=4: (64.0, 48.0))
     kp = _mouse(n=n)
     s = summarise_tracking(kp, fps=30.0, mm_per_px=0.5)
     s["worst_bins"] = [{"t_min": 0.0, "rank": 0.1}]
