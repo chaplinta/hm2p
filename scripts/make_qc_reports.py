@@ -1406,6 +1406,10 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - S3 entry p
     )
     ap.add_argument("-v", "--verbose", action="store_true")
     a = ap.parse_args(argv)
+    if a.tmp_dir:
+        # tempfile needs the parent to exist; a missing --tmp-dir made every
+        # frame-viewer and grid-movie session fail.
+        Path(a.tmp_dir).mkdir(parents=True, exist_ok=True)
     TRACKING_MEDIA.update(frames=not a.no_tracking_frames, tmp_dir=a.tmp_dir)
     SYLLABLE_MEDIA.update(
         enabled=not a.no_syllable_media, clips=not a.no_syllable_clips, tmp_dir=a.tmp_dir
