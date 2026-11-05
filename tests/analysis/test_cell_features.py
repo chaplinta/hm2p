@@ -479,7 +479,8 @@ def test_catch22_features_absent_package_returns_empty(monkeypatch: pytest.Monke
             return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
 
         ctx.setattr("builtins.__import__", fake_import)
-        assert cf.catch22_features(np.arange(50, dtype=np.float64)) == {}
+        with pytest.warns(RuntimeWarning, match="pycatch22 is not installed"):
+            assert cf.catch22_features(np.arange(50, dtype=np.float64)) == {}
 
 
 def test_catch22_features_present_package_returns_prefixed_keys(
