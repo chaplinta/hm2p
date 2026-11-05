@@ -57,6 +57,29 @@ def test_clip_window_truncates_long_bouts():
     assert last - first == 75 and (b0, b1) == (10, 65)
 
 
+def test_video_scale_per_axis():
+    # labelled videos are the cropped video resized to 416 x 304
+    assert sm.video_scale((832, 608), (416, 304)) == pytest.approx((0.5, 0.5))
+    assert sm.video_scale((832, 640), (416, 304)) == pytest.approx((0.5, 0.475))
+    with pytest.raises(ValueError):
+        sm.video_scale((0, 608), (416, 304))
+
+
+def test_video_scale_maps_frame_corners():
+    sx, sy = sm.video_scale((864, 640), (416, 304))
+    assert (864 * sx, 640 * sy) == pytest.approx((416, 304))
+    assert (432 * sx, 320 * sy) == pytest.approx((208, 152))  # centre stays centre
+
+
+def test_coords_fit_detects_swapped_size():
+    pos = np.array([[[800.0, 100.0], [np.nan, np.nan]], [[10.0, 630.0], [400.0, 300.0]]])
+    assert sm.coords_fit(pos, (832, 640))
+    assert not sm.coords_fit(pos, (640, 832))  # x = 800 is outside a 640-wide frame
+    assert not sm.coords_fit(np.full((3, 2), np.nan), (832, 640))
+    assert not sm.coords_fit([[-5.0, 10.0]], (832, 640))
+    assert sm.coords_fit([[-1.0, 641.0]], (832, 640), tol=2)
+
+
 def test_heading_angle():
     a = sm.heading_angle([[0, 0], [0, 0]], [[1, 0], [0, -1]])
     np.testing.assert_allclose(a, [0.0, -np.pi / 2])

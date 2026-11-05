@@ -74,19 +74,42 @@ def media_env(monkeypatch, tmp_path):
     monkeypatch.setattr(mqr, "OUT_DIR", tmp_path)
     monkeypatch.setattr(mqr, "get_bytes", lambda key, retries=4: store.get(key))
     monkeypatch.setattr(mqr, "_syllable_pose", lambda c: _pose())
-    monkeypatch.setattr(mqr, "_video_scale", lambda sub, ses: (0.5, 0.5))
+    monkeypatch.setattr(mqr, "_cropped_video_size", lambda sub, ses: (832.0, 608.0))
     return FakeCtx(_kin())
 
 
-def test_video_scale_reads_crop(monkeypatch, tmp_path):
-    d = tmp_path / "metadata" / "video_meta"
-    d.mkdir(parents=True)
-    (d / "sub-1_ses-2_meta.txt").write_text("[crop]\nwidth = 832\nheight = 640\n")
-    (d / "sub-1_ses-3_meta.txt").write_text("[scale]\nmm_per_pix = 1\n")
-    monkeypatch.setattr(mqr, "REPO", tmp_path)
-    assert mqr._video_scale("sub-1", "ses-2") == pytest.approx((0.5, 0.475))
-    assert mqr._video_scale("sub-1", "ses-3") is None
-    assert mqr._video_scale("sub-1", "ses-4") is None
+class _FakeS3:
+    def __init__(self, keys, url):
+        self.keys, self.url = keys, url
+
+    def list_objects_v2(self, **kw):
+        return {"Contents": [{"Key": k} for k in self.keys if k.startswith(kw["Prefix"])]}
+
+    def generate_presigned_url(self, *a, **kw):
+        return self.url
+
+
+def test_cropped_video_size_reads_video_header(monkeypatch, tmp_path):
+    pytest.importorskip("imageio_ffmpeg")
+    vid = qsm.encode_h264(np.zeros((2, 40, 64, 3), np.uint8), tmp_path / "v.mp4")
+    keys = [
+        "rawdata/sub-1/ses-2/behav/x_overhead.camera-cropped.mp4",
+        "rawdata/sub-1/ses-2/behav/a.csv",
+    ]
+    monkeypatch.setattr(mqr, "s3", lambda: _FakeS3(keys, str(vid)))
+    assert mqr._cropped_video_size("sub-1", "ses-2") == (64.0, 40.0)
+    assert mqr._cropped_video_size("sub-1", "ses-9") is None
+    monkeypatch.setattr(mqr, "s3", lambda: _FakeS3(keys, str(tmp_path / "missing.mp4")))
+    monkeypatch.setattr(mqr.time, "sleep", lambda s: None)
+    assert mqr._cropped_video_size("sub-1", "ses-2", retries=2) is None
+
+
+def test_session_media_rejects_wrong_video_size(media_env, monkeypatch):
+    # e.g. width and height swapped: the pose runs past the frame, so no clips
+    monkeypatch.setattr(mqr, "_cropped_video_size", lambda sub, ses: (300.0, 832.0))
+    d, arrays = mqr.syllable_session_media(media_env)
+    assert d["video_scale"] is None and d["video_size"] == (300.0, 832.0)
+    assert np.isnan(arrays["centre_vid"]).all()
 
 
 def test_download_file(monkeypatch, tmp_path):

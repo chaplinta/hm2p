@@ -609,7 +609,7 @@ def collect_syllables(c: Ctx) -> dict:
 
 # options set from the command line (see main); tests switch media off or on
 SYLLABLE_MEDIA: dict[str, Any] = {"enabled": True, "clips": True, "tmp_dir": None}
-SYL_MEDIA_VERSION = 2
+SYL_MEDIA_VERSION = 3  # 3: labelled-video scale from the real cropped-video size
 SYL_CONF = 0.5  # DLC likelihood for a keypoint to count as tracked
 SYL_WINDOW_MM = 180.0  # side of the square cropped around the animal for a tile
 SYL_OCC_EDGES = (np.arange(0.0, 7.001, 0.25), np.arange(0.0, 5.001, 0.25))  # maze units
@@ -623,24 +623,39 @@ def _syllable_dirs() -> tuple[Path, Path]:
     return OUT_DIR / "cache" / "syllables_media", OUT_DIR / "assets" / "syllables"
 
 
-def _video_scale(sub: str, ses: str) -> tuple[float, float] | None:
-    """(x, y) factors from pose pixels to labelled-video pixels.
+def _cropped_video_size(sub: str, ses: str, retries: int = 4) -> tuple[float, float] | None:
+    """(width, height) of the cropped overhead video that DLC ran on.
 
-    The labelled video is the cropped video resized to :data:`SYL_VIDEO_SIZE`,
-    not always with the same factor on both axes.
+    Read from the header of ``rawdata/.../behav/*overhead.camera-cropped.mp4``
+    (OpenCV on a presigned URL; only the header is fetched). This is the frame
+    the pose coordinates refer to and the one ``scripts/render_dlc_videos.py``
+    resized to make ``labelled_30fps.mp4``. The ``[crop]`` size in
+    ``metadata/video_meta`` is not used: in several sessions its width and
+    height are swapped relative to the video (e.g. 640 x 832 for an
+    832 x 640 video).
     """
-    import configparser
+    import cv2
 
-    path = REPO / "metadata" / "video_meta" / f"{sub}_{ses}_meta.txt"
-    if not path.exists():
-        return None
-    cfg = configparser.ConfigParser()
-    cfg.read(path)
-    try:
-        w, h = float(cfg["crop"]["width"]), float(cfg["crop"]["height"])
-    except (KeyError, ValueError):
-        return None
-    return SYL_VIDEO_SIZE[0] / w, SYL_VIDEO_SIZE[1] / h
+    for attempt in range(retries):
+        try:
+            resp = s3().list_objects_v2(Bucket=RAW_BUCKET, Prefix=f"rawdata/{sub}/{ses}/behav/")
+            keys = [o["Key"] for o in resp.get("Contents", [])]
+            key = next((k for k in keys if k.endswith("overhead.camera-cropped.mp4")), None)
+            if key is None:
+                return None
+            url = s3().generate_presigned_url(
+                "get_object", Params={"Bucket": RAW_BUCKET, "Key": key}, ExpiresIn=900
+            )
+            cap = cv2.VideoCapture(url)
+            w, h = cap.get(cv2.CAP_PROP_FRAME_WIDTH), cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            cap.release()
+            if w > 0 and h > 0:
+                return float(w), float(h)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("video size %s %s failed (attempt %d): %s", sub, ses, attempt + 1, exc)
+        time.sleep(1.5 * (attempt + 1))
+    log.warning("%s %s: could not read the cropped video size", sub, ses)
+    return None
 
 
 def _syllable_pose(c: Ctx) -> tuple[np.ndarray, np.ndarray, list[str]]:
@@ -769,8 +784,15 @@ def syllable_session_media(c: Ctx) -> tuple[dict, dict[str, np.ndarray]]:
             "turn_sum": float(tv.sum()),
             "turn_n": int(tv.size),
         }
-    vs = _video_scale(c.sub, c.ses)
+    size = _cropped_video_size(c.sub, c.ses)
+    vs = None
+    if size is not None:
+        if qsm.coords_fit(pos, size):
+            vs = qsm.video_scale(size, SYL_VIDEO_SIZE)
+        else:  # pose coordinates do not refer to this frame: no clips from this session
+            log.warning("%s %s: pose coordinates exceed the %gx%g video", c.sub, c.ses, *size)
     out = {
+        "video_size": size,
         "version": SYL_MEDIA_VERSION,
         "n_frames": int(n),
         "fps": fps,

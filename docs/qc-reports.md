@@ -139,7 +139,12 @@ keypoint-MoSeq (Weinreb et al. 2024):
   the clip), and tiled 3 × 3 at 120 px. An orange border marks the bout.
   The labelled video is the cropped camera video resized to 416 × 304, not
   always by the same factor on both axes, so pose pixels are scaled with the
-  crop size in `metadata/video_meta/` (sessions without it get no clips).
+  frame size read from the header of the rawdata
+  `*overhead.camera-cropped.mp4` (the video DLC ran on). The `[crop]` size in
+  `metadata/video_meta/` is not used: in the 2022-10/11 sessions its width and
+  height are swapped relative to the video (e.g. 640 × 832 for an 832 × 640
+  video), which put the mouse off-centre or outside the tile. A session whose
+  pose coordinates do not fit inside that frame size gets no clips.
   Each grid is an H.264 mp4, base64 in
   `results/qc/assets/syllables/syl_<id>.json` (loaded lazily by the page;
   about 60–120 kB each).

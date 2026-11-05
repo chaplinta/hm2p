@@ -360,7 +360,7 @@ function initSylPicker() {
   const mir = Object.entries(MEDIA.sessions || {}).filter(([, v]) => v.mirrored).map(([k]) => k);
   if (mir.length) notes.push(`Left and right ears appear swapped in the camera image for ${mir.join(", ")}; their egocentric x axis and turn sign were flipped.`);
   const noScale = Object.entries(MEDIA.sessions || {}).filter(([, v]) => !v.has_video_scale).map(([k]) => k);
-  if (noScale.length) notes.push(`No video crop size in metadata/video_meta for ${noScale.join(", ")}: no grid-movie clips from these sessions.`);
+  if (noScale.length) notes.push(`No usable cropped-video frame size (rawdata video header missing, or pose coordinates outside it) for ${noScale.join(", ")}: no grid-movie clips from these sessions.`);
   document.getElementById("syl-callout").innerHTML = notes.map(t => `<p class="callout">${QC.esc(t)}</p>`).join("");
 }
 

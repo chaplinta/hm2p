@@ -230,6 +230,40 @@ def egocentric_points(
     return np.stack([x, fwd], axis=-1)
 
 
+def video_scale(
+    src_size: tuple[float, float], out_size: tuple[float, float]
+) -> tuple[float, float]:
+    """(x, y) factors from pixels of a *src_size* (w, h) video to its resized copy *out_size*.
+
+    ``labelled_30fps.mp4`` is the cropped camera video (the frame DLC ran on)
+    resized to 416 x 304, so DLC pixel coordinates map to it with these
+    factors; they differ between x and y when the aspect ratios differ.
+    """
+    w, h = (float(v) for v in src_size)
+    if w <= 0 or h <= 0:
+        raise ValueError(f"invalid video size {src_size}")
+    return float(out_size[0]) / w, float(out_size[1]) / h
+
+
+def coords_fit(pos: npt.ArrayLike, size: tuple[float, float], tol: float = 2.0) -> bool:
+    """Whether finite (..., 2) pixel coordinates lie inside a (w, h) frame (with *tol* px).
+
+    A check that pose coordinates refer to a frame of this size; with the
+    wrong size (e.g. width and height swapped) keypoints fall outside it.
+    """
+    p = np.asarray(pos, dtype=np.float64).reshape(-1, 2)
+    p = p[np.isfinite(p).all(axis=1)]
+    if p.size == 0:
+        return False
+    w, h = size
+    return bool(
+        (p[:, 0] >= -tol).all()
+        and (p[:, 1] >= -tol).all()
+        and (p[:, 0] <= w + tol).all()
+        and (p[:, 1] <= h + tol).all()
+    )
+
+
 def tile_affine(
     centre: npt.ArrayLike,
     heading: float,
