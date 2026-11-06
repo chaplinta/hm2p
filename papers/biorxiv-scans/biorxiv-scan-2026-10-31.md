@@ -41,7 +41,7 @@ No new tangentially relevant preprints identified on 31 October 2026.
 **Retrosplenial cortex:** No new RSP-specific preprints on Oct 31.
 
 **Penk/enkephalin + cortex:** No relevant preprints. Striatum, brainstem, and
-opioid-circuit papers only. The gap on Penk+ RSP neurons in spatial/HD contexts
+oioid-circuit papers only. The gap on Penk+ RSP neurons in spatial/HD contexts
 persists — confirmed in every weekly scan since April 2026.
 
 **Head direction + darkness / landmarks / drift:** No new papers.

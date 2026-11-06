@@ -129,8 +129,7 @@ remains the dominant practice in 2026.
 **Papers found (last 7 days, by relevance):**
 
 | # | Title (abbreviated) | Date | Relevance |
-|---|---|---|
----|
+|---|---|---|---|
 | 1 | MINI2P-II multi-region 2P imaging | 2026-10-27 | High |
 | 2 | CA1 border neurons + RSC connectivity | 2026-10-29 | Moderate |
 | 3 | Bilateral RSC interhemispheric oscillations | 2026-10-30 | Tangential |
