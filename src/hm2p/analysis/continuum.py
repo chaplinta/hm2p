@@ -212,14 +212,14 @@ def knn_label_mixing(
     keeping the number of animals per label fixed. Returns per-label observed
     fractions, null means, and one-sided p values (observed >= null).
     """
-    X = np.asarray(X, float)
+    Xf: np.ndarray = np.asarray(X, float)
     labels = np.asarray(labels)
     animals = np.asarray(animals)
-    ok = np.all(np.isfinite(X), axis=1)
-    X, labels, animals = X[ok], labels[ok], animals[ok]
-    sd = X.std(axis=0)
-    X = (X - X.mean(axis=0)) / np.where(sd > 0, sd, 1)
-    d = np.sqrt(((X[:, None, :] - X[None, :, :]) ** 2).sum(-1))
+    ok = np.all(np.isfinite(Xf), axis=1)
+    Xf, labels, animals = Xf[ok], labels[ok], animals[ok]
+    sd = Xf.std(axis=0)
+    Xf = (Xf - Xf.mean(axis=0)) / np.where(sd > 0, sd, 1)
+    d = np.sqrt(((Xf[:, None, :] - Xf[None, :, :]) ** 2).sum(-1))
     np.fill_diagonal(d, np.inf)
     if exclude_same_animal:
         d[animals[:, None] == animals[None, :]] = np.inf
@@ -245,7 +245,7 @@ def knn_label_mixing(
         ]
     idx_of = {a: i for i, a in enumerate(animal_ids)}
     cell_animal_idx = np.array([idx_of[a] for a in animals])
-    null = {lab: [] for lab in uniq_labels}
+    null: dict[Any, list[float]] = {lab: [] for lab in uniq_labels}
     for combo in combos:
         is_first = np.isin(cell_animal_idx, combo)
         perm = np.where(is_first, first, uniq_labels[1])
