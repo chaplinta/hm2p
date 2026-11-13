@@ -218,7 +218,7 @@ def knn_label_mixing(
     ok = np.all(np.isfinite(X), axis=1)
     X, labels, animals = X[ok], labels[ok], animals[ok]
     sd = X.std(axis=0)
-    X = (X - X.mean(axis=0)) / np.where(sd > 0, sd, 1)
+    X = np.asarray((X - X.mean(axis=0)) / np.where(sd > 0, sd, 1))
     d = np.sqrt(((X[:, None, :] - X[None, :, :]) ** 2).sum(-1))
     np.fill_diagonal(d, np.inf)
     if exclude_same_animal:
@@ -245,7 +245,7 @@ def knn_label_mixing(
         ]
     idx_of = {a: i for i, a in enumerate(animal_ids)}
     cell_animal_idx = np.array([idx_of[a] for a in animals])
-    null = {lab: [] for lab in uniq_labels}
+    null: dict[str, list[float]] = {lab: [] for lab in uniq_labels}
     for combo in combos:
         is_first = np.isin(cell_animal_idx, combo)
         perm = np.where(is_first, first, uniq_labels[1])
