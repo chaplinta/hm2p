@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import base64
 import math
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -161,7 +162,7 @@ def choose_bin(
 
 
 def encode_traces(
-    traces: dict[str, np.ndarray | None],
+    traces: Mapping[str, np.ndarray | None],
     rois: npt.ArrayLike,
     n_per_bin: int = 1,
 ) -> dict[str, list[dict | None]]:

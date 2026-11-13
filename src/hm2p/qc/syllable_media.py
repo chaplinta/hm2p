@@ -334,7 +334,7 @@ def ego_windows(
 def trajectory_sums(windows: npt.ArrayLike) -> tuple[np.ndarray, np.ndarray]:
     """NaN-aware sum and count over bouts of (B, T, K, 2) windows -> (T, K, 2), (T, K)."""
     w = np.asarray(windows, dtype=np.float64)
-    ok = np.isfinite(w).all(axis=-1)
+    ok = np.asarray(np.isfinite(w).all(axis=-1))
     return np.where(ok[..., None], w, 0.0).sum(axis=0), ok.sum(axis=0)
 
 
