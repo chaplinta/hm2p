@@ -664,7 +664,9 @@ def catch22_features(trace: npt.NDArray[np.floating]) -> dict[str, float]:
         # Warn (once per process): a silent skip dropped all 22 features from
         # the 2026-10 h2/h6 tables without any message.
         warnings.warn(
-            "pycatch22 is not installed; catch22 features are omitted", RuntimeWarning, stacklevel=2
+            "pycatch22 is not installed; catch22 features are omitted",
+            RuntimeWarning,
+            stacklevel=2,
         )
         return {}
 

@@ -84,7 +84,7 @@ class PipelineConfig(BaseSettings):
             "Confidence cutoff for keypoint detections. Either a float in "
             "[0, 1] (fixed scalar threshold) or a string of the form "
             '``"quantile:Q"`` for a per-keypoint quantile threshold. '
-            'Default 0.5 (fixed likelihood cut-off; the per-keypoint quantile form '
+            "Default 0.5 (fixed likelihood cut-off; the per-keypoint quantile form "
             '``"quantile:0.25"`` drops the bottom quartile of each '
             "keypoint's confidence distribution per session, for models whose "
             "likelihoods are not on a usable absolute scale)."
