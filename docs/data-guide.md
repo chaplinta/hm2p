@@ -94,6 +94,12 @@ the data and there is no local equivalent.
 | `.../hm2p/brains-reg` | `/data/brains-reg` | brainreg registered brain volumes + segmentation |
 | `.../hm2p/video-meta-backup` | `/data/video-meta-backup` | Backup of per-session video crop/scale/ROI metadata |
 
+One Dropbox folder is mounted **read-write**: `.../Margrie/hm2p-v2-backup` at `/backup`. It
+holds dated archive copies of repository files that git does not hold (for example
+the DLC labelling images), each with a `.sha256` file and an entry in its `README.txt`.
+Write copies only; do not delete or overwrite anything in it. It is not source data
+and nothing in the pipeline reads from it.
+
 All mounts are configured in `.devcontainer/devcontainer.json`. A container rebuild is
 required after adding new mounts.
 
