@@ -49,6 +49,14 @@ You **may copy files from these directories into `/Users/tristan/Neuro/hm2p-v2`*
 bring in metadata CSVs, calibration files, or model weights). Do not delete or modify
 anything outside of `hm2p-v2`.
 
+**One exception — the backup folder:**
+`/Users/tristan/Library/CloudStorage/Dropbox/Neuro/Margrie/hm2p-v2-backup/` (mounted read-write
+at `/backup` in the devcontainer) holds backup copies of repository files that git does
+not hold, such as the DLC labelling images. You may add dated archive copies there, each
+with a `.sha256` file and an entry in its `README.txt`. Never delete, move or overwrite
+anything in it, never move originals into it, and never touch its sibling folders under
+`Margrie/`, which are source data.
+
 All new code goes in `/Users/tristan/Neuro/hm2p-v2`, connected to `github.com/chaplinta/hm2p` (public).
 
 **Git workflow:** `main` is protected — never push directly. Always create a feature
