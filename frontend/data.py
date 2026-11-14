@@ -870,7 +870,7 @@ def _fetch_all_sync_data() -> dict:
                 )
                 # Suite2p deconvolved spikes
                 deconv = f["deconv"][:] if "deconv" in f else None
-                # CASCADE calibrated spike rates (separate from deconv)
+                # CASCADE expected spikes per frame (separate from deconv)
                 spikes = f["spikes"][:] if "spikes" in f else None
                 deconv_norm = f["deconv_norm"][:] if "deconv_norm" in f else None
                 # Event masks (Voigts & Harnett binary events)

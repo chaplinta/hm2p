@@ -33,18 +33,18 @@
     <header class="top">
       <div class="eyebrow">hm2p · retrosplenial cortex · all imaged cells</div>
       <h1>What RSP neurons respond to in the maze</h1>
-      <p class="meta">Two-photon imaging of layer 2/3 retrosplenial neurons in freely moving mice exploring the Rosenberg maze, room lights alternating 1 min on / 1 min off. All soma ROIs pooled, not split by cell type. Exploratory results. Build __BUILD__.</p>
+      <p class="meta">Two-photon imaging of layer 2/3 retrosplenial neurons in freely moving mice exploring the Rosenberg maze, room lights alternating 1 min on / 1 min off. All soma ROIs pooled, not split by cell type. Exploratory results; numbers from the 2026-11 re-run on reprocessed data. Build __BUILD__.</p>
     </header>
 
     <section id="summary">
       <h2>Summary</h2>
-      <p class="finding">RSP layer 2/3 neurons in the maze are dominated by locomotion: about half of all cells track whether the mouse is running. Next come slow drift over the session, light, and entry into junctions and dead ends. Head direction, turns, novelty and junction choices are weak or absent.</p>
+      <p class="finding">RSP layer 2/3 neurons in the maze are dominated by locomotion: about half of all cells track whether the mouse is running. Next come head turning during events, light, and entry into junctions and dead ends, with head direction in about one cell in eight. Discrete turns, novelty, slow drift and junction choices are weak or absent.</p>
       <ul class="findings">
-        <li><span class="tag within">Common</span><span>Running vs still, coupling to running and speed during events: 44–50 % of cells (animal-level p &lt; 0.001). These responses cluster in the same cells.</span></li>
-        <li><span class="tag within">Present</span><span>Slow drift over the session (36 %), lights on during events (24 %), junction and dead-end entry (18 % each, half up, half down), into vs out of dead ends (15 %).</span></li>
-        <li><span class="tag lean">Population</span><span>The population, but no simple single-cell average, tells whether the mouse is heading into or out of a dead end, and this survives removing head direction (balanced accuracy 0.61–0.64 vs 0.49 chance). It does not predict which exit the mouse takes at a junction.</span></li>
-        <li><span class="tag within">Translation</span><span>Cells respond to running straight (45 % up) far more than to turning in place (10 %); graded turning at matched speed is at chance. Their syllable information is mostly about syllable speed.</span></li>
-        <li><span class="tag null">Absent or weak</span><span>Left and right turn responses, graded speed within runs, novelty, head-body angle and route specificity are at chance across animals. Head-direction cells are 10 % overall but concentrated in a few animals.</span></li>
+        <li><span class="tag within">Common</span><span>Running vs still, coupling to running and speed during events: 40–62 % of cells (animal-level p ≤ 0.0012). These responses cluster in the same cells.</span></li>
+        <li><span class="tag within">Present</span><span>Head turning during events (30 %), lights on during events (24 %), junction and dead-end entry (15 % each; up/down split not recomputed after the 2026-11 re-run), head direction (13 %, 60/469; animal-level p = 0.015), lights-on response (12 %), into vs out of dead ends (11 %).</span></li>
+        <li><span class="tag lean">Population</span><span>The population decodes whether the mouse is heading into or out of a dead end (balanced accuracy 0.59 vs 0.49 null, animal-level p = 0.034), but behaviour alone does about as well (0.57, p = 0.052) and with head direction removed the excess is not significant across mice (0.58 vs 0.50, p = 0.20). It does not predict which exit the mouse takes at a junction.</span></li>
+        <li><span class="tag within">Translation</span><span>Cells respond to running straight (53 % up, animal-level p = 6e-5). Turning in place is now too rare to test (median 1.5 s per session after the head-direction fix; 5 mice usable). Graded turning at matched speed: median ρ −0.11, animal-level p = 0.026. About half (median 55 %) of each cell's syllable information is about syllable speed.</span></li>
+        <li><span class="tag null">Absent or weak</span><span>Left and right turn responses, graded speed within runs, novelty, head-body angle, route specificity and slow drift over the session (5 %, previously 36 %) are at chance across animals.</span></li>
       </ul>
     </section>
 
@@ -98,9 +98,9 @@
 
     <section id="movement">
       <h2>Running vs turning</h2>
-      <p class="finding">RSP cells encode translation, not rotation: activity rises when the mouse runs straight, barely when it turns in place, and turning during a run slightly lowers it.</p>
+      <p class="finding">Activity rises when the mouse runs straight. With the corrected head direction, turning in place is too rare to compare with running (5 of 15 mice have enough of it), so the earlier translation-versus-rotation contrast cannot be tested in these data.</p>
       <div class="prose">
-        <p>In this maze the mouse turns while moving more than it runs straight, and turning in place is short (median 60 s per session, range 6–168 s). Frames are classed as still (speed &lt; 2 cm/s, |AHV| &lt; 30 deg/s), running straight (≥ 4 cm/s, &lt; 30 deg/s), turning in place (&lt; 2 cm/s, ≥ 90 deg/s) and running while turning (≥ 4 cm/s, ≥ 90 deg/s), with bouts of at least 0.3 s. Within running, speed and turning are uncorrelated (ρ ≈ 0), so the contrasts separate them.</p>
+        <p>In this maze the mouse turns while moving more than it runs straight, and turning in place is short (median 1.5 s per session, range 0–11 s, after the 2026-11 head-direction fix; previously median 60 s). Frames are classed as still (speed &lt; 2 cm/s, |AHV| &lt; 30 deg/s), running straight (≥ 4 cm/s, &lt; 30 deg/s), turning in place (&lt; 2 cm/s, ≥ 90 deg/s) and running while turning (≥ 4 cm/s, ≥ 90 deg/s), with bouts of at least 0.3 s. Within running, speed and turning are uncorrelated (ρ ≈ 0), so the contrasts separate them.</p>
       </div>
       <div class="two">
         <div class="chart-block">
@@ -116,13 +116,13 @@
         </div>
       </div>
       <ul class="plain">
-        <li><strong>Syllables.</strong> Most cells carry information about which behavioural syllable the mouse is in, but that information is mostly about how fast the syllable is: speed class (still, slow, fast) accounts for a median <span id="ms-share"></span> of each cell's syllable information, and cells barely distinguish between syllables within the fast class.</li>
+        <li><strong>Syllables.</strong> Most cells carry information about which behavioural syllable the mouse is in, and about half of it is about how fast the syllable is: speed class (still, slow, fast) accounts for a median <span id="ms-share"></span> of each cell's syllable information. Information between syllables within the fast class is small but above chance across mice.</li>
       </ul>
     </section>
 
     <section id="population">
       <h2>Population decoding</h2>
-      <p class="finding">Pooling every cell in a session, the population carries whether the mouse is heading into or out of a dead end, beyond head direction, speed and turning. It does not carry the upcoming junction choice.</p>
+      <p class="finding">Pooling every cell in a session, the population carries whether the mouse is heading into or out of a dead end, but not beyond head direction at the animal level, and behaviour alone decodes it about as well. It does not carry the upcoming junction choice.</p>
       <div class="chart-block">
         <div class="chart-head"><span class="chart-title" id="pd-title">Decoding above chance, per question</span></div>
         <div id="plot-pd" class="plot" role="img" aria-labelledby="pd-title"></div>
@@ -138,7 +138,7 @@
 
     <section id="celltype">
       <h2>By cell type</h2>
-      <p class="finding">Comparing Penk+ with Penk⁻CamKII+ on every variable, at matched brightness: Penk+ has more running cells, the same rate of head-direction and maze-event cells, and fewer light and stopping cells. It is not simply more responsive overall.</p>
+      <p class="finding">Comparing Penk+ with Penk⁻CamKII+ on every variable, at matched brightness: Penk+ has more running and speed cells, about the same rate of head-direction and dead-end cells, fewer novelty cells, and light responses that differ by measure (fewer lights-on-during-events cells, more lights-on-response cells). It is not simply more responsive overall.</p>
       <div class="chart-block">
         <div class="chart-head"><span class="chart-title" id="sp-title">Penk+ minus Penk⁻ in % responsive cells (brightness-matched)</span></div>
         <div id="plot-sp" class="plot xtall" role="img" aria-labelledby="sp-title"></div>
@@ -151,7 +151,7 @@
       <ul class="plain">
         <li>Variables come from different analyses on different signals (CASCADE spikes, dF/F events, dF/F), each with its own null, so the percentages are comparable only roughly.</li>
         <li>Junction and dead-end entry responses are not speed-controlled; part of them may reflect slowing on arrival.</li>
-        <li>Head direction significance comes from an earlier analysis on the whole session (dF/F); about half the HD cells come from a few animals.</li>
+        <li>Head direction significance comes from an earlier analysis on the whole session (dF/F); the fraction of HD cells varies widely between mice (0–67 %).</li>
         <li>The same neurons can appear in several sessions of one mouse; the animal-level tests are the safer guide.</li>
       </ul>
     </section>

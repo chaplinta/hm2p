@@ -426,7 +426,7 @@ with col2:
         _ylabel = "Deconv (norm)"
     elif signal_type == "Spikes (CASCADE)" and "spikes" in ca_data:
         trace = ca_data["spikes"][roi_idx]
-        _ylabel = "Spikes (spk/s)"
+        _ylabel = "Spikes (expected/frame)"
     else:
         trace = dff[roi_idx]
         _ylabel = "dF/F0"

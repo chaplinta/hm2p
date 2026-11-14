@@ -31,12 +31,10 @@ Muller et al. 1987. J Neurosci 7(7):1951-1968 (circular-shift null).
 
 from __future__ import annotations
 
-import io
 import re
 from pathlib import Path
 
 import boto3
-import h5py
 import numpy as np
 import pandas as pd
 from scipy.stats import mannwhitneyu, wilcoxon
@@ -52,7 +50,7 @@ N_BINS = 36
 SMOOTH_DEG = 6.0
 N_SHUFFLES = 1000
 SEED = 12345
-OUTDIR = Path("/workspace/results/neuropil_control")
+OUTDIR = Path(__file__).resolve().parent.parent / "results" / "neuropil_control"
 
 
 # ---------------------------------------------------------------------------
@@ -65,8 +63,8 @@ def expid_to_subses(eid: str) -> tuple[str, str]:
 
 
 def load_metadata() -> pd.DataFrame:
-    exp = pd.read_csv("/workspace/metadata/experiments.csv")
-    ani = pd.read_csv("/workspace/metadata/animals.csv")
+    exp = pd.read_csv(Path(__file__).resolve().parent.parent / "metadata" / "experiments.csv")
+    ani = pd.read_csv(Path(__file__).resolve().parent.parent / "metadata" / "animals.csv")
     ani["animal_id"] = ani["animal_id"].astype(str)
     exp["sub"], exp["ses"] = zip(*exp["exp_id"].map(expid_to_subses))
     exp["animal_id"] = exp["exp_id"].str.extract(r"_(\d+)$")[0]
@@ -100,8 +98,12 @@ def mvl_for_mask(signal: np.ndarray, hd: np.ndarray, mask: np.ndarray) -> float:
 
 
 def process_session(s3, sub: str, ses: str, rng) -> dict:
-    o = s3.get_object(Bucket=BUCKET, Key=f"sync/{sub}/{ses}/sync.h5")
-    with h5py.File(io.BytesIO(o["Body"].read()), "r") as f:
+    from hm2p.io.s3 import open_h5
+
+    f = open_h5(BUCKET, f"sync/{sub}/{ses}/sync.h5", client=s3)
+    if f is None:
+        raise RuntimeError(f"sync.h5 download failed for {sub}/{ses}")
+    with f:
         fps = float(f.attrs.get("fps_imaging", 9.643))
         hd = f["hd_deg"][:].astype(np.float64)
         speed = f["speed_cm_s"][:].astype(np.float64)

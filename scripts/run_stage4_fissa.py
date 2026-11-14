@@ -383,17 +383,20 @@ def run_session_fissa(  # pragma: no cover - EC2 I/O + subprocess orchestration
     # 8. Ensure roi_class.npy exists (run() requires it, no fallback). Existing
     # Stage 1 output normally carries it; classify inline if a session predates
     # the classifier, mirroring run_stage4_calcium.py.
-    if not (existing_plane0 / "roi_class.npy").exists():
-        from hm2p.extraction.roi_classify import classify_session
-
-        log.info("roi_class.npy missing — running ROI classifier inline")
-        classify_session(existing_plane0)
-
-    # 9. Re-run Stage 4 with the FISSA-corrected traces. timestamps.h5 lives
-    # under movement/ (Stage 0/3 output), and is required by run().
+    # timestamps.h5 lives under movement/ (Stage 0/3 output); it gives the
+    # imaging rate for the classifier and is required by run().
     _s3_cp(
         f"s3://{DERIVATIVES_BUCKET}/movement/{sub}/{ses}/timestamps.h5", ts_path
     )
+    if not (existing_plane0 / "roi_class.npy").exists():
+        from hm2p.extraction.roi_classify import classify_session
+        from hm2p.extraction.run_suite2p import fps_from_timestamps
+
+        log.info("roi_class.npy missing — running ROI classifier inline")
+        # imaging rate from timestamps.h5, not ops["fs"] (29.97 in the EC2 run)
+        classify_session(existing_plane0, fps=fps_from_timestamps(ts_path))
+
+    # 9. Re-run Stage 4 with the FISSA-corrected traces.
     ca_h5 = sess_dir / "ca.h5"
     run(
         suite2p_dir=existing_plane0.parent,

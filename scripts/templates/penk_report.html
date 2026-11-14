@@ -228,19 +228,19 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
 
     <div class="pending" role="note">
       <span class="tag lean">Data status</span>
-      <p><strong>Penk+ vs Penk⁻CamKII+ comparisons on this page are confounded by processing.</strong> QC on 2026-10-06 found that the original 9 Penk sessions used fixed-coefficient neuropil subtraction while the 17 reprocessed sessions, which include every Penk⁻ session, used FISSA (dF/F inflated; CASCADE rates track noise). Stored head direction also had an estimator bug. Fixes are in progress; amplitude, rate and running comparisons here should be re-run on the corrected data before being relied on.</p>
+      <p><strong>2026-11-06: data re-run after the 2026-10 QC fixes.</strong> All 26 sessions now use FISSA neuropil subtraction (previously 9 Penk sessions used a fixed coefficient), so Penk+ and Penk⁻CamKII+ are processed identically. Head direction, Suite2p ROIs (true ~9.6 Hz frame rate), CASCADE units and spike-signal MI binning were also corrected. Figures and data-driven tables are from the re-run. Main changes: the event-amplitude and inferred-rate differences are gone, the running and light composites are no longer significant across animals, and the larger dark loss of AHV modulation in Penk⁻ is not present. Hand-typed numbers that could not be recomputed are marked.</p>
     </div>
 
     <section id="summary">
       <h2>Summary</h2>
       <p class="finding">Penk+ cells fire long, rare events while the mouse is running, and report whether it is running rather than how fast. Penk⁻CamKII+ cells follow the room lights more closely.</p>
       <ul class="findings">
-        <li><span class="tag within">Cells</span><span>The mouse runs faster than chance during the events of 52 % of Penk+ cells vs 26 % of Penk⁻CamKII+ cells. 58 % vs 35 % of cells step up when the mouse runs; only 7 % vs 4 % track graded speed, which is chance.</span></li>
-        <li><span class="tag within">Cells</span><span>The bias is specific. At matched brightness Penk+ has more running cells (+13 to +21 points), the same rate of head-direction and maze-event cells, and fewer light (−11) and stopping (−7) cells. It is translation, not turning: running straight raises activity in half of Penk+ cells, turning in place in about 10 %. Penk+ syllable information is mostly about syllable speed (88 % vs 44 % in Penk⁻).</span></li>
-        <li><span class="tag within">Cells</span><span>Penk+ events are longer (3.1 vs 2.6 s) and rarer (interval 30 vs 25 s) with the same isolated-event decay (0.31 vs 0.31 s). Penk+ cells are about twice as bright, and their smaller amplitude and lower inferred rate cannot be separated from that.</span></li>
-        <li><span class="tag within">Cells</span><span>Penk⁻CamKII+ cells are more light-modulated (light modulation, lights-on response, GLM light share; Cliff's δ −0.12 to −0.16) and lose more of their AHV modulation in the dark (dF/F units, so partly brightness-dependent).</span></li>
-        <li><span class="tag lean">Animals</span><span>With each animal as one data point (11 vs 4) most of these lean the same way without reaching significance alone; rank composites reach p = 0.037 (running, Penk+ higher) and p = 0.009 (light, Penk⁻CamKII+ higher), defined post hoc.</span></li>
-        <li><span class="tag null">Maze</span><span>In the maze, Penk+ activity marks travelling bouts, not where the mouse goes: no preference for corridors vs junctions, runs into vs out of dead ends, or new vs familiar territory, and only weak, shared route specificity. A Penk+ event (3.1 s) usually spans several runs (median 1.3 s).</span></li>
+        <li><span class="tag within">Cells</span><span>The mouse runs faster than chance during the events of 48 % of Penk+ cells vs 24 % of Penk⁻CamKII+ cells. 59 % vs 45 % of cells step up when the mouse runs; 10 % vs 6 % track graded speed, near chance.</span></li>
+        <li><span class="tag within">Cells</span><span>The bias is specific. At matched brightness Penk+ has more running cells (+14 to +21 points), about the same rate of head-direction and dead-end cells, fewer novelty cells (−8) and fewer lights-on-during-events cells (−6) but more lights-on-response cells (+7). Running straight raises activity in 55 % of Penk+ cells; turning in place is now too rare to test. Speed class accounts for a median 57 % of Penk+ syllable information vs 39 % in Penk⁻.</span></li>
+        <li><span class="tag within">Cells</span><span>Penk+ events are longer (3.2 vs 2.7 s, animal means) and rarer (interval 31 vs 27 s) with the same isolated-event decay (cell medians 0.31 vs 0.31 s). Penk+ cells are about twice as bright. Event amplitude (0.48 vs 0.48 dF/F) and CASCADE rate (0.20 vs 0.18 spikes/s) do not differ after the re-run.</span></li>
+        <li><span class="tag lean">Cells</span><span>Penk⁻CamKII+ cells lean more light-modulated (GLM light share δ −0.14, p = 0.009, FDR 0.054; lights on during events δ −0.11, p = 0.048; light modulation δ −0.08, p = 0.18). The earlier lights-on response difference and the larger dark loss of AHV modulation in Penk⁻ are not present after the re-run.</span></li>
+        <li><span class="tag lean">Animals</span><span>With each animal as one data point (11 vs 4) most of these lean the same way without reaching significance alone. The post hoc rank composites lean the expected way but are not significant: one-sided permutation p = 0.12 (running, Penk+ higher) and p = 0.10 (light, Penk⁻CamKII+ higher); before the re-run they were p = 0.037 and 0.009.</span></li>
+        <li><span class="tag null">Maze</span><span>In the maze, Penk+ activity marks travelling bouts, not where the mouse goes: no preference for corridors vs junctions, runs into vs out of dead ends, or new vs familiar territory, and only weak, shared route specificity. A Penk+ event (about 3 s) usually spans several runs (median 1.3 s (not recomputed after the 2026-11 re-run)).</span></li>
       </ul>
     </section>
 
@@ -252,7 +252,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
           <tbody>
             <tr><td>Animals imaged</td><td class="num">11</td><td class="num">4</td></tr>
             <tr><td>Non-excluded sessions</td><td class="num">16</td><td class="num">7</td></tr>
-            <tr><td>Soma ROIs</td><td class="num">309</td><td class="num">141</td></tr>
+            <tr><td>Soma ROIs</td><td class="num">314</td><td class="num">155</td></tr>
             <tr><td>Ex vivo cells (layer 2/3, mostly dysgranular RSP)</td><td class="num">23</td><td class="num">14</td></tr>
           </tbody>
         </table>
@@ -265,12 +265,12 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
     <header class="part" id="part1">
       <div class="eyebrow">Part 1</div>
       <h2>Cell by cell</h2>
-      <p class="prose meta">309 Penk+ cells from 11 animals and 141 Penk⁻CamKII+ cells from 4 animals, pooled. Two-sided Mann-Whitney U and Cliff's δ between cell types (δ = P(Penk+ &gt; Penk⁻) − P(Penk+ &lt; Penk⁻), 0 = no difference), Benjamini-Hochberg FDR within each section; Wilcoxon signed-rank against 0 within a cell type; Fisher exact test on the fraction of individually significant cells. None of these accounts for animal.</p>
+      <p class="prose meta">314 Penk+ cells from 11 animals and 155 Penk⁻CamKII+ cells from 4 animals, pooled. Two-sided Mann-Whitney U and Cliff's δ between cell types (δ = P(Penk+ &gt; Penk⁻) − P(Penk+ &lt; Penk⁻), 0 = no difference), Benjamini-Hochberg FDR within each section; Wilcoxon signed-rank against 0 within a cell type; Fisher exact test on the fraction of individually significant cells. None of these accounts for animal.</p>
     </header>
 
     <section id="cells">
       <h2>All measures</h2>
-      <p class="finding">Cell by cell, Penk+ differs from Penk⁻CamKII+ on running, on the event signature and on population coupling; the light measures lean the other way.</p>
+      <p class="finding">Cell by cell, Penk+ differs from Penk⁻CamKII+ on running, on event timing and brightness, and on noise correlation; the light measures lean the other way.</p>
       <div class="chart-block">
         <div class="chart-head">
           <span class="chart-title" id="cell-title">Every cell, by cell type</span>
@@ -291,7 +291,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
         </table>
       </div>
       <ul class="plain">
-        <li><strong>Brightness-dependent measures.</strong> Amplitude, inferred spike rate, AHV modulation depth (in dF/F units), noise correlation and population coupling all scale with signal size or signal-to-noise, and Penk+ cells are about twice as bright. Treat their cell-level differences as partly technical.</li>
+        <li><strong>Brightness-dependent measures.</strong> Amplitude, inferred spike rate, AHV modulation depth (in dF/F units), noise correlation and population coupling all scale with signal size or signal-to-noise, and Penk+ cells are about twice as bright. Treat their cell-level differences as partly technical. After the re-run, amplitude and inferred rate no longer differ and AHV modulation depth is higher in Penk+ (δ +0.23), the reverse of the earlier result.</li>
         <li><strong>Measures that do not scale with brightness</strong> (event timing, isolated decay, shuffle z scores, step index, fraction of significant cells) are the ones to read for biology.</li>
       </ul>
     </section>
@@ -315,7 +315,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
 
     <section id="specific">
       <h2>Running, not everything</h2>
-      <p class="finding">Penk+ cells are not simply more responsive. At matched brightness they have more running cells, the same rate of head-direction and maze-event cells, and fewer light and stopping cells; and their running signal is about translation, not turning.</p>
+      <p class="finding">Penk+ cells are not simply more responsive. At matched brightness they have more running cells, about the same rate of head-direction and dead-end cells, and fewer novelty and lights-on-during-events cells; whether their running signal is about translation rather than turning can no longer be tested, because turning in place is too rare with the corrected head direction.</p>
       <div class="chart-block">
         <div class="chart-head"><span class="chart-title" id="spk-title">Penk+ minus Penk⁻ in % responsive cells, every variable (brightness-matched)</span></div>
         <div id="plot-spk" class="plot" style="height:620px" role="img" aria-labelledby="spk-title"></div>
@@ -335,8 +335,8 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
         </div>
       </div>
       <ul class="plain">
-        <li><strong>Translation, not rotation.</strong> Running straight raises activity in half of Penk+ cells (a third of Penk⁻). Turning in place raises it in about 10 % of both, and graded turning at matched running speed is at chance in both. Turning during a run slightly lowers activity. The earlier "head turning during events" result was running in disguise: in this maze the mouse turns mostly while moving.</li>
-        <li><strong>Why syllables did not separate the cell types.</strong> The earlier test compared how much syllable information each cell carries, and the amounts are similar. What differs is the kind: in Penk+ cells, speed class (still, slow, fast) accounts for a median <span id="syl-share-p"></span> of their syllable information, against <span id="syl-share-n"></span> in Penk⁻ cells, and a Penk+ cell's preference across syllables follows syllable speed (median ρ <span id="syl-rho-p"></span> vs <span id="syl-rho-n"></span>). Penk+ cells report how fast the current syllable is, not which syllable it is. Within the fast syllables, neither type distinguishes one from another.</li>
+        <li><strong>Running straight.</strong> Running straight raises activity in 55 % of Penk+ cells and 49 % of Penk⁻ cells (between cell types p = 0.004 on cells, 0.34 on animals). With the corrected head direction, turning in place lasts a median 1.5 s per session and only 5 mice (152 cells) have enough of it, so the earlier comparison with turning in place (about 10 % of cells) cannot be repeated. Graded turning at matched running speed: median ρ −0.13 (Penk+) and −0.11 (Penk⁻), not significant across animals.</li>
+        <li><strong>Why syllables did not separate the cell types.</strong> The earlier test compared how much syllable information each cell carries, and the amounts are similar. What differs is the kind: in Penk+ cells, speed class (still, slow, fast) accounts for a median <span id="syl-share-p"></span> of their syllable information, against <span id="syl-share-n"></span> in Penk⁻ cells, and a Penk+ cell's preference across syllables follows syllable speed (median ρ <span id="syl-rho-p"></span> vs <span id="syl-rho-n"></span>). Penk+ cells report how fast the current syllable is more than which syllable it is. Within the fast syllables the information is small (median about 1–2 mbit) but above chance in Penk+ across animals (p = 0.014).</li>
       </ul>
     </section>
 
@@ -376,13 +376,14 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
         </table>
       </div>
       <ul class="plain">
-        <li><strong>Coupling to running is the only strong signal.</strong> Penk+ activity is correlated with the run indicator in 51 % of cells (median z 1.9; animal-level p = 0.001), more than Penk⁻CamKII+ (37 %, z 1.2; between cell types p &lt; 0.001 on cells, 0.10 on animals).</li>
+        <li><strong>Coupling to running is the only strong signal.</strong> Penk+ activity is correlated with running in 66 % of cells, more than Penk⁻CamKII+ (54 %; Fisher p = 0.015 on cells, animal-level Mann-Whitney p = 0.10; all-cells cross-correlation measure). The median z values and within-group animal p of the maze runner were not recomputed after the 2026-11 re-run.</li>
         <li><strong>Where the run goes does not matter.</strong> Runs into vs out of dead ends: median z ≈ 0 in both, 13–16 % of cells individually significant with mixed signs. New vs visited territory and repeated traversals of the same corridor: no effect in Penk+.</li>
         <li><strong>Route specificity is weak and shared.</strong> Per-route activity is slightly more consistent than shuffled routes in both cell types (median z 0.34 vs 0.39), but only 8–12 % of cells pass individually, close to the 5 % expected by chance. This is a small population-wide effect, not a Penk+ route code.</li>
         <li><strong>No lead or lag.</strong> Activity rises with running, not before it; there is no preparatory signal at this time resolution (~0.1 s frames, CASCADE).</li>
         <li><strong>Slightly more in the light.</strong> Penk+ cells are a little more active on light runs than on dark runs at matched speed (z 0.33 on cells; not significant across animals), so optic flow may add a small amount on top of self-motion.</li>
-        <li><strong>Events span runs.</strong> Most runs last 1.1–1.7 s (median 1.3 s, 4003 runs in 23 sessions); a median Penk+ event lasts 3.1 s. A Penk+ event therefore typically covers more than one run, plus the pauses at junctions in between.</li>
+        <li><strong>Events span runs.</strong> Most runs last 1.1–1.7 s (median 1.3 s, 4003 runs in 23 sessions); a median Penk+ event lasts about 3 s (animal median 2.9 s after the re-run). A Penk+ event therefore typically covers more than one run, plus the pauses at junctions in between.</li>
       </ul>
+      <p class="caption">Hand-typed numbers in these notes were not recomputed after the 2026-11 re-run; the table and figures above are current.</p>
       <div class="prose">
         <p><strong>What this means in the maze.</strong> The Penk+ signal is not tied to a place, a route, a goal (dead end) or novelty. It marks that the mouse is in a bout of travelling through the maze, at a timescale of several seconds that spans individual corridor runs. The simplest reading is a locomotor state signal (the mouse is moving through the maze now) rather than a navigational variable. Two things it could still feed: integrating self-motion over a bout (path integration needs exactly a "currently moving" gate), or marking travel epochs for later memory. Neither is tested here.</p>
       </div>
@@ -434,6 +435,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
         <li><strong>The axes are not opposite ends of one variable.</strong> Running and light scores are weakly positively correlated across cells, so "running cells" are not simply "non-visual cells".</li>
         <li><strong>A graded hint, with a caveat.</strong> Within Penk+, brighter cells score higher on the running axis (ρ = 0.16, p = 0.005), but not within Penk⁻. Brightness could track Cre or reporter level, but it also raises signal-to-noise and so the detectability of coupling.</li>
       </ul>
+      <p class="caption">Hand-typed numbers in these notes were not recomputed after the 2026-11 re-run; the table and figures above are current.</p>
       <p class="caption">The transcriptomic side of this question is answered with Allen atlas data in the next section.</p>
     </section>
 
@@ -518,7 +520,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
 
     <section id="events">
       <h2>Calcium event signature</h2>
-      <p class="finding">Penk+ calcium events are longer and rarer, with the same indicator kinetics.</p>
+      <p class="finding">Penk+ calcium events are longer and rarer (interval p = 0.040, duration p = 0.10 across animals), with the same indicator kinetics; amplitude and inferred rate do not differ.</p>
       <div class="chart-block">
         <div class="chart-head">
           <span class="chart-title" id="ev-title">Animal medians over cell spread</span>
@@ -531,20 +533,20 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
         <table>
           <thead><tr><th>Metric (animal means)</th><th>Penk+</th><th>Penk⁻CamKII+</th><th>Animal p</th><th>Perm p</th><th>FDR</th><th>CLES</th></tr></thead>
           <tbody>
-            <tr><td>Event duration (s)</td><td class="num">3.27</td><td class="num">2.63</td><td class="num">0.078</td><td class="num">0.010</td><td class="num">0.061</td><td class="num">0.82</td></tr>
-            <tr><td>Inter-event interval (s)</td><td class="num">30.9</td><td class="num">25.4</td><td class="num">0.040</td><td class="num">0.007</td><td class="num">0.061</td><td class="num">0.86</td></tr>
-            <tr><td>Event decay time (s)</td><td class="num">2.43</td><td class="num">2.00</td><td class="num">0.078</td><td class="num">0.011</td><td class="num">0.061</td><td class="num">0.82</td></tr>
-            <tr><td>Event amplitude (dF/F units)</td><td class="num">4.6</td><td class="num">7.8</td><td class="num">0.026</td><td class="num">0.044</td><td class="num">0.106</td><td class="num">0.11</td></tr>
-            <tr><td>CASCADE spike rate (spikes/s)</td><td class="num">0.13</td><td class="num">0.19</td><td class="num">0.078</td><td class="num">0.063</td><td class="num">0.13</td><td class="num">0.18</td></tr>
-            <tr><td>Event SNR</td><td class="num">11.5</td><td class="num">11.0</td><td class="num">0.57</td><td class="num">0.81</td><td class="num">0.81</td><td class="num">0.39</td></tr>
+            <tr><td>Event duration (s)</td><td class="num">3.22</td><td class="num">2.69</td><td class="num">0.104</td><td class="num">0.018</td><td class="num">0.131</td><td class="num">0.80</td></tr>
+            <tr><td>Inter-event interval (s)</td><td class="num">31.0</td><td class="num">26.6</td><td class="num">0.040</td><td class="num">0.021</td><td class="num">0.131</td><td class="num">0.86</td></tr>
+            <tr><td>Event decay time (s)</td><td class="num">2.40</td><td class="num">2.03</td><td class="num">0.078</td><td class="num">0.023</td><td class="num">0.131</td><td class="num">0.82</td></tr>
+            <tr><td>Event amplitude (dF/F units)</td><td class="num">0.48</td><td class="num">0.48</td><td class="num">1.0</td><td class="num">0.67</td><td class="num">0.67</td><td class="num">0.50</td></tr>
+            <tr><td>CASCADE inferred rate (spikes/s)</td><td class="num">0.20</td><td class="num">0.18</td><td class="num">0.75</td><td class="num">0.60</td><td class="num">0.86</td><td class="num">0.57</td></tr>
+            <tr><td>Event SNR</td><td class="num">12.3</td><td class="num">12.7</td><td class="num">0.34</td><td class="num">0.16</td><td class="num">0.34</td><td class="num">0.32</td></tr>
           </tbody>
         </table>
       </div>
       <ul class="plain">
-        <li><strong>Indicator kinetics are equal.</strong> Isolated small events decay with the same time constant (median 0.31 vs 0.31 s; brightness-matched 0.34 vs 0.35 s), so longer Penk+ events reflect longer firing episodes.</li>
-        <li><strong>Penk+ cells are about twice as bright</strong> at baseline (84 vs 37 raw F), most likely from the different Cre-ON and Cre-OFF constructs.</li>
-        <li><strong>Duration and interval</strong> keep their direction on rate-matched and brightness-matched cells (CLES 0.70–0.82) but lose significance.</li>
-        <li><strong>Amplitude and rate are tied to expression.</strong> The amplitude difference comes from the four brightest Penk+ animals (median amplitude about 1; the other seven overlap Penk⁻CamKII+), and within Penk+ brighter cells get lower inferred rates (ρ = −0.42). "Penk+ cells fire less" is treated as unconfirmed.</li>
+        <li><strong>Indicator kinetics are equal.</strong> Isolated small events decay with the same time constant (cell medians 0.31 vs 0.31 s; brightness-matched animal means 0.32 vs 0.33 s, p = 0.95; 23 sessions), so longer Penk+ events reflect longer firing episodes.</li>
+        <li><strong>Penk+ cells are about twice as bright</strong> at baseline (cell medians 83 vs 38 raw F), most likely from the different Cre-ON and Cre-OFF constructs.</li>
+        <li><strong>Duration and interval</strong> keep their direction on rate-matched and brightness-matched cells (CLES 0.73–0.86); only the interval on rate-matched cells stays below p = 0.05 (p = 0.040; brightness-matched p = 0.054).</li>
+        <li><strong>Amplitude and rate no longer differ.</strong> Before the re-run, Penk+ events were smaller (4.6 vs 7.8 dF/F units, p = 0.026) with a lower inferred rate, at a time when the 9 original Penk sessions used fixed-coefficient neuropil subtraction and CASCADE units were wrong. With FISSA for all sessions and corrected units, amplitude is 0.48 vs 0.48 (p = 1.0) and rate 0.20 vs 0.18 spikes/s (p = 0.75).</li>
       </ul>
     </section>
 
@@ -579,7 +581,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
           <thead><tr><th>Measure</th><th>Penk+</th><th>Penk⁻CamKII+</th><th>Notes</th></tr></thead>
           <tbody>
             <tr><td>During-event speed / movement z</td><td class="num">1.8 / 1.9</td><td class="num">1.1 / 1.3</td><td>Penk+ animal Wilcoxon p = 0.001–0.002; between groups CLES 0.77–0.80, ns</td></tr>
-            <tr><td>Cells with significant run-vs-still step</td><td class="num">63 %</td><td class="num">40 %</td><td>CASCADE spikes, Penk+ p = 0.004; dF/F 47 % vs 35 %, Penk+ p = 0.003. Between groups CLES 0.81–0.82, permutation p 0.21–0.24</td></tr>
+            <tr><td>Cells with significant run-vs-still step</td><td class="num">63 %</td><td class="num">40 %</td><td>CASCADE spikes, Penk+ p = 0.004; dF/F 47 % vs 35 %, Penk+ p = 0.003. Between groups CLES 0.81–0.82, permutation p 0.21–0.24 (not recomputed after the 2026-11 re-run)</td></tr>
             <tr><td>Graded speed correlation while running</td><td class="num">chance</td><td class="num">chance</td><td>neither group encodes speed within runs</td></tr>
             <tr><td>Early vs late activity within runs</td><td class="num">≈ 0</td><td class="num">≈ 0</td><td>sustained through runs</td></tr>
             <tr><td>Summed activity vs run length (ρ)</td><td class="num">0.22</td><td class="num">—</td><td>Penk+ animal Wilcoxon p = 0.004</td></tr>
@@ -587,6 +589,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
           </tbody>
         </table>
       </div>
+      <p class="caption">This table and the paragraph below are hand-typed and were not recomputed after the 2026-11 re-run.</p>
       <div class="prose">
         <p>Brightness does not explain the running effect: within Penk+ the running index barely tracks baseline fluorescence (ρ = 0.11), and it holds on brightness-matched cells (p = 0.003). Responses aligned to light-on, junction or dead-end entry and movement onset are present in both groups at 9–19 % of cells and do not differ. Egocentric boundary and head-body angle tuning are near chance in both.</p>
       </div>
@@ -594,7 +597,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
 
     <section id="light">
       <h2>Light coupling</h2>
-      <p class="finding">Penk⁻CamKII+ activity follows the room lights more closely; all six measures lean the same way, none significant alone after FDR.</p>
+      <p class="finding">Penk⁻CamKII+ activity leans toward following the room lights more closely; five of the six composite measures lean the same way, none significant alone after FDR.</p>
       <div class="two">
         <div class="chart-block">
           <div class="chart-head"><span class="chart-title" id="lt-title">Population response to light switches (both groups pooled)</span></div>
@@ -629,7 +632,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
 
     <section id="composites">
       <h2>Composite scores</h2>
-      <p class="finding">Averaging ranks across measures, both differences reach p &lt; 0.05 at the animal level, with every measure leaning the same way.</p>
+      <p class="finding">Averaging ranks across measures, both composites lean the expected way (running 5/5 measures, light 5/6), but after the 2026-11 re-run neither reaches p &lt; 0.05 at the animal level (one-sided permutation p = 0.12 and 0.10).</p>
       <div class="chart-block">
         <div class="chart-head">
           <span class="chart-title" id="cp-title">Composite rank per animal (higher = more coupled)</span>
@@ -639,7 +642,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
         <p class="caption" id="cp-caption"></p>
       </div>
       <div class="prose">
-        <p>For each measure the animal median is oriented so that higher means more coupled, ranked across the 15 animals, and averaged. The two composites are uncorrelated across animals (ρ = −0.08), so they describe separate properties, and both directions hold within each equipment configuration. With a Bonferroni correction for two composites, permutation p is 0.074 (running) and 0.018 (light). The definitions are now fixed for testing in new animals.</p>
+        <p>For each measure the animal median is oriented so that higher means more coupled, ranked across the 15 animals, and averaged. The two composites are weakly correlated across animals (ρ = 0.15), so they describe largely separate properties; whether both directions hold within each equipment configuration was not recomputed after the 2026-11 re-run. With a Bonferroni correction for two composites, permutation p is 0.24 (running) and 0.21 (light). The definitions are fixed for testing in new animals.</p>
       </div>
     </section>
 
@@ -657,12 +660,12 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
             <tr><td>Behavioural syllable information</td><td>0.058 vs 0.045 bits, p = 0.41</td></tr>
             <tr><td>Junction-choice decoding, place information, familiarity</td><td>null in both</td></tr>
             <tr><td>Egocentric boundary and head-body angle tuning</td><td>near chance in both</td></tr>
-            <tr><td>Slow drift and temporal context</td><td>present in about 35 % of cells in both; no difference</td></tr>
-            <tr><td>Population coupling, noise correlations</td><td>lean Penk+ (CLES 0.73–0.77), p ≥ 0.09</td></tr>
+            <tr><td>Slow drift and temporal context</td><td>slow drift in about 5 % of cells in both, at chance (previously about 35 %); no difference</td></tr>
+            <tr><td>Population coupling, noise correlations</td><td>lean Penk+ (CLES 0.73–0.77), p ≥ 0.09 (not recomputed after the 2026-11 re-run)</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="caption">One heterogeneity result survives removal of animal means: Penk+ cells are more dispersed in feature space within animals (dispersion ratio 0.80, p = 0.003), the opposite of the expectation that a single transcriptomic type would be the more compact population.</p>
+      <p class="caption">Rows other than slow drift were not recomputed after the 2026-11 re-run. One heterogeneity result survives removal of animal means: Penk+ cells are more dispersed in feature space within animals (dispersion ratio 0.80, p = 0.003), the opposite of the expectation that a single transcriptomic type would be the more compact population.</p>
     </section>
 
     <section id="interpretation">
@@ -678,7 +681,7 @@ tr.pick[aria-selected="true"] td { background: var(--soft); }
       <h2>Limitations</h2>
       <ul class="plain">
         <li>11 vs 4 animals; most between-group results lean consistently without being significant alone.</li>
-        <li>Different constructs (Cre-ON vs Cre-OFF) and a twofold brightness difference; amplitude, inferred rate and the light composite are not controlled for construct.</li>
+        <li>Different constructs (Cre-ON vs Cre-OFF) and a twofold brightness difference; brightness-dependent measures and the light composite are not controlled for construct.</li>
         <li>Ex vivo cell types come from largely separate mice (effectively 5 vs 2).</li>
         <li>CASCADE was trained on other cell types; inferred rates partly track brightness.</li>
         <li>Composites are exploratory, and some measures share data (light-on/off from the same transitions; speed and movement during the same events).</li>
@@ -856,7 +859,7 @@ function drawEv(key) {
   const notes = {
     iso_decay_s: " Equal indicator decay means longer events are not slower clearance.",
     f_baseline: " Penk+ cells are about twice as bright, likely from the different constructs.",
-    ev_mean_amplitude: " The four brightest Penk+ animals carry the difference.",
+    ev_mean_amplitude: " No difference after the 2026-11 re-run (all sessions FISSA).",
   };
   document.getElementById("ev-caption").textContent = "Dots = animals, line = median of animals, band = cell interquartile range. " + statLine(p.stats, notes[key]);
 }

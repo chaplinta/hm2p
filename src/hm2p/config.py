@@ -72,22 +72,22 @@ class PipelineConfig(BaseSettings):
         default=None,
         description=(
             "Nominal 2P imaging rate (Hz). Set to null (default) to read fps per-session "
-            "from timestamps.h5 via fps_from_timestamps(). Falls back to 29.97 Hz if "
-            "timestamps.h5 is missing."
+            "from timestamps.h5 via fps_from_timestamps(), which raises if "
+            "timestamps.h5 is missing (there is no default rate)."
         ),
     )
 
     # ── Stage 3 — Kinematics ───────────────────────────────────────────────
     pose_confidence_threshold: float | str = Field(
-        default="quantile:0.25",
+        default=0.5,
         description=(
             "Confidence cutoff for keypoint detections. Either a float in "
             "[0, 1] (fixed scalar threshold) or a string of the form "
             '``"quantile:Q"`` for a per-keypoint quantile threshold. '
-            'Default ``"quantile:0.25"`` drops the bottom quartile of each '
-            "keypoint's confidence distribution per session — the recommended "
-            "filter for DLC 3.x PyTorch outputs whose absolute confidence "
-            "values are uncalibrated."
+            "Default 0.5 (fixed likelihood cut-off; the per-keypoint quantile form "
+            '``"quantile:0.25"`` drops the bottom quartile of each '
+            "keypoint's confidence distribution per session, for models whose "
+            "likelihoods are not on a usable absolute scale)."
         ),
     )
 

@@ -53,6 +53,13 @@ KEEP = (
     "x_maze",
     "y_maze",
     "frame_times",
+    # used by the other cache readers (conjunctive frame, maze dynamics/geometry,
+    # behaviour MI, in/out AUROC, light/dark population decoding)
+    "hd_deg",
+    "active",
+    "mask",
+    "fps",
+    "syllable_id",
 )
 
 

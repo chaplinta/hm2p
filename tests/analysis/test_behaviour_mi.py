@@ -16,7 +16,21 @@ def test_quantile_bins() -> None:
     assert bm.quantile_bins([np.nan, 1.0], 2).tolist()[0] == -1
     assert (bm.quantile_bins([np.nan, np.nan]) == -1).all()
     sparse = bm.quantile_bins(np.r_[np.zeros(90), np.arange(1, 11.0)], 4)
-    assert sparse.max() <= 3 and (sparse[:90] == sparse[0]).all()
+    assert (sparse[:90] == 0).all()
+    assert set(sparse[90:].tolist()) == {1, 2, 3}
+    assert (np.diff(sparse[90:]) >= 0).all()
+
+
+def test_quantile_bins_sparse_keeps_information() -> None:
+    # spikes only when the label is 1: the binned signal must carry that
+    label = np.r_[np.zeros(80, int), np.ones(20, int)]
+    sig = np.r_[np.zeros(80), np.linspace(0.1, 2.0, 20)]
+    assert bm.plugin_mi(bm.quantile_bins(sig, 4), label) > 0.5
+
+
+def test_quantile_bins_all_equal_and_single_bin() -> None:
+    assert (bm.quantile_bins(np.zeros(10), 4) == 0).all()
+    assert (bm.quantile_bins(np.r_[np.zeros(5), np.ones(5)], 1) == 0).all()
 
 
 def test_plugin_mi_known_values() -> None:

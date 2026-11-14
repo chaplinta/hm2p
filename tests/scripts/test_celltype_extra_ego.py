@@ -37,7 +37,10 @@ def _maze_walk(n: int, rng: np.random.Generator) -> tuple[np.ndarray, np.ndarray
     return xs, ys
 
 
-def _synthetic_arrays(seed: int, n_frames: int = N_FRAMES, positions: bool = True) -> dict:
+def _synthetic_arrays(
+    seed: int, n_frames: int = N_FRAMES, positions: bool = True, reflect: bool = False
+) -> dict:
+    """Synthetic session; ``reflect`` makes the maze frame an x-mirror of the mm frame."""
     rng = np.random.default_rng(seed)
     t = np.arange(n_frames)
     hd = np.mod(np.cumsum(rng.normal(0, 25, n_frames)), 360.0)
@@ -60,19 +63,24 @@ def _synthetic_arrays(seed: int, n_frames: int = N_FRAMES, positions: bool = Tru
         return out
     x, y = _maze_walk(n_frames, rng)
     walls = ego.maze_wall_segments()
-    d90 = ego.ray_wall_distances(x, y, heading, walls, [90.0])[:, 0]
+    heading_maze = np.mod(180.0 - heading, 360.0) if reflect else heading
+    d90 = ego.ray_wall_distances(x, y, heading_maze, walls, [90.0])[:, 0]
     dff[0] += (d90 < 0.5).astype(float)  # cell 0: egocentric boundary at +90 deg
     hba = rng.uniform(-60, 60, n_frames)
     body_dir = heading - hba
     dff[1] += hba / 60.0  # cell 1: head-body angle
+    x_mm = ((7.0 - x) if reflect else x) * MM_PER_UNIT
+    y_mm = y * MM_PER_UNIT
     out.update(
         {
             "x_maze": x,
             "y_maze": y,
-            "x_body_mm": x * MM_PER_UNIT,
-            "y_body_mm": y * MM_PER_UNIT,
-            "x_head_mm": x * MM_PER_UNIT + 30.0 * np.cos(np.deg2rad(body_dir)),
-            "y_head_mm": y * MM_PER_UNIT + 30.0 * np.sin(np.deg2rad(body_dir)),
+            "x_mm": x_mm,
+            "y_mm": y_mm,
+            "x_body_mm": x_mm,
+            "y_body_mm": y_mm,
+            "x_head_mm": x_mm + 30.0 * np.cos(np.deg2rad(body_dir)),
+            "y_head_mm": y_mm + 30.0 * np.sin(np.deg2rad(body_dir)),
         }
     )
     return out
@@ -115,6 +123,19 @@ def test_module_constants() -> None:
 
 
 class TestRunEgo:
+    def test_reflected_maze_frame(self, tmp_path: Path) -> None:
+        specs = [("p1", "penk"), ("p2", "penk"), ("n1", "nonpenk"), ("n2", "nonpenk")]
+        sess = [
+            (_meta_row(f"2022010{i}_10_00_00_{a}", a, ct), _synthetic_arrays(i, reflect=True))
+            for i, (a, ct) in enumerate(specs)
+        ]
+        cee.run_ego(_args(), sess, tmp_path)
+        cells = pd.read_csv(tmp_path / "cells.csv")
+        ebc = cells[cells["roi_idx"] == 0]
+        assert (ebc["ebc_p"] < 0.05).mean() >= 0.75
+        dev = np.abs(ego.wrap_deg(ebc["ebc_pref_angle"].to_numpy() - 90.0))
+        assert np.median(dev) < 30.0
+
     def test_outputs_and_recovery(self, sessions: list, tmp_path: Path) -> None:
         res = cee.run_ego(_args(), sessions, tmp_path)
         assert res["n_sessions"] == 6 and res["n_cells"] == 6 * N_ROIS

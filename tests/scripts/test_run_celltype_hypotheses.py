@@ -518,12 +518,14 @@ class TestBinSessionArrays:
 
     def test_spike_response_is_counts(self) -> None:
         arr = _synthetic_arrays(0)
-        arr["spikes"] = np.full_like(arr["dff"], 9.6)  # 9.6 spikes/s at 9.6 fps -> 1 per frame
+        # CASCADE output is expected spikes per frame: used directly as counts
+        arr["spikes"] = np.full_like(arr["dff"], 1.0)
         y = rch._glm_response(arr, "spikes")
         np.testing.assert_allclose(y, 1.0)
         b = rch.bin_session_arrays(arr, 5)
-        assert b["spikes_are_counts"] is True
+        # summing 5 frames of 1 expected spike each gives 5 per bin (no 1/fps)
         np.testing.assert_allclose(rch._glm_response(b, "spikes"), 5.0)
+        np.testing.assert_allclose(b["fps"], arr["fps"] / 5)
 
     def test_h8_with_bins_runs(self, sessions, args, tmp_path: Path) -> None:
         args.signal = "spikes"
@@ -558,6 +560,10 @@ class TestCtl:
         assert res["n_cells"] == 5 * N_ROIS
         assert {"iso_decay_s", "f_baseline", "spike_rate_hz", "ev_mean_duration_s"} <= set(cells)
         assert (cells["f_baseline"] > 90).all()
+        # spike_rate_hz = mean expected spikes per frame x fps
+        first = sessions[0][1]
+        expected = np.nanmean(first["spikes"][0]) * first["fps"]
+        assert cells["spike_rate_hz"].iloc[0] == pytest.approx(expected)
         assert (tmp_path / "between_group_report.csv").exists()
         assert (tmp_path / "between_group_report_matched.csv").exists()
 

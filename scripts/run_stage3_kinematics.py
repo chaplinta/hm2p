@@ -57,14 +57,16 @@ def get_sessions() -> list[dict]:
             bad_behav_times = row.get("bad_behav_times", "")
             tracker = row.get("tracker", "dlc")
 
-            sessions.append({
-                "exp_id": exp_id,
-                "sub": sub,
-                "ses": ses,
-                "orientation": orientation,
-                "bad_behav_times": bad_behav_times,
-                "tracker": tracker,
-            })
+            sessions.append(
+                {
+                    "exp_id": exp_id,
+                    "sub": sub,
+                    "ses": ses,
+                    "orientation": orientation,
+                    "bad_behav_times": bad_behav_times,
+                    "tracker": tracker,
+                }
+            )
     return sessions
 
 
@@ -118,12 +120,14 @@ def parse_meta_txt(meta_path: Path) -> tuple[float, np.ndarray, tuple[float, flo
 
     mm_per_pix = float(config["scale"]["mm_per_pix"])
 
-    corners = np.array([
-        [float(config["roi"]["x1"]), float(config["roi"]["y1"])],
-        [float(config["roi"]["x2"]), float(config["roi"]["y2"])],
-        [float(config["roi"]["x3"]), float(config["roi"]["y3"])],
-        [float(config["roi"]["x4"]), float(config["roi"]["y4"])],
-    ])
+    corners = np.array(
+        [
+            [float(config["roi"]["x1"]), float(config["roi"]["y1"])],
+            [float(config["roi"]["x2"]), float(config["roi"]["y2"])],
+            [float(config["roi"]["x3"]), float(config["roi"]["y3"])],
+            [float(config["roi"]["x4"]), float(config["roi"]["y4"])],
+        ]
+    )
 
     # Camera optical centre in cropped-frame coordinates
     # Full sensor: 1280×1024 (Basler acA1300-200um)
@@ -134,13 +138,17 @@ def parse_meta_txt(meta_path: Path) -> tuple[float, np.ndarray, tuple[float, flo
 
     # Maze rotation from corner geometry
     from hm2p.kinematics.perspective import compute_maze_rotation
+
     maze_rotation_deg = compute_maze_rotation(corners)
 
     return mm_per_pix, corners, (cx, cy), maze_rotation_deg
 
 
 def find_champion_dlc_h5(
-    s3: object, bucket: str, prefix: str, champion_id: str,
+    s3: object,
+    bucket: str,
+    prefix: str,
+    champion_id: str,
 ) -> str:
     """Find the champion DLC .h5 file under a given S3 prefix.
 
@@ -165,6 +173,7 @@ def find_champion_dlc_h5(
         S3 key of the champion's pose file.
     """
     from hm2p.pose.select import select_champion_h5_s3
+
     return select_champion_h5_s3(s3, bucket, prefix, champion_id)
 
 
@@ -174,6 +183,7 @@ def _extract_dlc_provenance(dlc_filename: str) -> tuple[str, str]:
     Delegates to :func:`hm2p.pose.select.extract_dlc_provenance`.
     """
     from hm2p.pose.select import extract_dlc_provenance
+
     return extract_dlc_provenance(dlc_filename)
 
 
@@ -189,6 +199,8 @@ def run_session(
     dry_run: bool = False,
     force: bool = False,
     champion_manifest: dict | None = None,
+    confidence_threshold: float | str | None = None,
+    local_out: Path | None = None,
 ) -> str:
     """Run Stage 3 for a single session. Returns status string."""
     print(f"\n--- {sub}/{ses} ({exp_id}) ---")
@@ -284,7 +296,9 @@ def run_session(
         mm_per_pix, maze_corners_px, camera_center_px, maze_rotation = parse_meta_txt(meta_local)
         print(f"  Scale: {mm_per_pix:.4f} mm/px")
         print(f"  Maze corners (px): {maze_corners_px.tolist()}")
-        print(f"  Camera centre (cropped px): ({camera_center_px[0]:.1f}, {camera_center_px[1]:.1f})")
+        print(
+            f"  Camera centre (cropped px): ({camera_center_px[0]:.1f}, {camera_center_px[1]:.1f})"
+        )
         print(f"  Maze rotation from corners: {maze_rotation:.2f}°")
 
         # Total orientation = CSV orientation + maze rotation from corners.
@@ -293,7 +307,9 @@ def run_session(
         # in the camera frame, computed from the ROI corner coordinates.
         total_orientation = orientation + maze_rotation
         if abs(maze_rotation) > 0.01:
-            print(f"  Total orientation: {orientation}° + {maze_rotation:.2f}° = {total_orientation:.2f}°")
+            print(
+                f"  Total orientation: {orientation}° + {maze_rotation:.2f}° = {total_orientation:.2f}°"
+            )
 
         # Run kinematics pipeline (with perspective correction)
         print(f"  Running kinematics pipeline...")
@@ -318,6 +334,11 @@ def run_session(
             dlc_model_name=dlc_model_name,
             dlc_snapshot=dlc_snapshot,
             dlc_champion_id=dlc_champion_id,
+            **(
+                {}
+                if confidence_threshold is None
+                else {"confidence_threshold": confidence_threshold}
+            ),
         )
 
         # Report stats from kinematics.h5
@@ -328,8 +349,9 @@ def run_session(
             print(f"  Frames: {n_frames}")
             if "speed_cm_s" in f:
                 speed = f["speed_cm_s"][:]
-                print(f"  Speed: mean={np.nanmean(speed):.2f} cm/s, "
-                      f"max={np.nanmax(speed):.2f} cm/s")
+                print(
+                    f"  Speed: mean={np.nanmean(speed):.2f} cm/s, max={np.nanmax(speed):.2f} cm/s"
+                )
             if "active" in f:
                 active = f["active"][:]
                 pct_active = 100.0 * np.nansum(active) / len(active)
@@ -338,6 +360,14 @@ def run_session(
                 bad = f["bad_behav"][:]
                 pct_bad = 100.0 * np.nansum(bad) / len(bad)
                 print(f"  Bad behaviour: {pct_bad:.1f}%")
+
+        if local_out is not None:
+            # keep the file locally and do not touch S3 (parameter comparisons)
+            dest = local_out / f"{exp_id}.kinematics.h5"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(output_path, dest)
+            print(f"  Saved {dest} (not uploaded)")
+            return "ok_local"
 
         # Upload to S3 with verify — raises RuntimeError on failure, ensuring non-zero exit
         print(f"  Uploading to s3://{DERIVATIVES_BUCKET}/{kin_key}")
@@ -376,7 +406,22 @@ def main():
         action="store_true",
         help="Re-run even if kinematics.h5 already exists on S3",
     )
+    parser.add_argument(
+        "--confidence-threshold",
+        default=None,
+        help='Pose confidence cut-off: a likelihood in [0, 1] or "quantile:q" '
+        "(default: hm2p.kinematics.compute.run default)",
+    )
+    parser.add_argument(
+        "--local-out",
+        type=Path,
+        default=None,
+        help="Save kinematics.h5 files here instead of uploading to S3",
+    )
     args = parser.parse_args()
+    thr = args.confidence_threshold
+    if thr is not None and not str(thr).startswith("quantile:"):
+        thr = float(thr)
 
     sessions = get_sessions()
     print(f"Found {len(sessions)} sessions")
@@ -388,6 +433,7 @@ def main():
     # Load champion manifest once — required for champion enforcement.
     # Raises ChampionMismatchError if the manifest is absent.
     from hm2p.pose.select import ChampionMismatchError, load_champion_manifest
+
     try:
         champion_manifest = load_champion_manifest(s3, DERIVATIVES_BUCKET)
     except ChampionMismatchError as e:
@@ -418,8 +464,10 @@ def main():
                 ses["tracker"],
                 work_dir,
                 dry_run=args.dry_run,
-                force=args.force,
+                force=args.force or args.local_out is not None,
                 champion_manifest=champion_manifest,
+                confidence_threshold=thr,
+                local_out=args.local_out,
             )
             results[ses["exp_id"]] = status
     finally:

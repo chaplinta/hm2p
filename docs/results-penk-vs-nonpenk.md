@@ -6,6 +6,16 @@ every test and the order in which decisions were made, is
 Where numbers differ between this summary and the log, the log is
 authoritative. Figures are produced by `scripts/make_penk_figures.py`.
 
+**2026-11-06: most numbers below predate the 2026-11 re-run** (head direction
+recomputed, Suite2p re-run at ~9.6 Hz, FISSA for all 26 sessions, CASCADE
+units corrected). They were not recomputed here; the current values are in
+`docs/results-penk-vs-nonpenk.html`. Changes found so far: 469 soma ROIs (314
+Penk+, 155 Penk⁻CamKII+); event amplitude (0.48 vs 0.48 dF/F, p = 1.0) and
+CASCADE rate (0.20 vs 0.18 spikes/s, p = 0.75) no longer differ; the running
+and light composites are no longer significant (one-sided permutation
+p = 0.12 and 0.10); event interval still differs across animals (p = 0.040),
+duration does not (p = 0.10); isolated-event decay is unchanged.
+
 ## Summary
 
 Penk+ and Penk⁻CamKII+ neurons in superficial RSP differ in how they fire,
@@ -126,7 +136,7 @@ Penk+ calcium events are longer and rarer than Penk⁻CamKII+ events.
 | Event decay time (s) | 2.43 | 2.00 | 0.078 | 0.011 | 0.061 | 0.82 |
 | Event amplitude (dF/F units) | 4.6 | 7.8 | 0.026 | 0.044 | 0.106 | 0.11 |
 | Event SNR | 11.5 | 11.0 | 0.57 | 0.81 | 0.81 | 0.39 |
-| CASCADE spike rate (spikes/s) | 0.13 | 0.19 | 0.078 | 0.063 | 0.13 | 0.18 |
+| CASCADE expected spikes per frame (x fps for Hz; pending re-run) | 0.13 | 0.19 | 0.078 | 0.063 | 0.13 | 0.18 |
 
 Every direction survives LOAO. Event SNR does not differ.
 

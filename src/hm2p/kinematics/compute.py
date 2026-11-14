@@ -278,12 +278,22 @@ def _ear_perpendicular_angle(
     ear_right_x: np.ndarray,
     ear_right_y: np.ndarray,
 ) -> np.ndarray:
-    """HD from perpendicular to ear-ear line (original method).
+    """HD from the perpendicular to the ear-ear line, pointing forward.
 
-    Returns (N,) float64. NaN where either ear is NaN.
+    Uses the same angular convention as :func:`_vector_angle_deg`, so the
+    result equals ``_vector_angle_deg(neck, nose)`` for a straight head.
+    The earlier version returned ``180 + degrees(atan2(dx, dy))``, which for
+    this rig's DLC labels (top-down camera, image y axis down) pointed
+    backwards: on the 2026-10 QC data it was ~180° from the nose-neck,
+    nose-head and head-neck estimates and from the direction of travel while
+    running, so the confidence-weighted fusion in :func:`compute_hd_multi`
+    averaged opposite vectors (fused HD on the backward side in a median 15 %
+    of frames per session). See docs/qc-reports.md.
+
+    Returns (N,) float64 in [0, 360). NaN where either ear is NaN.
     """
     angle_rad = np.arctan2(ear_left_x - ear_right_x, ear_left_y - ear_right_y)
-    return 180.0 + np.degrees(angle_rad)
+    return np.mod(np.degrees(angle_rad), 360.0)
 
 
 def _unwrap_and_smooth(
@@ -584,13 +594,12 @@ def compute_head_body_angle(ds: xr.Dataset) -> np.ndarray:
         n = len(pos.coords["time"])
         return np.full(n, np.nan, dtype=np.float32)
 
-    # Use same convention as ear perpendicular (atan2(dx, dy) + 180)
-    body_dir = 180.0 + np.degrees(np.arctan2(back[0] - tail[0], back[1] - tail[1]))
+    # Same convention as the ear perpendicular (_vector_angle_deg); the earlier
+    # 180 + atan2(dx, dy) without the -90 gave +90 deg for a straight mouse
+    body_dir = _vector_angle_deg(tail[0], tail[1], back[0], back[1])
 
-    # Signed angular difference
-    diff = hd - body_dir
-    # Wrap to (-180, 180]
-    diff = (diff + 180.0) % 360.0 - 180.0
+    # Signed angular difference, wrapped to (-180, 180]
+    diff = 180.0 - (180.0 - (hd - body_dir)) % 360.0
 
     return diff.astype(np.float32)
 
@@ -1796,6 +1805,10 @@ def compute_ahv(
     return ahv.astype(np.float32)
 
 
+# Fixed likelihood cut-off for pose keypoints (see run() docstring).
+DEFAULT_CONFIDENCE_THRESHOLD: float = 0.5
+
+
 def run(
     pose_path: Path,
     timestamps_h5: Path,
@@ -1806,7 +1819,7 @@ def run(
     maze_corners_px: np.ndarray,
     bad_behav_intervals: list[tuple[float, float]],
     output_path: Path,
-    confidence_threshold: float | str = "quantile:0.25",
+    confidence_threshold: float | str = DEFAULT_CONFIDENCE_THRESHOLD,
     gap_fill_frames: int = 5,
     speed_active_threshold: float = SPEED_ACTIVE_THRESHOLD,
     camera_center_px: tuple[float, float] | None = None,
@@ -1833,9 +1846,16 @@ def run(
               keypoint (movement's ``filter_by_confidence`` path).
             - ``"quantile:Q"`` — a string of the form ``"quantile:0.25"``,
               which uses the per-keypoint quantile filter
-              (:func:`filter_by_keypoint_quantile`). This is the
-              recommended setting for DLC 3.x PyTorch outputs whose
-              absolute confidence values are uncalibrated.
+              (:func:`filter_by_keypoint_quantile`). It removes the
+              same fraction of frames from every keypoint whatever their
+              likelihood; meant for models whose likelihoods are not on a
+              usable absolute scale.
+
+            Default 0.5 (fixed). For the current DLC champion the 25 %
+            quantile sat at likelihood 0.87-0.95 and left head direction
+            missing in a median 12 % of frames; on three test sessions a
+            fixed 0.5 cut missing HD to 0-4 % with equal or smaller error
+            against travel direction while running (docs/qc-reports.md).
         gap_fill_frames: Max frames to interpolate over.
         speed_active_threshold: cm/s threshold for active/inactive state.
         camera_center_px: Camera optical centre in cropped-frame pixels for

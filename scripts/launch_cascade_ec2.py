@@ -186,7 +186,16 @@ def terminate() -> None:  # pragma: no cover - network
     print(f"terminate requested for {state['instance_id']}")
 
 
-def wait_for_done(timeout_min: int) -> dict | None:  # pragma: no cover - network
+def is_new_marker(done: dict, launched_utc: str) -> bool:
+    """True if a completion marker was written after *launched_utc* (ISO, Z).
+
+    The marker key is reused across runs, so an older run's marker must not be
+    taken as completion of the current one.
+    """
+    return str(done.get("finished", "")) >= launched_utc
+
+
+def wait_for_done(timeout_min: int, launched_utc: str) -> dict | None:  # pragma: no cover - network
     import boto3
 
     s3 = boto3.client("s3", region_name=REGION)
@@ -194,7 +203,9 @@ def wait_for_done(timeout_min: int) -> dict | None:  # pragma: no cover - networ
     while time.time() < deadline:
         try:
             obj = s3.get_object(Bucket=DERIVATIVES_BUCKET, Key=DONE_KEY)
-            return json.loads(obj["Body"].read())
+            done = json.loads(obj["Body"].read())
+            if is_new_marker(done, launched_utc):
+                return done
         except Exception as exc:  # noqa: BLE001
             if "NoSuchKey" not in str(exc) and "404" not in str(exc):
                 print(f"poll error: {exc}")
@@ -214,9 +225,10 @@ def main(argv: list[str] | None = None) -> int:  # pragma: no cover - network en
     if args.dry_run:
         print(build_user_data(args.model, chunk=args.chunk, git_branch=args.branch))
         return 0
+    launched_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     launch(args)
     if args.wait:
-        done = wait_for_done(args.timeout_min)
+        done = wait_for_done(args.timeout_min, launched_utc)
         if done is None:
             print("timed out waiting for completion marker")
             return 1

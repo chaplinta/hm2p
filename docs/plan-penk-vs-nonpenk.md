@@ -462,7 +462,7 @@ reported numbers come from the corrected code.
 | H2 | Event amplitude 4.6 vs 7.8 (dF/F units) | 0.026 | 0.044 | 0.106 | 0.11 | stable |
 | H2 | Stationary-light mean signal 0.085 vs 0.188 | 0.010 | 0.014 | 0.144 | 0.07 | stable |
 | H2 | Event SNR 11.5 vs 11.0 | 0.571 | 0.808 | 0.81 | 0.39 | — |
-| H2s | CASCADE spike rate 0.13 vs 0.19 spikes/s | 0.078 | 0.063 | 0.13 | 0.18 | stable |
+| H2s | CASCADE expected spikes per frame 0.13 vs 0.19 (x fps for Hz) | 0.078 | 0.063 | 0.13 | 0.18 | stable |
 | H2s | Fraction of 1 s bins active 0.08 vs 0.14 | 0.040 | 0.051 | 0.13 | 0.14 | stable |
 | H2s | Fano factor (1 s bins) 0.40 vs 0.48 | 0.056 | 0.029 | 0.13 | 0.16 | stable |
 | H2s | Rate skewness 4.5 vs 3.7 | 0.104 | 0.076 | 0.13 | 0.80 | stable |
@@ -491,12 +491,22 @@ reported numbers come from the corrected code.
 CASCADE (Rupprecht et al. 2021, model Global_EXC_10Hz_smoothing200ms) was run
 on all 26 sessions on 2026-09-25 (EC2, ~20 min; `spikes` now in every
 ca.h5, sync.h5 not yet re-synced). On inferred spike rates the dF/F picture
-holds: Penk+ cells fire less (animal means 0.13 vs 0.19 spikes/s; medians
-0.08 vs 0.20), have fewer active one-second bins (0.08 vs 0.14), a lower
+holds: Penk+ cells fire less (animal means 0.13 vs 0.19 expected spikes per
+frame, about 1.3 vs 1.8 Hz at 9.6-9.8 fps; medians 0.08 vs 0.20 per
+frame), have fewer active one-second bins (0.08 vs 0.14), a lower
 Fano factor (0.40 vs 0.48, permutation p = 0.029) and more skewed,
 burstier rate distributions (skewness 4.5 vs 3.7, ISI CV 1.50 vs 1.28).
 Every direction survives leave-one-animal-out; FDR within the 13-metric
-spike-rate family is 0.13. The stationary-light rate difference
+spike-rate family is 0.13.
+
+Units note (2026-10-06): these H2s numbers were computed treating the
+CASCADE output as spikes/s. It is the expected number of spikes per frame,
+so the reported rates are per frame (x fps for Hz) and the one-second bin
+counts were divided by fps (about 9.6x too small). Rate, CV, burst index
+and skewness comparisons are unaffected apart from scale; the Fano factor
+scales by fps, and the active-bin fraction and ISI CV depend on the fixed
+0.5-spike bin threshold, so those two values and their group tests will
+change on re-run. The stationary-light rate difference
 (permutation p = 0.041) repeats the light-coupling lean, and AHV modulation
 depth is again larger in Penk⁻CamKII+ on spike rates (0.06 vs 0.08,
 p = 0.031), so that difference is not purely a dF/F amplitude artefact,
@@ -550,7 +560,8 @@ dF/F does not reappear on spikes (0.20 vs 0.17, p = 0.95); instead the AHV
 share leans Penk⁻CamKII+ (0.08 vs 0.14; animal p = 0.010, permutation
 p = 0.078, CLES 0.07, direction stable), in line with the raw AHV modulation
 difference of H3 on both signals. Conclusion: with 2–4 HD cells per session,
-sparse firing (0.1–0.2 spikes/s) and 30-minute sessions, single-cell
+sparse firing (0.1–0.2 expected spikes per frame, about 1–2 Hz) and
+30-minute sessions, single-cell
 encoding models are underpowered here; the H2 rate/kinetics contrasts and
 the light-transition analyses are the informative single-cell tests.
 

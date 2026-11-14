@@ -18,15 +18,15 @@ from hm2p.calcium.spikes import (
 
 def test_mean_spike_rate_no_bad_frames() -> None:
     """Mean spike rate (spikes/min) matches expected value without bad frames."""
-    # 1 spike/s constant → 60 spikes/min
-    spikes = np.ones((5, 1000), dtype=np.float32)
+    # 0.1 expected spikes/frame at 10 fps = 1 spike/s = 60 spikes/min
+    spikes = np.full((5, 1000), 0.1, dtype=np.float32)
     result = compute_mean_spike_rate(spikes, fps=10.0, bad_frames=None)
     np.testing.assert_allclose(result, 60.0, rtol=1e-5)
 
 
 def test_mean_spike_rate_with_bad_frames() -> None:
     """Bad frames are excluded from mean spike rate computation."""
-    # ROI 0 has spike rate 1 spikes/s in good frames, 0 in bad frames
+    # ROI 0 has 1 expected spike/frame in good frames, 0 in bad frames
     n_frames = 100
     spikes = np.zeros((1, n_frames), dtype=np.float32)
     bad_frames = np.zeros(n_frames, dtype=bool)
@@ -34,7 +34,7 @@ def test_mean_spike_rate_with_bad_frames() -> None:
     spikes[0, :50] = 1.0  # only good frames have spikes
 
     result = compute_mean_spike_rate(spikes, fps=1.0, bad_frames=bad_frames)
-    # Mean over 50 good frames: 1.0 spikes/s * 60 = 60 spikes/min
+    # Mean over 50 good frames: 1 spike/frame * 1 fps * 60 = 60 spikes/min
     np.testing.assert_allclose(result, [60.0], rtol=1e-5)
 
 
@@ -101,11 +101,27 @@ def test_mean_spike_rate_dtype() -> None:
 def test_mean_spike_rate_varying_rates() -> None:
     """Different ROIs should have different mean rates."""
     spikes = np.zeros((2, 100), dtype=np.float32)
-    spikes[0, :] = 1.0  # 1 spike/s -> 60/min
-    spikes[1, :] = 2.0  # 2 spikes/s -> 120/min
+    spikes[0, :] = 0.1  # 0.1 spikes/frame at 10 fps = 1 spike/s -> 60/min
+    spikes[1, :] = 0.2  # 0.2 spikes/frame at 10 fps = 2 spikes/s -> 120/min
     result = compute_mean_spike_rate(spikes, fps=10.0)
     np.testing.assert_allclose(result[0], 60.0, rtol=1e-5)
     np.testing.assert_allclose(result[1], 120.0, rtol=1e-5)
+
+
+def test_mean_spike_rate_scales_with_fps() -> None:
+    """Same per-frame expected spikes at double fps gives double the rate."""
+    spikes = np.full((1, 100), 0.05, dtype=np.float32)
+    r10 = compute_mean_spike_rate(spikes, fps=10.0)
+    r20 = compute_mean_spike_rate(spikes, fps=20.0)
+    np.testing.assert_allclose(r10, [30.0], rtol=1e-5)
+    np.testing.assert_allclose(r20, [60.0], rtol=1e-5)
+
+
+@pytest.mark.parametrize("fps", [0.0, -9.6])
+def test_mean_spike_rate_rejects_nonpositive_fps(fps: float) -> None:
+    """Non-positive fps raises ValueError."""
+    with pytest.raises(ValueError, match="fps"):
+        compute_mean_spike_rate(np.ones((1, 10), dtype=np.float32), fps=fps)
 
 
 def test_predict_spike_rates_with_mock_cascade() -> None:

@@ -333,7 +333,8 @@ Unless otherwise specified:
   tuning curves because it preserves graded rate information and avoids CASCADE's
   calibration uncertainties at low SNR.
 - **Event rate** analyses (H-N9 factorial, transition responses in H-N6) use
-  **CASCADE spike inference** (spikes/s), which is more appropriate for counting
+  **CASCADE spike inference** (expected spikes per frame; x fps for spikes/s),
+  which is more appropriate for counting
   discrete events and comparing activity magnitudes across cells with different
   baseline fluorescence.
 - **Decoding** (H-N7) uses **dF/F**, following the convention of population vector
@@ -445,52 +446,61 @@ null result is uninformative.
 **Statement:** MVL decreases and preferred direction shifts when lights are
 extinguished, reflecting loss of visual landmark anchoring.
 
-> **RESULT (2026-06-16) — the stated direction is wrong, and the reverse effect
-> does not survive confound controls.**
+> **RESULT (updated 2026-11-06 on the re-run data; first written 2026-06-16) —
+> the stated direction is wrong, and the reverse effect does not survive
+> confound controls.**
 >
-> On the FISSA-uniform, MVL-bug-fixed data, the *raw* within-cell effect runs
-> **opposite** to the prediction: MVL and spatial information are **higher in
-> dark** than light (dF/F Wilcoxon p=0.0010; events p=0.0003), with PD showing
-> no systematic drift (preserved). This surprise prompted a within-session
-> paired confound gauntlet (`scripts/run_dark_hypotheses.py`,
-> `src/hm2p/analysis/matched_tuning.py`; results in `results/dark_hypotheses/`,
-> 23 sessions).
+> Data: 469 soma ROIs, 15 animals, 23 sessions, after the 2026-10 QC fixes
+> (head direction recomputed, Suite2p re-run at ~9.6 Hz, FISSA for all 26
+> sessions, CASCADE units corrected). Sources:
+> `results/hypothesis_report_fissa/{dff,events,spikes}_report/` and
+> `results/dark_hypotheses/report.md` (`scripts/run_dark_hypotheses.py`,
+> `src/hm2p/analysis/matched_tuning.py`; dF/F, 36 HD bins, boot 20, shuffles
+> 100).
 >
-> **The raw dark>light MVL effect does not survive.** Equalising the light/dark
-> HD-occupancy distribution (A1) or the joint speed×|AHV| distribution (A2)
-> between conditions collapses it: A1 p=0.16 (FDR 0.25), A2 p=0.19 (FDR 0.25),
-> both NS; median(dark−light) shrinks from the raw value to ~0.036–0.040 (still
-> positive, 15/23 sessions dark>light, but underpowered). Sanity checks passed
-> (match=none reproduces raw MVL exactly; occupancy matching equalises the HD
-> histograms to zero difference). **Interpretation: most of the raw dark>light
-> MVL is differential HD *sampling* in darkness, not a coding gain.** The
-> behavioural and bleaching confounds listed below are therefore not hypothetical
-> — A1/A2 show they account for nearly the whole effect.
+> **Raw within-cell effect.** MVL is higher in dark than light, opposite to the
+> prediction: dF/F Wilcoxon p=0.012 (FDR 0.038, mean diff 0.037, N=469 cells);
+> events p<0.0001; CASCADE spikes p=0.021 (FDR 0.058). PD shows no systematic
+> drift (dF/F p=0.38). HD cells: 60/469 (12.8 %) dF/F, 41/469 (8.7 %) events,
+> 72/469 (15.4 %) spikes. Raw place (spatial) information is light > dark in
+> dF/F (H5.3 p<0.0001) but dark > light in events (p<0.0001) and spikes
+> (p=0.007), so its direction depends on the signal.
 >
-> Secondary signals also fail once recomputed on the *same* occupancy-matched
-> frames (B2/B3 tightened in `run_dark_hypotheses.py`). The apparent **gain**
-> does not survive: stored-MVL dark>light (p=0.01) becomes matched-MVL
-> median(dark−light) = −0.119, NS (p=0.21) — if anything slightly negative,
-> with flat width. The apparent **dark recruitment reverses**: unmatched gave
-> more dark-only than light-only HD cells (49 vs 25, McNemar p=0.007), but with
-> matched per-condition significance it flips to *more light-only* (60 vs 39,
-> p=0.044). So both "surviving" signals were sampling artefacts. Controls that
-> held: `hd_confidence` is null light-vs-dark (IR-camera assumption upheld);
-> soma↔neuropil ΔMVL not coupled (rho=0.087, p=0.065).
+> **Session-level gauntlet (unit = session, N=23, paired light vs dark).**
+> Occupancy-matched, shuffle-debiased MVL (A1): p=0.12 (FDR 0.15),
+> median(dark−light)=0.114, 16/23 sessions dark>light, rank-biserial 0.38.
+> Speed×|AHV|-matched (A2): p=0.13 (FDR 0.15), 15/23, rank-biserial 0.36.
+> Excluding the first light and dark epochs (A3): p=0.028, FDR 0.074. Both
+> sanity checks pass. The matched effect is positive in most sessions but not
+> significant, so "does not survive" here means not detected at this N, not
+> shown to be absent.
 >
-> **Mutual-information cross-check (Skaggs bits/event, à la Voigts & Harnett
-> 2020 and Zong et al. 2022) corroborates.** Running the same matched gauntlet
-> with HD *information* instead of MVL gives the same null, more emphatically
-> (MI is more occupancy-biased, so matching removes more): A1 occupancy-matched
-> MI p=0.64 (rank-biserial 0.12), A2 kinematics-matched p=0.89 (0.04); matched MI
-> gain −0.012 NS; matched recruitment symmetric (light-only 41 vs dark-only 38,
-> p=0.82). And **place** Skaggs information — the basis of the "spatial info
-> higher in dark" result (H5.3) — also dies under position-occupancy matching
-> (P1: median dark−light = −0.0098, p=0.15). Two independent metrics agree.
+> **Secondary signals.** Stored (unmatched) MVL B2: p=0.021, width p=0.098
+> ("gain-only" pattern). Recomputed on the same occupancy-matched frames: MVL
+> p=0.15, median(dark−light)=+0.072; width p=0.087. Unmatched recruitment (B3)
+> favours dark (light-only 30 vs dark-only 64, McNemar p=0.0006); with matched
+> per-condition significance it is symmetric (57 vs 51, p=0.63). Controls:
+> `hd_confidence` does not differ light vs dark (C2 p=0.23; IR-camera
+> assumption upheld). Soma↔neuropil ΔMVL **is** now coupled across cells (D1
+> rho=0.149, p=0.0012, N=469), so part of the light/dark MVL change is shared
+> with the surrounding neuropil (consistent with an input-driven change, but
+> neuropil contamination of the soma signal is not excluded).
+>
+> **Mutual-information cross-check (Skaggs bits/event; Voigts & Harnett 2020,
+> Zong et al. 2022).** Occupancy-matched HD information A1: p=0.21
+> (rank-biserial 0.30); kinematics-matched A2: p=0.60 (0.13); matched MI gain
+> p=0.64; matched MI recruitment light-only 49 vs dark-only 44 (p=0.68).
+> Position-occupancy-matched place information (P1): median dark−light
+> −0.0021, p=0.22.
+>
+> **Maze position (B1, exploratory).** Session-level junction vs dead-end
+> ΔMVL: p=0.43, median +0.022, rank-biserial 0.20 (was p=0.075 before the
+> re-run); pooled cell-level p=0.15.
 >
 > **Implication for the paper: do not frame darkness as enhancing HD (or place)
-> coding — no enhancement signal survives occupancy/kinematics matching, under
-> either MVL or mutual information.** See the v3 revision-log entry.
+> coding.** No enhancement survives occupancy/kinematics matching under MVL or
+> mutual information, although the matched MVL difference stays positive in
+> most sessions. See the v3 and v4 revision-log entries.
 
 **Reasoning:** This is the expected effect from the entire HD literature
 (Stackman & Taube 1997; Jacob et al. 2017; Bicknell et al. 2024). The key
@@ -677,7 +687,8 @@ lights-on.
 **Analysis plan:**
 1. Align all light-to-dark transitions across sessions. Compute peri-transition
    activity (1-second bins, -10s to +30s relative to transition) using
-   **CASCADE spike rate** (spikes/s per cell, then averaged across cells per
+   **CASCADE spike rate** (expected spikes per frame x fps, in spikes/s, per
+   cell, then averaged across cells per
    animal).
 2. Transition response index = median spike rate [0, 5s] / median spike rate
    [-10, -5s].
@@ -811,7 +822,8 @@ should show a smaller light x movement interaction.
 
 **Analysis plan:**
 1. Four conditions per cell: moving-light, moving-dark, stationary-light,
-   stationary-dark. Compute **CASCADE spike rate** (mean spikes/s) in each.
+   stationary-dark. Compute **CASCADE spike rate** (mean expected spikes per
+   frame x fps, in spikes/s) in each.
 2. Main effects: paired Wilcoxon on movement-pooled-over-light and
    light-pooled-over-movement.
 3. Interaction contrast per cell: (moving_light - stationary_light) -
@@ -932,16 +944,19 @@ light and dark, separately from drift. One population may show gain reduction
 > Wired into Stage 6 (`analysis/gain.py` → `analysis/run.py`; the pipeline
 > runner `scripts/run_stage6_analysis.py` was fixed to pass the maze masks) and
 > read by `scripts/test_hypotheses.py` (H6). All 26 sessions reprocessed;
-> primary = 450 soma ROIs, 15 animals, 23 sessions, dF/F, FDR-corrected.
+> primary = 469 soma ROIs, 15 animals, 23 sessions, dF/F, FDR-corrected
+> (numbers in this paragraph updated 2026-11-06 from
+> `results/hypothesis_report_fissa/dff_report/`).
 >
 > **Raw (cell-level):** HD tuning peak is higher in light than dark — H6.1
-> Wilcoxon p<0.0001 (FDR<0.0001), mean diff +0.188 over 450 cells. Between
-> cell types (H6.2) is null and underpowered: Penk+ mean gain index 0.103 vs
-> Penk⁻CamKII+ 0.166 (direction favours CamKII+, opposite the stated
-> prediction), animal-level Mann-Whitney p=0.10, permutation p=0.53, FDR p=0.69
-> (N=11 vs 4 animals).
+> Wilcoxon p<0.0001 (FDR<0.0001), mean diff +0.012 over 469 cells (events and
+> spikes agree, p<0.0001). Between cell types (H6.2) is null and underpowered:
+> Penk+ mean gain index 0.077 vs Penk⁻CamKII+ 0.153 (direction favours
+> CamKII+, opposite the stated prediction), animal-level Mann-Whitney p=0.28,
+> permutation p=0.39, FDR p=0.54 (N=11 vs 4 animals).
 >
-> **The peak effect does not survive.** Aggregated to the session level (the
+> **The peak effect does not survive** (session-level and matched numbers below
+> are from the 2026-07 run and were not recomputed after the 2026-11 re-run). Aggregated to the session level (the
 > proper independent unit, N=23) with circular-shuffle debiasing, even the
 > *unmatched* contrast is null — median(dark−light) = −0.006, Wilcoxon p=0.56,
 > 11/23 sessions dark>light — so the cell-level significance was
@@ -986,15 +1001,23 @@ T-junction decision points compared to straight corridors.
 > Wired into Stage 6 (`maze/neural.py` frame classification → `analysis/run.py`;
 > pipeline runner fixed to build the node-type masks from the maze-registered
 > `x_maze`/`y_maze` in sync.h5) and read by `scripts/test_hypotheses.py` (H7).
-> Primary = 450 soma ROIs, 23 sessions, dF/F, FDR-corrected.
+> Primary = 469 soma ROIs, 23 sessions, dF/F, FDR-corrected (cell-level
+> numbers updated 2026-11-06 from `results/hypothesis_report_fissa/`).
 >
 > **Raw (cell-level):** activity is *not* higher at junctions than corridors in
-> light (H7.1: p=0.16, FDR 0.33, if anything slightly higher in corridors); HD
-> tuning (MVL) is *not* sharper at junctions than corridors (H7.2: p=0.16, FDR
-> 0.33). The only significant sub-test is junction-restricted MVL light vs dark
-> (H7.3: dark>light, Wilcoxon p=0.004, FDR 0.014, mean diff +0.033).
+> light (H7.1 dF/F: p=0.73, FDR 0.80; events p=0.14; CASCADE spikes
+> junction>corridor p=0.009, FDR 0.028, mean diff 0.0015). HD tuning (MVL) is
+> *lower* at junctions than in corridors in the light (H7.2 dF/F: corridor>
+> junction, p<0.0001, FDR<0.0001, mean diff 0.052; events and spikes agree,
+> FDR ≤ 0.013). This is new after the re-run (before: p=0.16) and has no
+> occupancy or kinematics control: junction frames are fewer, cover a
+> different HD distribution and include turning, all of which lower MVL
+> without any change in tuning, so it is not evidence of a junction-specific
+> code. Junction-restricted MVL light vs dark (H7.3): dark>light, dF/F
+> p=0.0014, FDR 0.0059, mean diff 0.041 (events and spikes agree).
 >
-> **H7.3 does not survive.** At the session level (N=23) the effect is already
+> **H7.3 does not survive** (session-level and matched numbers below are from
+> the 2026-07 run and were not recomputed after the 2026-11 re-run). At the session level (N=23) the effect is already
 > non-significant (median(dark−light) = +0.032, p=0.29, 13/23 dark>light);
 > occupancy-matching the light/dark junction frames gives p=0.17 (FDR 0.34) and
 > speed×|AHV| matching p=0.13 (FDR 0.34). A weak positive residual persists
@@ -1454,10 +1477,45 @@ Zugaro MB, et al. 2003. "Rapid spatial reorientation and head direction cells."
 
 ## 9. Revision Log
 
+### v4 (2026-11-06, re-run after the 2026-10 QC fixes)
+
+All stages re-run after QC found: head direction 180° reversed from the ear
+estimate (pose likelihood cut-off now fixed at 0.5); Suite2p and the ROI
+classifier run at 29.97 Hz instead of ~9.6 Hz (Suite2p re-run: 6884 ROIs,
+484 soma, 558 dendrite over 26 sessions); 9 sessions with coefficient neuropil
+subtraction (now FISSA for all 26); CASCADE units; MI quantile binning for
+zero-heavy spike signals. dF/F primary is now 469 soma ROIs (was 450), 15
+animals, 23 sessions. Numbers from `results/hypothesis_report_fissa/` and
+`results/dark_hypotheses/report.md`.
+
+1. **H-N3 raw effect weaker, conclusion unchanged.** Raw MVL dark>light dF/F
+   p=0.012 (was 0.0010); events p<0.0001; spikes p=0.021. A1 p=0.12 and A2
+   p=0.13 (FDR 0.15 each; were 0.16/0.19), with 15–16/23 sessions dark>light,
+   so the matched effect is positive in most sessions but not significant.
+2. **B2/B3 tightened no longer reverse.** Matched MVL median(dark−light) is
+   +0.072 (p=0.15; was −0.119) and matched recruitment is symmetric (57 vs 51,
+   p=0.63; was 60 vs 39 favouring light, p=0.044). The conclusion (no
+   matched gain, no matched recruitment) holds; the "reversal" wording is
+   retired.
+3. **D1 verdict changed.** Soma↔neuropil ΔMVL is now coupled (rho=0.149,
+   p=0.0012; was rho=0.087, p=0.065).
+4. **B1 lead weaker.** Session-level junction vs dead-end p=0.43 (was 0.075).
+5. **MI cross-check still null** (A1 MI p=0.21, A2 MI p=0.60, P1 p=0.22).
+6. **H5.3 raw place information** is light>dark in dF/F but dark>light in
+   events and spikes; it was dark>light in all signals before.
+7. **HD-cell fraction** 12.8 % (60/469) in dF/F (was 9.8 %, 44/450); 8.7 %
+   events, 15.4 % spikes.
+8. **H-N13 (H7.2)** now shows corridor>junction MVL (p<0.0001, all signals),
+   without an occupancy control; not interpreted as a junction code.
+9. **H-N12/H-N13 session-level and matched controls**
+   (`scripts/run_gain_junction_controls.py`) have no saved outputs for the
+   re-run data and were not recomputed; their numbers are from 2026-07.
+
 ### v3 (2026-06-16, post-results)
 
 First pass with results on the FISSA-uniform, MVL-bug-fixed dataset (all 26
-sessions reprocessed; Stage 6 re-run).
+sessions reprocessed; Stage 6 re-run). Numbers in this entry predate the
+2026-11 re-run; see v4.
 
 1. **H-N3 sign reversed and headline retired.** The raw within-cell effect is
    dark > light for both MVL and spatial information (not the predicted

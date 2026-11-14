@@ -122,7 +122,10 @@ MEASURES: tuple[Measure, ...] = (
     Measure(
         "spike_rate_hz",
         "signature",
-        "Inferred spike rate (spikes/s)",
+        # spike_rate_hz = mean CASCADE expected spikes per frame x fps. CTL
+        # outputs written before this conversion was added hold the per-frame
+        # mean (about 9.6x smaller) and need a re-run.
+        "Inferred spike rate (Hz)",
         "celltype_programme_ctl/ctl/cells.csv",
         "spike_rate_hz",
         "CASCADE",

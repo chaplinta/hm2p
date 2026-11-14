@@ -208,12 +208,32 @@ def get_dlc_champion_id(s3, bucket: str) -> str | None:
 # ── keypoint-MoSeq wrapper ─────────────────────────────────────────────────
 
 
+def pca_variance_dict(pca) -> dict:
+    """Explained-variance ratios from the object returned by ``kpms.fit_pca``.
+
+    ``fit_pca`` returns an sklearn ``PCA`` object; older code expected a dict
+    of arrays and therefore never saved ``pca_variance.json``. Both forms are
+    handled. Returns ``{"explained_variance_ratio": [...]}`` (plus any array
+    entry whose key contains "variance" when *pca* is a dict).
+    """
+    out: dict = {}
+    if hasattr(pca, "explained_variance_ratio_"):
+        out["explained_variance_ratio"] = [float(v) for v in pca.explained_variance_ratio_]
+    elif isinstance(pca, dict):
+        for k, v in pca.items():
+            if isinstance(v, np.ndarray) and "variance" in k.lower():
+                out[k] = v.tolist()
+            elif hasattr(v, "explained_variance_ratio_"):
+                out["explained_variance_ratio"] = [float(x) for x in v.explained_variance_ratio_]
+    return out
+
+
 def fit_kpms(
     dlc_files: dict[str, Path],
     project_dir: Path,
     bodyparts: list[str],
     kappa: float = 1_000_000,
-    num_pcs: int = 4,
+    num_pcs: int = 10,
     num_iters: int = 200,
     ar_only_iters: int = 50,
     conf_threshold: float = 0.9,
@@ -404,9 +424,16 @@ def fit_kpms(
     kpms.update_config(str(project_dir), sigmasq_loc=sigmasq_loc)
 
     # ── PCA ────────────────────────────────────────────────────────────────
-    log.info("Fitting PCA (num_pcs=%d)...", num_pcs)
-    kpms.update_config(str(project_dir), num_pcs=num_pcs)
+    log.info("Fitting PCA (latent_dim=%d)...", num_pcs)
+    # keypoint-MoSeq's config key is ``latent_dim``; an earlier version set
+    # ``num_pcs``, which kpms ignores, so every fit until 2026-10 used the
+    # default latent_dim of 10 while provenance recorded the requested value.
+    kpms.update_config(str(project_dir), latent_dim=num_pcs)
     cfg = config()
+    if int(cfg.get("latent_dim", -1)) != num_pcs:
+        raise RuntimeError(
+            f"latent_dim not applied: config has {cfg.get('latent_dim')}, wanted {num_pcs}"
+        )
     log.info(
         "anterior_idxs: %s, posterior_idxs: %s",
         cfg.get("anterior_idxs"),
@@ -433,14 +460,7 @@ def fit_kpms(
     log.info("PCA precision check complete")
 
     # Save PCA explained variance
-    pca_variance = {}
-    if isinstance(pca, dict):
-        for k, v in pca.items():
-            if isinstance(v, np.ndarray) and "variance" in k.lower():
-                pca_variance[k] = v.tolist()
-            elif hasattr(v, "explained_variance_ratio_"):
-                # sklearn PCA object
-                pca_variance["explained_variance_ratio"] = v.explained_variance_ratio_.tolist()
+    pca_variance = pca_variance_dict(pca)
     log.info("PCA variance keys: %s", list(pca_variance.keys()))
 
     # ── Stage 1: AR-only initialisation ───────────────────────────────────
@@ -580,6 +600,7 @@ def fit_kpms(
     fit_info = {
         "kappa": kappa,
         "num_pcs": num_pcs,
+        "latent_dim": num_pcs,  # applied to the kpms config (checked above)
         "num_iters": num_iters,
         "ar_only_iters": ar_only_iters,
         "conf_threshold": conf_threshold,
@@ -645,6 +666,7 @@ def build_provenance(
         "kpms_version": kpms_version,
         "kappa": fit_info["kappa"],
         "num_pcs": fit_info["num_pcs"],
+        "latent_dim": fit_info.get("latent_dim"),
         "num_iters": fit_info["num_iters"],
         "ar_only_iters": fit_info.get("ar_only_iters", 0),
         "conf_threshold": fit_info.get("conf_threshold", 0.9),
@@ -718,6 +740,14 @@ def main():
         help="S3 bucket for derivatives.",
     )
     parser.add_argument(
+        "--s3-prefix",
+        type=str,
+        default="kinematics",
+        help="S3 key prefix for outputs ({prefix}/{sub}/{ses}/syllables.npz, "
+        "{prefix}/kpms_model/, {prefix}/kpms_summary.json). Use a separate prefix "
+        "for parameter sweeps so the pipeline's syllables are not overwritten.",
+    )
+    parser.add_argument(
         "--all-sessions",
         action="store_true",
         help="Process all sessions from metadata/experiments.csv via S3.",
@@ -740,7 +770,12 @@ def main():
         default=1_000_000,
         help="AR-HMM kappa (stickiness). Default: 1e6.",
     )
-    parser.add_argument("--num-pcs", type=int, default=4)
+    parser.add_argument(
+        "--num-pcs",
+        type=int,
+        default=10,
+        help="kpms latent_dim (PCs); 10 explains ~96 %% of pose variance",
+    )
     parser.add_argument(
         "--num-iters",
         type=int,
@@ -880,7 +915,7 @@ def main():
             s3 = get_s3_client()
         for session_id, data in results.items():
             sub, ses = parse_session_id(session_id)
-            prov_key = f"kinematics/{sub}/{ses}/syllables.provenance.json"
+            prov_key = f"{args.s3_prefix}/{sub}/{ses}/syllables.provenance.json"
             try:
                 with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp:
                     s3.download_file(args.s3_bucket, prov_key, tmp.name)
@@ -934,13 +969,13 @@ def main():
             sub, ses = parse_session_id(session_id)
 
             # Upload syllables.npz
-            s3_key = f"kinematics/{sub}/{ses}/syllables.npz"
+            s3_key = f"{args.s3_prefix}/{sub}/{ses}/syllables.npz"
             with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as tmp:
                 np.savez_compressed(tmp.name, **npz_data)
                 upload_s3_file(s3, Path(tmp.name), args.s3_bucket, s3_key)
 
             # Upload provenance
-            prov_key = f"kinematics/{sub}/{ses}/syllables.provenance.json"
+            prov_key = f"{args.s3_prefix}/{sub}/{ses}/syllables.provenance.json"
             with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
                 json.dump(provenance, tmp, indent=2)
                 tmp.flush()
@@ -951,7 +986,7 @@ def main():
     if using_s3:
         if s3 is None:
             s3 = get_s3_client()
-        model_s3_prefix = "kinematics/kpms_model"
+        model_s3_prefix = f"{args.s3_prefix}/kpms_model"
         log.info("Uploading model artifacts to s3://%s/%s/...", args.s3_bucket, model_s3_prefix)
 
         # Upload results.h5 if it exists
@@ -1054,7 +1089,9 @@ def main():
         with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as tmp:
             json.dump(summary, tmp, indent=2)
             tmp.flush()
-            upload_s3_file(s3, Path(tmp.name), args.s3_bucket, "kinematics/kpms_summary.json")
+            upload_s3_file(
+                s3, Path(tmp.name), args.s3_bucket, f"{args.s3_prefix}/kpms_summary.json"
+            )
 
 
 if __name__ == "__main__":

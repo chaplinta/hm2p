@@ -200,7 +200,9 @@ def compute_dff(F: np.ndarray, F0: np.ndarray) -> np.ndarray:
     return dff
 
 
-def compute_dff_with_clip_counts(F: np.ndarray, F0: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def compute_dff_with_clip_counts(
+    F: np.ndarray, F0: np.ndarray, F0_denominator: np.ndarray | None = None
+) -> tuple[np.ndarray, np.ndarray]:
     """Compute dF/F0 and return the per-ROI count of clipped samples.
 
     Identical to :func:`compute_dff` but exposes ``n_clipped`` so callers
@@ -211,7 +213,15 @@ def compute_dff_with_clip_counts(F: np.ndarray, F0: np.ndarray) -> tuple[np.ndar
     F : np.ndarray
         (n_rois, n_frames) float32 — neuropil-corrected fluorescence.
     F0 : np.ndarray
-        (n_rois, n_frames) float32 — estimated baseline.
+        (n_rois, n_frames) float32 — estimated baseline of ``F`` (subtracted).
+    F0_denominator : np.ndarray or None
+        Baseline to divide by, if different from ``F0``. Used for FISSA
+        output, whose separated signal has no meaningful baseline (its F0 is
+        near zero): the change is expressed relative to the baseline of the
+        raw ROI trace, as in FISSA's ``calc_deltaf`` (Keemink et al. 2018.
+        "FISSA: A neuropil decontamination toolbox for calcium imaging
+        signals." Scientific Reports 8:3493. doi:10.1038/s41598-018-21640-2.
+        https://github.com/rochefort-lab/fissa).
 
     Returns
     -------
@@ -229,7 +239,10 @@ def compute_dff_with_clip_counts(F: np.ndarray, F0: np.ndarray) -> tuple[np.ndar
     """
     if F.shape != F0.shape:
         raise ValueError(f"F shape {F.shape} != F0 shape {F0.shape}")
-    safe_F0 = np.maximum(F0, DFF_F0_FLOOR)
+    den = F0 if F0_denominator is None else F0_denominator
+    if den.shape != F.shape:
+        raise ValueError(f"F shape {F.shape} != F0_denominator shape {den.shape}")
+    safe_F0 = np.maximum(den, DFF_F0_FLOOR)
     dff_raw = (F - F0) / safe_F0
     clipped_mask = (dff_raw < DFF_CLIP_LOW) | (dff_raw > DFF_CLIP_HIGH)
     dff = np.clip(dff_raw, DFF_CLIP_LOW, DFF_CLIP_HIGH).astype(np.float32)

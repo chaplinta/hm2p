@@ -58,7 +58,9 @@ hd = sess["hd_deg"]
 mask = sess["active"] & ~sess["bad_behav"]
 light_on = sess["light_on"]
 n_cells = signals.shape[0]
-fps = 30.0
+# sync.h5 is at the imaging rate (~9.8 Hz): take it from the frame times
+_ft = sess.get("frame_times")
+fps = float(1.0 / np.median(np.diff(_ft))) if _ft is not None and len(_ft) > 1 else float("nan")
 
 if n_cells == 0:
     st.warning("No ROIs in this session after filtering.")

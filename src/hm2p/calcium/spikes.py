@@ -1,8 +1,14 @@
 """Stage 4c — calibrated spike inference via CASCADE.
 
-CASCADE (Rupprecht et al. 2021, Nature Neuroscience) outputs spike rates in
-calibrated physical units (spikes/s), using pre-trained deep-learning models
-matched to the GCaMP indicator and imaging frame rate.
+CASCADE (Rupprecht et al. 2021, Nature Neuroscience) infers calibrated spiking
+activity from dF/F0 using pre-trained deep-learning models matched to the GCaMP
+indicator and imaging frame rate.
+
+Units: the CASCADE output (``spike_prob``, stored as ``spikes`` in ca.h5 and
+sync.h5) is the expected number of spikes per imaging frame, not a rate in
+spikes/s. Summing over frames gives an expected spike count; multiplying by the
+imaging frame rate (fps) gives a rate in Hz (see the CASCADE README FAQ, "What
+does the output of the algorithm mean?").
 
 The Voigts & Harnett threshold method (events.py) is retained as a fallback.
 
@@ -57,7 +63,7 @@ def predict_spike_rates(
     model_name: str,
     fps: float,
 ) -> np.ndarray:
-    """Infer spike rates from dF/F0 traces using CASCADE.
+    """Infer expected spikes per frame from dF/F0 traces using CASCADE.
 
     Requires cascade2p to be installed (conda-only). Falls back gracefully
     with a clear ImportError if not available.
@@ -73,7 +79,9 @@ def predict_spike_rates(
         fps: Imaging frame rate (Hz). Used to check model compatibility.
 
     Returns:
-        (n_rois, n_frames) float32 — spike rates in spikes/s.
+        (n_rois, n_frames) float32 — expected number of spikes in each
+        imaging frame (CASCADE ``spike_prob``). Multiply by ``fps`` for a rate
+        in Hz; sum over frames for an expected spike count.
 
     Raises:
         ImportError: If cascade2p is not installed.
@@ -122,17 +130,25 @@ def compute_mean_spike_rate(
 ) -> np.ndarray:
     """Compute mean spike rate (spikes/min) per ROI, excluding bad frames.
 
+    The CASCADE output is the expected number of spikes per frame, so the rate
+    is ``mean(spikes per frame) x fps x 60`` spikes/min.
+
     Args:
-        spikes: (n_rois, n_frames) float32 — CASCADE spike rates (spikes/s).
-        fps: Imaging frame rate (Hz).
+        spikes: (n_rois, n_frames) float32 — CASCADE expected spikes per frame.
+        fps: Imaging frame rate (Hz). Converts spikes per frame to spikes/s.
         bad_frames: Optional (n_frames,) bool — True for frames to exclude.
 
     Returns:
         (n_rois,) float32 — mean spike rate in spikes/min.
+
+    Raises:
+        ValueError: If ``fps`` is not positive.
     """
     if bad_frames is not None:
         good = ~bad_frames
         spikes = spikes[:, good]
     if spikes.shape[1] == 0:
         return np.full(spikes.shape[0], np.nan, dtype=np.float32)
-    return (spikes.mean(axis=1) * 60.0).astype(np.float32)
+    if fps <= 0:
+        raise ValueError(f"fps must be positive, got {fps}")
+    return (spikes.mean(axis=1) * fps * 60.0).astype(np.float32)

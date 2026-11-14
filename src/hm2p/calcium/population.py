@@ -191,7 +191,7 @@ def compare_spikes_to_fluorescence(
     deconv_norm: np.ndarray | None = None,
     fps: float = 9.8,
 ) -> dict:
-    """Compare CASCADE spike rates with dF/F and deconvolved signals.
+    """Compare CASCADE inferred spikes with dF/F and deconvolved signals.
 
     Metrics following Rupprecht et al. 2021 (CASCADE paper):
     - Per-ROI Spearman correlation between spikes and dF/F
@@ -201,7 +201,9 @@ def compare_spikes_to_fluorescence(
 
     Args:
         dff: (n_rois, n_frames) dF/F0 traces.
-        spikes: (n_rois, n_frames) CASCADE spike rates.
+        spikes: (n_rois, n_frames) CASCADE expected spikes per frame. All
+            metrics here are rank- or z-score based, so the per-frame scale
+            is not converted.
         deconv_norm: (n_rois, n_frames) normalized deconv, optional.
         fps: Imaging frame rate.
 

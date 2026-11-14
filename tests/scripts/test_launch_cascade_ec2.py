@@ -14,6 +14,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "scripts"
 import launch_cascade_ec2 as lce  # noqa: E402
 
 
+def test_is_new_marker_ignores_previous_runs() -> None:
+    launched = "2026-10-07T09:13:00Z"
+    assert not lce.is_new_marker({"finished": "2026-09-25T04:15:51Z"}, launched)
+    assert lce.is_new_marker({"finished": "2026-10-07T09:40:00Z"}, launched)
+    assert not lce.is_new_marker({}, launched)
+
+
 def test_user_data_contents() -> None:
     ud = lce.build_user_data(model="M", bucket="bkt", chunk=32, git_branch="dev")
     assert ud.startswith("#!/bin/bash")

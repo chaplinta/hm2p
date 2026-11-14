@@ -212,6 +212,16 @@ class TestComputeDffWithClipCounts:
         assert n_clipped.dtype == np.int32
         np.testing.assert_array_equal(n_clipped, 0)
 
+    def test_separate_denominator(self) -> None:
+        """(F - F0) / F0_denominator: FISSA output relative to the raw-trace baseline."""
+        F0 = np.full((1, 4), 2.0, dtype=np.float32)  # FISSA-like near-zero baseline
+        F = np.array([[2.0, 12.0, 22.0, 2.0]], dtype=np.float32)
+        den = np.full((1, 4), 100.0, dtype=np.float32)  # raw-trace baseline
+        dff, _ = compute_dff_with_clip_counts(F, F0, den)
+        np.testing.assert_allclose(dff, [[0.0, 0.1, 0.2, 0.0]], atol=1e-6)
+        with pytest.raises(ValueError):
+            compute_dff_with_clip_counts(F, F0, np.ones((2, 4), dtype=np.float32))
+
     def test_n_clipped_counts_upper_saturation(self) -> None:
         F0 = np.full((2, 100), 1.0, dtype=np.float32)
         F = np.full((2, 100), 1000.0, dtype=np.float32)  # dff_raw ~ 999 → clipped

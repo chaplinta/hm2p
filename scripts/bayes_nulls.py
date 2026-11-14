@@ -47,11 +47,9 @@ pingouin: https://pingouin-stats.org
 
 from __future__ import annotations
 
-import io
 import sys
 from pathlib import Path
 
-import h5py
 import numpy as np
 import pandas as pd
 import pingouin as pg
@@ -72,11 +70,10 @@ def _s3():
 
 
 def _download_h5(key: str):
-    try:
-        obj = _s3().get_object(Bucket=BUCKET, Key=key)
-        return h5py.File(io.BytesIO(obj["Body"].read()), "r")
-    except Exception:
-        return None
+    """Open an HDF5 object from S3 (disk cache if HM2P_S3_CACHE is set; see hm2p.io.s3.open_h5)."""
+    from hm2p.io.s3 import open_h5
+
+    return open_h5(BUCKET, key, client=_s3())
 
 
 def load_cells(signal: str = SIGNAL) -> pd.DataFrame:

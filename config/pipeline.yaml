@@ -27,9 +27,9 @@ raw_fps_camera: 100.0
 raw_fps_imaging: null
 
 # ── Stage 3 — Kinematics ───────────────────────────────────────────────────
-pose_confidence_threshold: "quantile:0.25"   # per-keypoint quantile cutoff;
-                                              # use a float in [0,1] for a fixed
-                                              # scalar threshold
+pose_confidence_threshold: 0.5              # fixed likelihood cutoff (see docs/qc-reports.md);
+                                              # "quantile:q" drops the lowest q of
+                                              # each keypoint instead
 pose_gap_fill_frames: 5          # max consecutive NaN frames to interpolate
 speed_active_threshold_cm_s: 2.0 # cm/s above → active state
 

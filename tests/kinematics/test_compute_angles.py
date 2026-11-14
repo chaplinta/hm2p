@@ -8,6 +8,7 @@ All tests build small synthetic movement-style xarray Datasets inline.
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import xarray as xr
 
 from hm2p.kinematics.compute import (
@@ -141,6 +142,28 @@ def test_head_body_angle_full_in_range() -> None:
     assert np.all(np.isfinite(ang))
     assert np.all(ang <= 180.0)
     assert np.all(ang > -180.0)
+
+
+@pytest.mark.parametrize("phi", [0.0, 60.0, 135.0, 210.0, 300.0])
+def test_head_body_angle_zero_for_straight_mouse(phi: float) -> None:
+    """Head aligned with the body gives 0° at any heading (was +90° before the fix)."""
+    r = np.deg2rad(phi)
+    fwd = np.array([np.cos(r), np.sin(r)])
+    left = np.array([np.cos(r - np.pi / 2), np.sin(r - np.pi / 2)])  # image y down
+    offs = {"left_ear": (10, 6), "right_ear": (10, -6), "mid_back": (-8, 0), "tail_base": (-30, 0)}
+    kps = list(offs)
+    pos = np.zeros((1, 2, len(kps), 1))
+    for k, name in enumerate(kps):
+        a, s = offs[name]
+        pos[0, :, k, 0] = 300 + a * fwd + s * left
+    ds = xr.Dataset(
+        {
+            "position": (("time", "space", "keypoints", "individuals"), pos),
+            "confidence": (("time", "keypoints", "individuals"), np.ones((1, len(kps), 1))),
+        },
+        coords={"time": [0], "space": ["x", "y"], "keypoints": kps, "individuals": ["m"]},
+    )
+    assert abs(float(compute_head_body_angle(ds)[0])) < 1e-4
 
 
 def test_head_body_angle_missing_ears_nan() -> None:

@@ -73,7 +73,7 @@ def run(
     timestamps_h5: Path,
     session_id: str,
     output_path: Path,
-    neuropil_method: str = "fissa",
+    neuropil_method: str = "estimated",
     neuropil_coefficient: float = 0.7,
     precomputed_F_corr: np.ndarray | None = None,
     fissa_tiff_paths: list[Path] | None = None,
@@ -109,8 +109,10 @@ def run(
         Destination ca.h5 file path (created or overwritten).
     neuropil_method : str
         Neuropil subtraction method: "fissa", "estimated", or "fixed".
-        Default "fissa". If "fissa" is requested but fails (e.g. TIFFs missing),
-        falls back to "estimated" and logs a warning.
+        Default "estimated" (per-ROI coefficient). "fissa" needs
+        ``precomputed_F_corr`` or the FISSA inputs below and raises if they are
+        missing or FISSA fails (no fallback). For "fissa", dF/F divides by the
+        baseline of the raw ROI trace (attribute ``dff_denominator``).
     neuropil_coefficient : float
         Fixed neuropil subtraction coefficient (used only when
         neuropil_method="fixed"; default 0.7).
@@ -126,8 +128,8 @@ def run(
         the same shape as the loaded F array.
     fissa_tiff_paths : list of Path or None
         Ordered TIFF paths required for FISSA. Must be provided when
-        neuropil_method="fissa". If absent, FISSA is skipped and a warning
-        logged; the pipeline falls back to "estimated".
+        neuropil_method="fissa" (unless ``fissa_movie`` or
+        ``precomputed_F_corr`` is given); a ValueError is raised otherwise.
     fissa_roi_masks : list of np.ndarray or None
         Per-ROI binary masks (height, width) required for FISSA. Must be
         provided together with fissa_tiff_paths or fissa_movie.
@@ -287,25 +289,25 @@ def run(
         have_movie = fissa_movie is not None and fissa_roi_masks is not None
         have_tiffs = fissa_tiff_paths is not None and fissa_roi_masks is not None
         if not (have_movie or have_tiffs):
-            log.warning(
-                "neuropil_method=fissa but neither (fissa_movie + fissa_roi_masks) "
-                "nor (fissa_tiff_paths + fissa_roi_masks) provided. "
-                "Falling back to estimated-coefficient subtraction."
+            # No silent fallback: an earlier version substituted estimated-
+            # coefficient subtraction here and still labelled the output
+            # neuropil_method="fissa" (9 sessions, found 2026-10-07).
+            raise ValueError(
+                "neuropil_method='fissa' needs precomputed_F_corr, "
+                "(fissa_movie + fissa_roi_masks) or (fissa_tiff_paths + fissa_roi_masks); "
+                "use neuropil_method='estimated' for coefficient subtraction."
             )
-            F_corr, coefficients = subtract_estimated_coefficient(F, Fneu)
-            neuropil_coeff_used = float(np.median(coefficients))
         else:
             fissa_dir = fissa_output_dir or (output_path.parent / "fissa_cache")
             if have_movie:
                 # Registered-movie path (Stage 4 FISSA reprocessing): FISSA runs
                 # on the Suite2p registered binary regenerated on EC2.
                 assert fissa_movie is not None and fissa_roi_masks is not None
+                # no fallback traces: a FISSA failure must raise, not be relabelled
                 F_corr = subtract_fissa_from_movie(
                     movie=fissa_movie,
                     roi_masks=fissa_roi_masks,
                     output_dir=fissa_dir,
-                    F_fallback=F,
-                    Fneu_fallback=Fneu,
                 )
             else:
                 assert fissa_tiff_paths is not None and fissa_roi_masks is not None
@@ -313,8 +315,6 @@ def run(
                     tiff_paths=fissa_tiff_paths,
                     roi_masks=fissa_roi_masks,
                     output_dir=fissa_dir,
-                    F_fallback=F,
-                    Fneu_fallback=Fneu,
                 )
             neuropil_coeff_used = None  # FISSA does not produce a scalar coefficient
 
@@ -373,8 +373,25 @@ def run(
             log.warning("Unrecognised f0_method %r; using 'rolling'.", f0_method)
         F0_primary = F0_rolling
 
-    dff, dff_n_clipped = compute_dff_with_clip_counts(F_corr, F0_primary)
-    dff_percentile, _ = compute_dff_with_clip_counts(F_corr, F0_percentile)
+    # FISSA's separated signal has no meaningful baseline (F0 near 0), so its
+    # change is divided by the baseline of the raw ROI trace, as in FISSA's
+    # calc_deltaf (Keemink et al. 2018, doi:10.1038/s41598-018-21640-2).
+    # Coefficient subtraction keeps a baseline, so it divides by its own F0.
+    den_primary = den_percentile = None
+    dff_denominator = "F0 of F_corr"
+    if neuropil_method == "fissa":
+        F0_raw_rolling = compute_baseline(
+            F_raw, fps=fps, window_s=dff_baseline_window_s, gaussian_sigma_s=dff_gaussian_sigma_s
+        )
+        F0_raw_percentile = compute_baseline_percentile(
+            F_raw, fps=fps, window_s=dff_baseline_window_s, percentile=8.0
+        )
+        den_primary = F0_raw_percentile if f0_method == "percentile" else F0_raw_rolling
+        den_percentile = F0_raw_percentile
+        dff_denominator = "F0 of F_raw"
+
+    dff, dff_n_clipped = compute_dff_with_clip_counts(F_corr, F0_primary, den_primary)
+    dff_percentile, _ = compute_dff_with_clip_counts(F_corr, F0_percentile, den_percentile)
 
     # --- Event detection ---
     from hm2p.calcium.events import detect_events_batch, detect_events_sd
@@ -511,6 +528,7 @@ def run(
         "extractor": "suite2p",
         "neuropil_method": neuropil_method,
         "f0_method": f0_method,
+        "dff_denominator": dff_denominator,
     }
     if neuropil_coeff_used is not None:
         attrs["neuropil_coefficient"] = neuropil_coeff_used
