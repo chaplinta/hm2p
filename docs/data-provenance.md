@@ -5,7 +5,10 @@ still exist, and whether the copy on S3 is the same as the source.
 
 - Audit dates: 2026-11-14 to 2026-11-21.
 - Scope: `s3://hm2p-rawdata/rawdata/` against its two source folders on Dropbox.
-- All operations on the source folders and on S3 were read-only.
+- All audit operations on the source folders and on S3 were read-only.
+- Update of 2026-11-21, after the audit: the one file found missing from S3 was
+  uploaded (item 1 under "Differences and open items"). The tables and counts below
+  describe the state before that upload.
 
 ## Summary
 
@@ -14,7 +17,9 @@ still exist, and whether the copy on S3 is the same as the source.
   byte size. No S3 object is absent from Dropbox.
 - 502 of the 503 S3 objects have the same content as the Dropbox file (checksum
   comparison). The one difference is a Finder `.DS_Store` file.
-- One source file was never uploaded: `20221115_13_27_42_1118213_XYT.raw` (1.29 GB).
+- One source file was absent from S3 at the time of the audit:
+  `20221115_13_27_42_1118213_XYT.raw` (1.29 GB). It was uploaded on 2026-11-21 and
+  its content was verified, so all 504 files of the upload set are now on S3.
 - Versioning is enabled on the `hm2p-rawdata` bucket.
 
 ## Sources and mapping
@@ -75,7 +80,9 @@ place afterwards, and the checksums confirm that S3 holds the modified versions.
 
 Storage class is `STANDARD` for 416 objects and `STANDARD_IA` for 229 (mostly
 the large TIFF, raw and video files). Downloads from `STANDARD_IA` carry a per-GB
-retrieval charge.
+retrieval charge. The bucket has one lifecycle rule, `ia-after-30d`, which moves
+objects larger than 128 KB to `STANDARD_IA` 30 days after upload. The rule has no
+expiration action.
 
 ## Comparison by name and size
 
@@ -125,6 +132,14 @@ file.
 1. **File not on S3.** `20221115_13_27_42_1118213_XYT.raw` (1,290,240,000 bytes) is in
    the upload set and on Dropbox but not on S3. The `_XYT.tif` of the same session is
    on S3 and verified. The cause was not determined.
+
+   **Resolved 2026-11-21.** The file was uploaded with `aws s3 cp` to
+   `rawdata/sub-1118213/ses-20221115T132742/funcimg/20221115_13_27_42_1118213_XYT.raw`.
+   Before the upload the key held no object, no earlier version and no incomplete
+   multipart upload. After the upload the object has 1,290,240,000 bytes and the
+   ETag `fef6cf254fc6ce35f104a2e2447b2927-154`, equal to the 8 MiB multipart ETag
+   computed from the Dropbox file. `rawdata/` now holds 504 objects. The listing
+   table of 2026-11-21 predates the upload and does not contain this key.
 2. **Camera calibration files.** `docs/data-guide.md` and `CLAUDE.md` state that the
    lens calibration `.npz` files were copied to `sourcedata/calibration/` in the
    repository and on S3. Neither location exists. The two files
