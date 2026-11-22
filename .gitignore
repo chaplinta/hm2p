@@ -61,6 +61,8 @@ brains-reg/
 *.npz
 # But DO track Suite2p classifiers and ops (small, essential project assets)
 !sourcedata/trackers/suite2p/*.npy
+# And the camera lens calibration files (a few kB each)
+!sourcedata/calibration/*.npz
 # And DLC label files (small, irreplaceable human annotations)
 !sourcedata/trackers/dlc/**/CollectedData_*.h5
 

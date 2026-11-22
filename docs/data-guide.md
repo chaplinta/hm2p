@@ -469,7 +469,8 @@ maze_h_px = float(cfg["roi"]["height"])
 
 ### Camera Calibration
 
-**Files:** `hm2p-analysis/cam-calibrations/` (copied to `sourcedata/calibration/` on S3)
+**Files:** `hm2p-analysis/cam-calibrations/` (copied to `sourcedata/calibration/` in this
+repository, tracked in git, and to `s3://hm2p-rawdata/sourcedata/calibration/`)
 
 | File | Lens | Camera |
 | --- | --- | --- |
