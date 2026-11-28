@@ -89,10 +89,6 @@ sleap = [
 #   vame-py>=0.12        — requires numpy>=2.2
 #   cebra>=0.6           — pins numpy<2.0
 # ---------------------------------------------------------------------------
-nwb = [
-    "neuroconv>=0.6",
-    "pynwb>=2.7",
-]
 analysis = [
     "nemos>=0.1",
     "duckdb>=1.0",       # analysis result cache (hm2p.analysis.cache)
