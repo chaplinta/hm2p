@@ -1,5 +1,18 @@
 # movement v0.17.0 migration plan
 
+> **Update 2026-11-28: pin moved to `movement>=0.18,<0.19`.** movement 0.18.0
+> has one change that touches this repository: `filter_by_confidence` keeps
+> points whose confidence is NaN by default (previously they were set to NaN).
+> `hm2p.kinematics.compute.filter_low_confidence` passes
+> `keep_points_with_nan_confidence=False` when the installed function accepts
+> it, so the output is the same on movement 0.14 to 0.18.
+> `frontend/pages/dlc_viewer_page.py` calls that function instead of movement
+> directly. The other breaking changes in 0.18 (the `file_path` argument of the
+> saving functions, `nan_policy` of the path metrics) concern functions this
+> repository does not call. `scripts/launch_downstream_cpu.py` still installs
+> movement 0.14.0 on Python 3.11 and was not changed. The plural dimension
+> names described below are unchanged.
+
 Status: **complete. movement 0.17.0 installed and verified on Python 3.12.13.**
 Branch `feat/movement-0.17`. This document scopes the upgrade from `movement`
 0.14.0 to 0.17.0.

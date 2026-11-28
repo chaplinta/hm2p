@@ -23,8 +23,10 @@ dependencies = [
     "nptdms>=1.9",
     "h5py>=3.11",
     # Stage 3 — Kinematics
-    # movement 0.17 (per-format loaders, singular dims) requires Python >=3.12.
-    "movement>=0.17,<0.18",
+    # movement >=0.17 (per-format loaders, singular dims) requires Python >=3.12.
+    # 0.18 keeps NaN-confidence points in filter_by_confidence by default;
+    # kinematics.compute.filter_low_confidence requests the earlier behaviour.
+    "movement>=0.18,<0.19",
     "shapely>=2.0,<3.0",
     "scipy>=1.13,<2.0",
     "numpy>=1.26,<3.0",

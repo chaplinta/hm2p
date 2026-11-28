@@ -217,6 +217,77 @@ class TestFilterLowConfidence:
         finally:
             _remove_mock_movement()
 
+    def test_nan_confidence_keyword_passed_when_supported(self) -> None:
+        """movement >= 0.18: the keyword is passed as False."""
+        from hm2p.kinematics.compute import filter_low_confidence
+
+        ds = _make_ds(10)
+        seen: dict[str, object] = {}
+
+        def fake_filter(
+            data: xr.DataArray,
+            confidence: xr.DataArray,
+            threshold: float = 0.6,
+            keep_points_with_nan_confidence: bool = True,
+        ) -> xr.DataArray:
+            seen["keep"] = keep_points_with_nan_confidence
+            seen["threshold"] = threshold
+            return data
+
+        _, _, _, mock_filtering = _install_mock_movement()
+        try:
+            mock_filtering.filter_by_confidence = fake_filter
+            filter_low_confidence(ds, threshold=0.5)
+            assert seen == {"keep": False, "threshold": 0.5}
+        finally:
+            _remove_mock_movement()
+
+    def test_nan_confidence_keyword_omitted_when_unsupported(self) -> None:
+        """movement < 0.18: the function has no such keyword and none is passed."""
+        from hm2p.kinematics.compute import filter_low_confidence
+
+        ds = _make_ds(10)
+        seen: dict[str, object] = {}
+
+        def fake_filter(
+            data: xr.DataArray,
+            confidence: xr.DataArray,
+            threshold: float = 0.6,
+        ) -> xr.DataArray:
+            seen["threshold"] = threshold
+            return data
+
+        _, _, _, mock_filtering = _install_mock_movement()
+        try:
+            mock_filtering.filter_by_confidence = fake_filter
+            filter_low_confidence(ds, threshold=0.5)
+            assert seen == {"threshold": 0.5}
+        finally:
+            _remove_mock_movement()
+
+    def test_nan_confidence_points_dropped_with_installed_movement(self) -> None:
+        """With the installed movement (not mocked), NaN-confidence points become NaN.
+
+        movement 0.18 keeps such points by default; filter_low_confidence asks
+        for the earlier behaviour, so the result is the same on every version.
+        """
+        pytest.importorskip("movement.filtering")
+        from hm2p.kinematics.compute import filter_low_confidence
+
+        n_kp = len(KEYPOINTS)
+        conf = np.ones((6, n_kp, 1), dtype=np.float64)
+        conf[1, 0, 0] = np.nan  # NaN confidence
+        conf[2, 0, 0] = 0.01  # below threshold
+        ds = _make_ds(6, conf_data=conf)
+
+        pos = filter_low_confidence(ds, threshold=0.5).position.values
+        # dims: (time, space, keypoints, individuals)
+        assert np.isnan(pos[1, :, 0, 0]).all()
+        assert np.isnan(pos[2, :, 0, 0]).all()
+        assert np.isfinite(pos[0, :, 0, 0]).all()
+        assert np.isfinite(pos[1, :, 1, 0]).all()
+        assert int(np.isnan(pos).sum()) == 4
+
 
 # ---------------------------------------------------------------------------
 # filter_by_keypoint_quantile
