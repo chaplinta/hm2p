@@ -40,21 +40,27 @@ Always commit and push after completing features/fixes — don't let changes acc
 | `test/` | Test additions or fixes |
 | `ci/` | CI/CD and infrastructure |
 
-## Pre-commit Hooks
+## Checks on a pull request
 
-Pre-commit hooks run automatically before every `git commit`:
+There are no local git hooks (the pre-commit configuration was removed on
+2026-11-28). Every pull request runs two GitHub Actions workflows:
 
-- **ruff** — linting + formatting (replaces black + flake8 + isort)
-- **mypy** — static type checking
-- **nbstripout** — strips Jupyter notebook outputs to keep git history clean
+- **Lint** (`.github/workflows/lint.yml`): ruff lint, ruff format check, mypy,
+  bandit, vulture, and detect-secrets on the files the pull request changes.
+- **CI** (`.github/workflows/ci.yml`): the test suite with a 90% coverage
+  threshold, and a Snakemake dry-run.
 
-Install hooks after cloning:
+To run the same checks before pushing:
 
 ```bash
-pre-commit install
+uv run ruff check src/ tests/
+uv run ruff format --check src/ tests/
+uv run mypy src/
+uv run pytest
 ```
 
-If a hook fails, fix the issue and re-run `git commit`. Do not use `--no-verify`.
+Notebook outputs are not stripped automatically. Clear the outputs of a
+notebook before committing it.
 
 ## Test Coverage
 

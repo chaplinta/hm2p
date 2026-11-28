@@ -12,6 +12,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Two commits, so that the secret scan below can list the files
+          # changed against the first parent (see that step).
+          fetch-depth: 2
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -36,19 +40,23 @@ jobs:
       - name: Run bandit (security)
         run: uv run bandit -c pyproject.toml -r src/
 
-      - name: Run pip-audit (dependency CVEs)
-        # Advisory only: the large scientific/ML dependency tree carries a
-        # constant stream of transitive-CVE advisories (mostly parser DoS not
-        # reachable in this offline pipeline), and many pins are fixed by
-        # upstream packages. Report them without gating CI.
-        continue-on-error: true
-        run: uv run pip-audit --desc
-
       - name: Run vulture (dead code)
         run: uv run vulture src/ --min-confidence 90
 
-      - name: Run detect-secrets
-        run: uv run detect-secrets scan --baseline .secrets.baseline
-
-      - name: Run pandera schema validation (via tests)
-        run: uv run pytest tests/ -k "pandera or schema or validate" --no-header -q
+      - name: Run detect-secrets on changed files
+        # detect-secrets-hook exits non-zero when a file contains a secret
+        # that is not listed in .secrets.baseline. (`detect-secrets scan
+        # --baseline` only rewrites the baseline and always exits 0.)
+        #
+        # Files are those that differ from the first parent of HEAD. On a pull
+        # request HEAD is the merge of the branch into main, so this is every
+        # file the pull request changes. On a push to main it is the files of
+        # the merged pull request, or of the last commit of a direct push.
+        #
+        # Generated report data (docs/qc/) and binary or rendered files are
+        # left out: they hold large encoded blobs, take minutes to scan and
+        # produce chance matches.
+        run: |
+          git diff --name-only --diff-filter=ACMR -z HEAD^1 HEAD \
+            | { grep -z -v -E '^docs/qc/|\.(html|pdf|png|jpg|jpeg|svg|npy|npz|h5|pptx)$' || true; } \
+            | xargs -0 -r uv run detect-secrets-hook --baseline .secrets.baseline

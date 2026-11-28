@@ -253,7 +253,7 @@ S3 bucket setup, and how to launch EC2 Spot instances for each stage.
 - All new code goes in `src/hm2p/`; all tests in `tests/`
 - Tests use **synthetic data only** — never read real data files in tests
 - Use `hypothesis` for numerical functions, `pandera` for schema validation
-- Run `pre-commit` before committing (ruff + mypy + nbstripout)
+- CI runs ruff, mypy, bandit, vulture, a secret scan and the tests on every pull request (see `docs/contributing.md`)
 
 ### Claude Code scientific skills
 
