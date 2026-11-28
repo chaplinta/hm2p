@@ -3,8 +3,9 @@
 All downstream calcium processing (Stage 4) receives a BaseExtractor instance
 and calls the same methods regardless of whether Suite2p or CaImAn was used.
 
-The concrete subclasses (Suite2pExtractor, CaimanExtractor) construct the
-appropriate roiextractors class and expose unified access.
+A concrete subclass constructs the appropriate roiextractors class and exposes
+unified access. Suite2pExtractor is the only one implemented; the CaImAn
+subclass was removed on 2026-11-28 because no session uses CaImAn.
 """
 
 from __future__ import annotations
