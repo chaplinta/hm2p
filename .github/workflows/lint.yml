@@ -56,7 +56,16 @@ jobs:
         # Generated report data (docs/qc/) and binary or rendered files are
         # left out: they hold large encoded blobs, take minutes to scan and
         # produce chance matches.
+        #
+        # pipefail makes the step fail if `git diff` fails; without it an
+        # empty file list would pass. The list of scanned files is printed so
+        # the log shows what was checked.
         run: |
+          set -euo pipefail
+          files="$RUNNER_TEMP/secret-scan-files"
           git diff --name-only --diff-filter=ACMR -z HEAD^1 HEAD \
             | { grep -z -v -E '^docs/qc/|\.(html|pdf|png|jpg|jpeg|svg|npy|npz|h5|pptx)$' || true; } \
-            | xargs -0 -r uv run detect-secrets-hook --baseline .secrets.baseline
+            > "$files"
+          echo "Files scanned: $(tr -cd '\0' < "$files" | wc -c)"
+          tr '\0' '\n' < "$files"
+          xargs -0 -r uv run detect-secrets-hook --baseline .secrets.baseline < "$files"
