@@ -335,16 +335,15 @@ Note: Some pages (home, pipeline, sessions, animals, changelog) are tested via
 
 ### Modules without tests
 
-Seven modules have no importer in `src/`, `scripts/`, `frontend/` or `workflow/`
-(checked 2026-11-28). Their test files were removed on that date; the modules
-themselves are still in the repository and are candidates for removal:
+Seven modules had no importer in `src/`, `scripts/`, `frontend/` or `workflow/`
+(checked 2026-11-28) and their test files were removed on that date. Three of
+the modules were then deleted (`analysis/celltype_dynamics.py`,
+`extraction/caiman.py`, `io/nwb.py`). Four are still in the repository without
+tests:
 
 - `src/hm2p/analysis/cache.py`
-- `src/hm2p/analysis/celltype_dynamics.py`
 - `src/hm2p/anatomy/injection.py`
 - `src/hm2p/anatomy/register.py`
-- `src/hm2p/extraction/caiman.py`
-- `src/hm2p/io/nwb.py`
 - `src/hm2p/pose/retrain.py`
 
 Also removed on 2026-11-28: `tests/frontend/test_remaining_pages.py` (file-exists
