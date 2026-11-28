@@ -187,26 +187,31 @@ conform to their declared pandera models.
 
 ### Two GitHub Actions workflows
 
+State as of 2026-11-28.
+
 **`ci.yml`** -- Tests + coverage:
-- Trigger: push/PR to `main`
-- Matrix: Python 3.11 + 3.12
-- Steps: checkout, install uv, `pip install -e ".[dev]"`, pytest with `--cov-fail-under=90`
+- Trigger: push/PR to `main` (no scheduled run)
+- Python 3.12
+- Steps: checkout, install uv, `uv sync --frozen --all-extras`, pytest with coverage,
+  then `coverage report --fail-under=90`
 - Coverage XML uploaded to **Codecov**
-- Includes Snakemake dry-run job (Python 3.11 only)
+- Includes a Snakemake dry-run job
 
 **`lint.yml`** -- Static analysis:
 - Trigger: push/PR to `main`
-- Python 3.11
+- Python 3.12
 - Checks:
-  - **ruff check** -- linting (pycodestyle, pyflakes, isort, bugbear, pyupgrade, naming, annotations, simplify)
+  - **ruff check** -- linting (pycodestyle, pyflakes, isort, bugbear, pyupgrade, simplify)
   - **ruff format --check** -- formatting
-  - **mypy** -- strict type checking
-  - **bandit** -- security analysis (excludes tests/, old-pipeline/)
-  - **checkov** -- Dockerfile security scanning
-  - **pip-audit** -- dependency CVE scanning
+  - **mypy** -- type checking (default checks, not strict)
+  - **bandit** -- security analysis of `src/`
   - **vulture** -- dead code detection (90% confidence)
-  - **detect-secrets** -- secret scanning against `.secrets.baseline`
-  - **pandera** schema validation tests
+  - **detect-secrets-hook** -- secret scan of the files changed by the pull request,
+    against `.secrets.baseline`
+
+Removed on 2026-11-28: the nightly scheduled run, pip-audit, the schema-test step in
+`lint.yml` (the same tests run in `ci.yml`), and the pre-commit configuration
+(which also held the only checkov and nbstripout hooks).
 
 ### Ruff configuration (from pyproject.toml)
 

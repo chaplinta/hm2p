@@ -702,7 +702,7 @@ OAuth consent screen):
 
 ```bash
 export GOOGLE_CLIENT_ID="your-client-id.apps.googleusercontent.com"
-export GOOGLE_CLIENT_SECRET="your-client-secret"
+export GOOGLE_CLIENT_SECRET="your-client-secret"  # pragma: allowlist secret
 export STREAMLIT_REDIRECT_URI="http://<EC2-PUBLIC-IP>:8501"
 ```
 

@@ -140,7 +140,6 @@ Do not pin to old versions without a documented compatibility reason.
 | pandera (latest) | Runtime DataFrame / xarray / HDF5 schema validation |
 | mypy (latest) | Static type checking |
 | ruff (latest) | Linting + formatting (replaces black + flake8 + isort) |
-| pre-commit (latest) | Auto-runs ruff, mypy, nbstripout before every commit |
 | DVC (latest) | Data and model artifact versioning alongside git |
 
 ---

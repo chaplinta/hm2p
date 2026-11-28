@@ -124,10 +124,7 @@ dev = [
     "mypy>=1.11",
     "bandit[toml]>=1.8",
     "detect-secrets>=1.5",
-    "pip-audit>=2.7",
     "vulture>=2.14",
-    "pre-commit>=3.8",
-    "nbstripout>=0.7",
     "mkdocs-material>=9.5",
     "mkdocstrings[python]>=0.25",
 ]
