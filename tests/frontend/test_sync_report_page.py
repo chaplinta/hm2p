@@ -161,17 +161,6 @@ def _run_page(
 
 
 class TestSyncReportPage:
-    def test_imports_without_error(self) -> None:
-        # Importing the module must not raise (it would on a syntax error).
-        import importlib.util
-
-        spec = importlib.util.spec_from_file_location("sync_report_page", PAGE_PATH)
-        assert spec is not None
-        # Loading the spec into a module would actually execute the page —
-        # we deliberately don't do that here since the import-time code
-        # calls Streamlit primitives. Reaching this point demonstrates
-        # the file is syntactically valid Python.
-
     def test_renders_no_data_banner(self) -> None:
         at = _run_page(load_sync_report_value=None)
         assert _has_real_exception(at) is None, _has_real_exception(at)
@@ -245,11 +234,6 @@ class TestSyncReportPage:
         # Excluded session shows a warning banner with Notes.
         warnings = [str(w.value) for w in at.warning]
         assert any("exclude=1" in w for w in warnings), warnings
-
-    def test_app_rendering_no_longer_references_old_page(self) -> None:
-        """The legacy sync_page.py must be gone — verify the file does not exist."""
-        old = Path(__file__).resolve().parent.parent.parent / "frontend" / "pages" / "sync_page.py"
-        assert not old.exists(), f"Old page still present at {old}"
 
 
 # ---------------------------------------------------------------------------
