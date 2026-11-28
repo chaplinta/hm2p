@@ -328,6 +328,57 @@ Open points:
 - **Suite2p detection ran with fs = 29.97 Hz** (no timestamps.h5 on EC2);
   ROI sets were not re-detected.
 
+## Sign-off sheet
+
+`metadata/qc_signoff.csv` records the outcome of the manual check of each
+session at each stage. It has one row per session and stage (26 sessions x 6
+stages = 156 rows). The sheet was created on 2026-11-28 with every row
+`not_checked`. It is filled in by hand by the person who looked at the data.
+
+| Column | Content |
+| --- | --- |
+| `exp_index`, `exp_id` | Session, as in `metadata/experiments.csv` |
+| `stage` | `tracking`, `suite2p`, `sync`, `movement`, `spikes` or `syllables` |
+| `status` | See below |
+| `date_checked` | Date of the check, `YYYY-MM-DD`; empty while `not_checked` |
+| `output_key` | Key in `s3://hm2p-derivatives` of the stage output the row refers to |
+| `output_last_modified_utc` | Upload time of that object when the row was written or last checked |
+| `notes` | Free text: what was seen, which caveat applies, why a session failed |
+
+| Stage | Output checked | Report page |
+| --- | --- | --- |
+| `tracking` | DLC pose file (`pose/.../*.h5`) | `docs/qc/qc-tracking.html` |
+| `suite2p` | Suite2p ROIs (`ca_extraction/.../suite2p/plane0/stat.npy` and the files beside it) | `docs/qc/qc-rois.html` |
+| `sync` | `sync/.../sync.h5` | none yet |
+| `movement` | `kinematics/.../kinematics.h5` | `docs/qc/qc-movement.html` |
+| `spikes` | `calcium/.../ca.h5` | `docs/qc/qc-spikes.html` |
+| `syllables` | `kinematics/.../syllables.npz` | `docs/qc/qc-syllables.html` |
+
+Status values:
+
+- `not_checked`: nobody has looked at this output.
+- `pass`: checked, no problem found.
+- `pass_with_caveat`: usable; the limitation is written in `notes`.
+- `fail`: not usable as it is; the reason is written in `notes`. A fix or a
+  re-run is expected.
+- `exclude`: the session cannot be used at this stage and no fix is expected.
+
+Rules:
+
+- A row refers to one version of an output. If the stage is re-run, the
+  object's upload time changes and the row goes back to `not_checked` with the
+  new `output_last_modified_utc`.
+- A stage downstream of a `fail` or `exclude` row is not signed off before the
+  upstream row is resolved (order: `tracking` and `suite2p`, then `sync`, then
+  `movement`, `spikes`, `syllables`).
+- For `sync`, a session is marked `exclude` only if it cannot be synchronised.
+  A note carried over from the earlier pipeline (for example "Camera sync
+  problem" for sessions 13, 14 and 21) is not a reason by itself.
+- The `exclude` and `primary_exp` columns of `metadata/experiments.csv` are
+  changed only on the outcome recorded here.
+- The pass criteria of each stage are agreed before that stage is checked and
+  are added to this section at that point. None are set yet.
+
 ## References
 
 - Mathis A, Mamidanna P, Cury KM, et al. 2018. "DeepLabCut: markerless pose estimation of user-defined body parts with deep learning." Nature Neuroscience 21:1281–1289. doi:10.1038/s41593-018-0209-y. https://github.com/DeepLabCut/DeepLabCut
