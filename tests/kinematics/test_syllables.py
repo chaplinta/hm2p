@@ -9,25 +9,6 @@ import numpy as np
 import pytest
 
 
-def test_syllables_module_importable() -> None:
-    """syllables module can be imported without optional dependencies."""
-    from hm2p.kinematics import syllables  # noqa: F401
-
-
-def test_keypoint_moseq_not_required_for_import() -> None:
-    """keypoint_moseq import failure does not break the module import."""
-    from hm2p.kinematics.syllables import append_syllables_to_h5  # noqa: F401
-
-
-def test_run_keypoint_moseq_importable() -> None:
-    """run_keypoint_moseq can be imported and called (returns empty for no files)."""
-    from hm2p.kinematics.syllables import run_keypoint_moseq
-
-    # With empty dlc_files list, should create output dir and return empty
-    # (actual kpms call requires Docker or kpms installed)
-    assert callable(run_keypoint_moseq)
-
-
 def test_run_keypoint_moseq_no_docker_no_files(tmp_path) -> None:
     """run_keypoint_moseq with empty file list raises RuntimeError from subprocess."""
     from hm2p.kinematics.syllables import run_keypoint_moseq

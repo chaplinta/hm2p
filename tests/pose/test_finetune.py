@@ -16,7 +16,6 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.extra import numpy as hnp
 
-from hm2p.pose import finetune as ft
 from hm2p.pose.finetune import (
     DEFAULT_BBOX_RATE_THRESHOLD,
     DEFAULT_MIN_PAIRS,
@@ -1099,12 +1098,6 @@ def test_pct_change_zero_baseline_returns_nan():
     assert ok is False
     # tail_pct_reduction will fail because NaN >= 0.40 is False.
     assert "tail_pct_reduction" in reasons
-
-
-def test_finetune_module_imports():
-    """Sanity: module is importable as a package member."""
-    assert hasattr(ft, "evaluate_promotion_gate")
-    assert hasattr(ft, "GateConfig")
 
 
 def test_evaluate_promotion_gate_default_rng_branch():

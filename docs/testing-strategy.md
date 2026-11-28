@@ -32,7 +32,10 @@ Practical guide to how tests are written, run, and enforced in hm2p.
 - **Target: 90%+** (hard requirement, enforced in CI via `--cov-fail-under=90`)
 - Branch coverage enabled (`[tool.coverage.run] branch = true`)
 - Excluded from coverage: `pragma: no cover`, `if TYPE_CHECKING:`, ellipsis stubs
-- Current count: ~1486 tests across all modules
+- Count on 2026-11-28: 5,048 test functions in 211 files
+- No tests that only check that a file exists, a module imports or source
+  compiles, and no tests for modules that nothing imports (see
+  "Modules without tests" below)
 
 ### Property-based testing with hypothesis
 
@@ -68,17 +71,17 @@ class TestMVLInvariants:
 
 | Directory | Modules tested |
 |---|---|
-| `tests/analysis/` | activity, tuning, significance, comparison, decoder, stability, population, ahv, information, classify, gain, speed, anchoring, save, run, hypothesis invariants, cache |
-| `tests/anatomy/` | register, injection |
+| `tests/analysis/` | activity, tuning, significance, comparison, decoder, stability, population, ahv, information, classify, gain, speed, anchoring, save, run, hypothesis invariants |
+| `tests/anatomy/` | render |
 | `tests/calcium/` | dff, events, event_dynamics, neuropil, spikes, run |
-| `tests/extraction/` | suite2p, caiman, run_suite2p, zdrift |
+| `tests/extraction/` | suite2p, run_suite2p, zdrift |
 | `tests/frontend/` | app_rendering, maze, hd_tuning, classify, decoder, pop_dynamics, ahv, anchoring, drift, light_analysis, signal_quality, summary, tracking_quality, patching_traces, cost_aws, data |
 | `tests/ingest/` | daq, daq_parse, validate |
-| `tests/io/` | hdf5, s3, nwb, aws_cost |
+| `tests/io/` | hdf5, s3, aws_cost |
 | `tests/kinematics/` | compute, compute_dataset, syllables |
 | `tests/maze/` | topology, discretize, analysis, hypothesis, e2e |
 | `tests/patching/` | config, io, ephys, protocols, spike_features, morphology, metrics, statistics, pca, run |
-| `tests/pose/` | preprocess, quality, retrain, run |
+| `tests/pose/` | preprocess, quality, run |
 | `tests/scripts/` | downstream_pipeline, stage3_helpers |
 | `tests/sync/` | align, validate |
 | `tests/` (root) | cli, config, session, plotting |
@@ -326,15 +329,33 @@ Note: Some pages (home, pipeline, sessions, animals, changelog) are tested via
 
 ### Modules with potentially thin coverage
 
-- `src/hm2p/analysis/cache.py` -- requires `duckdb` (not in standard dev deps), test collection fails
-- `src/hm2p/io/nwb.py` -- NWB export (requires pynwb, neuroconv)
 - `src/hm2p/kinematics/syllables.py` -- keypoint-MoSeq wrapper (requires kpms)
 - `frontend/data.py` -- tested in `test_data.py` but many S3 code paths mocked out
 - Plotting utilities (`src/hm2p/plotting.py`) -- visual output hard to assert on
 
+### Modules without tests
+
+Seven modules have no importer in `src/`, `scripts/`, `frontend/` or `workflow/`
+(checked 2026-11-28). Their test files were removed on that date; the modules
+themselves are still in the repository and are candidates for removal:
+
+- `src/hm2p/analysis/cache.py`
+- `src/hm2p/analysis/celltype_dynamics.py`
+- `src/hm2p/anatomy/injection.py`
+- `src/hm2p/anatomy/register.py`
+- `src/hm2p/extraction/caiman.py`
+- `src/hm2p/io/nwb.py`
+- `src/hm2p/pose/retrain.py`
+
+Also removed on 2026-11-28: `tests/frontend/test_remaining_pages.py` (file-exists
+and compile checks for 42 Streamlit pages) and seven import-only test functions
+in `tests/kinematics/test_syllables.py`, `tests/frontend/test_sync_report_page.py`,
+`tests/frontend/test_tracking_quality_page.py` and `tests/pose/test_finetune.py`.
+With the compile checks gone, no check in CI parses the files under
+`frontend/pages/` that have no rendering test.
+
 ### Recommended next steps
 
 1. Add rendering tests for the 31 untested frontend pages following the `test_app_rendering.py` pattern
-2. Add `duckdb` to dev dependencies or mark `test_cache.py` with `pytest.importorskip`
-3. Add hypothesis tests for kinematics functions (`_windowed_gradient`, `_median_filter_1d`)
-4. Add pandera schema tests for all HDF5 output files (ca.h5, kinematics.h5, sync.h5, analysis.h5)
+2. Add hypothesis tests for kinematics functions (`_windowed_gradient`, `_median_filter_1d`)
+3. Add pandera schema tests for all HDF5 output files (ca.h5, kinematics.h5, sync.h5, analysis.h5)

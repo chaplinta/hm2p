@@ -117,16 +117,6 @@ class TestMethodsExpanderCitation:
         )
         return page.read_text()
 
-    def test_page_imports_clean(self):
-        """Importing the page module raises nothing.
-
-        Streamlit pages are top-level scripts, so we read the source and
-        compile it. AppTest-based smoke tests live in
-        tests/frontend/test_app_rendering.py.
-        """
-        src = self._read_page_source()
-        compile(src, "tracking_quality_page.py", "exec")
-
     def test_methods_expander_present(self):
         src = self._read_page_source()
         assert 'st.expander("Methods & References")' in src
