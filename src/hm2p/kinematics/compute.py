@@ -30,15 +30,18 @@ AHV uses np.gradient on unwrapped, median-filtered fused HD.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from hm2p.constants import SPEED_ACTIVE_THRESHOLD
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import xarray as xr
 
 _log = logging.getLogger("hm2p.kinematics")
@@ -834,6 +837,12 @@ def filter_low_confidence(
         ds: movement Dataset.
         threshold: Likelihood threshold (default 0.9).
 
+    Points whose confidence is NaN are also set to NaN. movement 0.18 changed
+    the default of ``filter_by_confidence`` to keep such points (so that
+    keypoints edited by hand in its GUI survive filtering); the earlier
+    behaviour is requested explicitly here so that the output does not depend
+    on the installed movement version.
+
     Returns:
         Dataset with low-confidence detections replaced by NaN.
     """
@@ -843,8 +852,33 @@ def filter_low_confidence(
         data=ds.position,
         confidence=ds.confidence,
         threshold=threshold,
+        **_nan_confidence_kwargs(filter_by_confidence),
     )
     return ds.assign(position=filtered_pos)
+
+
+def _nan_confidence_kwargs(filter_fn: Callable[..., Any]) -> dict[str, bool]:
+    """Keyword arguments that make ``filter_by_confidence`` drop NaN-confidence points.
+
+    movement >= 0.18 has the keyword ``keep_points_with_nan_confidence``
+    (default True). Earlier versions have no such keyword and always drop
+    these points. ``scripts/launch_downstream_cpu.py`` still installs
+    movement 0.14, so the keyword is passed only when the installed function
+    accepts it.
+
+    Args:
+        filter_fn: The ``movement.filtering.filter_by_confidence`` callable.
+
+    Returns:
+        ``{"keep_points_with_nan_confidence": False}`` when supported, else ``{}``.
+    """
+    try:
+        params = inspect.signature(filter_fn).parameters
+    except (TypeError, ValueError):
+        return {}
+    if "keep_points_with_nan_confidence" in params:
+        return {"keep_points_with_nan_confidence": False}
+    return {}
 
 
 def filter_by_keypoint_quantile(

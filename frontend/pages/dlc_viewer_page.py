@@ -215,15 +215,17 @@ def get_median_filtered(sub: str, ses: str) -> dict | None:
     if dlc is None:
         return None
 
-    from movement.filtering import filter_by_confidence, rolling_filter
+    from movement.filtering import rolling_filter
+
+    from hm2p.kinematics.compute import filter_low_confidence
 
     ds = dlc["ds"]
     # Filter low-confidence detections (set to NaN).
     # DLC 3.x HRNet outputs confidence in ~0.05-0.35 range, not 0-1.
-    # Use 0.05 threshold to match the kinematics pipeline (compute.py).
-    filtered_pos = filter_by_confidence(
-        data=ds.position, confidence=ds.confidence, threshold=0.05,
-    )
+    # Use 0.05 threshold to match the kinematics pipeline (compute.py). The
+    # pipeline function is called so that NaN-confidence points are handled
+    # the same way on every movement version.
+    filtered_pos = filter_low_confidence(ds, threshold=0.05).position
     # Apply rolling median filter (window=3 at 30fps ≈ 100ms, matching pipeline)
     filtered_pos = rolling_filter(data=filtered_pos, window=3, statistic="median")
 

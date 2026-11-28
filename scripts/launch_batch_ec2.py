@@ -48,7 +48,7 @@ TAG = {"Key": "Project", "Value": "hm2p-batch"}
 REPO = Path(__file__).resolve().parent.parent
 RUNTIME_DEPS = (
     "boto3 numpy scipy pandas h5py scikit-learn joblib xgboost scikit-image shapely "
-    "'movement>=0.17,<0.18' xarray bottleneck matplotlib opencv-python-headless "
+    "'movement>=0.18,<0.19' xarray bottleneck matplotlib opencv-python-headless "
     "imageio-ffmpeg statsmodels pyyaml pydantic pydantic-settings structlog typer "
     "pandera pingouin plotly tqdm rich ripser pycatch22"
 )
