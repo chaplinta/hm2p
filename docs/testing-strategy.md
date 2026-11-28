@@ -194,7 +194,6 @@ State as of 2026-11-28.
 - Python 3.12
 - Steps: checkout, install uv, `uv sync --frozen --all-extras`, pytest with coverage,
   then `coverage report --fail-under=90`
-- Coverage XML uploaded to **Codecov**
 - Includes a Snakemake dry-run job
 
 **`lint.yml`** -- Static analysis:
@@ -210,8 +209,10 @@ State as of 2026-11-28.
     against `.secrets.baseline`
 
 Removed on 2026-11-28: the nightly scheduled run, pip-audit, the schema-test step in
-`lint.yml` (the same tests run in `ci.yml`), and the pre-commit configuration
-(which also held the only checkov and nbstripout hooks).
+`lint.yml` (the same tests run in `ci.yml`), the pre-commit configuration
+(which also held the only checkov and nbstripout hooks), and the Codecov upload
+(the coverage threshold is still enforced in `ci.yml`; the per-file report is in
+the job log).
 
 ### Ruff configuration (from pyproject.toml)
 
