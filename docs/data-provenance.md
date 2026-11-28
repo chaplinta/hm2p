@@ -9,6 +9,8 @@ still exist, and whether the copy on S3 is the same as the source.
 - Update of 2026-11-21, after the audit: the one file found missing from S3 was
   uploaded (item 1 under "Differences and open items"). The tables and counts below
   describe the state before that upload.
+- Update of 2026-11-22: the camera calibration files were added to the repository
+  and to S3 (item 2).
 
 ## Summary
 
@@ -146,6 +148,20 @@ file.
    (`acA1300-200um_C125-0418-5M.npz`, `acA1300-200um_C125-0618-5M.npz`) are in the
    legacy repository under `cam-calibrations/` and in `old-pipeline/cam-calibrations/`.
    The current pipeline reads the cropped videos and does not load them.
+
+   **Resolved 2026-11-22.** Both files were copied from the legacy repository to
+   `sourcedata/calibration/`, where they are tracked in git, and uploaded to
+   `s3://hm2p-rawdata/sourcedata/calibration/`. The keys held no object and no
+   earlier version before the upload, and the upload was conditional on the key
+   being absent. The S3 ETags equal the MD5 of the local files.
+
+   | File | Bytes | SHA-256 |
+   | --- | --- | --- |
+   | `acA1300-200um_C125-0418-5M.npz` | 2,700 | `dcaa6acd7393ebbd220f9e03ef581719943951779a1fa2951736853331b566d3` |
+   | `acA1300-200um_C125-0618-5M.npz` | 3,180 | `4076a6890d1d060de56da006cc5d9be6f74089c6996ce13e9ae11ad1f6657005` |
+
+   The SHA-256 values are the same for the copies in the legacy repository, in
+   `old-pipeline/cam-calibrations/` and in `sourcedata/calibration/`.
 3. **`experiments.csv` on S3 is out of date.** `sourcedata/metadata/animals.csv` on S3
    is identical to `metadata/animals.csv` in the repository.
    `sourcedata/metadata/experiments.csv` on S3 (2,998 bytes, uploaded 2026-03-02)
